@@ -1,16 +1,14 @@
 package com.andye.warmod.item;
 
-import com.andye.warmod.acoustics.AcousticEngine;
-import com.andye.warmod.acoustics.AcousticSounds;
-import com.andye.warmod.acoustics.physics.AcousticPropagation;
-import com.andye.warmod.testtool.TestExplosionService;
 import com.andye.warmod.testtool.TestTargeting;
+import com.andye.warmod.warhead.WarheadLaunchService;
+import com.andye.warmod.warhead.WarheadLaunchService.LaunchResult;
+import com.andye.warmod.acoustics.physics.AcousticPropagation;
 import java.util.Locale;
 import java.util.Optional;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -43,29 +41,27 @@ public final class AcousticTestStickItem extends Item {
 		}
 
 		BlockHitResult hit = target.get();
-		Vec3 explosionPosition = hit.getLocation().subtract(
+		Vec3 intendedTarget = hit.getLocation().subtract(
 			hit.getDirection().getStepX() * 0.15,
 			hit.getDirection().getStepY() * 0.15,
 			hit.getDirection().getStepZ() * 0.15
 		);
-		double distance = serverPlayer.getEyePosition().distanceTo(explosionPosition);
-		long delayTicks = AcousticPropagation.delayTicks(distance, 343.0);
+		Optional<LaunchResult> launch = WarheadLaunchService.launch(serverLevel, serverPlayer, intendedTarget);
+		if (launch.isEmpty()) {
+			serverPlayer.sendOverlayMessage(Component.literal("Warhead launch failed: target area is not loaded"));
+			return InteractionResult.SUCCESS_SERVER;
+		}
 
-		TestExplosionService.createExplosion(serverLevel, serverPlayer, explosionPosition);
-		AcousticEngine.playSound(
-			serverLevel,
-			explosionPosition,
-			AcousticSounds.LARGE_EXPLOSION_ID,
-			SoundSource.BLOCKS,
-			1.0F,
-			1.0F
-		);
+		LaunchResult result = launch.get();
+		double distance = serverPlayer.getEyePosition().distanceTo(result.intendedTarget());
+		long soundDelayTicks = AcousticPropagation.delayTicks(distance, 343.0);
 		serverPlayer.getCooldowns().addCooldown(stack, 20);
 		serverPlayer.sendOverlayMessage(Component.literal(String.format(
 			Locale.ROOT,
-			"Explosion: %.0f blocks | Sound delay: %.2f s",
+			"Warhead inbound: %.0f blocks | Impact: %.1f s | Sound after impact: %.2f s",
 			distance,
-			delayTicks / 20.0
+			result.flightTicks() / 20.0,
+			soundDelayTicks / 20.0
 		)));
 		return InteractionResult.SUCCESS_SERVER;
 	}

@@ -1,16 +1,17 @@
 package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
-import java.util.Objects;
 import net.minecraft.core.particles.ExplosionParticleInfo;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.random.WeightedList;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 public final class TestExplosionService {
 	private static final WeightedList<ExplosionParticleInfo> DEFAULT_BLOCK_PARTICLES = WeightedList.<ExplosionParticleInfo>builder()
@@ -21,10 +22,13 @@ public final class TestExplosionService {
 	private TestExplosionService() {
 	}
 
-	public static void createExplosion(final ServerLevel level, final ServerPlayer sourcePlayer, final Vec3 position) {
-		Objects.requireNonNull(level, "level");
-		Objects.requireNonNull(sourcePlayer, "sourcePlayer");
-		Objects.requireNonNull(position, "position");
+	public static void createExplosion(final ServerLevel level, final @Nullable ServerPlayer sourcePlayer, final Vec3 position) {
+		if (level == null) {
+			throw new NullPointerException("level");
+		}
+		if (position == null) {
+			throw new NullPointerException("position");
+		}
 		if (!position.isFinite()) {
 			throw new IllegalArgumentException("position must be finite");
 		}
