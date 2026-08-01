@@ -23,6 +23,18 @@
   "large_explosion_2_tail": {
     "sounds": ["war_mod:explosion/large/large_explosion_2_tail"]
   },
+  "prototype_explosion_near": {
+    "sounds": ["war_mod:explosion/prototype/explosion_near"]
+  },
+  "prototype_explosion_medium": {
+    "sounds": ["war_mod:explosion/prototype/explosion_medium"]
+  },
+  "prototype_explosion_far": {
+    "sounds": ["war_mod:explosion/prototype/explosion_far"]
+  },
+  "prototype_explosion_extreme": {
+    "sounds": ["war_mod:explosion/prototype/explosion_extreme"]
+  },
   "silent": {
     "sounds": ["war_mod:silent"]
   }

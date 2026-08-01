@@ -5,7 +5,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.phys.Vec3;
 
-public record ScheduledAcousticLayer(
+public record ScheduledAcousticSound(
 	long playbackClientTick,
 	Vec3 sourcePosition,
 	Identifier soundEventId,
@@ -15,7 +15,7 @@ public record ScheduledAcousticLayer(
 	long seed,
 	boolean echo
 ) {
-	public ScheduledAcousticLayer {
+	public ScheduledAcousticSound {
 		Objects.requireNonNull(sourcePosition, "sourcePosition");
 		Objects.requireNonNull(soundEventId, "soundEventId");
 		Objects.requireNonNull(soundSource, "soundSource");

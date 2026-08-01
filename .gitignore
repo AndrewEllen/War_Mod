@@ -40,3 +40,5 @@ Desktop.ini
 
 # Generated intermediate audio files
 /tools/audio/work/
+local_audio_sources/
+src/main/resources/assets/war_mod/sounds/explosion/prototype/

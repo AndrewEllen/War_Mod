@@ -2,16 +2,15 @@ package com.andye.warmod.acoustics.client;
 
 import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticSoundRegistry;
-import com.andye.warmod.acoustics.model.AcousticFrequencyBand;
-import com.andye.warmod.acoustics.model.AcousticLayer;
+import com.andye.warmod.acoustics.model.AcousticDistanceSound;
 import com.andye.warmod.acoustics.model.AcousticSoundDefinition;
-import com.andye.warmod.acoustics.model.AcousticSoundVariant;
 import com.andye.warmod.acoustics.network.ClientboundAcousticEventPayload;
 import com.andye.warmod.acoustics.physics.AcousticAttenuation;
 import com.andye.warmod.acoustics.physics.AcousticPropagation;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.UUID;
@@ -25,12 +24,12 @@ public final class ClientAcousticEngine {
 	public static final ClientAcousticEngine INSTANCE = new ClientAcousticEngine();
 
 	private static final int MAX_PENDING_EVENTS = 128;
-	private static final int MAX_SCHEDULED_LAYERS = 512;
+	private static final int MAX_SCHEDULED_SOUNDS = 512;
 	private static final long MAX_LIFETIME_AFTER_EXPECTED_ARRIVAL = 100L;
 
 	private final Map<UUID, PendingAcousticEvent> pendingEvents = new LinkedHashMap<>();
-	private final PriorityQueue<ScheduledAcousticLayer> scheduledLayers = new PriorityQueue<>(
-		Comparator.comparingLong(ScheduledAcousticLayer::playbackClientTick)
+	private final PriorityQueue<ScheduledAcousticSound> scheduledSounds = new PriorityQueue<>(
+		Comparator.comparingLong(ScheduledAcousticSound::playbackClientTick)
 	);
 	private long clientTick;
 	private ClientLevel activeLevel;
@@ -70,14 +69,14 @@ public final class ClientAcousticEngine {
 		clientTick = clientLevel.getGameTime();
 
 		processPending(clientLevel, listener);
-		while (!scheduledLayers.isEmpty() && scheduledLayers.peek().playbackClientTick() <= clientTick) {
-			minecraft.getSoundManager().play(new AcousticSoundInstance(scheduledLayers.poll()));
+		while (!scheduledSounds.isEmpty() && scheduledSounds.peek().playbackClientTick() <= clientTick) {
+			minecraft.getSoundManager().play(new AcousticSoundInstance(scheduledSounds.poll()));
 		}
 	}
 
 	public void clear() {
 		pendingEvents.clear();
-		scheduledLayers.clear();
+		scheduledSounds.clear();
 		activeLevel = null;
 	}
 
@@ -104,7 +103,7 @@ public final class ClientAcousticEngine {
 			long expectedArrival = AcousticPropagation.delayTicks(listenerDistance, definition.propagationSpeedBlocksPerSecond());
 
 			if (waveRadius >= listenerDistance) {
-				activate(payload, definition, sourcePosition, listenerDistance, listenerEyePosition);
+				activate(payload, definition, sourcePosition, listenerDistance, listenerEyePosition, expectedArrival);
 				iterator.remove();
 			} else if (elapsedTicks > expectedArrival + MAX_LIFETIME_AFTER_EXPECTED_ARRIVAL) {
 				iterator.remove();
@@ -117,53 +116,52 @@ public final class ClientAcousticEngine {
 		final AcousticSoundDefinition definition,
 		final Vec3 sourcePosition,
 		final double listenerDistance,
-		final Vec3 listenerEyePosition
+		final Vec3 listenerEyePosition,
+		final long expectedArrival
 	) {
-		int variationIndex = Math.floorMod(Long.hashCode(payload.randomSeed()), definition.variants().size());
-		AcousticSoundVariant variation = definition.variants().get(variationIndex);
-		AcousticEnvironment environment = AcousticEnvironmentProbe.probe(activeLevel, listenerEyePosition);
-		// The eye position is sampled once so every layer and echo sees the same local environment.
-		int echoCount = 0;
-		double[] gains = new double[4];
-		for (int i = 0; i < variation.layers().size(); i++) {
-			AcousticLayer layer = variation.layers().get(i);
-			double gain = AcousticAttenuation.gain(listenerDistance, layer, payload.volume());
-			gains[i] = gain;
-			if (gain < definition.minimumAudibleGain()) {
-				continue;
-			}
+		AcousticDistanceSound selectedSound = definition.soundForDistance(listenerDistance).orElse(null);
+		if (selectedSound == null) {
+			return;
+		}
 
-			schedule(new ScheduledAcousticLayer(
-				clientTick + layer.additionalDelayTicks(),
+		double gain = AcousticAttenuation.gain(listenerDistance, selectedSound, payload.volume());
+		float primaryPitch = payload.pitch() * selectedSound.pitchMultiplier() * deterministicPitch(payload.randomSeed());
+		int echoCount = 0;
+		if (gain >= definition.minimumAudibleGain()) {
+			schedule(new ScheduledAcousticSound(
+				clientTick,
 				sourcePosition,
-				layer.soundEventId(),
+				selectedSound.soundEventId(),
 				payload.soundSource(),
 				(float)gain,
-				payload.pitch() * layer.pitchMultiplier(),
-				payload.randomSeed() ^ layer.soundEventId().hashCode(),
+				primaryPitch,
+				payload.randomSeed() ^ selectedSound.soundEventId().hashCode(),
 				false
 			));
 
-			if (definition.environmentEchoesEnabled()
-				&& layer.echoable()
-				&& layer.band() != AcousticFrequencyBand.TRANSIENT) {
-				echoCount += scheduleEchoes(payload, definition, sourcePosition, layer, gain, environment, echoCount);
+			if (definition.environmentEchoesEnabled()) {
+				AcousticEnvironment environment = AcousticEnvironmentProbe.probe(activeLevel, listenerEyePosition);
+				echoCount = scheduleEchoes(
+					payload,
+					definition,
+					sourcePosition,
+					selectedSound,
+					gain,
+					primaryPitch,
+					environment
+				);
 			}
 		}
 
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
 			WarMod.LOGGER.info(
-				"Acoustic event {} activated: definition={}, distance={}, delay={}, variation={}, gains=[{},{},{},{}], enclosure={}, echoes={}",
+				"Acoustic event {} activated: distance={} blocks, profile={}, gain={}, propagationDelay={} ticks ({} s), echoes={}",
 				payload.eventId(),
-				payload.definitionId(),
-				String.format(java.util.Locale.ROOT, "%.1f", listenerDistance),
-				AcousticPropagation.delayTicks(listenerDistance, definition.propagationSpeedBlocksPerSecond()),
-				variationIndex,
-				String.format(java.util.Locale.ROOT, "%.3f", gains[0]),
-				String.format(java.util.Locale.ROOT, "%.3f", gains[1]),
-				String.format(java.util.Locale.ROOT, "%.3f", gains[2]),
-				String.format(java.util.Locale.ROOT, "%.3f", gains[3]),
-				String.format(java.util.Locale.ROOT, "%.2f", environment.enclosure()),
+				String.format(Locale.ROOT, "%.1f", listenerDistance),
+				selectedSound.profile(),
+				String.format(Locale.ROOT, "%.3f", gain),
+				expectedArrival,
+				String.format(Locale.ROOT, "%.2f", expectedArrival / 20.0),
 				echoCount
 			);
 		}
@@ -173,43 +171,46 @@ public final class ClientAcousticEngine {
 		final ClientboundAcousticEventPayload payload,
 		final AcousticSoundDefinition definition,
 		final Vec3 sourcePosition,
-		final AcousticLayer layer,
-		final double originalGain,
-		final AcousticEnvironment environment,
-		final int currentEchoCount
+		final AcousticDistanceSound selectedSound,
+		final double primaryGain,
+		final float primaryPitch,
+		final AcousticEnvironment environment
 	) {
-		if (environment.enclosure() < 0.40 || currentEchoCount >= 6) {
+		if (environment.enclosure() < 0.40) {
 			return 0;
 		}
-		int firstDelay = (int)Math.round((2.0 * environment.averageReflectionDistance() / 343.0) * 20.0);
+
+		int firstDelay = (int)Math.round(
+			(2.0 * environment.averageReflectionDistance() / definition.propagationSpeedBlocksPerSecond()) * 20.0
+		);
 		firstDelay = Math.max(2, Math.min(20, firstDelay));
-		float firstVolume = (float)(originalGain * (0.10 + environment.enclosure() * 0.20));
+		float firstVolume = (float)(primaryGain * Math.min(0.20, 0.10 + environment.enclosure() * 0.10));
 		int added = 0;
 		if (firstVolume >= definition.minimumAudibleGain()) {
-			schedule(new ScheduledAcousticLayer(
-				clientTick + layer.additionalDelayTicks() + firstDelay,
+			schedule(new ScheduledAcousticSound(
+				clientTick + firstDelay,
 				sourcePosition,
-				layer.soundEventId(),
+				selectedSound.soundEventId(),
 				payload.soundSource(),
 				firstVolume,
-				payload.pitch() * layer.pitchMultiplier() * 0.98F,
-				payload.randomSeed() ^ layer.soundEventId().hashCode() ^ 0x5EEDL,
+				primaryPitch * 0.99F,
+				payload.randomSeed() ^ selectedSound.soundEventId().hashCode() ^ 0x5EEDL,
 				true
 			));
 			added++;
 		}
 
-		if (environment.enclosure() >= 0.70 && currentEchoCount + added < 6) {
-			float secondVolume = firstVolume * 0.45F;
+		if (environment.enclosure() >= 0.70) {
+			float secondVolume = (float)(primaryGain * 0.08);
 			if (secondVolume >= definition.minimumAudibleGain()) {
-				schedule(new ScheduledAcousticLayer(
-					clientTick + layer.additionalDelayTicks() + firstDelay + Math.round(firstDelay * 1.7F),
+				schedule(new ScheduledAcousticSound(
+					clientTick + firstDelay + Math.round(firstDelay * 1.7F),
 					sourcePosition,
-					layer.soundEventId(),
+					selectedSound.soundEventId(),
 					payload.soundSource(),
 					secondVolume,
-					payload.pitch() * layer.pitchMultiplier() * 0.96F,
-					payload.randomSeed() ^ layer.soundEventId().hashCode() ^ 0xEC050L,
+					primaryPitch * 1.01F,
+					payload.randomSeed() ^ selectedSound.soundEventId().hashCode() ^ 0xEC050L,
 					true
 				));
 				added++;
@@ -218,9 +219,17 @@ public final class ClientAcousticEngine {
 		return added;
 	}
 
-	private void schedule(final ScheduledAcousticLayer layer) {
-		if (scheduledLayers.size() < MAX_SCHEDULED_LAYERS) {
-			scheduledLayers.offer(layer);
+	private static float deterministicPitch(final long seed) {
+		long mixed = seed ^ seed >>> 33;
+		mixed *= 0xff51afd7ed558ccdL;
+		mixed ^= mixed >>> 33;
+		double unit = (mixed & 0xFFFFL) / 65535.0;
+		return (float)(0.98 + unit * 0.04);
+	}
+
+	private void schedule(final ScheduledAcousticSound sound) {
+		if (scheduledSounds.size() < MAX_SCHEDULED_SOUNDS) {
+			scheduledSounds.offer(sound);
 		}
 	}
 }
