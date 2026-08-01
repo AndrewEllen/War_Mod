@@ -1,0 +1,28 @@
+# Gradle and Java
+.gradle/
+build/
+out/
+classes/
+bin/
+*.class
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr
+
+# Fabric development runtime
+run/
+
+# IDE metadata (project-owned VS Code files remain tracked)
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.classpath
+.project
+*.launch
+
+# Operating system files
+.DS_Store
+Thumbs.db
