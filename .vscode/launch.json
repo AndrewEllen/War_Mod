@@ -9,10 +9,15 @@
       "console": "integratedTerminal",
       "stopOnEntry": false,
       "mainClass": "net.fabricmc.devlaunchinjector.Main",
-      "vmArgs": "-Dfabric.dli.config\u003dD:\\Minecraft@@0020Modding\\War_Mod\\.gradle\\loom-cache\\launch.cfg -Dfabric.dli.env\u003dclient -Dfabric.dli.main\u003dnet.fabricmc.loader.impl.launch.knot.KnotClient --sun-misc-unsafe-memory-access\u003dallow --enable-native-access\u003dALL-UNNAMED",
+      "vmArgs": [
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=client",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotClient",
+        "--sun-misc-unsafe-memory-access=allow",
+        "--enable-native-access=ALL-UNNAMED"
+      ],
       "args": "",
-      "env": {},
-      "projectName": "war-mod"
+      "shortenCommandLine": "argfile"
     },
     {
       "type": "java",
@@ -22,10 +27,15 @@
       "console": "integratedTerminal",
       "stopOnEntry": false,
       "mainClass": "net.fabricmc.devlaunchinjector.Main",
-      "vmArgs": "-Dfabric.dli.config\u003dD:\\Minecraft@@0020Modding\\War_Mod\\.gradle\\loom-cache\\launch.cfg -Dfabric.dli.env\u003dserver -Dfabric.dli.main\u003dnet.fabricmc.loader.impl.launch.knot.KnotServer --sun-misc-unsafe-memory-access\u003dallow --enable-native-access\u003dALL-UNNAMED",
+      "vmArgs": [
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=server",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotServer",
+        "--sun-misc-unsafe-memory-access=allow",
+        "--enable-native-access=ALL-UNNAMED"
+      ],
       "args": "nogui",
-      "env": {},
-      "projectName": "war-mod"
+      "shortenCommandLine": "argfile"
     }
   ]
 }

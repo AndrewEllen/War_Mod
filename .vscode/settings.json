@@ -1,7 +1,23 @@
 {
-	"java.configuration.updateBuildConfiguration": "automatic",
-	"java.import.gradle.enabled": true,
-	"java.import.gradle.wrapper.enabled": true,
-	"java.compile.nullAnalysis.mode": "automatic",
-	"gradle.nestedProjects": false
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.gradle.enabled": true,
+  "java.import.gradle.wrapper.enabled": true,
+  "java.compile.nullAnalysis.mode": "automatic",
+  "gradle.nestedProjects": false,
+
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-25",
+      "path": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7",
+      "default": true
+    }
+  ],
+
+  "java.import.gradle.java.home": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7",
+  "java.jdt.ls.java.home": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7",
+
+  "terminal.integrated.env.windows": {
+    "JAVA_HOME": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7",
+    "PATH": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7\\bin;${env:PATH}"
+  }
 }
