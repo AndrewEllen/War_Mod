@@ -1,24 +1,34 @@
-# Gradle and Java
-.gradle/
-build/
-out/
-classes/
-bin/
+# Gradle and Java build output
+/.gradle/
+/build/
+/out/
+/classes/
+/bin/
 *.class
+
+# Fabric/Loom development runtime and locally installed test mods
+/run/
+/mods/
+
+# Decompiled or extracted Minecraft runtime classes (not mod source)
+/com/
+/net/
+/META-INF/
+
+# JVM crash reports and profiling output
 hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
-
-# Fabric development runtime
-run/
+*.log
+*.log.gz
 
 # IDE metadata (project-owned VS Code files remain tracked)
-.idea/
+/.idea/
 *.iml
 *.ipr
 *.iws
-.settings/
+/.settings/
 .classpath
 .project
 *.launch
@@ -26,3 +36,7 @@ run/
 # Operating system files
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Generated intermediate audio files
+/tools/audio/work/

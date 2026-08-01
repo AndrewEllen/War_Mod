@@ -1,0 +1,29 @@
+{
+  "large_explosion_1_crack": {
+    "sounds": ["war_mod:explosion/large/large_explosion_1_crack"]
+  },
+  "large_explosion_1_body": {
+    "sounds": ["war_mod:explosion/large/large_explosion_1_body"]
+  },
+  "large_explosion_1_low": {
+    "sounds": ["war_mod:explosion/large/large_explosion_1_low"]
+  },
+  "large_explosion_1_tail": {
+    "sounds": ["war_mod:explosion/large/large_explosion_1_tail"]
+  },
+  "large_explosion_2_crack": {
+    "sounds": ["war_mod:explosion/large/large_explosion_2_crack"]
+  },
+  "large_explosion_2_body": {
+    "sounds": ["war_mod:explosion/large/large_explosion_2_body"]
+  },
+  "large_explosion_2_low": {
+    "sounds": ["war_mod:explosion/large/large_explosion_2_low"]
+  },
+  "large_explosion_2_tail": {
+    "sounds": ["war_mod:explosion/large/large_explosion_2_tail"]
+  },
+  "silent": {
+    "sounds": ["war_mod:silent"]
+  }
+}

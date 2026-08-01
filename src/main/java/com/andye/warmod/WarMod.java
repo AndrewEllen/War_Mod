@@ -1,5 +1,9 @@
 package com.andye.warmod;
 
+import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.acoustics.ModSoundEvents;
+import com.andye.warmod.acoustics.network.AcousticNetworking;
+import com.andye.warmod.item.ModItems;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +14,10 @@ public final class WarMod implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		ModSoundEvents.register();
+		AcousticSounds.register();
+		AcousticNetworking.registerPayloadTypes();
+		ModItems.register();
 		LOGGER.info("War Mod initialized.");
 	}
 }
