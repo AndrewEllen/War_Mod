@@ -28,16 +28,17 @@ final class WarheadEffectTimingTest {
 	}
 
 	@Test
-	void pressureSphereUsesConfiguredExpansion() {
-		assertEquals(2.0, WarheadVisualMath.pressureSphereRadius(0.0), 1.0E-9);
-		assertEquals(56.0, WarheadVisualMath.pressureSphereRadius(24.0), 1.0E-9);
+	void airShockwaveUsesConfiguredExpansion() {
+		assertEquals(0.0, WarheadVisualMath.airShockwaveRadius(0.0, 1.0), 1.0E-9);
+		assertTrue(WarheadVisualMath.airShockwaveRadius(WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS, 1.0) > 215.0);
+		assertTrue(WarheadVisualMath.airShockwaveRadius(WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS, 1.0) < 220.0);
 	}
 
 	@Test
-	void pressureSphereIncreasesMonotonically() {
-		double previous = WarheadVisualMath.pressureSphereRadius(0.0);
-		for (int age = 1; age <= 24; age++) {
-			double current = WarheadVisualMath.pressureSphereRadius(age);
+	void airShockwaveIncreasesMonotonically() {
+		double previous = WarheadVisualMath.airShockwaveRadius(0.0, 1.0);
+		for (int age = 1; age <= WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS; age++) {
+			double current = WarheadVisualMath.airShockwaveRadius(age, 1.0);
 			assertTrue(current >= previous);
 			previous = current;
 		}
@@ -48,7 +49,8 @@ final class WarheadEffectTimingTest {
 		assertEquals(0.0, WarheadVisualMath.fireballRise(10.0), 1.0E-9);
 		assertTrue(WarheadVisualMath.fireballRise(32.0) > 0.0);
 		assertTrue(WarheadVisualMath.fireballRise(55.0) > WarheadVisualMath.fireballRise(32.0));
-		assertEquals(0.0, WarheadVisualMath.fireballAlpha(55.0), 1.0E-9);
+		assertTrue(WarheadVisualMath.fireballAlpha(55.0) > 0.0);
+		assertEquals(0.0, WarheadVisualMath.fireballAlpha(75.0), 1.0E-9);
 	}
 
 	@Test
