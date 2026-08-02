@@ -189,7 +189,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     private void finishTransientState() { this.siloState = MissileSiloState.EMPTY; this.recalculateIdleState(); }
     private void recalculateIdleState() {
         this.siloState = this.missileStack().isEmpty() ? MissileSiloState.EMPTY
-            : this.storedTarget == null ? MissileSiloState.NO_TARGET : MissileSiloState.READY;
+            : MissilePayloadItems.isInterceptor(this.missileStack()) || this.storedTarget != null
+                ? MissileSiloState.READY : MissileSiloState.NO_TARGET;
     }
     public void recalculateState() { if (!isTransient(this.siloState)) this.recalculateIdleState(); }
     private static boolean isTransient(final MissileSiloState state) {

@@ -1,3 +1,49 @@
 package com.andye.warmod.icbm.client.render;
-import com.andye.warmod.icbm.client.IcbmTrailSample;import com.mojang.blaze3d.vertex.PoseStack;import com.mojang.blaze3d.vertex.VertexConsumer;import java.util.List;import net.minecraft.util.Mth;import net.minecraft.world.phys.Vec3;import org.joml.Quaternionf;import org.joml.Vector3f;
-public final class IcbmSmokeTrailRenderer {private IcbmSmokeTrailRenderer(){}public static void render(final PoseStack.Pose p,final VertexConsumer b,final List<IcbmTrailSample> samples,final IcbmLongRangeRenderContext context,final Quaternionf camera){IcbmLongRangeRenderContext.Lod lod=context.lod();int limit=lod==IcbmLongRangeRenderContext.Lod.NEAR?120:lod==IcbmLongRangeRenderContext.Lod.MEDIUM?70:lod==IcbmLongRangeRenderContext.Lod.FAR?32:14;int stride=lod==IcbmLongRangeRenderContext.Lod.EXTREME?3:lod==IcbmLongRangeRenderContext.Lod.FAR?2:1;int start=Math.max(0,samples.size()-limit*stride);for(int i=start;i<samples.size();i+=stride){IcbmTrailSample s=samples.get(i);float alpha=(float)Math.max(0,Math.min(.72,1-s.ageTicks()/140.0));float lodScale=lod==IcbmLongRangeRenderContext.Lod.EXTREME?1.7F:1.0F;float radius=s.size()*(float)(1+s.ageTicks()*.018)*lodScale*(float)context.transform().compression();Vec3 actual=s.position().add(s.drift().scale(s.ageTicks()));Vec3 center=context.transform().renderPosition(actual);billboard(p,b,center,radius,s.rotation(),alpha,camera);}}private static void billboard(final PoseStack.Pose p,final VertexConsumer b,final Vec3 c,final float r,final float rotation,final float alpha,final Quaternionf camera){float co=Mth.cos(rotation),si=Mth.sin(rotation),ux=co*r,uy=si*r,vx=-si*r,vy=co*r;v(p,b,c,-ux-vx,-uy-vy,0,1,alpha,camera);v(p,b,c,-ux+vx,-uy+vy,0,0,alpha,camera);v(p,b,c,ux+vx,uy+vy,1,0,alpha,camera);v(p,b,c,ux-vx,uy-vy,1,1,alpha,camera);}private static void v(final PoseStack.Pose p,final VertexConsumer b,final Vec3 c,final float x,final float y,final float u,final float vv,final float alpha,final Quaternionf camera){Vector3f o=new Vector3f(x,y,0).rotate(camera),n=new Vector3f(0,0,1).rotate(camera);b.addVertex(p,(float)c.x+o.x,(float)c.y+o.y,(float)c.z+o.z).setColor(110,115,120,(int)(alpha*255)).setUv(u,vv).setOverlay(0).setLight(0xA000A0).setNormal(p,n.x,n.y,n.z);}}
+
+import com.andye.warmod.icbm.client.IcbmTrailSample;
+import com.mojang.blaze3d.vertex.*;
+import java.util.List;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
+
+/** Emits independent billboard quads for one missile only; no vertex state is shared across trails. */
+public final class IcbmSmokeTrailRenderer {
+    private static final double MAX_SEGMENT_DISTANCE = 64.0;
+    private IcbmSmokeTrailRenderer() { }
+    public static void render(PoseStack.Pose pose, VertexConsumer buffer, List<IcbmTrailSample> samples,
+        IcbmLongRangeRenderContext context, Quaternionf camera) {
+        var lod = context.lod(); int limit = lod == IcbmLongRangeRenderContext.Lod.NEAR ? 120
+            : lod == IcbmLongRangeRenderContext.Lod.MEDIUM ? 70 : lod == IcbmLongRangeRenderContext.Lod.FAR ? 32 : 14;
+        int stride = lod == IcbmLongRangeRenderContext.Lod.EXTREME ? 3 : lod == IcbmLongRangeRenderContext.Lod.FAR ? 2 : 1;
+        int start = Math.max(0, samples.size() - limit * stride); Vec3 previous = null;
+        for (int index = start; index < samples.size(); index += stride) {
+            IcbmTrailSample sample = samples.get(index);
+            if (!sample.position().isFinite() || !sample.drift().isFinite() || !Double.isFinite(sample.ageTicks())) continue;
+            Vec3 actual = sample.position().add(sample.drift().scale(sample.ageTicks()));
+            if (!actual.isFinite()) continue;
+            if (previous != null) { double distance = previous.distanceTo(actual);
+                if (distance <= .001 || distance > MAX_SEGMENT_DISTANCE) { previous = actual; continue; } }
+            previous = actual;
+            float alpha = (float)Math.max(0, Math.min(.72, 1 - sample.ageTicks() / 140.0));
+            float lodScale = lod == IcbmLongRangeRenderContext.Lod.EXTREME ? 1.7F : 1.0F;
+            float radius = sample.size() * (float)(1 + sample.ageTicks() * .018) * lodScale
+                * (float)context.transform().compression();
+            billboard(pose, buffer, context.transform().renderPosition(actual), radius, sample.rotation(), alpha, camera);
+        }
+    }
+    private static void billboard(PoseStack.Pose pose, VertexConsumer buffer, Vec3 center, float radius, float rotation,
+        float alpha, Quaternionf camera) { float cosine = Mth.cos(rotation), sine = Mth.sin(rotation), ux = cosine * radius,
+            uy = sine * radius, vx = -sine * radius, vy = cosine * radius;
+        vertex(pose, buffer, center, -ux - vx, -uy - vy, 0, 1, alpha, camera);
+        vertex(pose, buffer, center, -ux + vx, -uy + vy, 0, 0, alpha, camera);
+        vertex(pose, buffer, center, ux + vx, uy + vy, 1, 0, alpha, camera);
+        vertex(pose, buffer, center, ux - vx, uy - vy, 1, 1, alpha, camera);
+    }
+    private static void vertex(PoseStack.Pose pose, VertexConsumer buffer, Vec3 center, float x, float y, float u, float v,
+        float alpha, Quaternionf camera) { Vector3f offset = new Vector3f(x, y, 0).rotate(camera), normal = new Vector3f(0, 0, 1).rotate(camera);
+        buffer.addVertex(pose, (float)center.x + offset.x, (float)center.y + offset.y, (float)center.z + offset.z)
+            .setColor(110, 115, 120, (int)(alpha * 255)).setUv(u, v).setOverlay(0).setLight(0xA000A0)
+            .setNormal(pose, normal.x, normal.y, normal.z); }
+}

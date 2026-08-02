@@ -97,6 +97,11 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
         launchButton.active = silo != null && silo.siloState() == MissileSiloState.READY;
         boolean interceptor = silo != null && MissilePayloadItems.isInterceptor(silo.missileStack());
         xField.active = yField.active = zField.active = !interceptor;
+        xField.visible = yField.visible = zField.visible = true;
+        xField.setHint(Component.literal(interceptor ? "Not used" : "X"));
+        yField.setHint(Component.literal(interceptor ? "Not used" : "Y"));
+        zField.setHint(Component.literal(interceptor ? "Not used" : "Z"));
+        applyButton.visible = clearButton.visible = heldButton.visible = launchButton.visible = true;
         applyButton.active = clearButton.active = heldButton.active = !interceptor;
         launchButton.setMessage(Component.literal(interceptor ? "INTERCEPT" : "LAUNCH"));
     }
@@ -151,8 +156,12 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
         if (interceptor) {
             graphics.text(font, Component.literal("Defended radius  500"), leftPos + 246, topPos + 145, 0xffc5d5dc);
             graphics.text(font, Component.literal("Acquisition  500"), leftPos + 246, topPos + 158, 0xffc5d5dc);
-            graphics.text(font, Component.literal(MissilePayloadItems.antiAirVariant(silo.missileStack()).orElseThrow().ballisticFallback() ? "Failure: ballistic fallback" : "Failure: safe self-destruct"), leftPos + 246, topPos + 171, 0xffffc45a);
-            graphics.text(font, Component.literal("Stored XYZ retained; not used"), leftPos + 246, topPos + 184, 0xff8299a2);
+            boolean mkOne = MissilePayloadItems.antiAirVariant(silo.missileStack()).orElseThrow().ballisticFallback();
+            graphics.text(font, Component.literal("FAILURE SYSTEM"), leftPos + 246, topPos + 171, 0xff8299a2);
+            graphics.text(font, Component.literal(mkOne ? "None" : "Self-destruct fallback"), leftPos + 246, topPos + 184, 0xffffc45a);
+            graphics.text(font, Component.literal("MISS BEHAVIOUR"), leftPos + 246, topPos + 197, 0xff8299a2);
+            graphics.text(font, Component.literal(mkOne ? "Uncontrolled return to ground" : "Safe aerial self-destruction"), leftPos + 246, topPos + 210, 0xffc5d5dc);
+            graphics.text(font, Component.literal("Stored XYZ retained; not used"), leftPos + 246, topPos + 223, 0xff8299a2);
         }
         if (!silo.lastError().isBlank()) {
             graphics.textWithWordWrap(font, Component.literal(silo.lastError()),

@@ -20,6 +20,7 @@ public final class IcbmMissileMesh {
         int sides = detail == IcbmLongRangeRenderContext.Lod.NEAR ? 12
             : detail == IcbmLongRangeRenderContext.Lod.MEDIUM ? 8 : 6;
         float radius = IcbmVisualGeometry.BODY_RADIUS;
+        float embeddedRootRadius = radius - .025F;
         float bottom = IcbmVisualGeometry.BODY_BOTTOM;
         float top = IcbmVisualGeometry.BODY_TOP;
         for (int index = 0; index < sides; index++) {
@@ -61,7 +62,7 @@ public final class IcbmMissileMesh {
 
     private static void renderNozzle(final PoseStack.Pose pose, final VertexConsumer buffer,
         final int sides, final int light, final int alpha) {
-        float topRadius = IcbmVisualGeometry.BODY_RADIUS * 0.72F;
+        float topRadius = IcbmVisualGeometry.BODY_RADIUS;
         float bottomRadius = IcbmVisualGeometry.BODY_RADIUS * 0.52F;
         float top = IcbmVisualGeometry.BODY_BOTTOM;
         float bottom = -IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT * 0.5F;
@@ -81,17 +82,18 @@ public final class IcbmMissileMesh {
         final int light, final int alpha) {
         float root = IcbmVisualGeometry.FIN_ROOT_POSITION;
         float radius = IcbmVisualGeometry.BODY_RADIUS;
+        float embeddedRootRadius = radius - .025F;
         for (int fin = 0; fin < 4; fin++) {
             float angle = Mth.TWO_PI * fin / 4;
             float x = Mth.cos(angle);
             float z = Mth.sin(angle);
             quad(pose, buffer,
-                x * radius, root - 0.18F, z * radius,
+                x * embeddedRootRadius, root - 0.18F, z * embeddedRootRadius,
                 x * (radius + IcbmVisualGeometry.FIN_SPAN), root - 0.14F,
                 z * (radius + IcbmVisualGeometry.FIN_SPAN),
                 x * (radius + IcbmVisualGeometry.FIN_SPAN * 0.72F), root + 0.48F,
                 z * (radius + IcbmVisualGeometry.FIN_SPAN * 0.72F),
-                x * radius, root + 0.35F, z * radius,
+                x * embeddedRootRadius, root + 0.35F, z * embeddedRootRadius,
                 39, 44, 49, alpha, light, x, 0, z);
         }
     }

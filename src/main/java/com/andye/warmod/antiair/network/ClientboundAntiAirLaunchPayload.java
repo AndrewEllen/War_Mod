@@ -1,1 +1,36 @@
-package com.andye.warmod.antiair.network;import com.andye.warmod.WarMod;import com.andye.warmod.antiair.AntiAirMissileVariant;import java.util.UUID;import net.minecraft.network.RegistryFriendlyByteBuf;import net.minecraft.network.codec.StreamCodec;import net.minecraft.network.protocol.common.custom.CustomPacketPayload;import net.minecraft.resources.Identifier;import net.minecraft.world.phys.Vec3;import org.jspecify.annotations.Nullable;public record ClientboundAntiAirLaunchPayload(UUID interceptorId,@Nullable UUID ownerPlayerId,AntiAirMissileVariant variant,@Nullable UUID targetRootTrackId,Vec3 launchPosition,Vec3 burnoutPosition,long launchGameTime,int ignitionTicks,int boostTicks,long visualSeed,int guidanceTier,boolean debugNoTargetFlight)implements CustomPacketPayload{public static final Type<ClientboundAntiAirLaunchPayload> TYPE=new Type<>(Identifier.fromNamespaceAndPath(WarMod.MOD_ID,"anti_air_launch"));public static final StreamCodec<RegistryFriendlyByteBuf,ClientboundAntiAirLaunchPayload> STREAM_CODEC=StreamCodec.of((b,p)->{b.writeUUID(p.interceptorId);b.writeBoolean(p.ownerPlayerId!=null);if(p.ownerPlayerId!=null)b.writeUUID(p.ownerPlayerId);b.writeVarInt(p.variant.ordinal());b.writeBoolean(p.targetRootTrackId!=null);if(p.targetRootTrackId!=null)b.writeUUID(p.targetRootTrackId);vec(b,p.launchPosition);vec(b,p.burnoutPosition);b.writeLong(p.launchGameTime);b.writeVarInt(p.ignitionTicks);b.writeVarInt(p.boostTicks);b.writeLong(p.visualSeed);b.writeVarInt(p.guidanceTier);b.writeBoolean(p.debugNoTargetFlight);},b->new ClientboundAntiAirLaunchPayload(b.readUUID(),b.readBoolean()?b.readUUID():null,AntiAirMissileVariant.values()[b.readVarInt()],b.readBoolean()?b.readUUID():null,vec(b),vec(b),b.readLong(),b.readVarInt(),b.readVarInt(),b.readLong(),b.readVarInt(),b.readBoolean()));private static void vec(RegistryFriendlyByteBuf b,Vec3 v){b.writeDouble(v.x);b.writeDouble(v.y);b.writeDouble(v.z);}private static Vec3 vec(RegistryFriendlyByteBuf b){return new Vec3(b.readDouble(),b.readDouble(),b.readDouble());}@Override public Type<? extends CustomPacketPayload> type(){return TYPE;}}
+package com.andye.warmod.antiair.network;
+
+import com.andye.warmod.WarMod;
+import com.andye.warmod.antiair.*;
+import java.util.UUID;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
+
+public record ClientboundAntiAirLaunchPayload(UUID interceptorId, @Nullable UUID ownerPlayerId,
+    AntiAirMissileVariant variant, @Nullable UUID targetRootTrackId, Vec3 launchPosition, Vec3 burnoutPosition,
+    AntiAirLaunchMode launchMode, long launchGameTime, int ignitionTicks, int boostTicks, long visualSeed,
+    int guidanceTier, boolean debugNoTargetFlight) implements CustomPacketPayload {
+    public static final Type<ClientboundAntiAirLaunchPayload> TYPE = new Type<>(
+        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "anti_air_launch"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundAntiAirLaunchPayload> STREAM_CODEC =
+        StreamCodec.of((buffer, payload) -> {
+            buffer.writeUUID(payload.interceptorId); buffer.writeBoolean(payload.ownerPlayerId != null);
+            if (payload.ownerPlayerId != null) buffer.writeUUID(payload.ownerPlayerId);
+            buffer.writeVarInt(payload.variant.ordinal()); buffer.writeBoolean(payload.targetRootTrackId != null);
+            if (payload.targetRootTrackId != null) buffer.writeUUID(payload.targetRootTrackId);
+            vec(buffer, payload.launchPosition); vec(buffer, payload.burnoutPosition);
+            buffer.writeVarInt(payload.launchMode.ordinal()); buffer.writeLong(payload.launchGameTime);
+            buffer.writeVarInt(payload.ignitionTicks); buffer.writeVarInt(payload.boostTicks); buffer.writeLong(payload.visualSeed);
+            buffer.writeVarInt(payload.guidanceTier); buffer.writeBoolean(payload.debugNoTargetFlight);
+        }, buffer -> new ClientboundAntiAirLaunchPayload(buffer.readUUID(), buffer.readBoolean() ? buffer.readUUID() : null,
+            AntiAirMissileVariant.values()[buffer.readVarInt()], buffer.readBoolean() ? buffer.readUUID() : null,
+            vec(buffer), vec(buffer), AntiAirLaunchMode.values()[buffer.readVarInt()], buffer.readLong(),
+            buffer.readVarInt(), buffer.readVarInt(), buffer.readLong(), buffer.readVarInt(), buffer.readBoolean()));
+    private static void vec(RegistryFriendlyByteBuf buffer, Vec3 value) { buffer.writeDouble(value.x); buffer.writeDouble(value.y); buffer.writeDouble(value.z); }
+    private static Vec3 vec(RegistryFriendlyByteBuf buffer) { return new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()); }
+    @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+}

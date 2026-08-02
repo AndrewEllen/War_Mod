@@ -172,12 +172,8 @@ public final class IcbmLaunchService {
 		if (!Double.isFinite(burnoutY) || !Double.isFinite(separationY)
 			|| burnoutY < launch.y + IcbmConstants.MINIMUM_BURNOUT_HEIGHT_ABOVE_LAUNCH
 			|| separationY < target.y + IcbmConstants.MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET) return Optional.empty();
-
-		double idealBurnoutDistance = horizontalDistance * 0.28;
-		double maximumForRoute = horizontalDistance * 0.45;
-		double burnoutHorizontal = Math.min(maximumForRoute, Mth.clamp(idealBurnoutDistance, 32.0, 480.0));
-		Vec3 burnout = new Vec3(launch.x + horizontal.x * burnoutHorizontal, burnoutY,
-			launch.z + horizontal.z * burnoutHorizontal);
+		// Boost geometry is target-independent: lateral steering starts only after burnout.
+		Vec3 burnout = new Vec3(launch.x, burnoutY, launch.z);
 		double verticalTravel = Math.max(0.0, separationY - target.y);
 		double maximumTerminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS
 			* WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
@@ -262,7 +258,7 @@ public final class IcbmLaunchService {
 
 	public static Optional<IcbmFlightPlan> retargetFromBurnout(final ServerLevel level,
 		final IcbmFlightPlan original, final Vec3 resolvedTarget) {
-		if (!validTargetCoordinate(level, resolvedTarget)
+		if (!validBoostGeometry(original) || !validTargetCoordinate(level, resolvedTarget)
 			|| original.launchPosition().distanceTo(resolvedTarget) > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH)
 			return Optional.empty();
 		Vec3 horizontal = new Vec3(resolvedTarget.x - original.burnoutPosition().x, 0.0,
@@ -292,6 +288,12 @@ public final class IcbmLaunchService {
 			original.visualSeed(), original.payloadType())); }
 		catch (IllegalArgumentException ignored) { return Optional.empty(); }
 	}
+	static boolean validBoostGeometry(final IcbmFlightPlan plan) {
+		if (plan == null || !plan.launchPosition().isFinite() || !plan.burnoutPosition().isFinite()) return false;
+		return Math.hypot(plan.burnoutPosition().x - plan.launchPosition().x, plan.burnoutPosition().z - plan.launchPosition().z)
+			<= IcbmConstants.MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS && plan.burnoutPosition().y > plan.launchPosition().y;
+	}
+
 	static boolean validTargetCoordinate(final ServerLevel level, final Vec3 position) {
 		BlockPos block = position == null ? BlockPos.ZERO : BlockPos.containing(position);
 		return validRouteCoordinate(level, position) && !level.isOutsideBuildHeight(block);

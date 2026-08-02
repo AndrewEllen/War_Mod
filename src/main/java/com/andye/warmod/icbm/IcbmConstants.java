@@ -8,6 +8,10 @@ public final class IcbmConstants {
 	public static final int MINIMUM_TERMINAL_TICKS = 76;
 	public static final int MAXIMUM_TERMINAL_TICKS = 140;
 	public static final double COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED = 0.016;
+	public static final double MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS = 2.0;
+	public static final double BOOST_ASCENT_CONTROL_DISTANCE = 72.0;
+	public static final double COAST_APPROACH_CONTROL_DISTANCE = 128.0;
+	public static final double COAST_TERMINAL_CONTROL_HEIGHT = 64.0;
 	public static final double MINIMUM_VIRTUAL_LAUNCH_DISTANCE = 500.0;
 	public static final double MAXIMUM_VIRTUAL_LAUNCH_DISTANCE = 560.0;
 	public static final double MAXIMUM_VIRTUAL_SIDE_OFFSET = 16.0;

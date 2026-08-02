@@ -1,1 +1,22 @@
-package com.andye.warmod.radar.station.client;import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;import com.mojang.blaze3d.vertex.PoseStack;import com.mojang.math.Axis;import net.minecraft.client.renderer.SubmitNodeCollector;public final class RadarDishRenderer{private static final float MODEL_YAW_OFFSET_DEGREES=180,ELEVATION_DEGREES=-22;private RadarDishRenderer(){}public static void submit(RadarStationRenderState state,PoseStack stack,SubmitNodeCollector collector){stack.pushPose();stack.translate(.5,2.38,.5);stack.mulPose(Axis.YP.rotationDegrees((float)state.sweepAngle+MODEL_YAW_OFFSET_DEGREES));collector.submitCustomGeometry(stack,WarheadRenderPipelines.PROJECTILE,(p,b)->RadarDishMesh.renderMount(p,b,state.lightCoords,state.warningActive));stack.translate(0,.56,0);stack.mulPose(Axis.XP.rotationDegrees(ELEVATION_DEGREES));collector.submitCustomGeometry(stack,WarheadRenderPipelines.PROJECTILE,(p,b)->RadarDishMesh.render(p,b,state.lightCoords,state.warningActive));stack.popPose();}}
+package com.andye.warmod.radar.station.client;
+
+import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+
+public final class RadarDishRenderer {
+    private RadarDishRenderer() { }
+    public static void submit(RadarStationRenderState state, PoseStack stack, SubmitNodeCollector collector) {
+        // The mount is seated on the fixed mast; only the reflector turns about its physical axle.
+        stack.pushPose(); stack.translate(.5F, RadarStationVisualGeometry.DISH_MOUNT_Y, .5F);
+        collector.submitCustomGeometry(stack, WarheadRenderPipelines.PROJECTILE,
+            (pose, buffer) -> RadarDishMesh.renderMount(pose, buffer, state.lightCoords, state.warningActive)); stack.popPose();
+        stack.pushPose(); stack.translate(RadarStationVisualGeometry.DISH_PIVOT_X, RadarStationVisualGeometry.DISH_PIVOT_Y,
+            RadarStationVisualGeometry.DISH_PIVOT_Z);
+        stack.mulPose(Axis.YP.rotationDegrees((float)state.sweepAngle + RadarStationVisualGeometry.MODEL_YAW_OFFSET_DEGREES));
+        stack.mulPose(Axis.XP.rotationDegrees(RadarStationVisualGeometry.DISH_ELEVATION_ANGLE));
+        collector.submitCustomGeometry(stack, WarheadRenderPipelines.PROJECTILE,
+            (pose, buffer) -> RadarDishMesh.render(pose, buffer, state.lightCoords, state.warningActive)); stack.popPose();
+    }
+}
