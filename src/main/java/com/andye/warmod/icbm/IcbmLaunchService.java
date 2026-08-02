@@ -25,18 +25,18 @@ public final class IcbmLaunchService {
 	/** Stick launch: retains the existing 1,000-block loaded-target contract. */
 	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer player, final Vec3 target,
 		final WarheadPayloadType payloadType) {
-		return launchInternal(level, player, target, null, payloadType, true);
+		return launchInternal(level, player, target, null, payloadType, true, true);
 	}
 
 	/** Command launch: target first, with an optional exact virtual launch coordinate. */
 	public static Optional<LaunchResult> launchFromCommand(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType) {
-		return launchInternal(level, player, target, requestedLaunch, payloadType, false);
+		return launchInternal(level, player, target, requestedLaunch, payloadType, false, false);
 	}
 
 	private static Optional<LaunchResult> launchInternal(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
-		final boolean enforceStickRange) {
+		final boolean enforceStickRange, final boolean groundLevelTestingOrigin) {
 		if (level == null || player == null || target == null || payloadType == null || player.level() != level
 			|| !validTarget(level, target) || (enforceStickRange
 			&& player.getEyePosition().distanceTo(target) > WarheadConstants.TARGET_RANGE_BLOCKS + 0.001)
@@ -44,7 +44,8 @@ public final class IcbmLaunchService {
 
 		UUID id = UUID.randomUUID();
 		long seed = mix(id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 17) ^ payloadType.ordinal());
-		IcbmFlightPlan plan = createFlightPlan(level, player, target, requestedLaunch, payloadType, id, seed).orElse(null);
+		IcbmFlightPlan plan = createFlightPlan(level, player, target, requestedLaunch, payloadType, id, seed,
+			groundLevelTestingOrigin).orElse(null);
 		if (plan == null || !IcbmFlightControllerManager.add(level, plan)) return Optional.empty();
 
 		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
@@ -59,9 +60,12 @@ public final class IcbmLaunchService {
 
 	private static Optional<IcbmFlightPlan> createFlightPlan(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
-		final UUID id, final long seed) {
+		final UUID id, final long seed, final boolean groundLevelTestingOrigin) {
 		double cloudHeight = cloudHeight(level, target);
-		Vec3 launch = requestedLaunch == null ? virtualLaunchPosition(level, player, target, cloudHeight, seed) : requestedLaunch;
+		Vec3 launch = requestedLaunch == null
+			? virtualLaunchPosition(level, player, target, cloudHeight, seed, groundLevelTestingOrigin)
+			: requestedLaunch;
+		if (!validRouteCoordinate(level, launch)) return Optional.empty();
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
 		double horizontalDistance = horizontal.length();
 		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) return Optional.empty();
@@ -89,7 +93,8 @@ public final class IcbmLaunchService {
 
 		double preferredApexY = Math.min(absoluteFlightCeiling, Math.max(cloudHeight + 400.0,
 			Math.max(target.y + 560.0, launch.y + 520.0)));
-		int coastTicks = chooseCoastTicks(burnout, separation, preferredApexY, absoluteFlightCeiling);
+		int coastTicks = chooseCoastTicks(burnout, separation, preferredApexY, absoluteFlightCeiling,
+			groundLevelTestingOrigin ? 0.25 : 2.8);
 		if (coastTicks < 0) return Optional.empty();
 		try {
 			return Optional.of(new IcbmFlightPlan(id, player.getUUID(), launch, burnout, separation, target,
@@ -100,7 +105,7 @@ public final class IcbmLaunchService {
 	}
 
 	private static Vec3 virtualLaunchPosition(final ServerLevel level, final ServerPlayer player,
-		final Vec3 target, final double cloudHeight, final long seed) {
+		final Vec3 target, final double cloudHeight, final long seed, final boolean groundLevelTestingOrigin) {
 		Vec3 look = horizontalLook(player);
 		Vec3 backward = look.scale(-1.0);
 		Vec3 right = new Vec3(-look.z, 0.0, look.x);
@@ -110,9 +115,11 @@ public final class IcbmLaunchService {
 		double side = random.nextDouble(-IcbmConstants.MAXIMUM_VIRTUAL_SIDE_OFFSET,
 			IcbmConstants.MAXIMUM_VIRTUAL_SIDE_OFFSET);
 		Vec3 xz = player.position().add(backward.scale(distance)).add(right.scale(side));
-		double safeY = Math.max(player.getY() + 72.0, Math.max(target.y + 72.0, cloudHeight + 32.0));
-		safeY = Mth.clamp(safeY, level.dimensionType().minY() + 32.0, 1536.0);
-		return new Vec3(xz.x, safeY, xz.z);
+		double launchY = groundLevelTestingOrigin
+			? player.getY() + 2.75
+			: Math.max(player.getY() + 72.0, Math.max(target.y + 72.0, cloudHeight + 32.0));
+		launchY = Mth.clamp(launchY, level.dimensionType().minY() + 3.0, 1536.0);
+		return new Vec3(xz.x, launchY, xz.z);
 	}
 
 	private static Vec3 horizontalLook(final ServerPlayer player) {
@@ -121,7 +128,7 @@ public final class IcbmLaunchService {
 	}
 
 	private static int chooseCoastTicks(final Vec3 burnout, final Vec3 separation, final double preferredApexY,
-		final double ceiling) {
+		final double ceiling, final double minimumHorizontalSpeed) {
 		int best = -1;
 		double bestScore = Double.POSITIVE_INFINITY;
 		for (int ticks = IcbmConstants.MINIMUM_COAST_TICKS; ticks <= IcbmConstants.MAXIMUM_COAST_TICKS; ticks++) {
@@ -130,7 +137,7 @@ public final class IcbmLaunchService {
 			double apex = calculateApexY(burnout, initial, ticks);
 			double horizontalSpeed = initial.horizontalDistance();
 			if (!initial.isFinite() || !ending.isFinite() || !Double.isFinite(apex) || apex > ceiling
-				|| ending.y > -0.30 || horizontalSpeed < 2.8 || horizontalSpeed > 48.0) continue;
+				|| ending.y > -0.30 || horizontalSpeed < minimumHorizontalSpeed || horizontalSpeed > 48.0) continue;
 			double preferredSpeed = Math.min(28.0, Math.max(4.4, separation.subtract(burnout).horizontalDistance() / 300.0));
 			double score = Math.abs(apex - preferredApexY) + Math.abs(horizontalSpeed - preferredSpeed) * 20.0
 				+ Math.abs(ticks - 270) * 0.03;
