@@ -1,0 +1,1 @@
+{ "parent":"war_mod:block/missile_silo_guidance_frame_edge_lower","textures":{"steel":"war_mod:block/guidance_frame_steel","warning":"war_mod:block/guidance_frame_warning"} }

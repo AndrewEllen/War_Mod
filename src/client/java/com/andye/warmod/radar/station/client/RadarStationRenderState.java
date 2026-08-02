@@ -1,0 +1,1 @@
+package com.andye.warmod.radar.station.client;import net.minecraft.client.renderer.blockentity.state.BlockEntityRenderState;public final class RadarStationRenderState extends BlockEntityRenderState {public double sweepAngle;public boolean warningActive;}

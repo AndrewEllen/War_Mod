@@ -1,0 +1,1 @@
+{ "parent":"war_mod:block/radar_station_mast","display":{"gui":{"rotation":[25,45,0],"scale":[0.75,0.75,0.75]},"ground":{"scale":[0.35,0.35,0.35]}} }

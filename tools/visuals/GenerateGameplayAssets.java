@@ -22,6 +22,17 @@ public final class GenerateGameplayAssets {
         rocketLauncher();
         heRocket(ROOT.resolve("item/he_rocket.png"), 16, 16);
         heRocket(ROOT.resolve("entity/he_rocket.png"), 32, 16);
+        block("guidance_frame_steel", 0x30363B, false, false);
+        block("guidance_frame_warning", 0xB28B21, false, true);
+        block("radar_station_base", 0x343A3E, false, true);
+        block("radar_station_mast", 0x252B2F, false, false);
+        block("radar_station_motor", 0x3F474C, false, false);
+        block("radar_station_warning", 0xA66D1E, false, true);
+        designator("radar", new Color(0x69B66F), true);
+        rocketTexture(ROOT.resolve("entity/rocket_he.png"), new Color(0x59633D), new Color(0xC39B27));
+        rocketTexture(ROOT.resolve("entity/rocket_conventional.png"), new Color(0x454C51), new Color(0xB07828));
+        rocketTexture(ROOT.resolve("entity/rocket_nuclear.png"), new Color(0x343A3E), new Color(0xE0BA29));
+        rocketTexture(ROOT.resolve("entity/radar_dish.png"), new Color(0x656E72), new Color(0xB87925));
     }
 
     private static void block(String name, int base, boolean opening, boolean warnings) throws IOException {
@@ -99,6 +110,14 @@ public final class GenerateGameplayAssets {
         g.dispose(); write(path, image);
     }
 
+    private static void rocketTexture(Path path, Color body, Color band) throws IOException {
+        BufferedImage image = image(32, 32, body.getRGB() & 0xFFFFFF);
+        Graphics2D g = image.createGraphics();
+        g.setColor(body.brighter()); for (int x = 0; x < 32; x += 4) g.drawLine(x, 0, x, 31);
+        g.setColor(band); g.fillRect(13, 0, 5, 32);
+        g.setColor(new Color(0x202427)); g.drawRect(0, 0, 31, 31);
+        g.dispose(); write(path, image);
+    }
     private static BufferedImage image(int width, int height, int rgb) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics(); g.setColor(new Color(rgb)); g.fillRect(0, 0, width, height); g.dispose();

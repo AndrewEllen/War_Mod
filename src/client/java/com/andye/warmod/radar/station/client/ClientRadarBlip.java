@@ -1,0 +1,1 @@
+package com.andye.warmod.radar.station.client;import com.andye.warmod.radar.station.RadarStationObservation;public record ClientRadarBlip(RadarStationObservation observation,long lastRefreshTime){public double alpha(double now,int period){double age=Math.max(0,now-lastRefreshTime);if(age>=period*2.0)return 0;double u=Math.min(1,age/period);return u<.5?1-u*1.1:.45-(u-.5)*.65;}}

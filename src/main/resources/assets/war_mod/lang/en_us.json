@@ -14,6 +14,10 @@
   "item.war_mod.remote_launch_designator": "Remote Launch Designator",
   "item.war_mod.rocket_launcher": "Rocket Launcher",
   "item.war_mod.he_rocket": "High-Explosive Rocket",
+  "block.war_mod.missile_silo_guidance_frame": "Missile Silo Guidance Frame",
+  "item.war_mod.missile_silo_guidance_frame": "Missile Silo Guidance Frame",
+  "block.war_mod.radar_station": "Radar Station",
+  "item.war_mod.radar_station": "Radar Station",
   "tooltip.war_mod.missile_silo": "Capacity: 16 ICBMs",
   "tooltip.war_mod.conventional_icbm.payload": "Payload: Conventional",
   "tooltip.war_mod.nuclear_icbm.payload": "Payload: Nuclear",
@@ -21,7 +25,7 @@
   "tooltip.war_mod.icbm.maximum_stack": "Maximum stack: 16",
   "tooltip.war_mod.target_designator": "Stores target coordinates",
   "tooltip.war_mod.remote_launch_designator": "Links to and remotely fires a Missile Silo",
-  "tooltip.war_mod.rocket_launcher": "Ammo: High-Explosive Rocket",
+  "tooltip.war_mod.rocket_launcher": "Crouch-use to select HE, Conventional, or Nuclear ammunition",
   "tooltip.war_mod.he_rocket": "High-explosive rocket ammunition",
   "tooltip.war_mod.he_rocket.compatible": "Compatible with Rocket Launcher"
 }
