@@ -20,6 +20,7 @@ public final class ClientWarheadVisualManager {
 
 	private final Map<UUID, WarheadVisualState> activeWarheads = new LinkedHashMap<>();
 	private final Map<UUID, ImpactVisualState> activeImpacts = new LinkedHashMap<>();
+	private final ImpactParticleEmitter impactParticleEmitter = new ImpactParticleEmitter();
 	private ClientLevel activeLevel;
 
 	private ClientWarheadVisualManager() {
@@ -72,12 +73,14 @@ public final class ClientWarheadVisualManager {
 			}
 		}
 
-		this.spawnSupplementaryParticles(client, gameTime);
+		int trailParticles = this.spawnWarheadTrailParticles(client, gameTime);
+		this.spawnImpactParticles(client, gameTime, trailParticles);
 	}
 
 	public synchronized void clear() {
 		this.activeWarheads.clear();
 		this.activeImpacts.clear();
+		this.impactParticleEmitter.clear();
 		this.activeLevel = null;
 	}
 
@@ -95,12 +98,14 @@ public final class ClientWarheadVisualManager {
 		if (level == null) {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
+			this.impactParticleEmitter.clear();
 			this.activeLevel = null;
 			return false;
 		}
 		if (this.activeLevel != level) {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
+			this.impactParticleEmitter.clear();
 			this.activeLevel = level;
 		}
 		return true;
@@ -117,15 +122,15 @@ public final class ClientWarheadVisualManager {
 		}
 	}
 
-	private void spawnSupplementaryParticles(final Minecraft client, final long gameTime) {
+	private int spawnWarheadTrailParticles(final Minecraft client, final long gameTime) {
 		if (client.level == null || client.player == null) {
-			return;
+			return 0;
 		}
 
 		int spawned = 0;
 		for (WarheadVisualState state : this.activeWarheads.values()) {
 			if (spawned >= 4) {
-				return;
+				return spawned;
 			}
 			Vec3 position = state.positionAt(gameTime, 0.0);
 			double distanceSquared = client.player.position().distanceToSqr(position);
@@ -160,6 +165,11 @@ public final class ClientWarheadVisualManager {
 				spawned++;
 			}
 		}
+		return spawned;
+	}
+
+	private void spawnImpactParticles(final Minecraft client, final long gameTime, final int particlesAlreadySpawned) {
+		this.impactParticleEmitter.emit(client, this.activeImpacts.values(), gameTime, particlesAlreadySpawned);
 	}
 
 	public record Snapshot(

@@ -12,6 +12,10 @@ public final class ImpactVisualState {
 	private final long visualSeed;
 	private final float visualScale;
 	private final TerrainRingSampler terrainSampler;
+	private boolean initialBurstEmitted;
+	private boolean secondaryBurstEmitted;
+	private long lastContinuousParticleTick = Long.MIN_VALUE;
+	private int emittedParticleCount;
 
 	public ImpactVisualState(
 		final UUID warheadId,
@@ -69,5 +73,37 @@ public final class ImpactVisualState {
 
 	public boolean isExpired(final long clientGameTime, final double partialTick) {
 		return WarheadEffectMath.impactExpired(this.ageTicks(clientGameTime, partialTick));
+	}
+
+	boolean initialBurstEmitted() {
+		return this.initialBurstEmitted;
+	}
+
+	void markInitialBurstEmitted() {
+		this.initialBurstEmitted = true;
+	}
+
+	boolean secondaryBurstEmitted() {
+		return this.secondaryBurstEmitted;
+	}
+
+	void markSecondaryBurstEmitted() {
+		this.secondaryBurstEmitted = true;
+	}
+
+	long lastContinuousParticleTick() {
+		return this.lastContinuousParticleTick;
+	}
+
+	void markContinuousParticleTick(final long gameTime) {
+		this.lastContinuousParticleTick = gameTime;
+	}
+
+	int emittedParticleCount() {
+		return this.emittedParticleCount;
+	}
+
+	void recordParticleEmission() {
+		this.emittedParticleCount++;
 	}
 }
