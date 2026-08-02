@@ -17,7 +17,7 @@ public final class WarheadConstants {
 	public static final int MAX_ACTIVE_CLIENT_IMPACTS = 64;
 
 	public static final int WARHEAD_VISUAL_LIFETIME_GRACE_TICKS = 40;
-	public static final int IMPACT_VISUAL_LIFETIME_TICKS = 90;
+	public static final int IMPACT_VISUAL_LIFETIME_TICKS = 260;
 
 	public static final double PRESSURE_RING_MAX_RADIUS = 48.0;
 	public static final double DUST_RING_MAX_RADIUS = 40.0;

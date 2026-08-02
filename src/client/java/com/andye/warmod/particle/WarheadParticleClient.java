@@ -8,5 +8,6 @@ public final class WarheadParticleClient {
 
 	public static void register() {
 		ParticleProviderRegistry.getInstance().register(ModParticleTypes.WARHEAD_FIREBALL, WarheadFireballParticleProvider::new);
+		ParticleProviderRegistry.getInstance().register(ModParticleTypes.WARHEAD_SMOKE, WarheadSmokeParticleProvider::new);
 	}
 }

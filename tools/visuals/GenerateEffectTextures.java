@@ -8,6 +8,8 @@ import javax.imageio.ImageIO;
 public final class GenerateEffectTextures {
 	private static final int FIREBALL_FRAME_COUNT = 8;
 	private static final int FIREBALL_FRAME_SIZE = 64;
+	private static final int SMOKE_FRAME_COUNT = 4;
+	private static final int SMOKE_FRAME_SIZE = 64;
 
 	private GenerateEffectTextures() {
 	}
@@ -27,6 +29,8 @@ public final class GenerateEffectTextures {
 		writeImage(outputDirectory.resolve("shockwave_strip.png"), createShockwaveStrip());
 		writeFireballAssets(outputDirectory.resolve("fireball_sheet.png"), particleDirectory);
 		writeImage(outputDirectory.resolve("smoke_lobe.png"), createSmokeLobe());
+		writeImage(outputDirectory.resolve("ground_ripple_noise.png"), createGroundRippleNoise());
+		writeSmokeAssets(particleDirectory);
 
 		verifyImage(outputDirectory.resolve("warhead_albedo.png"), 64, 64);
 		verifyImage(outputDirectory.resolve("vapor_noise.png"), 128, 128);
@@ -35,42 +39,15 @@ public final class GenerateEffectTextures {
 		verifyImage(outputDirectory.resolve("shockwave_strip.png"), 128, 32);
 		verifyImage(outputDirectory.resolve("fireball_sheet.png"), 512, 64);
 		verifyImage(outputDirectory.resolve("smoke_lobe.png"), 128, 128);
+		verifyImage(outputDirectory.resolve("ground_ripple_noise.png"), 128, 128);
 		for (int frame = 0; frame < FIREBALL_FRAME_COUNT; frame++) {
 			verifyImage(particleDirectory.resolve("warhead_fireball_" + frame + ".png"), FIREBALL_FRAME_SIZE, FIREBALL_FRAME_SIZE);
 		}
-		if (args.length == 0) {
-			mirrorClientResources(outputDirectory, particleDirectory);
+		for (int frame = 0; frame < SMOKE_FRAME_COUNT; frame++) {
+			verifyImage(particleDirectory.resolve("warhead_smoke_" + frame + ".png"), SMOKE_FRAME_SIZE, SMOKE_FRAME_SIZE);
 		}
 	}
 
-	private static void mirrorClientResources(final Path effectDirectory, final Path particleDirectory) throws IOException {
-		Path clientEffectDirectory = Path.of("src/client/resources/assets/war_mod/textures/effect");
-		Path clientParticleDirectory = Path.of("src/client/resources/assets/war_mod/textures/particle");
-		Path clientDefinition = Path.of("src/client/resources/assets/war_mod/particles/warhead_fireball.json");
-		Files.createDirectories(clientEffectDirectory);
-		Files.createDirectories(clientParticleDirectory);
-		Files.createDirectories(clientDefinition.getParent());
-
-		String[] effectNames = {
-			"warhead_albedo.png",
-			"vapor_noise.png",
-			"vapor_band.png",
-			"pressure_shell.png",
-			"shockwave_strip.png",
-			"fireball_sheet.png",
-			"smoke_lobe.png"
-		};
-		for (String name : effectNames) {
-			Files.copy(effectDirectory.resolve(name), clientEffectDirectory.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-		}
-		for (int frame = 0; frame < FIREBALL_FRAME_COUNT; frame++) {
-			String name = "warhead_fireball_" + frame + ".png";
-			Files.copy(particleDirectory.resolve(name), clientParticleDirectory.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-		}
-
-		Path mainDefinition = Path.of("src/main/resources/assets/war_mod/particles/warhead_fireball.json");
-		Files.copy(mainDefinition, clientDefinition, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-	}
 	private static BufferedImage createWarheadAlbedo() {
 		BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
 		for (int y = 0; y < image.getHeight(); y++) {
@@ -226,6 +203,42 @@ public final class GenerateEffectTextures {
 		return image;
 	}
 
+	private static BufferedImage createGroundRippleNoise() {
+		BufferedImage image = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
+		for (int y = 0; y < image.getHeight(); y++) {
+			for (int x = 0; x < image.getWidth(); x++) {
+				double value = 0.42 + 0.58 * noise(x * 2, y * 2, 0x52495050);
+				int shade = clampByte((int) Math.round(118.0 + value * 42.0));
+				int alpha = clampByte((int) Math.round(18.0 + value * 34.0));
+				image.setRGB(x, y, rgba(shade, shade - 3, shade - 8, alpha));
+			}
+		}
+		return image;
+	}
+
+	private static void writeSmokeAssets(final Path particleDirectory) throws IOException {
+		for (int frame = 0; frame < SMOKE_FRAME_COUNT; frame++) {
+			writeImage(particleDirectory.resolve("warhead_smoke_" + frame + ".png"), createSmokeFrame(frame));
+		}
+	}
+
+	private static BufferedImage createSmokeFrame(final int frame) {
+		BufferedImage image = new BufferedImage(SMOKE_FRAME_SIZE, SMOKE_FRAME_SIZE, BufferedImage.TYPE_INT_ARGB);
+		double expansion = 0.72 + frame * 0.06;
+		for (int y = 0; y < SMOKE_FRAME_SIZE; y++) {
+			for (int x = 0; x < SMOKE_FRAME_SIZE; x++) {
+				double dx = (x + 0.5 - 32.0) / 32.0;
+				double dy = (y + 0.5 - 32.0) / 32.0;
+				double distance = Math.sqrt(dx * dx + dy * dy);
+				double localNoise = 0.58 + 0.42 * noise(x + frame * 17, y - frame * 11, 0x534D5000 + frame);
+				double falloff = Math.pow(clamp01(1.0 - distance / expansion), 0.58);
+				int gray = clampByte((int) Math.round(52.0 + localNoise * 48.0));
+				int alpha = clampByte((int) Math.round(falloff * localNoise * 235.0));
+				image.setRGB(x, y, rgba(gray, gray + 2, gray + 6, alpha));
+			}
+		}
+		return image;
+	}
 	private static void writeImage(final Path path, final BufferedImage image) throws IOException {
 		Files.createDirectories(path.getParent());
 		if (!ImageIO.write(image, "png", path.toFile())) {

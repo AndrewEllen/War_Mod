@@ -2,6 +2,7 @@ package com.andye.warmod.warhead.client;
 
 import com.andye.warmod.warhead.WarheadEffectMath;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
+import com.andye.warmod.warhead.client.render.BlastCloudLobe;
 import com.andye.warmod.warhead.client.render.FireballLobe;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,7 +11,8 @@ import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 
 public final class ImpactVisualState {
-	private static final int FIREBALL_LOBE_COUNT = 24;
+	private static final int FIREBALL_LOBE_COUNT = 48;
+	private static final int BLAST_CLOUD_LOBE_COUNT = 64;
 	private final UUID warheadId;
 	private final Vec3 impactPosition;
 	private final long impactGameTime;
@@ -19,6 +21,7 @@ public final class ImpactVisualState {
 	private final TerrainRingSampler terrainSampler;
 	private final TerrainShockfrontField terrainShockfrontField;
 	private final List<FireballLobe> fireballLobes;
+	private final List<BlastCloudLobe> blastCloudLobes;
 	private boolean initialBurstEmitted;
 	private boolean secondaryBurstEmitted;
 	private long lastContinuousParticleTick = Long.MIN_VALUE;
@@ -39,6 +42,7 @@ public final class ImpactVisualState {
 		this.terrainSampler = new TerrainRingSampler(impactPosition, visualSeed);
 		this.terrainShockfrontField = new TerrainShockfrontField(impactPosition, visualSeed);
 		this.fireballLobes = createFireballLobes(visualSeed);
+		this.blastCloudLobes = createBlastCloudLobes(visualSeed);
 	}
 
 	public static ImpactVisualState fromPayload(final ClientboundWarheadImpactPayload payload) {
@@ -81,6 +85,10 @@ public final class ImpactVisualState {
 
 	public List<FireballLobe> fireballLobes() {
 		return this.fireballLobes;
+	}
+
+	public List<BlastCloudLobe> blastCloudLobes() {
+		return this.blastCloudLobes;
 	}
 
 	public double ageTicks(final long clientGameTime, final double partialTick) {
@@ -128,24 +136,35 @@ public final class ImpactVisualState {
 		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x464952454C4F4245L);
 		List<FireballLobe> lobes = new ArrayList<>(FIREBALL_LOBE_COUNT);
 		for (int index = 0; index < FIREBALL_LOBE_COUNT; index++) {
-			double theta = Math.acos(random.nextDouble(-0.7, 0.95));
-			double phi = random.nextDouble(0.0, Math.PI * 2.0);
-			double distance = random.nextDouble(1.5, 10.5);
-			Vec3 offset = new Vec3(
-				Math.sin(theta) * Math.cos(phi) * distance,
-				Math.cos(theta) * distance * 0.60,
-				Math.sin(theta) * Math.sin(phi) * distance
-			);
-			lobes.add(new FireballLobe(
-				offset,
-				random.nextDouble(0.0, 2.2),
-				random.nextDouble(1.8, 3.8),
-				random.nextDouble(0.70, 1.35),
-				random.nextDouble(0.65, 1.15),
-				random.nextDouble(0.5, 2.7),
-				random.nextDouble(0.0, Math.PI * 2.0),
-				random.nextInt(8)
-			));
+			boolean core = index < 24;
+			double angle = random.nextDouble(0.0, Math.PI * 2.0);
+			double radial = core ? Math.sqrt(random.nextDouble()) * 8.0 : random.nextDouble(8.0, 22.0);
+			double y = core ? random.nextDouble(2.0, 18.0) : random.nextDouble(0.0, 30.0);
+			Vec3 offset = new Vec3(Math.cos(angle) * radial, y, Math.sin(angle) * radial);
+			lobes.add(new FireballLobe(offset, random.nextDouble(0.0, 3.0), random.nextDouble(2.6, 5.6),
+				random.nextDouble(0.55, 1.25), random.nextDouble(0.55, 1.25), random.nextDouble(0.5, 3.6),
+				random.nextDouble(0.0, Math.PI * 2.0), random.nextInt(8)));
+		}
+		return List.copyOf(lobes);
+	}
+
+	private static List<BlastCloudLobe> createBlastCloudLobes(final long visualSeed) {
+		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x424C415354434C44L);
+		List<BlastCloudLobe> lobes = new ArrayList<>(BLAST_CLOUD_LOBE_COUNT);
+		for (int index = 0; index < BLAST_CLOUD_LOBE_COUNT; index++) {
+			boolean upper = index >= 34;
+			double angle = random.nextDouble(0.0, Math.PI * 2.0);
+			double radial = upper ? random.nextDouble(4.0, 18.0) : random.nextDouble(0.5, 8.5);
+			double y = upper ? random.nextDouble(18.0, 34.0) : random.nextDouble(0.0, 25.0);
+			boolean core = index % 3 != 0;
+			int red = core ? random.nextInt(18, 43) : random.nextInt(50, 91);
+			int green = core ? random.nextInt(20, 46) : random.nextInt(54, 96);
+			int blue = core ? random.nextInt(24, 53) : random.nextInt(60, 106);
+			float opacity = (float) (core ? random.nextDouble(0.68, 0.86) : random.nextDouble(0.45, 0.69));
+			lobes.add(new BlastCloudLobe(new Vec3(Math.cos(angle) * radial, y, Math.sin(angle) * radial),
+				random.nextDouble(3.2, 7.0), random.nextDouble(0.80, 1.20), random.nextDouble(1.0, 7.0),
+				random.nextDouble(0.0, Math.PI * 2.0), random.nextDouble(0.0, Math.PI * 2.0), upper,
+				red, green, blue, opacity));
 		}
 		return List.copyOf(lobes);
 	}

@@ -1,16 +1,20 @@
 package com.andye.warmod;
 
 import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
+import com.andye.warmod.entity.ModEntityTypes;
+import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.particle.WarheadParticleClient;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
 import com.andye.warmod.warhead.client.render.WarheadWorldRenderer;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 
 public final class WarModClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
+		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);
 		WarheadParticleClient.register();
 		WarheadWorldRenderer.register();
 		WarMod.LOGGER.info("War Mod client initialized.");

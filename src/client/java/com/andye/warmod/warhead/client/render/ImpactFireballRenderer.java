@@ -48,17 +48,17 @@ public final class ImpactFireballRenderer {
 		}
 
 		float scale = Mth.clamp(visualScale, 0.45F, 1.5F);
-		int lobeLimit = lod == WarheadMesh.Lod.NEAR ? Math.min(24, lobes.size())
-			: lod == WarheadMesh.Lod.MEDIUM ? Math.min(13, lobes.size()) : Math.min(6, lobes.size());
+		int lobeLimit = lod == WarheadMesh.Lod.NEAR ? Math.min(48, lobes.size())
+			: lod == WarheadMesh.Lod.MEDIUM ? Math.min(28, lobes.size()) : Math.min(14, lobes.size());
 		for (int index = 0; index < lobeLimit; index++) {
 			FireballLobe lobe = lobes.get(index);
 			double localAge = ageTicks - lobe.spawnDelayTicks();
-			if (localAge < 0.0 || localAge >= 55.0 || (hot && localAge > 20.0) || (!hot && localAge < 8.0)) {
+			if (localAge < 0.0 || localAge >= 75.0 || (hot && localAge > 40.0) || (!hot && localAge < 12.0)) {
 				continue;
 			}
 
-			double growth = WarheadVisualMath.clamp(localAge / 18.0, 0.0, 1.0);
-			double cooling = WarheadVisualMath.clamp((localAge - 12.0) / 43.0, 0.0, 1.0);
+			double growth = WarheadVisualMath.clamp(localAge / 24.0, 0.0, 1.0);
+			double cooling = WarheadVisualMath.clamp((localAge - 30.0) / 45.0, 0.0, 1.0);
 			double alpha = WarheadVisualMath.fireballAlpha(localAge) * (0.48 + 0.52 * (1.0 - index / (double) Math.max(1, lobeLimit)));
 			if (hot) {
 				alpha *= 0.88 + 0.12 * (1.0 - cooling);
@@ -69,7 +69,7 @@ public final class ImpactFireballRenderer {
 				continue;
 			}
 
-			float radius = (float) (scale * lobe.baseRadius() * (1.0 + lobe.expansionMultiplier() * easeOut(growth)));
+			float radius = (float) (scale * lobe.baseRadius() * (0.62 + 0.58 * easeOut(growth)));
 			Vec3 driftDirection = horizontalDirection(lobe.baseOffset(), lobe.rotation());
 			double drift = lobe.horizontalDrift() * easeOut(growth);
 			double rise = lobe.riseSpeed() * WarheadVisualMath.fireballRise(localAge) / 16.0;
@@ -86,7 +86,7 @@ public final class ImpactFireballRenderer {
 	}
 
 	private static int frameFor(final double localAge, final int animationOffset, final boolean hot) {
-		double duration = hot ? 20.0 : 45.0;
+		double duration = hot ? 40.0 : 63.0;
 		int frame = (int) Math.floor(localAge / duration * 8.0) + animationOffset;
 		return Math.floorMod(frame, 8);
 	}

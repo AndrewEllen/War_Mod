@@ -49,7 +49,7 @@ public final class WarheadMesh {
 			float z = BODY_RADIUS * Mth.sin(angle);
 			float nextX = BODY_RADIUS * Mth.cos(nextAngle);
 			float nextZ = BODY_RADIUS * Mth.sin(nextAngle);
-			int shade = index % 3 == 0 ? 248 : 224;
+			int shade = index % 3 == 0 ? 246 : 228;
 			vertex(pose, buffer, x, BODY_BOTTOM, z, 242, 242, 242, 255, (float) index / sides, 1.0F, Mth.cos(angle), 0.0F, Mth.sin(angle), packedLight);
 			vertex(pose, buffer, x, BODY_TOP, z, 242, 242, 242, 255, (float) index / sides, 0.0F, Mth.cos(angle), 0.0F, Mth.sin(angle), packedLight);
 			vertex(pose, buffer, nextX, BODY_TOP, nextZ, shade, shade, shade + 2, 255, (float) next / sides, 0.0F, Mth.cos(nextAngle), 0.0F, Mth.sin(nextAngle), packedLight);
@@ -70,7 +70,7 @@ public final class WarheadMesh {
 			float normalScale = Mth.sqrt(1.0F - normalY * normalY);
 			vertex(pose, buffer, x, BODY_TOP, z, 232, 232, 232, 255, (float) index / sides, 1.0F, Mth.cos(angle) * normalScale, normalY, Mth.sin(angle) * normalScale, packedLight);
 			vertex(pose, buffer, 0.0F, NOSE_TIP, 0.0F, 248, 248, 248, 255, 0.5F, 0.0F, Mth.cos(angle) * normalScale, normalY, Mth.sin(angle) * normalScale, packedLight);
-			vertex(pose, buffer, nextX, BODY_TOP, nextZ, 218, 218, 220, 255, (float) (next + 1) / sides, 1.0F, Mth.cos(nextAngle) * normalScale, normalY, Mth.sin(nextAngle) * normalScale, packedLight);
+			vertex(pose, buffer, nextX, BODY_TOP, nextZ, 228, 230, 234, 255, (float) (next + 1) / sides, 1.0F, Mth.cos(nextAngle) * normalScale, normalY, Mth.sin(nextAngle) * normalScale, packedLight);
 		}
 	}
 
@@ -78,9 +78,9 @@ public final class WarheadMesh {
 		for (int index = 1; index < sides - 1; index++) {
 			float angle = Mth.TWO_PI * index / sides;
 			float nextAngle = Mth.TWO_PI * (index + 1) / sides;
-			vertex(pose, buffer, 0.0F, BODY_BOTTOM, 0.0F, 206, 206, 208, 255, 0.5F, 0.5F, 0.0F, -1.0F, 0.0F, packedLight);
-			vertex(pose, buffer, BODY_RADIUS * Mth.cos(angle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(angle), 206, 206, 208, 255, 0.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
-			vertex(pose, buffer, BODY_RADIUS * Mth.cos(nextAngle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(nextAngle), 206, 206, 208, 255, 1.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
+			vertex(pose, buffer, 0.0F, BODY_BOTTOM, 0.0F, 225, 227, 231, 255, 0.5F, 0.5F, 0.0F, -1.0F, 0.0F, packedLight);
+			vertex(pose, buffer, BODY_RADIUS * Mth.cos(angle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(angle), 225, 227, 231, 255, 0.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
+			vertex(pose, buffer, BODY_RADIUS * Mth.cos(nextAngle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(nextAngle), 225, 227, 231, 255, 1.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
 		}
 	}
 
@@ -105,7 +105,7 @@ public final class WarheadMesh {
 				float z = normalZ * radii[index] + tangentZ * (tangent[index] + offset);
 				float nx = side == 0 ? normalX : -normalX;
 				float nz = side == 0 ? normalZ : -normalZ;
-				vertex(pose, buffer, x, ys[index], z, 218, 218, 220, 255, index == 0 || index == 3 ? 0.0F : 1.0F, index == 0 || index == 3 ? 1.0F : 0.0F, nx, 0.0F, nz, packedLight);
+				vertex(pose, buffer, x, ys[index], z, 228, 230, 234, 255, index == 0 || index == 3 ? 0.0F : 1.0F, index == 0 || index == 3 ? 1.0F : 0.0F, nx, 0.0F, nz, packedLight);
 			}
 		}
 	}

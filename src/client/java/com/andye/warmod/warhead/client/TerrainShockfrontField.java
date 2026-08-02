@@ -25,9 +25,9 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * makes the path unreliable.
  */
 public final class TerrainShockfrontField {
-	public static final int MAX_HORIZONTAL_RANGE = 128;
+	public static final int MAX_HORIZONTAL_RANGE = 192;
 	public static final int SAMPLE_SPACING = 2;
-	public static final int MAX_SPOKES = 64;
+	public static final int MAX_SPOKES = 80;
 
 	private final Vec3 impactPosition;
 	private final long visualSeed;
@@ -55,30 +55,19 @@ public final class TerrainShockfrontField {
 
 	/** Builds at most {@code maximumNodes} new terrain samples. */
 	public synchronized int build(final ClientLevel level, final int maximumNodes) {
-		if (level == null || maximumNodes <= 0) {
-			return 0;
-		}
-
+		if (level == null || maximumNodes <= 0) return 0;
 		int built = 0;
-		while (built < maximumNodes && this.nextSpokeToBuild < this.spokes.size()) {
+		int consecutiveComplete = 0;
+		while (built < maximumNodes && consecutiveComplete < this.spokes.size()) {
 			TerrainShockfrontSpoke spoke = this.spokes.get(this.nextSpokeToBuild);
-			if (spoke.complete()) {
-				this.nextSpokeToBuild++;
-				continue;
-			}
+			this.nextSpokeToBuild = (this.nextSpokeToBuild + 1) % this.spokes.size();
+			if (spoke.complete()) { consecutiveComplete++; continue; }
+			consecutiveComplete = 0;
 			int sampleIndex = spoke.nextSampleIndex();
-			if (sampleIndex > MAX_HORIZONTAL_RANGE / SAMPLE_SPACING) {
-				spoke.markComplete();
-				this.nextSpokeToBuild++;
-				continue;
-			}
-
+			if (sampleIndex > MAX_HORIZONTAL_RANGE / SAMPLE_SPACING) { spoke.markComplete(); continue; }
 			this.buildOneSample(level, spoke, sampleIndex);
 			spoke.advanceSampleIndex();
 			built++;
-			if (spoke.complete()) {
-				this.nextSpokeToBuild++;
-			}
 		}
 		return built;
 	}
@@ -87,23 +76,46 @@ public final class TerrainShockfrontField {
 		return this.spokes;
 	}
 
-	public List<TerrainShockfrontNode> consumeReached(
+	public List<TerrainShockfrontNode> readyNodes(
 		final double pressureRadius,
 		final int desiredSpokes,
-		final int maximumNodes
+		final int maximumNodes,
+		final long gameTime
 	) {
-		if (!Double.isFinite(pressureRadius) || pressureRadius <= 0.0 || maximumNodes <= 0) {
-			return List.of();
-		}
-
+		if (!Double.isFinite(pressureRadius) || pressureRadius <= 0.0 || maximumNodes <= 0) return List.of();
 		int count = Math.max(1, Math.min(this.spokes.size(), desiredSpokes));
 		List<TerrainShockfrontNode> reached = new ArrayList<>();
-		for (int index = 0; index < count && reached.size() < maximumNodes; index++) {
-			int spokeIndex = index * this.spokes.size() / count;
-			TerrainShockfrontSpoke spoke = this.spokes.get(spokeIndex);
-			reached.addAll(spoke.consumeReached(pressureRadius, maximumNodes - reached.size()));
+		for (int index = 0; index < count; index++) {
+			TerrainShockfrontSpoke spoke = this.spokes.get(index * this.spokes.size() / count);
+			spoke.updateReached(pressureRadius, gameTime);
+			if (reached.size() < maximumNodes) reached.addAll(spoke.readyNodes(maximumNodes - reached.size()));
 		}
 		return List.copyOf(reached);
+	}
+
+	public List<TerrainShockfrontNode> activeDustNodes(
+		final double pressureRadius,
+		final int desiredSpokes,
+		final int maximumNodes,
+		final long gameTime
+	) {
+		this.readyNodes(pressureRadius, desiredSpokes, maximumNodes, gameTime);
+		List<TerrainShockfrontNode> active = new ArrayList<>();
+		int count = Math.max(1, Math.min(this.spokes.size(), desiredSpokes));
+		for (int index = 0; index < count && active.size() < maximumNodes; index++) {
+			TerrainShockfrontSpoke spoke = this.spokes.get(index * this.spokes.size() / count);
+			for (TerrainShockfrontNode node : spoke.snapshotNodes()) {
+				if (active.size() >= maximumNodes) break;
+				boolean recent = node.state() == TerrainShockfrontNode.State.EMITTED && gameTime - node.emittedGameTime() <= 50L;
+				boolean ready = node.state() == TerrainShockfrontNode.State.READY && pressureRadius - node.cumulativePathDistance() <= 32.0;
+				if (recent || ready) active.add(node);
+			}
+		}
+		return List.copyOf(active);
+	}
+
+	public void markEmitted(final TerrainShockfrontNode node, final long gameTime) {
+		if (node != null) node.markEmitted(gameTime);
 	}
 
 	private void buildOneSample(final ClientLevel level, final TerrainShockfrontSpoke spoke, final int sampleIndex) {
