@@ -30,11 +30,13 @@ public final class WarheadDebrisRenderer extends EntityRenderer<WarheadDebrisEnt
 		}
 		state.angularVelocity = entity.angularVelocity();
 		state.debrisAge = entity.age() + partialTick;
+		state.visualScale = entity.visualScale();
 	}
 
 	@Override
 	public void submit(final WarheadDebrisRenderState state, final PoseStack poseStack, final SubmitNodeCollector collector, final CameraRenderState camera) {
 		poseStack.pushPose();
+		poseStack.scale(state.visualScale, state.visualScale, state.visualScale);
 		poseStack.mulPose(new Quaternionf().rotationXYZ((float) state.angularVelocity.x * state.debrisAge,
 			(float) state.angularVelocity.y * state.debrisAge, (float) state.angularVelocity.z * state.debrisAge));
 		poseStack.translate(-0.5, -0.5, -0.5);

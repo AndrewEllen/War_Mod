@@ -23,10 +23,10 @@ public final class AcousticSounds {
 		AcousticSoundRegistry.register(new AcousticSoundDefinition(
 			LARGE_EXPLOSION_ID,
 			List.of(
-				new AcousticDistanceSound(AcousticDistanceProfile.NEAR, ModSoundEvents.PROTOTYPE_EXPLOSION_NEAR_ID, 0.0, 80.0, 1.0F, 1.0F),
-				new AcousticDistanceSound(AcousticDistanceProfile.MEDIUM, ModSoundEvents.PROTOTYPE_EXPLOSION_MEDIUM_ID, 80.0, 220.0, 1.0F, 1.0F),
-				new AcousticDistanceSound(AcousticDistanceProfile.FAR, ModSoundEvents.PROTOTYPE_EXPLOSION_FAR_ID, 220.0, 600.0, 1.0F, 1.0F),
-				new AcousticDistanceSound(AcousticDistanceProfile.EXTREME, ModSoundEvents.PROTOTYPE_EXPLOSION_EXTREME_ID, 600.0, 1536.0, 1.0F, 1.0F)
+				new AcousticDistanceSound(AcousticDistanceProfile.NEAR, ModSoundEvents.PROTOTYPE_EXPLOSION_NEAR_ID, 0.0, 100.0, 1.15F, 1.0F),
+				new AcousticDistanceSound(AcousticDistanceProfile.MEDIUM, ModSoundEvents.PROTOTYPE_EXPLOSION_MEDIUM_ID, 100.0, 250.0, 1.20F, 1.0F),
+				new AcousticDistanceSound(AcousticDistanceProfile.FAR, ModSoundEvents.PROTOTYPE_EXPLOSION_FAR_ID, 250.0, 400.0, 1.35F, 1.0F),
+				new AcousticDistanceSound(AcousticDistanceProfile.EXTREME, ModSoundEvents.PROTOTYPE_EXPLOSION_EXTREME_ID, 400.0, 1536.0, 1.55F, 1.0F)
 			),
 			343.0,
 			1536.0,

@@ -73,8 +73,8 @@ public final class ClientWarheadVisualManager {
 			}
 		}
 
-		int totalTerrainBudget = 6400;
-		int perImpactTerrainBudget = Math.min(1600, Math.max(800, totalTerrainBudget / Math.max(1, this.activeImpacts.size())));
+		int totalTerrainBudget = 50_000;
+		int perImpactTerrainBudget = Math.min(20_000, Math.max(1, totalTerrainBudget / Math.max(1, this.activeImpacts.size())));
 		for (ImpactVisualState state : this.activeImpacts.values()) {
 			if (totalTerrainBudget <= 0) break;
 			int built = state.terrainShockfrontField().build(client.level, Math.min(perImpactTerrainBudget, totalTerrainBudget));

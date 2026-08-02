@@ -67,6 +67,7 @@ public final class ClientAcousticEngine {
 		}
 		activeLevel = clientLevel;
 		clientTick = clientLevel.getGameTime();
+		ExplosionShakeManager.INSTANCE.tick(clientTick);
 
 		processPending(clientLevel, listener);
 		while (!scheduledSounds.isEmpty() && scheduledSounds.peek().playbackClientTick() <= clientTick) {
@@ -78,6 +79,7 @@ public final class ClientAcousticEngine {
 		pendingEvents.clear();
 		scheduledSounds.clear();
 		activeLevel = null;
+		ExplosionShakeManager.INSTANCE.clear();
 	}
 
 	private void processPending(final ClientLevel clientLevel, final Player listener) {
@@ -138,6 +140,10 @@ public final class ClientAcousticEngine {
 				payload.randomSeed() ^ selectedSound.soundEventId().hashCode(),
 				false
 			));
+
+			if (payload.definitionId().equals(com.andye.warmod.acoustics.AcousticSounds.LARGE_EXPLOSION_ID)) {
+				ExplosionShakeManager.INSTANCE.add(payload.randomSeed(), listenerDistance, gain);
+			}
 
 			if (definition.environmentEchoesEnabled()) {
 				AcousticEnvironment environment = AcousticEnvironmentProbe.probe(activeLevel, listenerEyePosition);

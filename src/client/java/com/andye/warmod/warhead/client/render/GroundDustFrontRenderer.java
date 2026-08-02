@@ -14,28 +14,29 @@ public final class GroundDustFrontRenderer {
 	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer, final List<TerrainShockfrontNode> nodes,
 		final Vec3 impactPosition, final long gameTime, final WarheadMesh.Lod lod) {
 		if (nodes == null || nodes.isEmpty()) return;
-		int limit = lod == WarheadMesh.Lod.NEAR ? 240 : lod == WarheadMesh.Lod.MEDIUM ? 140 : 60;
+		int limit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
 		for (int index = 0; index < Math.min(limit, nodes.size()); index++) {
 			TerrainShockfrontNode node = nodes.get(index);
 			long seed = mix(node.surfaceBlock().asLong());
 			long start = node.emittedGameTime() == Long.MIN_VALUE ? node.readyGameTime() : node.emittedGameTime();
 			double age = Math.max(0.0, gameTime - start);
-			double lifetime = 20.0 + ((seed >>> 8) & 31L);
+			double lifetime = 50.0 + ((seed >>> 8) & 50L);
 			if (age > lifetime) continue;
 			double progress = age / lifetime;
 			double dx = node.position().x - impactPosition.x;
 			double dz = node.position().z - impactPosition.z;
 			double length = Math.sqrt(dx * dx + dz * dz);
 			if (length < 1.0E-4) continue;
-			double outward = (1.0 + ((seed >>> 18) & 15L) / 5.0) * progress;
-			double rise = (1.5 + ((seed >>> 27) & 31L) / 7.0) * Math.sin(progress * Math.PI * 0.75);
+			double outward = (2.0 + ((seed >>> 18) & 31L) / 5.0) * progress;
+			double rise = (2.0 + ((seed >>> 27) & 31L) / 5.2) * Math.sin(progress * Math.PI * 0.75);
 			Vec3 center = node.position().subtract(impactPosition).add(dx / length * outward, rise, dz / length * outward);
 			float radius = (float) ((1.5 + ((seed >>> 37) & 15L) / 5.0) * (0.75 + progress * 0.75));
 			float rotation = (float) (((seed >>> 45) & 1023L) / 1024.0 * Mth.TWO_PI);
 			float alpha = (float) ((0.62 + ((seed >>> 12) & 7L) * 0.025) * Math.pow(1.0 - progress, 0.62));
-			int red = 100 + (int) ((seed >>> 4) & 31L);
-			int green = 85 + (int) ((seed >>> 15) & 31L);
-			int blue = 65 + (int) ((seed >>> 30) & 31L);
+			int tint = node.tintColor();
+			int red = (tint >>> 16) & 255;
+			int green = (tint >>> 8) & 255;
+			int blue = tint & 255;
 			addBillboard(pose, buffer, center, radius, rotation, red, green, blue, alpha);
 		}
 	}

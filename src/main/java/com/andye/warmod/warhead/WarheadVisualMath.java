@@ -8,7 +8,7 @@ public final class WarheadVisualMath {
 	private static final double CONE_ACTIVATION_FULL = 0.55;
 	private static final double CONE_ATTACK_TICKS = 4.0;
 	public static final double AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK = 343.0 / 20.0;
-	public static final double AIR_SHOCKWAVE_DURATION_TICKS = 24.0;
+	public static final double AIR_SHOCKWAVE_DURATION_TICKS = 72.0;
 
 	private WarheadVisualMath() {
 	}
@@ -53,7 +53,7 @@ public final class WarheadVisualMath {
 
 	public static double airShockwaveAlpha(final double ageTicks) {
 		if (!Double.isFinite(ageTicks) || ageTicks < 0.0 || ageTicks >= AIR_SHOCKWAVE_DURATION_TICKS) return 0.0;
-		double fade = 1.0 - smoothstep(10.0, AIR_SHOCKWAVE_DURATION_TICKS, ageTicks);
+		double fade = ageTicks <= 30.0 ? 1.0 : 1.0 - smoothstep(30.0, AIR_SHOCKWAVE_DURATION_TICKS, ageTicks);
 		return 0.38 * Math.pow(fade, 0.70);
 	}
 

@@ -7,6 +7,7 @@ import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.resources.Identifier;
@@ -17,7 +18,7 @@ public final class WarheadRenderPipelines {
 		WarMod.MOD_ID,
 		"textures/effect/smoke_lobe.png"
 	);
-	private static final RenderPipeline CONDENSATION_PIPELINE = translucent("pipeline/war_mod_condensation");
+	private static final RenderPipeline CONDENSATION_PIPELINE = condensation();
 	private static final RenderPipeline PRESSURE_PIPELINE = translucent("pipeline/war_mod_pressure_shell");
 	private static final RenderPipeline SHOCKWAVE_PIPELINE = translucent("pipeline/war_mod_shockwave_ribbons");
 	private static final RenderPipeline GROUND_DUST_PIPELINE = translucent("pipeline/war_mod_ground_dust");
@@ -35,6 +36,14 @@ public final class WarheadRenderPipelines {
 			.withCull(false)
 			.build()
 	);
+	private static final RenderPipeline TERRAIN_DEFORMATION_PIPELINE = RenderPipelines.register(
+		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
+			.withLocation("pipeline/war_mod_terrain_deformation")
+			.withShaderDefine("NO_OVERLAY")
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
+			.withCull(false)
+			.build()
+	);
 	private static final RenderPipeline HOT_FIRE_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
 			.withLocation("pipeline/war_mod_hot_fire")
@@ -48,9 +57,10 @@ public final class WarheadRenderPipelines {
 	);
 
 	public static final RenderType PROJECTILE = create("war_mod_projectile", RenderPipelines.ENTITY_CUTOUT, texture("warhead_albedo.png"), true, true, false);
-	public static final RenderType CONE = create("war_mod_cone", CONDENSATION_PIPELINE, texture("vapor_noise.png"), true, false, true);
-	public static final RenderType VAPOR_BAND = create("war_mod_vapor_band", CONDENSATION_PIPELINE, texture("vapor_band.png"), true, false, true);
+	public static final RenderType CONE = create("war_mod_cone", CONDENSATION_PIPELINE, texture("vapor_noise.png"), false, false, true);
+	public static final RenderType VAPOR_BAND = create("war_mod_vapor_band", CONDENSATION_PIPELINE, texture("vapor_band.png"), false, false, true);
 	public static final RenderType PRESSURE_SHELL = create("war_mod_pressure_shell", PRESSURE_PIPELINE, texture("pressure_shell.png"), true, false, true);
+	public static final RenderType TERRAIN_DEFORMATION = create("war_mod_terrain_deformation", TERRAIN_DEFORMATION_PIPELINE, TextureAtlas.LOCATION_BLOCKS, true, false, false);
 	public static final RenderType GROUND_RIPPLE = create("war_mod_ground_ripple", GROUND_RIPPLE_PIPELINE, texture("ground_ripple_noise.png"), true, false, true);
 	public static final RenderType SHOCKWAVE = create("war_mod_shockwave", SHOCKWAVE_PIPELINE, texture("shockwave_strip.png"), true, false, true);
 	public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
@@ -61,6 +71,18 @@ public final class WarheadRenderPipelines {
 	public static final RenderType FIREBALL = FIREBALL_COOL;
 
 	private WarheadRenderPipelines() { }
+
+	private static RenderPipeline condensation() {
+		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+			.withLocation("pipeline/war_mod_condensation")
+			.withShaderDefine("ALPHA_CUTOUT", 0.02F)
+			.withShaderDefine("NO_OVERLAY")
+			.withShaderDefine("NO_CARDINAL_LIGHTING")
+			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+			.withCull(false)
+			.build());
+	}
 
 	private static RenderPipeline translucent(final String location) {
 		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)

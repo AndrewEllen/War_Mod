@@ -25,9 +25,9 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * makes the path unreliable.
  */
 public final class TerrainShockfrontField {
-	public static final int MAX_HORIZONTAL_RANGE = 192;
+	public static final int MAX_HORIZONTAL_RANGE = 512;
 	public static final int SAMPLE_SPACING = 2;
-	public static final int MAX_SPOKES = 80;
+	public static final int MAX_SPOKES = 256;
 
 	private final Vec3 impactPosition;
 	private final long visualSeed;
@@ -84,15 +84,21 @@ public final class TerrainShockfrontField {
 	) {
 		if (!Double.isFinite(pressureRadius) || pressureRadius <= 0.0 || maximumNodes <= 0) return List.of();
 		int count = Math.max(1, Math.min(this.spokes.size(), desiredSpokes));
-		List<TerrainShockfrontNode> reached = new ArrayList<>();
+		List<List<TerrainShockfrontNode>> perSpoke = new ArrayList<>(count);
 		for (int index = 0; index < count; index++) {
 			TerrainShockfrontSpoke spoke = this.spokes.get(index * this.spokes.size() / count);
 			spoke.updateReached(pressureRadius, gameTime);
-			if (reached.size() < maximumNodes) reached.addAll(spoke.readyNodes(maximumNodes - reached.size()));
+			perSpoke.add(spoke.readyNodesNearFrontier(pressureRadius, 8));
 		}
-		return List.copyOf(reached);
+		List<TerrainShockfrontNode> selected = new ArrayList<>(Math.min(maximumNodes, count * 8));
+		for (int layer = 0; layer < 8 && selected.size() < maximumNodes; layer++) {
+			for (List<TerrainShockfrontNode> spokeNodes : perSpoke) {
+				if (selected.size() >= maximumNodes) break;
+				if (layer < spokeNodes.size()) selected.add(spokeNodes.get(layer));
+			}
+		}
+		return List.copyOf(selected);
 	}
-
 	public List<TerrainShockfrontNode> activeDustNodes(
 		final double pressureRadius,
 		final int desiredSpokes,
@@ -100,20 +106,30 @@ public final class TerrainShockfrontField {
 		final long gameTime
 	) {
 		this.readyNodes(pressureRadius, desiredSpokes, maximumNodes, gameTime);
-		List<TerrainShockfrontNode> active = new ArrayList<>();
 		int count = Math.max(1, Math.min(this.spokes.size(), desiredSpokes));
-		for (int index = 0; index < count && active.size() < maximumNodes; index++) {
+		List<List<TerrainShockfrontNode>> perSpoke = new ArrayList<>(count);
+		int maximumDepth = 0;
+		for (int index = 0; index < count; index++) {
 			TerrainShockfrontSpoke spoke = this.spokes.get(index * this.spokes.size() / count);
+			List<TerrainShockfrontNode> candidates = new ArrayList<>();
 			for (TerrainShockfrontNode node : spoke.snapshotNodes()) {
+				boolean recent = node.state() == TerrainShockfrontNode.State.EMITTED && gameTime - node.emittedGameTime() <= 100L;
+				boolean ready = node.state() == TerrainShockfrontNode.State.READY && pressureRadius - node.cumulativePathDistance() <= 36.0;
+				if (recent || ready) candidates.add(node);
+			}
+			candidates.sort((first, second) -> Double.compare(second.cumulativePathDistance(), first.cumulativePathDistance()));
+			perSpoke.add(List.copyOf(candidates));
+			maximumDepth = Math.max(maximumDepth, candidates.size());
+		}
+		List<TerrainShockfrontNode> active = new ArrayList<>(maximumNodes);
+		for (int layer = 0; layer < maximumDepth && active.size() < maximumNodes; layer++) {
+			for (List<TerrainShockfrontNode> spokeNodes : perSpoke) {
 				if (active.size() >= maximumNodes) break;
-				boolean recent = node.state() == TerrainShockfrontNode.State.EMITTED && gameTime - node.emittedGameTime() <= 50L;
-				boolean ready = node.state() == TerrainShockfrontNode.State.READY && pressureRadius - node.cumulativePathDistance() <= 32.0;
-				if (recent || ready) active.add(node);
+				if (layer < spokeNodes.size()) active.add(spokeNodes.get(layer));
 			}
 		}
 		return List.copyOf(active);
 	}
-
 	public void markEmitted(final TerrainShockfrontNode node, final long gameTime) {
 		if (node != null) node.markEmitted(gameTime);
 	}
@@ -161,7 +177,8 @@ public final class TerrainShockfrontField {
 			surfaceState,
 			cumulativeDistance,
 			this.impactPosition.distanceTo(position),
-			visible
+			visible,
+			surfaceState.getMapColor(level, surfaceBlock).col
 		));
 		if (!visible) {
 			spoke.markComplete();

@@ -14,18 +14,20 @@ public final class TerrainShockfrontNode {
 	private final double cumulativePathDistance;
 	private final double directDistance;
 	private final boolean visibleFromImpact;
+	private final int tintColor;
 	private State state = State.PENDING;
 	private long readyGameTime = Long.MIN_VALUE;
 	private long emittedGameTime = Long.MIN_VALUE;
 
 	public TerrainShockfrontNode(final Vec3 position, final BlockPos surfaceBlock, final BlockState surfaceState,
-		final double cumulativePathDistance, final double directDistance, final boolean visibleFromImpact) {
+		final double cumulativePathDistance, final double directDistance, final boolean visibleFromImpact, final int tintColor) {
 		this.position = position;
 		this.surfaceBlock = surfaceBlock;
 		this.surfaceState = surfaceState;
 		this.cumulativePathDistance = cumulativePathDistance;
 		this.directDistance = directDistance;
 		this.visibleFromImpact = visibleFromImpact;
+		this.tintColor = tintColor;
 	}
 
 	public Vec3 position() { return this.position; }
@@ -34,6 +36,7 @@ public final class TerrainShockfrontNode {
 	public double cumulativePathDistance() { return this.cumulativePathDistance; }
 	public double directDistance() { return this.directDistance; }
 	public boolean visibleFromImpact() { return this.visibleFromImpact; }
+	public int tintColor() { return this.tintColor; }
 	public synchronized State state() { return this.state; }
 	public synchronized long readyGameTime() { return this.readyGameTime; }
 	public synchronized long emittedGameTime() { return this.emittedGameTime; }

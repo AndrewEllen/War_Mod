@@ -1,7 +1,7 @@
 package com.andye.warmod.warhead;
 
 public final class WarheadConstants {
-	public static final double TARGET_RANGE_BLOCKS = 512.0;
+	public static final double TARGET_RANGE_BLOCKS = 1000.0;
 	public static final double VISUAL_RANGE_BLOCKS = 1536.0;
 
 	public static final double MINIMUM_SPAWN_HEIGHT_ABOVE_TARGET = 160.0;
@@ -11,7 +11,7 @@ public final class WarheadConstants {
 	public static final int MAXIMUM_FLIGHT_TICKS = 64;
 	public static final double TRAJECTORY_SPEED_BLOCKS_PER_TICK = 3.5;
 
-	public static final float EXPLOSION_STRENGTH = 10.0F;
+	public static final float EXPLOSION_STRENGTH = 32.0F;
 
 	public static final int MAX_ACTIVE_CLIENT_WARHEADS = 32;
 	public static final int MAX_ACTIVE_CLIENT_IMPACTS = 64;

@@ -1,6 +1,7 @@
 package com.andye.warmod.item;
 
 import com.andye.warmod.testtool.TestTargeting;
+import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadLaunchService;
 import com.andye.warmod.warhead.WarheadLaunchService.LaunchResult;
 import com.andye.warmod.acoustics.physics.AcousticPropagation;
@@ -19,6 +20,8 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.Level;
 
 public final class AcousticTestStickItem extends Item {
+	private static final int COOLDOWN_TICKS = 2;
+
 	public AcousticTestStickItem(final Properties properties) {
 		super(properties);
 	}
@@ -34,9 +37,9 @@ public final class AcousticTestStickItem extends Item {
 			return InteractionResult.PASS;
 		}
 
-		Optional<BlockHitResult> target = TestTargeting.findTarget(serverPlayer, 512.0);
+		Optional<BlockHitResult> target = TestTargeting.findTarget(serverPlayer, WarheadConstants.TARGET_RANGE_BLOCKS);
 		if (target.isEmpty()) {
-			serverPlayer.sendOverlayMessage(Component.literal("No loaded block found within 512 blocks"));
+			serverPlayer.sendOverlayMessage(Component.literal(String.format(Locale.ROOT, "No loaded block found within %.0f blocks", WarheadConstants.TARGET_RANGE_BLOCKS)));
 			return InteractionResult.SUCCESS_SERVER;
 		}
 
@@ -55,7 +58,7 @@ public final class AcousticTestStickItem extends Item {
 		LaunchResult result = launch.get();
 		double distance = serverPlayer.getEyePosition().distanceTo(result.intendedTarget());
 		long soundDelayTicks = AcousticPropagation.delayTicks(distance, 343.0);
-		serverPlayer.getCooldowns().addCooldown(stack, 20);
+		serverPlayer.getCooldowns().addCooldown(stack, COOLDOWN_TICKS);
 		serverPlayer.sendOverlayMessage(Component.literal(String.format(
 			Locale.ROOT,
 			"Warhead inbound: %.0f blocks | Impact: %.1f s | Sound after impact: %.2f s",

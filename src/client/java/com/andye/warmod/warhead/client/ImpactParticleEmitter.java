@@ -23,11 +23,11 @@ public final class ImpactParticleEmitter {
 	private static final double MEDIUM_DISTANCE = 640.0;
 	private static final double MAX_DISTANCE = 1536.0;
 	private static final double NORMAL_PARTICLE_DISTANCE = 32.0;
-	private static final int MAX_PARTICLES_PER_CLIENT_TICK = 2400;
-	private static final int MAX_PARTICLES_PER_IMPACT_TICK = 1000;
-	private static final int MIN_PARTICLES_PER_IMPACT_TICK = 120;
-	private static final int MAX_ESTIMATED_LIVING_PARTICLES = 12000;
-	private static final int ESTIMATED_PARTICLE_LIFETIME_TICKS = 100;
+	private static final int MAX_PARTICLES_PER_CLIENT_TICK = 100_000;
+	private static final int MAX_PARTICLES_PER_IMPACT_TICK = 50_000;
+	private static final int MIN_PARTICLES_PER_IMPACT_TICK = 5_000;
+	private static final int MAX_ESTIMATED_LIVING_PARTICLES = 2_000_000;
+	private static final int ESTIMATED_PARTICLE_LIFETIME_TICKS = 200;
 
 	private static final long INITIAL_SEED = 0x4D5953494E495443L;
 	private static final long CONTINUOUS_SEED = 0x434F4E54494E5545L;
@@ -90,10 +90,10 @@ public final class ImpactParticleEmitter {
 		boolean force = distance > NORMAL_PARTICLE_DISTANCE;
 		emitParticle(level, ParticleTypes.EXPLOSION_EMITTER, center, Vec3.ZERO, budget, Category.FIREBALL, true);
 		Direction direction = new Direction();
-		emitRadial(level, ModParticleTypes.WARHEAD_FIREBALL, center, random, direction, scaled(random, 25, 40, scale, multiplier), 1.0, 10.0, 0.06, 0.24, 0.12, 0.48, budget, Category.FIREBALL, force);
-		emitRadial(level, ParticleTypes.EXPLOSION, center, random, direction, scaled(random, 15, 25, scale, multiplier), 1.0, 8.0, 0.04, 0.20, 0.02, 0.14, budget, Category.FIREBALL, force);
-		emitRadial(level, ParticleTypes.FLAME, center, random, direction, scaled(random, 25, 45, scale, multiplier), 2.0, 12.0, 0.10, 0.38, 0.08, 0.42, budget, Category.FIREBALL, force);
-		emitRadial(level, ParticleTypes.LAVA, center, random, direction, scaled(random, 15, 25, scale, multiplier), 1.5, 9.0, 0.10, 0.34, 0.22, 0.72, budget, Category.FIREBALL, force);
+		emitRadial(level, ModParticleTypes.WARHEAD_FIREBALL, center, random, direction, scaled(random, 3_500, 5_000, scale, multiplier), 1.0, 10.0, 0.06, 0.24, 0.12, 0.48, budget, Category.FIREBALL, force);
+		emitRadial(level, ParticleTypes.EXPLOSION, center, random, direction, scaled(random, 1_000, 2_000, scale, multiplier), 1.0, 8.0, 0.04, 0.20, 0.02, 0.14, budget, Category.FIREBALL, force);
+		emitRadial(level, ParticleTypes.FLAME, center, random, direction, scaled(random, 3_500, 5_000, scale, multiplier), 2.0, 12.0, 0.10, 0.38, 0.08, 0.42, budget, Category.FIREBALL, force);
+		emitRadial(level, ParticleTypes.LAVA, center, random, direction, scaled(random, 1_500, 2_500, scale, multiplier), 1.5, 9.0, 0.10, 0.34, 0.22, 0.72, budget, Category.FIREBALL, force);
 		ColorParticleOption flash = ColorParticleOption.create(ParticleTypes.FLASH, 0xFFFFD080);
 		emitRadial(level, flash, center, random, direction, Math.max(1, (int) Math.ceil(multiplier)), 0.6, 2.0, 0.01, 0.05, 0.0, 0.03, budget, Category.FIREBALL, force);
 		return budget.emitted(Category.FIREBALL) - before;
@@ -114,7 +114,7 @@ public final class ImpactParticleEmitter {
 
 	private void emitGroundShockfront(final ClientLevel level, final ImpactVisualState state, final Vec3 center,
 		final double distance, final double age, final long gameTime, final ParticleLod lod, final ImpactBudget budget) {
-		int spokes = lod == ParticleLod.NEAR ? 80 : lod == ParticleLod.MEDIUM ? 48 : 24;
+		int spokes = lod == ParticleLod.NEAR ? 256 : lod == ParticleLod.MEDIUM ? 160 : 96;
 		int maximum = budget.remaining(Category.GROUND);
 		for (GroundShockParticleEmitter.GroundParticleBatch batch : GroundShockParticleEmitter.collect(state, center,
 			WarheadVisualMath.groundShockwaveDistance(age, state.visualScale()), spokes, maximum, distance, gameTime)) {
@@ -130,7 +130,7 @@ public final class ImpactParticleEmitter {
 	private void emitLingeringSmoke(final ClientLevel level, final ImpactVisualState state, final double age,
 		final ParticleLod lod, final double distance, final long gameTime, final ImpactBudget budget) {
 		SplittableRandom random = new SplittableRandom(state.visualSeed() ^ SMOKE_SEED ^ gameTime);
-		int count = lod == ParticleLod.NEAR ? random.nextInt(12, 29) : lod == ParticleLod.MEDIUM ? random.nextInt(6, 15) : random.nextInt(2, 7);
+		int count = lod == ParticleLod.NEAR ? random.nextInt(2_500, 5_001) : lod == ParticleLod.MEDIUM ? random.nextInt(1_500, 4_001) : random.nextInt(500, 1_001);
 		boolean force = distance > NORMAL_PARTICLE_DISTANCE;
 		for (int index = 0; index < count && budget.hasCapacity(Category.SMOKE); index++) {
 			BlastCloudLobe lobe = state.blastCloudLobes().get(random.nextInt(state.blastCloudLobes().size()));
@@ -199,7 +199,7 @@ public final class ImpactParticleEmitter {
 	}
 
 	private static ParticleLod lod(final double distance) { return distance < NEAR_DISTANCE ? ParticleLod.NEAR : distance < MEDIUM_DISTANCE ? ParticleLod.MEDIUM : ParticleLod.FAR; }
-	private static int lodMaximum(final ParticleLod lod) { return lod == ParticleLod.NEAR ? 1000 : lod == ParticleLod.MEDIUM ? 600 : 240; }
+	private static int lodMaximum(final ParticleLod lod) { return lod == ParticleLod.NEAR ? 50_000 : lod == ParticleLod.MEDIUM ? 27_000 : 8_000; }
 	private static int scaled(final SplittableRandom random, final int minimum, final int maximum, final float scale, final double multiplier) {
 		return Math.max(1, (int) Math.round(random.nextInt(minimum, maximum + 1) * Mth.clamp(scale, 0.5F, 1.5F) * multiplier));
 	}
@@ -225,10 +225,10 @@ public final class ImpactParticleEmitter {
 		private int shared;
 		ImpactBudget(final TickBudget tickBudget, final ImpactVisualState state, final int maximum, final ParticleLod lod) {
 			this.tickBudget=tickBudget; this.state=state;
-			int fire = lod == ParticleLod.NEAR ? 300 : lod == ParticleLod.MEDIUM ? 180 : 70;
-			int ground = lod == ParticleLod.NEAR ? 520 : lod == ParticleLod.MEDIUM ? 280 : 120;
-			int smoke = lod == ParticleLod.NEAR ? 150 : lod == ParticleLod.MEDIUM ? 100 : 30;
-			int total = fire + ground + smoke + 30;
+			int fire = lod == ParticleLod.NEAR ? 15_000 : lod == ParticleLod.MEDIUM ? 8_000 : 2_000;
+			int ground = lod == ParticleLod.NEAR ? 30_000 : lod == ParticleLod.MEDIUM ? 15_000 : 5_000;
+			int smoke = lod == ParticleLod.NEAR ? 5_000 : lod == ParticleLod.MEDIUM ? 4_000 : 1_000;
+			int total = fire + ground + smoke;
 			double factor = Math.min(1.0, maximum / (double) total);
 			this.remaining.put(Category.FIREBALL, Math.max(1, (int) Math.floor(fire * factor)));
 			this.remaining.put(Category.GROUND, Math.max(1, (int) Math.floor(ground * factor)));

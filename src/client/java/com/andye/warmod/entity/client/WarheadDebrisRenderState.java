@@ -8,4 +8,5 @@ public final class WarheadDebrisRenderState extends EntityRenderState {
 	public final MovingBlockRenderState movingBlock = new MovingBlockRenderState();
 	public Vec3 angularVelocity = Vec3.ZERO;
 	public float debrisAge;
+	public float visualScale = 1.0F;
 }

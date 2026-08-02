@@ -1,6 +1,7 @@
 package com.andye.warmod.warhead.client;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /** Mutable build and emission state for one deterministic radial terrain path. */
@@ -36,12 +37,11 @@ public final class TerrainShockfrontSpoke {
 		}
 	}
 
-	synchronized List<TerrainShockfrontNode> readyNodes(final int maximumNodes) {
-		List<TerrainShockfrontNode> ready = new ArrayList<>();
-		for (TerrainShockfrontNode node : this.nodes) {
-			if (ready.size() >= maximumNodes) break;
-			if (node.state() == TerrainShockfrontNode.State.READY) ready.add(node);
-		}
-		return List.copyOf(ready);
+	synchronized List<TerrainShockfrontNode> readyNodesNearFrontier(final double pressureRadius, final int maximumNodes) {
+		return this.nodes.stream()
+			.filter(node -> node.state() == TerrainShockfrontNode.State.READY)
+			.sorted(Comparator.comparingDouble(node -> Math.abs(pressureRadius - node.cumulativePathDistance())))
+			.limit(maximumNodes)
+			.toList();
 	}
 }

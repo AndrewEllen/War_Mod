@@ -22,6 +22,7 @@ public final class WarheadDebrisEntity extends Entity {
 	private static final EntityDataAccessor<Float> DATA_SPIN_X = SynchedEntityData.defineId(WarheadDebrisEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> DATA_SPIN_Y = SynchedEntityData.defineId(WarheadDebrisEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> DATA_SPIN_Z = SynchedEntityData.defineId(WarheadDebrisEntity.class, EntityDataSerializers.FLOAT);
+	private static final EntityDataAccessor<Float> DATA_VISUAL_SCALE = SynchedEntityData.defineId(WarheadDebrisEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Integer> DATA_MAX_LIFETIME = SynchedEntityData.defineId(WarheadDebrisEntity.class, EntityDataSerializers.INT);
 	private int restingTicks;
 
@@ -31,13 +32,14 @@ public final class WarheadDebrisEntity extends Entity {
 	}
 
 	public WarheadDebrisEntity(final ServerLevel level, final BlockState state, final Vec3 position, final Vec3 velocity,
-		final Vec3 angularVelocity, final int maximumLifetime) {
+		final Vec3 angularVelocity, final int maximumLifetime, final float visualScale) {
 		this(ModEntityTypes.WARHEAD_DEBRIS, level);
 		this.entityData.set(DATA_BLOCK_STATE, state);
 		this.entityData.set(DATA_SPIN_X, (float) angularVelocity.x);
 		this.entityData.set(DATA_SPIN_Y, (float) angularVelocity.y);
 		this.entityData.set(DATA_SPIN_Z, (float) angularVelocity.z);
 		this.entityData.set(DATA_MAX_LIFETIME, maximumLifetime);
+		this.entityData.set(DATA_VISUAL_SCALE, visualScale);
 		this.setPos(position);
 		this.setDeltaMovement(velocity);
 	}
@@ -48,6 +50,7 @@ public final class WarheadDebrisEntity extends Entity {
 		builder.define(DATA_SPIN_X, 0.0F);
 		builder.define(DATA_SPIN_Y, 0.0F);
 		builder.define(DATA_SPIN_Z, 0.0F);
+		builder.define(DATA_VISUAL_SCALE, 1.0F);
 		builder.define(DATA_MAX_LIFETIME, 75);
 	}
 
@@ -73,6 +76,7 @@ public final class WarheadDebrisEntity extends Entity {
 
 	public BlockState blockState() { return this.entityData.get(DATA_BLOCK_STATE); }
 	public Vec3 angularVelocity() { return new Vec3(this.entityData.get(DATA_SPIN_X), this.entityData.get(DATA_SPIN_Y), this.entityData.get(DATA_SPIN_Z)); }
+	public float visualScale() { return this.entityData.get(DATA_VISUAL_SCALE); }
 	public int maximumLifetime() { return this.entityData.get(DATA_MAX_LIFETIME); }
 	public int age() { return this.tickCount; }
 

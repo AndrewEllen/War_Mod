@@ -65,13 +65,14 @@ public final class WarheadWorldRenderer {
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			WarheadMesh.Lod lod = lod(distance);
 			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age, state.visualScale());
-			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 240 : lod == WarheadMesh.Lod.MEDIUM ? 140 : 60;
+			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
 			List<TerrainShockfrontNode> dustNodes = state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime);
 			for (TerrainShockfrontNode node : dustNodes) {
 				if (node.state() == TerrainShockfrontNode.State.READY) state.terrainShockfrontField().markEmitted(node, gameTime);
 			}
 			impacts.add(new ImpactFrame(state.impactPosition(), age, state.visualScale(), lod,
-				state.terrainShockfrontField().snapshotSpokes(), dustNodes, state.fireballLobes(), state.blastCloudLobes(), gameTime));
+				state.terrainShockfrontField().snapshotSpokes(), dustNodes,
+				TerrainDeformationRenderer.extract(level, state.impactPosition(), age, state.visualScale(), lod, state.terrainShockfrontField().snapshotSpokes()), state.fireballLobes(), state.blastCloudLobes(), gameTime));
 		}
 		currentFrame = new RenderFrame(cameraPosition, cameraOrientation, List.copyOf(warheads), List.copyOf(impacts));
 	}
@@ -106,9 +107,8 @@ public final class WarheadWorldRenderer {
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
 			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.lod()));
-		GroundRippleRenderState ripple = new GroundRippleRenderState(impact.position(), impact.shockfrontSpokes(), impact.ageTicks(), impact.visualScale(), impact.lod());
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_RIPPLE,
-			(pose, buffer) -> GroundRippleRenderer.render(pose, buffer, ripple));
+		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.TERRAIN_DEFORMATION,
+			(pose, buffer) -> TerrainDeformationMesh.render(pose, buffer, impact.deformation()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), groundDistance,
 				frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), impact.visualScale()), groundFrontierAlpha(impact.ageTicks()), 208, 226, 244));
@@ -135,7 +135,7 @@ public final class WarheadWorldRenderer {
 		double speed = WarheadVisualMath.normalizedSpeed(warhead.velocity(), WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
 		return WarheadVisualMath.coneActivation(speed) * WarheadVisualMath.coneAttack(warhead.elapsedTicks() - warhead.flightTicks() * 0.20);
 	}
-	private static int frontierSpokeCount(final WarheadMesh.Lod lod) { return lod == WarheadMesh.Lod.NEAR ? 80 : lod == WarheadMesh.Lod.MEDIUM ? 48 : 24; }
+	private static int frontierSpokeCount(final WarheadMesh.Lod lod) { return lod == WarheadMesh.Lod.NEAR ? 256 : lod == WarheadMesh.Lod.MEDIUM ? 160 : 96; }
 	private static WarheadMesh.Lod lod(final double distance) { return distance < NEAR_DISTANCE ? WarheadMesh.Lod.NEAR : distance < MEDIUM_DISTANCE ? WarheadMesh.Lod.MEDIUM : WarheadMesh.Lod.FAR; }
 	private static int sampledLight(final ClientLevel level, final Vec3 position) {
 		BlockPos block = BlockPos.containing(position);
@@ -157,7 +157,7 @@ public final class WarheadWorldRenderer {
 		int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) { }
 	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, WarheadMesh.Lod lod,
 		List<TerrainShockfrontSpoke> shockfrontSpokes, List<TerrainShockfrontNode> dustNodes,
-		List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) { }
+		TerrainDeformationRenderState deformation, List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) { }
 	private record RenderFrame(Vec3 cameraPosition, Quaternionf cameraOrientation, List<WarheadFrame> warheads, List<ImpactFrame> impacts) {
 		private static final RenderFrame EMPTY = new RenderFrame(Vec3.ZERO, new Quaternionf(), List.of(), List.of());
 	}
