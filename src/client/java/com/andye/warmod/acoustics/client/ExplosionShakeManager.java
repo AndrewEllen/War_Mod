@@ -24,7 +24,8 @@ public final class ExplosionShakeManager {
 	public synchronized void add(final long eventSeed, final double listenerDistance, final double gain) {
 		double distanceFactor = 1.0 / (1.0 + Math.pow(listenerDistance / 90.0, 1.55));
 		double gainFactor = Math.sqrt(clamp(gain, 0.0, 1.0));
-		double intensity = clamp(distanceFactor * gainFactor, 0.0, 1.0);
+		double closeBoost = 1.0 + 2.2 * (1.0 - clamp(listenerDistance / 160.0, 0.0, 1.0));
+		double intensity = clamp(distanceFactor * gainFactor * closeBoost, 0.0, 2.4);
 		if (intensity <= 0.001) return;
 		int duration = duration(listenerDistance);
 		long mixed = mix(eventSeed ^ Double.doubleToLongBits(listenerDistance) ^ Double.doubleToLongBits(gain));
@@ -43,17 +44,17 @@ public final class ExplosionShakeManager {
 			pitch += sample.pitch(); yaw += sample.yaw(); roll += sample.roll();
 			lateral += sample.lateral(); vertical += sample.vertical(); forward += sample.forward();
 		}
-		return new ExplosionShakeSample((float) clamp(pitch, -5.0, 5.0), (float) clamp(yaw, -4.0, 4.0),
-			(float) clamp(roll, -2.5, 2.5), (float) clamp(lateral, -0.08, 0.08),
-			(float) clamp(vertical, -0.065, 0.065), (float) clamp(forward, -0.05, 0.05));
+		return new ExplosionShakeSample((float) clamp(pitch, -16.0, 16.0), (float) clamp(yaw, -12.0, 12.0),
+			(float) clamp(roll, -8.0, 8.0), (float) clamp(lateral, -0.25, 0.25),
+			(float) clamp(vertical, -0.20, 0.20), (float) clamp(forward, -0.15, 0.15));
 	}
 
 	public synchronized void clear() { this.impulses.clear(); this.currentTick = 0L; }
 
 	private static int duration(final double distance) {
-		if (distance < 40.0) return 26;
-		if (distance < 100.0) return (int) Math.round(22.0 - (distance - 40.0) / 60.0 * 4.0);
-		if (distance < 300.0) return (int) Math.round(18.0 - (distance - 100.0) / 200.0 * 7.0);
+		if (distance < 40.0) return (int) Math.round(44.0 - distance / 40.0 * 8.0);
+		if (distance < 100.0) return (int) Math.round(36.0 - (distance - 40.0) / 60.0 * 8.0);
+		if (distance < 300.0) return (int) Math.round(24.0 - (distance - 100.0) / 200.0 * 8.0);
 		return Math.max(4, (int) Math.round(11.0 - Math.min(700.0, distance - 300.0) / 700.0 * 7.0));
 	}
 	private static double phase(final long value) { return (value & 0xFFFFL) / 65536.0 * Math.PI * 2.0; }

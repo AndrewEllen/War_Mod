@@ -11,7 +11,7 @@ import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 
 public final class ImpactVisualState {
-	private static final int FIREBALL_LOBE_COUNT = 48;
+	private static final int FIREBALL_LOBE_COUNT = 72;
 	private static final int BLAST_CLOUD_LOBE_COUNT = 96;
 	private final UUID warheadId;
 	private final Vec3 impactPosition;
@@ -136,18 +136,21 @@ public final class ImpactVisualState {
 		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x464952454C4F4245L);
 		List<FireballLobe> lobes = new ArrayList<>(FIREBALL_LOBE_COUNT);
 		for (int index = 0; index < FIREBALL_LOBE_COUNT; index++) {
-			boolean core = index < 24;
+			int band = index < 36 ? 0 : index < 60 ? 1 : 2;
 			double angle = random.nextDouble(0.0, Math.PI * 2.0);
-			double radial = core ? Math.sqrt(random.nextDouble()) * 8.0 : random.nextDouble(8.0, 22.0);
-			double y = core ? random.nextDouble(2.0, 18.0) : random.nextDouble(0.0, 30.0);
+			double radial = band == 0 ? Math.sqrt(random.nextDouble()) * 10.0
+				: band == 1 ? random.nextDouble(8.0, 22.0) : random.nextDouble(18.0, 30.0);
+			double maximumY = band == 0 ? 34.0 : band == 1 ? 40.0 : 42.0;
+			double y = Math.pow(random.nextDouble(), 0.82) * maximumY;
 			Vec3 offset = new Vec3(Math.cos(angle) * radial, y, Math.sin(angle) * radial);
-			lobes.add(new FireballLobe(offset, random.nextDouble(0.0, 3.0), random.nextDouble(2.6, 5.6),
-				random.nextDouble(0.55, 1.25), random.nextDouble(0.55, 1.25), random.nextDouble(0.5, 3.6),
+			double minimumRadius = band == 0 ? 3.8 : band == 1 ? 3.4 : 3.0;
+			double maximumRadius = band == 0 ? 6.5 : band == 1 ? 6.2 : 5.7;
+			lobes.add(new FireballLobe(offset, random.nextDouble(0.0, 3.0), random.nextDouble(minimumRadius, maximumRadius),
+				random.nextDouble(0.50, 1.15), random.nextDouble(0.45, 1.05), random.nextDouble(0.4, 3.2),
 				random.nextDouble(0.0, Math.PI * 2.0), random.nextInt(8)));
 		}
 		return List.copyOf(lobes);
 	}
-
 	private static List<BlastCloudLobe> createBlastCloudLobes(final long visualSeed) {
 		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x424C415354434C44L);
 		List<BlastCloudLobe> lobes = new ArrayList<>(BLAST_CLOUD_LOBE_COUNT);

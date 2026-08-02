@@ -34,9 +34,11 @@ public final class TestExplosionService {
 			throw new IllegalArgumentException("position must be finite");
 		}
 
-		level.explode(
-			sourcePlayer,
-			Explosion.getDefaultDamageSource(level, sourcePlayer),
+		WarheadExplosionDropContext.enter();
+		try {
+			level.explode(
+				sourcePlayer,
+				Explosion.getDefaultDamageSource(level, sourcePlayer),
 			null,
 			position.x,
 			position.y,
@@ -47,7 +49,10 @@ public final class TestExplosionService {
 			ParticleTypes.EXPLOSION,
 			ParticleTypes.EXPLOSION_EMITTER,
 			DEFAULT_BLOCK_PARTICLES,
-			BuiltInRegistries.SOUND_EVENT.wrapAsHolder(ModSoundEvents.SILENT)
-		);
+				BuiltInRegistries.SOUND_EVENT.wrapAsHolder(ModSoundEvents.SILENT)
+			);
+		} finally {
+			WarheadExplosionDropContext.exit();
+		}
 	}
 }

@@ -22,10 +22,10 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 public final class WarheadImpactService {
-	private static final int DEBRIS_SAMPLE_RADIUS = 32;
-	private static final int MAX_DEBRIS_CANDIDATES = 4096;
-	private static final int MAX_DEBRIS_ENTITIES = 640;
-	private static final int MAX_LARGE_DEBRIS_ENTITIES = 256;
+	private static final int DEBRIS_SAMPLE_RADIUS = 24;
+	private static final int MAX_DEBRIS_CANDIDATES = 2048;
+	private static final int MAX_DEBRIS_ENTITIES = 320;
+	private static final int MAX_LARGE_DEBRIS_ENTITIES = 112;
 
 	private WarheadImpactService() { }
 
@@ -83,18 +83,18 @@ public final class WarheadImpactService {
 			Vec3 outward = radial.normalize();
 			Vec3 sideways = new Vec3(-outward.z, 0.0, outward.x);
 			double normalizedRadius = Math.min(1.0, Math.sqrt(radial.lengthSqr()) / DEBRIS_SAMPLE_RADIUS);
-			double horizontalSpeed = large ? random.nextDouble(0.45, 1.50) : random.nextDouble(0.60, 2.00);
-			double verticalMinimum = large ? 0.80 : 0.90;
-			double verticalMaximum = large ? 2.10 : 2.60;
-			double verticalBias = (1.0 - normalizedRadius) * (large ? 0.42 : 0.58);
+			double horizontalSpeed = large ? random.nextDouble(0.12, 0.40) : random.nextDouble(0.18, 0.58);
+			double verticalMinimum = large ? 0.20 : 0.26;
+			double verticalMaximum = large ? 0.58 : 0.74;
+			double verticalBias = (1.0 - normalizedRadius) * 0.12;
 			double verticalSpeed = Math.min(verticalMaximum, random.nextDouble(verticalMinimum, verticalMaximum) + verticalBias);
-			double horizontalBias = 0.72 + normalizedRadius * 0.48;
-			double sideSpeed = random.nextDouble(-0.30, 0.30) * (large ? 0.75 : 1.0);
+			double horizontalBias = 0.92 + normalizedRadius * 0.08;
+			double sideSpeed = random.nextDouble(large ? -0.04 : -0.07, large ? 0.04 : 0.07);
 			Vec3 velocity = outward.scale(horizontalSpeed * horizontalBias).add(sideways.scale(sideSpeed)).add(0.0, verticalSpeed, 0.0);
-			double spinLimit = large ? 0.34 : 0.72;
+			double spinLimit = large ? 0.14 : 0.30;
 			Vec3 spin = new Vec3(random.nextDouble(-spinLimit, spinLimit), random.nextDouble(-spinLimit, spinLimit), random.nextDouble(-spinLimit, spinLimit));
-			float visualScale = (float) (large ? random.nextDouble(0.70, 1.15) : random.nextDouble(0.25, 0.65));
-			int lifetime = large ? random.nextInt(70, 151) : random.nextInt(45, 111);
+			float visualScale = (float) (large ? random.nextDouble(0.65, 1.05) : random.nextDouble(0.25, 0.60));
+			int lifetime = large ? random.nextInt(50, 101) : random.nextInt(35, 86);
 			level.addFreshEntity(new WarheadDebrisEntity(level, candidate.state(), spawn, velocity, spin, lifetime, visualScale));
 		}
 	}

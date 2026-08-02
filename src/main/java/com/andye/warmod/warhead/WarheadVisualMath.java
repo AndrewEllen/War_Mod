@@ -84,9 +84,9 @@ public final class WarheadVisualMath {
 	}
 
 	public static double fireballAlpha(final double ageTicks) {
-		if (!Double.isFinite(ageTicks) || ageTicks < 0.0 || ageTicks >= 75.0) return 0.0;
+		if (!Double.isFinite(ageTicks) || ageTicks < 0.0 || ageTicks >= 80.0) return 0.0;
 		if (ageTicks <= 3.0) return 1.0 - 0.12 * smoothstep(ageTicks / 3.0);
-		return 0.88 * Math.pow(1.0 - clamp((ageTicks - 3.0) / 72.0, 0.0, 1.0), 0.64);
+		return 0.88 * Math.pow(1.0 - clamp((ageTicks - 3.0) / 77.0, 0.0, 1.0), 0.64);
 	}
 
 	public static double clamp(final double value, final double minimum, final double maximum) {

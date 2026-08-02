@@ -6,6 +6,8 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 /** Deterministic three-dimensional fireball lobes using an eight-frame atlas. */
 public final class ImpactFireballRenderer {
@@ -18,9 +20,10 @@ public final class ImpactFireballRenderer {
 		final double ageTicks,
 		final float visualScale,
 		final List<FireballLobe> lobes,
-		final WarheadMesh.Lod lod
+		final WarheadMesh.Lod lod,
+		final Quaternionf cameraOrientation
 	) {
-		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, true);
+		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, true, cameraOrientation);
 	}
 
 	public static void renderCooling(
@@ -29,9 +32,10 @@ public final class ImpactFireballRenderer {
 		final double ageTicks,
 		final float visualScale,
 		final List<FireballLobe> lobes,
-		final WarheadMesh.Lod lod
+		final WarheadMesh.Lod lod,
+		final Quaternionf cameraOrientation
 	) {
-		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, false);
+		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, false, cameraOrientation);
 	}
 
 	private static void renderLobes(
@@ -41,24 +45,25 @@ public final class ImpactFireballRenderer {
 		final float visualScale,
 		final List<FireballLobe> lobes,
 		final WarheadMesh.Lod lod,
-		final boolean hot
+		final boolean hot,
+		final Quaternionf cameraOrientation
 	) {
 		if (!Double.isFinite(ageTicks) || lobes == null || lobes.isEmpty()) {
 			return;
 		}
 
 		float scale = Mth.clamp(visualScale, 0.45F, 1.5F);
-		int lobeLimit = lod == WarheadMesh.Lod.NEAR ? Math.min(48, lobes.size())
-			: lod == WarheadMesh.Lod.MEDIUM ? Math.min(28, lobes.size()) : Math.min(14, lobes.size());
+		int lobeLimit = lod == WarheadMesh.Lod.NEAR ? Math.min(72, lobes.size())
+			: lod == WarheadMesh.Lod.MEDIUM ? Math.min(44, lobes.size()) : Math.min(24, lobes.size());
 		for (int index = 0; index < lobeLimit; index++) {
 			FireballLobe lobe = lobes.get(index);
 			double localAge = ageTicks - lobe.spawnDelayTicks();
-			if (localAge < 0.0 || localAge >= 75.0 || (hot && localAge > 40.0) || (!hot && localAge < 12.0)) {
+			if (localAge < 0.0 || localAge >= 80.0 || (hot && localAge > 42.0) || (!hot && localAge < 12.0)) {
 				continue;
 			}
 
 			double growth = WarheadVisualMath.clamp(localAge / 24.0, 0.0, 1.0);
-			double cooling = WarheadVisualMath.clamp((localAge - 30.0) / 45.0, 0.0, 1.0);
+			double cooling = WarheadVisualMath.clamp((localAge - 30.0) / 50.0, 0.0, 1.0);
 			double alpha = WarheadVisualMath.fireballAlpha(localAge) * (0.48 + 0.52 * (1.0 - index / (double) Math.max(1, lobeLimit)));
 			if (hot) {
 				alpha *= 0.88 + 0.12 * (1.0 - cooling);
@@ -81,7 +86,7 @@ public final class ImpactFireballRenderer {
 			int green = hot ? Mth.lerpInt((float) cooling, 244, 104) : Mth.lerpInt((float) cooling, 148, 92);
 			int blue = hot ? Mth.lerpInt((float) cooling, 170, 34) : Mth.lerpInt((float) cooling, 52, 30);
 			int light = hot ? 0xF000F0 : 0xA000A0;
-			addBillboard(pose, buffer, center, radius, lobe.rotation(), frameU0, frameU1, red, green, blue, alpha, light);
+			addBillboard(pose, buffer, center, radius, lobe.rotation(), frameU0, frameU1, red, green, blue, alpha, light, cameraOrientation);
 		}
 	}
 
@@ -113,7 +118,8 @@ public final class ImpactFireballRenderer {
 		final int green,
 		final int blue,
 		final double alpha,
-		final int light
+		final int light,
+		final Quaternionf cameraOrientation
 	) {
 		float cos = Mth.cos((float) rotation);
 		float sin = Mth.sin((float) rotation);
@@ -122,10 +128,10 @@ public final class ImpactFireballRenderer {
 		float vx = -sin * radius;
 		float vy = cos * radius;
 		int alphaByte = Mth.clamp((int) (alpha * 255.0), 0, 255);
-		vertex(pose, buffer, center, -ux - vx, -uy - vy, u0, 1.0F, red, green, blue, alphaByte, light);
-		vertex(pose, buffer, center, -ux + vx, -uy + vy, u0, 0.0F, red, green, blue, alphaByte, light);
-		vertex(pose, buffer, center, ux + vx, uy + vy, u1, 0.0F, red, green, blue, alphaByte, light);
-		vertex(pose, buffer, center, ux - vx, uy - vy, u1, 1.0F, red, green, blue, alphaByte, light);
+		vertex(pose, buffer, center, -ux - vx, -uy - vy, u0, 1.0F, red, green, blue, alphaByte, light, cameraOrientation);
+		vertex(pose, buffer, center, -ux + vx, -uy + vy, u0, 0.0F, red, green, blue, alphaByte, light, cameraOrientation);
+		vertex(pose, buffer, center, ux + vx, uy + vy, u1, 0.0F, red, green, blue, alphaByte, light, cameraOrientation);
+		vertex(pose, buffer, center, ux - vx, uy - vy, u1, 1.0F, red, green, blue, alphaByte, light, cameraOrientation);
 	}
 
 	private static void vertex(
@@ -140,16 +146,18 @@ public final class ImpactFireballRenderer {
 		final int green,
 		final int blue,
 		final int alpha,
-		final int light
+		final int light,
+		final Quaternionf cameraOrientation
 	) {
-		buffer.addVertex(pose, (float) center.x + x, (float) center.y + y, (float) center.z)
+		Vector3f offset = new Vector3f(x, y, 0.0F).rotate(cameraOrientation);
+		Vector3f normal = new Vector3f(0.0F, 0.0F, 1.0F).rotate(cameraOrientation);
+		buffer.addVertex(pose, (float) center.x + offset.x, (float) center.y + offset.y, (float) center.z + offset.z)
 			.setColor(red, green, blue, alpha)
 			.setUv(u, v)
 			.setOverlay(0)
 			.setLight(light)
-			.setNormal(pose, 0.0F, 0.0F, 1.0F);
+			.setNormal(pose, normal.x, normal.y, normal.z);
 	}
-
 	private static double easeOut(final double value) {
 		double t = WarheadVisualMath.clamp(value, 0.0, 1.0);
 		return 1.0 - (1.0 - t) * (1.0 - t);

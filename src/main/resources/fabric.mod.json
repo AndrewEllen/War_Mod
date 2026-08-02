@@ -15,6 +15,7 @@
 		]
 	},
 	"mixins": [
+		"war_mod.mixins.json",
 		"war_mod.client.mixins.json"
 	],
 	"depends": {

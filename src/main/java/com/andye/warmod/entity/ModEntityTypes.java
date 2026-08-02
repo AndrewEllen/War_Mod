@@ -15,7 +15,7 @@ public final class ModEntityTypes {
 	public static final EntityType<IncomingWarheadEntity> INCOMING_WARHEAD = EntityType.Builder.<IncomingWarheadEntity>of(IncomingWarheadEntity::new, MobCategory.MISC)
 		.sized(0.45F, 1.6F).noSummon().clientTrackingRange(0).updateInterval(1).build(INCOMING_WARHEAD_KEY);
 	public static final EntityType<WarheadDebrisEntity> WARHEAD_DEBRIS = EntityType.Builder.<WarheadDebrisEntity>of(WarheadDebrisEntity::new, MobCategory.MISC)
-		.sized(0.92F, 0.92F).noSummon().noSave().noLootTable().clientTrackingRange(12).updateInterval(1).build(WARHEAD_DEBRIS_KEY);
+		.sized(0.92F, 0.92F).noSummon().noSave().noLootTable().clientTrackingRange(96).updateInterval(2).build(WARHEAD_DEBRIS_KEY);
 	private static boolean registered;
 
 	private ModEntityTypes() { }

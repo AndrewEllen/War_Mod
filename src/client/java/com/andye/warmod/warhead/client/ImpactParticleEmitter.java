@@ -70,7 +70,8 @@ public final class ImpactParticleEmitter {
 	private void emitImpact(final ClientLevel level, final ImpactVisualState state, final Vec3 center, final double distance,
 		final long gameTime, final ParticleLod lod, final ImpactBudget budget) {
 		double age = state.ageTicks(gameTime, 0.0);
-		if (age < WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS) this.emitGroundShockfront(level, state, center, distance, age, gameTime, lod, budget);
+		this.emitShockwaveRing(level, state, age, gameTime, lod, budget);
+		budget.releaseUnused(Category.SHOCKWAVE_RING);
 		if (!state.initialBurstEmitted()) {
 			int emitted = this.emitInitialBurst(level, center, state.visualScale(), state.visualSeed(), lod, distance, budget);
 			if (emitted > 0) state.markInitialBurstEmitted();
@@ -80,8 +81,17 @@ public final class ImpactParticleEmitter {
 			if (age >= 20.0 && age < 260.0) this.emitLingeringSmoke(level, state, age, lod, distance, gameTime, budget);
 			state.markContinuousParticleTick(gameTime);
 		}
+		if (age < WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS) this.emitGroundShockfront(level, state, center, distance, age, gameTime, lod, budget);
 	}
 
+	private void emitShockwaveRing(final ClientLevel level, final ImpactVisualState state, final double age,
+		final long gameTime, final ParticleLod lod, final ImpactBudget budget) {
+		if (!budget.hasCapacity(Category.SHOCKWAVE_RING)) return;
+		ExplosionEmitterShockwave.Profile profile = lod == ParticleLod.NEAR ? ExplosionEmitterShockwave.Profile.NEAR
+			: lod == ParticleLod.MEDIUM ? ExplosionEmitterShockwave.Profile.MEDIUM : ExplosionEmitterShockwave.Profile.FAR;
+		ExplosionEmitterShockwave.emit(level, state, age, gameTime, profile,
+			(particle, position, velocity) -> emitParticle(level, particle, position, velocity, budget, Category.SHOCKWAVE_RING, true));
+	}
 	private int emitInitialBurst(final ClientLevel level, final Vec3 center, final float scale, final long seed,
 		final ParticleLod lod, final double distance, final ImpactBudget budget) {
 		SplittableRandom random = new SplittableRandom(seed ^ INITIAL_SEED);
@@ -210,7 +220,7 @@ public final class ImpactParticleEmitter {
 	}
 
 	private enum ParticleLod { NEAR, MEDIUM, FAR }
-	private enum Category { FIREBALL, GROUND, SMOKE }
+	private enum Category { SHOCKWAVE_RING, FIREBALL, GROUND, SMOKE }
 	private static final class Direction { double x, y, z; }
 	private static final class TickBudget {
 		private int remaining; private int emitted;
@@ -225,11 +235,13 @@ public final class ImpactParticleEmitter {
 		private int shared;
 		ImpactBudget(final TickBudget tickBudget, final ImpactVisualState state, final int maximum, final ParticleLod lod) {
 			this.tickBudget=tickBudget; this.state=state;
-			int fire = lod == ParticleLod.NEAR ? 15_000 : lod == ParticleLod.MEDIUM ? 8_000 : 2_000;
-			int ground = lod == ParticleLod.NEAR ? 30_000 : lod == ParticleLod.MEDIUM ? 15_000 : 5_000;
+			int ring = lod == ParticleLod.NEAR ? 12_000 : lod == ParticleLod.MEDIUM ? 6_000 : 2_000;
+			int fire = lod == ParticleLod.NEAR ? 8_000 : lod == ParticleLod.MEDIUM ? 5_000 : 1_000;
+			int ground = lod == ParticleLod.NEAR ? 25_000 : lod == ParticleLod.MEDIUM ? 12_000 : 4_000;
 			int smoke = lod == ParticleLod.NEAR ? 5_000 : lod == ParticleLod.MEDIUM ? 4_000 : 1_000;
-			int total = fire + ground + smoke;
+			int total = ring + fire + ground + smoke;
 			double factor = Math.min(1.0, maximum / (double) total);
+			this.remaining.put(Category.SHOCKWAVE_RING, Math.max(1, (int) Math.floor(ring * factor)));
 			this.remaining.put(Category.FIREBALL, Math.max(1, (int) Math.floor(fire * factor)));
 			this.remaining.put(Category.GROUND, Math.max(1, (int) Math.floor(ground * factor)));
 			this.remaining.put(Category.SMOKE, Math.max(1, (int) Math.floor(smoke * factor)));
@@ -245,6 +257,13 @@ public final class ImpactParticleEmitter {
 			else if (this.shared > 0) this.shared--;
 			else { this.tickBudget.remaining++; this.tickBudget.emitted--; return false; }
 			this.emitted.put(category, this.emitted.get(category) + 1); this.state.recordParticleEmission(); return true;
+		}
+		void releaseUnused(final Category category) {
+			int unused = this.remaining.get(category);
+			if (unused > 0) {
+				this.remaining.put(category, 0);
+				this.shared += unused;
+			}
 		}
 		int emitted(final Category category) { return this.emitted.get(category); }
 	}

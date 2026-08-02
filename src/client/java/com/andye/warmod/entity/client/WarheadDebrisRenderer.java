@@ -1,11 +1,13 @@
 package com.andye.warmod.entity.client;
 
 import com.andye.warmod.entity.WarheadDebrisEntity;
+import com.andye.warmod.warhead.WarheadConstants;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
 import org.joml.Quaternionf;
@@ -13,6 +15,13 @@ import org.joml.Quaternionf;
 public final class WarheadDebrisRenderer extends EntityRenderer<WarheadDebrisEntity, WarheadDebrisRenderState> {
 	public WarheadDebrisRenderer(final EntityRendererProvider.Context context) { super(context); this.shadowRadius = 0.3F; }
 
+	@Override
+	public boolean shouldRender(final WarheadDebrisEntity entity, final Frustum frustum,
+		final double cameraX, final double cameraY, final double cameraZ) {
+		double maximumDistance = WarheadConstants.VISUAL_RANGE_BLOCKS;
+		if (entity.distanceToSqr(cameraX, cameraY, cameraZ) > maximumDistance * maximumDistance) return false;
+		return !this.affectedByCulling(entity) || frustum.isVisible(this.getBoundingBoxForCulling(entity).inflate(0.5));
+	}
 	@Override
 	public WarheadDebrisRenderState createRenderState() { return new WarheadDebrisRenderState(); }
 
