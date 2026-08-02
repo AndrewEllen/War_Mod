@@ -1,1 +1,40 @@
-package com.andye.warmod.radar.station.client;import com.andye.warmod.radar.client.gui.*;import com.andye.warmod.radar.station.RadarSweepMath;import net.minecraft.client.gui.GuiGraphicsExtractor;public final class RadarSweepRenderer {private RadarSweepRenderer(){}public static void render(GuiGraphicsExtractor g,ClientRadarStationState s,RadarMapTransform t,double now,int left,int top,int width,int height){if(s.centre()==null)return;double cx=t.screenX(s.centre().getX()+.5,left,width),cy=t.screenY(s.centre().getZ()+.5,top,height);double angle=Math.toRadians(RadarSweepMath.angleDegrees(now,s.phaseOffset()));double radius=Math.hypot(width,height);double ex=cx-Math.sin(angle)*radius,ey=cy-Math.cos(angle)*radius;RadarPolylineRenderer.drawSegment(g,cx,cy,ex,ey,left,top,width,height,0xaa62f2a5,1);for(int i=1;i<=5;i++){double a=angle+Math.toRadians((i-3)*.8);RadarPolylineRenderer.drawSegment(g,cx,cy,cx-Math.sin(a)*radius,cy-Math.cos(a)*radius,left,top,width,height,0x1845d98b,1);}RadarPolylineRenderer.drawRing(g,(int)cx,(int)cy,s.warningRadius()/t.blocksPerPixel(),left,top,width,height,s.warningActive()?0xffff3b35:0x9986b6a2,1);g.fill((int)cx-3,(int)cy-3,(int)cx+4,(int)cy+4,0xffffc45a);for(ClientRadarBlip b:s.blips()){var o=b.observation();int x=(int)Math.round(t.screenX(o.observedPosition().x,left,width)),y=(int)Math.round(t.screenY(o.observedPosition().z,top,height));int alpha=(int)(255*Math.max(0,Math.min(1,b.alpha(now,s.sweepPeriod()))));int rgb=o.threatensWarningZone()?0xff342e:o.payloadType()==com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR?0xff553c:0xffb43b;int color=(alpha<<24)|rgb;g.fill(x-3,y-3,x+4,y+4,color);int ix=(int)Math.round(t.screenX(o.predictedImpactPosition().x,left,width)),iy=(int)Math.round(t.screenY(o.predictedImpactPosition().z,top,height));g.fill(ix-2,iy-2,ix+3,iy+3,color);}}}
+package com.andye.warmod.radar.station.client;
+
+import com.andye.warmod.radar.client.gui.RadarMapTransform;
+import com.andye.warmod.radar.client.gui.RadarPolylineRenderer;
+import com.andye.warmod.radar.station.RadarSweepMath;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+
+public final class RadarSweepRenderer {
+    private RadarSweepRenderer() { }
+
+    public static void render(final GuiGraphicsExtractor graphics,
+        final ClientRadarStationState state, final RadarMapTransform transform,
+        final double now, final int left, final int top, final int width, final int height) {
+        if (state.centre() == null) return;
+        double centerX = transform.screenX(state.centre().getX() + 0.5, left, width);
+        double centerY = transform.screenY(state.centre().getZ() + 0.5, top, height);
+        double angle = Math.toRadians(RadarSweepMath.angleDegrees(now, state.phaseOffset()));
+        double radius = Math.hypot(width, height);
+        double endX = centerX + Math.sin(angle) * radius;
+        double endY = centerY - Math.cos(angle) * radius;
+        RadarPolylineRenderer.drawSegment(graphics, centerX, centerY, endX, endY,
+            left, top, width, height, 0xaa62f2a5, 1);
+        for (int index = 1; index <= 5; index++) {
+            double wedge = angle + Math.toRadians((index - 3) * 0.8);
+            RadarPolylineRenderer.drawSegment(graphics, centerX, centerY,
+                centerX + Math.sin(wedge) * radius,
+                centerY - Math.cos(wedge) * radius,
+                left, top, width, height, 0x1845d98b, 1);
+        }
+        RadarPolylineRenderer.drawRing(graphics, (int)centerX, (int)centerY,
+            state.warningRadius() / transform.blocksPerPixel(), left, top, width, height,
+            state.warningActive() ? 0xffff3b35 : 0x99c58b35, 1);
+        graphics.fill((int)centerX - 3, (int)centerY - 3,
+            (int)centerX + 4, (int)centerY + 4, 0xffffc45a);
+        for (ClientRadarBlip blip : state.blips()) {
+            RadarStationTrackRenderer.render(graphics, blip, transform, now,
+                left, top, width, height, state.sweepPeriod());
+        }
+    }
+}

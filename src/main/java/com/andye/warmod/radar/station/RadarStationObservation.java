@@ -1,1 +1,16 @@
-package com.andye.warmod.radar.station;import com.andye.warmod.radar.RadarTrackPhase;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.UUID;import net.minecraft.world.phys.Vec3;public record RadarStationObservation(UUID trackId,WarheadPayloadType payloadType,RadarTrackPhase phase,Vec3 observedPosition,Vec3 observedVelocity,Vec3 predictedImpactPosition,long observationGameTime,boolean threatensWarningZone){}
+package com.andye.warmod.radar.station;
+
+import com.andye.warmod.radar.RadarTrackSnapshot;
+import java.util.UUID;
+import net.minecraft.world.phys.Vec3;
+
+public record RadarStationObservation(
+    UUID trackId,
+    RadarTrackSnapshot trackSnapshot,
+    Vec3 observedPosition,
+    Vec3 observedVelocity,
+    Vec3 predictedImpactPosition,
+    long observationGameTime,
+    double observedRouteTime,
+    boolean threatensWarningZone
+) { }

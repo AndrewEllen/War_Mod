@@ -45,9 +45,20 @@ public final class WarheadImpactService {
 	public static void detonateAt(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
 		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType,
 		final boolean registerRadarImpact) {
-		Objects.requireNonNull(level); Objects.requireNonNull(id); Objects.requireNonNull(pos); Objects.requireNonNull(payloadType);
+		detonateWithProfile(level, owner, id, radarRootTrackId, pos, seed, payloadType,
+			WarheadImpactProfiles.get(payloadType), registerRadarImpact);
+	}
+	public static void detonateTacticalHe(final ServerLevel level, final @Nullable ServerPlayer owner,
+		final UUID id, final Vec3 pos, final long seed) {
+		detonateWithProfile(level, owner, id, id, pos, seed, WarheadPayloadType.CONVENTIONAL,
+			WarheadImpactProfiles.tacticalHe(), false);
+	}
+	private static void detonateWithProfile(final ServerLevel level, final @Nullable ServerPlayer owner,
+		final UUID id, final UUID radarRootTrackId, final Vec3 pos, final long seed,
+		final WarheadPayloadType payloadType, final WarheadImpactProfile profile,
+		final boolean registerRadarImpact) {
+		Objects.requireNonNull(level); Objects.requireNonNull(id); Objects.requireNonNull(pos);
 		if (!pos.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
-		WarheadImpactProfile profile = WarheadImpactProfiles.get(payloadType);
 		if (registerRadarImpact) RadarTrackingService.registerImpact(level, id, radarRootTrackId, pos, payloadType, profile.impactVisualScale());
 		List<DebrisCandidate> candidates = sample(level, pos, seed, profile);
 		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(id, pos.x, pos.y, pos.z,
@@ -55,7 +66,9 @@ public final class WarheadImpactService {
 		TestExplosionService.createExplosion(level, owner, pos, profile.explosionStrength());
 		spawnDebris(level, pos, seed, candidates, profile);
 		AcousticEngine.playSound(level, pos, AcousticSounds.WARHEAD_IMPACT_THUD_ID, SoundSource.BLOCKS, .72F, 1.0F);
-		AcousticEngine.playSound(level, pos, AcousticSounds.LARGE_EXPLOSION_ID, SoundSource.BLOCKS, profile.acousticVolume(), profile.acousticPitch());
+		AcousticEngine.playSound(level, pos, profile == WarheadImpactProfiles.tacticalHe()
+			? AcousticSounds.TACTICAL_HE_EXPLOSION_ID : AcousticSounds.LARGE_EXPLOSION_ID,
+			SoundSource.BLOCKS, profile.acousticVolume(), profile.acousticPitch());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Warhead {} emitted impact thud and explosion at {}", id, pos);
 		if (payloadType == WarheadPayloadType.NUCLEAR && SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Nuclear warhead {} impacted at {}", id, pos);
 	}

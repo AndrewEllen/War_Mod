@@ -64,7 +64,7 @@ public final class RadarTrackingService {
 			if(track.phase==RadarTrackPhase.IMPACT)continue;Vec3 position,velocity,target;
 			if(track.terminalWarheadId!=null){double elapsed=Math.max(0,gameTime-track.terminalLaunchGameTime);position=com.andye.warmod.warhead.WarheadTrajectory.position(track.terminalStartPosition,track.terminalTargetPosition,elapsed,track.terminalFlightTicks);velocity=com.andye.warmod.warhead.WarheadTrajectory.velocity(track.terminalStartPosition,track.terminalTargetPosition,elapsed,track.terminalFlightTicks);target=track.terminalTargetPosition;}
 			else if(track.carrierFlightPlan!=null){double elapsed=Math.max(0,gameTime-track.carrierFlightPlan.launchGameTime());position=IcbmTrajectory.position(track.carrierFlightPlan,elapsed);velocity=IcbmTrajectory.velocity(track.carrierFlightPlan,elapsed);target=track.carrierFlightPlan.intendedTarget();}
-			else continue;result.add(new RadarTrackTelemetry(track.trackId,track.payloadType,track.phase,position,velocity,target,gameTime));
+			else continue;result.add(new RadarTrackTelemetry(track.trackId,track.payloadType,track.phase,position,velocity,target,gameTime,track.snapshot()));
 		}return List.copyOf(result);
 	}	public static synchronized List<RadarImpactSnapshot> snapshotImpacts(final ServerLevel level){State s=STATES.get(level);return s==null?List.of():List.copyOf(s.recentImpacts);}
 	public static synchronized void reconcileIcbmFlights(final ServerLevel level){for(IcbmFlightPlan plan:IcbmFlightControllerManager.snapshot(level))registerIcbm(level,plan);}
@@ -81,6 +81,6 @@ public final class RadarTrackingService {
 	private static void upsert(final ServerLevel l,final RadarTrack t){RadarSubscriptionManager.broadcast(l,new ClientboundRadarTrackUpsertPayload(l.getGameTime(),t.snapshot()));}
 	private static String boundedName(final String s){return s==null||s.isBlank()?"SERVER":s.substring(0,Math.min(64,s.length()));}
 	private static void log(final String format,final Object...args){if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info(format,args);}
-	public record RadarTrackTelemetry(UUID trackId,WarheadPayloadType payloadType,RadarTrackPhase phase,Vec3 currentPosition,Vec3 currentVelocity,Vec3 predictedImpactPosition,long gameTime){}
+	public record RadarTrackTelemetry(UUID trackId,WarheadPayloadType payloadType,RadarTrackPhase phase,Vec3 currentPosition,Vec3 currentVelocity,Vec3 predictedImpactPosition,long gameTime,RadarTrackSnapshot snapshot){}
 	private static final class State{final LinkedHashMap<UUID,RadarTrack> tracksByRootId=new LinkedHashMap<>();final Map<UUID,UUID> terminalWarheadToRootTrack=new HashMap<>();final ArrayDeque<RadarImpactSnapshot> recentImpacts=new ArrayDeque<>();}
 }

@@ -25,6 +25,7 @@ public final class ClientRadarState {
 	public void impact(final ClientboundRadarImpactPayload payload) { recentImpacts.put(payload.impact().rootTrackId(), new ClientRadarImpact(payload.impact())); rebuildImpacts(); }
 	public List<ClientRadarTrack> tracks() { return renderTracks; }
 	public List<ClientRadarImpact> impacts() { return renderImpacts; }
+	public void pruneImpacts(final double now) { if (recentImpacts.values().removeIf(impact -> now - impact.snapshot().impactGameTime() > com.andye.warmod.radar.RadarTrackingService.RECENT_IMPACT_RETENTION_TICKS)) rebuildImpacts(); }
 	public ClientRadarTrack selected() { return selectedTrackId == null ? null : activeTracks.get(selectedTrackId); }
 	public void select(final UUID id) { selectedTrackId = id; }
 	public UUID selectedTrackId() { return selectedTrackId; }

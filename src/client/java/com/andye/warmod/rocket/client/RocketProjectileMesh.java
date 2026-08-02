@@ -1,2 +1,94 @@
-package com.andye.warmod.rocket.client;import com.mojang.blaze3d.vertex.*;import net.minecraft.client.renderer.texture.OverlayTexture;public final class RocketProjectileMesh {private RocketProjectileMesh(){}public static void render(PoseStack.Pose p,VertexConsumer b,RocketProjectileRenderState s){float half=(float)s.payloadType.length()/2f,r=s.payloadType==com.andye.warmod.rocket.RocketPayloadType.HE?.12f:.16f;int[]c=switch(s.payloadType){case HE->new int[]{72,78,61};case CONVENTIONAL_ICBM->new int[]{73,79,83};case NUCLEAR_ICBM->new int[]{60,66,70};};box(p,b,-r,-half,-r,r,half*.72f,r,c[0],c[1],c[2],s.lightCoords);pyramid(p,b,r,half*.72f,half,c,s.lightCoords);box(p,b,-r*.65f,-half-r*.16f,-r*.65f,r*.65f,-half,r*.65f,35,38,40,s.lightCoords);int band=s.payloadType==com.andye.warmod.rocket.RocketPayloadType.NUCLEAR_ICBM?230:s.payloadType==com.andye.warmod.rocket.RocketPayloadType.CONVENTIONAL_ICBM?184:220;box(p,b,-r*1.02f,half*.25f,-r*1.02f,r*1.02f,half*.38f,r*1.02f,band,s.payloadType==com.andye.warmod.rocket.RocketPayloadType.NUCLEAR_ICBM?190:125,25,s.lightCoords);for(int i=0;i<4;i++){boolean x=i<2;float sign=(i%2==0)?-1:1;if(x)box(p,b,sign*r,-half*.92f,-.035f,sign*(r+.18f),-half*.45f,.035f,54,58,61,s.lightCoords);else box(p,b,-.035f,-half*.92f,sign*r,.035f,-half*.45f,sign*(r+.18f),54,58,61,s.lightCoords);}}
- private static void pyramid(PoseStack.Pose p,VertexConsumer b,float r,float y,float tip,int[]c,int l){tri(p,b,-r,y,-r,r,y,-r,0,tip,0,c,l);tri(p,b,r,y,-r,r,y,r,0,tip,0,c,l);tri(p,b,r,y,r,-r,y,r,0,tip,0,c,l);tri(p,b,-r,y,r,-r,y,-r,0,tip,0,c,l);}private static void box(PoseStack.Pose p,VertexConsumer b,float x1,float y1,float z1,float x2,float y2,float z2,int r,int g,int bl,int l){quad(p,b,x1,y1,z1,x2,y1,z1,x2,y2,z1,x1,y2,z1,r,g,bl,l);quad(p,b,x2,y1,z2,x1,y1,z2,x1,y2,z2,x2,y2,z2,r,g,bl,l);quad(p,b,x1,y1,z2,x1,y1,z1,x1,y2,z1,x1,y2,z2,r,g,bl,l);quad(p,b,x2,y1,z1,x2,y1,z2,x2,y2,z2,x2,y2,z1,r,g,bl,l);quad(p,b,x1,y2,z1,x2,y2,z1,x2,y2,z2,x1,y2,z2,r,g,bl,l);quad(p,b,x1,y1,z2,x2,y1,z2,x2,y1,z1,x1,y1,z1,r,g,bl,l);}private static void tri(PoseStack.Pose p,VertexConsumer b,float ax,float ay,float az,float bx,float by,float bz,float cx,float cy,float cz,int[]col,int l){v(p,b,ax,ay,az,0,0,col[0],col[1],col[2],255,l);v(p,b,bx,by,bz,1,0,col[0],col[1],col[2],255,l);v(p,b,cx,cy,cz,.5f,1,col[0],col[1],col[2],255,l);}private static void quad(PoseStack.Pose p,VertexConsumer b,float ax,float ay,float az,float bx,float by,float bz,float cx,float cy,float cz,float dx,float dy,float dz,int r,int g,int bl,int l){v(p,b,ax,ay,az,0,0,r,g,bl,255,l);v(p,b,bx,by,bz,1,0,r,g,bl,255,l);v(p,b,cx,cy,cz,1,1,r,g,bl,255,l);v(p,b,dx,dy,dz,0,1,r,g,bl,255,l);}private static void v(PoseStack.Pose p,VertexConsumer b,float x,float y,float z,float u,float v,int r,int g,int bl,int a,int l){b.addVertex(p,x,y,z).setColor(r,g,bl,a).setUv(u,v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(l).setNormal(p,0,1,0);}}
+package com.andye.warmod.rocket.client;
+
+import com.andye.warmod.icbm.client.render.IcbmLongRangeRenderContext;
+import com.andye.warmod.icbm.client.render.IcbmMissileMesh;
+import com.andye.warmod.icbm.client.render.IcbmPayloadAppearance;
+import com.andye.warmod.rocket.RocketPayloadType;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+
+public final class RocketProjectileMesh {
+    private RocketProjectileMesh() { }
+
+    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final RocketProjectileRenderState state) {
+        if (state.payloadType != RocketPayloadType.HE) {
+            IcbmLongRangeRenderContext.Lod detail = switch (state.lod) {
+                case NEAR -> IcbmLongRangeRenderContext.Lod.NEAR;
+                case MEDIUM -> IcbmLongRangeRenderContext.Lod.MEDIUM;
+                case FAR -> IcbmLongRangeRenderContext.Lod.EXTREME;
+            };
+            IcbmPayloadAppearance appearance = state.payloadType == RocketPayloadType.NUCLEAR_ICBM
+                ? IcbmPayloadAppearance.NUCLEAR : IcbmPayloadAppearance.CONVENTIONAL;
+            IcbmMissileMesh.render(pose, buffer, appearance, detail, state.lightCoords);
+            return;
+        }
+        float half = state.lod == RocketProjectileRenderState.RocketLod.FAR ? 0.42F : 0.46F;
+        float radius = state.lod == RocketProjectileRenderState.RocketLod.NEAR ? 0.12F : 0.09F;
+        int brightness = state.lod == RocketProjectileRenderState.RocketLod.FAR ? 160 : 82;
+        box(pose, buffer, -radius, -half, -radius, radius, half * 0.58F, radius,
+            brightness, brightness + 10, 70, state.lightCoords);
+        pyramid(pose, buffer, radius, half * 0.58F, half, 112, 122, 81, state.lightCoords);
+        box(pose, buffer, -radius * 1.02F, 0.08F, -radius * 1.02F,
+            radius * 1.02F, 0.18F, radius * 1.02F, 196, 156, 39, state.lightCoords);
+        if (state.lod == RocketProjectileRenderState.RocketLod.NEAR) renderFins(pose, buffer, radius, half, state.lightCoords);
+    }
+
+    private static void renderFins(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float radius, final float half, final int light) {
+        for (int index = 0; index < 4; index++) {
+            boolean xAxis = index < 2;
+            float sign = index % 2 == 0 ? -1 : 1;
+            if (xAxis) box(pose, buffer, sign * radius, -half * 0.9F, -0.025F,
+                sign * (radius + 0.13F), -half * 0.42F, 0.025F, 53, 60, 49, light);
+            else box(pose, buffer, -0.025F, -half * 0.9F, sign * radius,
+                0.025F, -half * 0.42F, sign * (radius + 0.13F), 53, 60, 49, light);
+        }
+    }
+
+    private static void pyramid(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float radius, final float base, final float tip, final int red, final int green,
+        final int blue, final int light) {
+        triangle(pose,buffer,-radius,base,-radius,radius,base,-radius,0,tip,0,red,green,blue,light);
+        triangle(pose,buffer,radius,base,-radius,radius,base,radius,0,tip,0,red,green,blue,light);
+        triangle(pose,buffer,radius,base,radius,-radius,base,radius,0,tip,0,red,green,blue,light);
+        triangle(pose,buffer,-radius,base,radius,-radius,base,-radius,0,tip,0,red,green,blue,light);
+    }
+
+    private static void box(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float x1, final float y1, final float z1, final float x2, final float y2, final float z2,
+        final int red, final int green, final int blue, final int light) {
+        quad(pose,buffer,x1,y1,z1,x2,y1,z1,x2,y2,z1,x1,y2,z1,red,green,blue,light);
+        quad(pose,buffer,x2,y1,z2,x1,y1,z2,x1,y2,z2,x2,y2,z2,red,green,blue,light);
+        quad(pose,buffer,x1,y1,z2,x1,y1,z1,x1,y2,z1,x1,y2,z2,red,green,blue,light);
+        quad(pose,buffer,x2,y1,z1,x2,y1,z2,x2,y2,z2,x2,y2,z1,red,green,blue,light);
+        quad(pose,buffer,x1,y2,z1,x2,y2,z1,x2,y2,z2,x1,y2,z2,red,green,blue,light);
+        quad(pose,buffer,x1,y1,z2,x2,y1,z2,x2,y1,z1,x1,y1,z1,red,green,blue,light);
+    }
+
+    private static void triangle(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float ax,final float ay,final float az,final float bx,final float by,final float bz,
+        final float cx,final float cy,final float cz,final int red,final int green,final int blue,final int light) {
+        vertex(pose,buffer,ax,ay,az,0,0,red,green,blue,light);
+        vertex(pose,buffer,bx,by,bz,1,0,red,green,blue,light);
+        vertex(pose,buffer,cx,cy,cz,.5F,1,red,green,blue,light);
+    }
+
+    private static void quad(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float ax,final float ay,final float az,final float bx,final float by,final float bz,
+        final float cx,final float cy,final float cz,final float dx,final float dy,final float dz,
+        final int red,final int green,final int blue,final int light) {
+        vertex(pose,buffer,ax,ay,az,0,0,red,green,blue,light);
+        vertex(pose,buffer,bx,by,bz,1,0,red,green,blue,light);
+        vertex(pose,buffer,cx,cy,cz,1,1,red,green,blue,light);
+        vertex(pose,buffer,dx,dy,dz,0,1,red,green,blue,light);
+    }
+
+    private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float x,final float y,final float z,final float u,final float v,
+        final int red,final int green,final int blue,final int light) {
+        buffer.addVertex(pose,x,y,z).setColor(red,green,blue,255).setUv(u,v)
+            .setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose,0,1,0);
+    }
+}

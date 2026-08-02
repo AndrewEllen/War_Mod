@@ -47,6 +47,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     private int reloadTicksTotal;
     private long reloadStartGameTime;
     private int installedGuidanceTier;
+    private int leftGuidanceTier;
+    private int rightGuidanceTier;
     private @Nullable UUID pendingLaunchRequestId;
     private ItemStack reservedMissile = ItemStack.EMPTY;
     private @Nullable UUID activeMissileId;
@@ -78,8 +80,19 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
             return;
         }
         if ((level.getGameTime() & 19L) == 0L) {
-            int tier = MissileSiloGuidanceFrameStructure.installedTier(server, pos, silo.facing);
-            if (tier != silo.installedGuidanceTier) { silo.installedGuidanceTier = tier; silo.sync(); }
+            MissileSiloGuidanceFrameStructure.cleanupLegacy(server, pos);
+            int left = MissileSiloGuidanceFrameStructure.installedSideTier(server, pos, silo.facing,
+                com.andye.warmod.block.GuidanceSupportSide.LEFT);
+            int right = MissileSiloGuidanceFrameStructure.installedSideTier(server, pos, silo.facing,
+                com.andye.warmod.block.GuidanceSupportSide.RIGHT);
+            int effective = left == 0 || right == 0 ? 0 : Math.min(left, right);
+            if (left != silo.leftGuidanceTier || right != silo.rightGuidanceTier
+                || effective != silo.installedGuidanceTier) {
+                silo.leftGuidanceTier = left;
+                silo.rightGuidanceTier = right;
+                silo.installedGuidanceTier = effective;
+                silo.sync();
+            }
         }
         boolean powered = MissileSiloBlock.anyPartPowered(server, pos, state.getValue(MissileSiloBlock.FACING));
         if (powered && !silo.previouslyPowered) MissileSiloLaunchService.requestLaunch(server, silo,
@@ -116,6 +129,9 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     public int reloadTicksTotal() { return this.reloadTicksTotal; }
     public long reloadStartGameTime() { return this.reloadStartGameTime; }
     public int installedGuidanceTier() { return this.installedGuidanceTier; }
+    public int leftGuidanceTier() { return this.leftGuidanceTier; }
+    public int rightGuidanceTier() { return this.rightGuidanceTier; }
+    public String lastError() { return this.lastError; }
     public @Nullable UUID pendingLaunchRequestId() { return this.pendingLaunchRequestId; }
     public ItemStack reservedMissile() { return this.reservedMissile; }
     public @Nullable UUID activeMissileId() { return this.activeMissileId; }
@@ -207,6 +223,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         output.putInt("reload_total", this.reloadTicksTotal);
         output.putLong("reload_start_time", this.reloadStartGameTime);
         output.putInt("guidance_tier", this.installedGuidanceTier);
+        output.putInt("guidance_left", this.leftGuidanceTier);
+        output.putInt("guidance_right", this.rightGuidanceTier);
         output.storeNullable("pending_request", UUIDUtil.CODEC, this.pendingLaunchRequestId);
         output.store("reserved_missile", ItemStack.OPTIONAL_CODEC, this.reservedMissile);
         output.storeNullable("active_missile", UUIDUtil.CODEC, this.activeMissileId);
@@ -235,6 +253,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.reloadTicksRemaining = Math.max(0, Math.min(this.reloadTicksTotal, input.getIntOr("reload_ticks", 0)));
         this.reloadStartGameTime = Math.max(0L, input.getLongOr("reload_start_time", 0L));
         this.installedGuidanceTier = Math.max(0, Math.min(3, input.getIntOr("guidance_tier", 0)));
+        this.leftGuidanceTier = Math.max(0, Math.min(3, input.getIntOr("guidance_left", 0)));
+        this.rightGuidanceTier = Math.max(0, Math.min(3, input.getIntOr("guidance_right", 0)));
         this.pendingLaunchRequestId = input.read("pending_request", UUIDUtil.CODEC).orElse(null);
         ItemStack reserved = input.read("reserved_missile", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
         this.reservedMissile = MissilePayloadItems.isMissile(reserved) ? reserved.copyWithCount(1) : ItemStack.EMPTY;

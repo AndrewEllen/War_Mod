@@ -56,7 +56,7 @@ public final class IcbmWorldRenderer {
 			logLongRangeOnce(state.flightPlan().missileId(), renderContext.transform());
 			double elapsed = state.elapsed(time, partial);
 			missiles.add(new MissileFrame(position, velocity, IcbmTrajectory.thrustActive(state.flightPlan(), elapsed),
-				elapsed, state.flightPlan().visualSeed(), renderContext, light(level, position), state.trail(time, partial)));
+				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(state.flightPlan().payloadType()), renderContext, light(level, position), state.trail(time, partial)));
 		}
 		List<StageFrame> stages = new ArrayList<>();
 		for (SpentIcbmStageState state : snapshot.spentStages()) {
@@ -83,7 +83,7 @@ public final class IcbmWorldRenderer {
 			float compression = (float)transform.compression();
 			stack.scale(compression, compression, compression);
 			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.MISSILE,
-				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.renderContext().lod(), missile.light()));
+				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.appearance(), missile.renderContext().lod(), missile.light()));
 			if (missile.thrust()) context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST,
 				(pose, buffer) -> IcbmExhaustRenderer.render(pose, buffer, missile.seed(), missile.elapsed(), missile.renderContext().lod()));
 			stack.popPose();
@@ -135,7 +135,7 @@ public final class IcbmWorldRenderer {
 	}
 
 	private record MissileFrame(Vec3 position, Vec3 velocity, boolean thrust, double elapsed, long seed,
-		IcbmLongRangeRenderContext renderContext, int light, List<IcbmTrailSample> trail) { }
+		IcbmPayloadAppearance appearance, IcbmLongRangeRenderContext renderContext, int light, List<IcbmTrailSample> trail) { }
 	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity, float rollDrift, float alpha,
 		IcbmLongRangeRenderContext renderContext, int light) { }
 	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles, List<StageFrame> stages) {

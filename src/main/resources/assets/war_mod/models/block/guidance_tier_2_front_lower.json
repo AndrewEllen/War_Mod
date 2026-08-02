@@ -1,0 +1,10 @@
+{"textures":{"all":"war_mod:block/guidance_tier_2"},
+  "elements":[
+    {"name":"mounting_foot","from":[1,0,1],"to":[7,3,10],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},
+    {"name":"upright","from":[2,0,2],"to":[6.0,16,6.0],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},
+    {"name":"diagonal_brace","from":[5,2,3],"to":[7,14,5],"rotation":{"origin":[4,8,4],"axis":"z","angle":-22.5},"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},
+    {"name":"stabilising_arm","from":[9.5,6,5],"to":[16,10,11],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},
+    {"name":"clamp","from":[13,9,4],"to":[16,11,12],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},
+    {"name":"servo_housing","from":[2,3,1],"to":[8,7,8],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}}
+  ]
+}

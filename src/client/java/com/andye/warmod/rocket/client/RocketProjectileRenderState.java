@@ -1,1 +1,15 @@
-package com.andye.warmod.rocket.client;import com.andye.warmod.rocket.RocketPayloadType;import net.minecraft.client.renderer.entity.state.EntityRenderState;import net.minecraft.world.phys.Vec3;public final class RocketProjectileRenderState extends EntityRenderState {public Vec3 velocity=Vec3.ZERO;public RocketPayloadType payloadType=RocketPayloadType.HE;public long visualSeed;public float ageInTicks;}
+package com.andye.warmod.rocket.client;
+
+import com.andye.warmod.rocket.RocketPayloadType;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.world.phys.Vec3;
+
+public final class RocketProjectileRenderState extends EntityRenderState {
+    public Vec3 velocity = Vec3.ZERO;
+    public RocketPayloadType payloadType = RocketPayloadType.HE;
+    public RocketLod lod = RocketLod.NEAR;
+    public long visualSeed;
+    public float ageInTicks;
+
+    public enum RocketLod { NEAR, MEDIUM, FAR }
+}
