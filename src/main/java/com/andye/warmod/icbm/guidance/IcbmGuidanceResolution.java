@@ -1,0 +1,1 @@
+package com.andye.warmod.icbm.guidance;import net.minecraft.world.phys.Vec3;public record IcbmGuidanceResolution(int guidanceTier,Vec3 requestedTarget,Vec3 resolvedTarget,double errorX,double errorZ,int attempt){}

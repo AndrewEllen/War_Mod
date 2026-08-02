@@ -7,6 +7,7 @@ public enum MissileSiloState {
     PREPARING,
     LAUNCHING,
     COOLDOWN,
+    RELOADING,
     ERROR,
     INVALID_STRUCTURE
 }

@@ -26,6 +26,11 @@ public final class RadarTrackingService {
 		s.tracksByRootId.put(track.trackId,track);upsert(level,track);log("Radar track registered {}",track.trackId);
 	}
 
+	public static synchronized void updateIcbmPlan(final ServerLevel level, final IcbmFlightPlan revisedPlan){
+		State s=STATES.get(level);if(s==null)return;RadarTrack track=s.tracksByRootId.get(revisedPlan.missileId());
+		if(track==null||track.kind!=RadarTrackKind.ICBM)return;track.carrierFlightPlan=revisedPlan;upsert(level,track);
+	}
+
 	public static synchronized void registerDirectWarhead(final ServerLevel level,final ServerPlayer owner,final WarheadLaunchService.LaunchResult launch){
 		State s=state(level);if(s.tracksByRootId.containsKey(launch.radarRootTrackId()))return;makeRoom(level,s);
 		UUID ownerId=owner==null?SERVER_OWNER:owner.getUUID();String name=owner==null?"SERVER":owner.getGameProfile().name();
@@ -53,7 +58,15 @@ public final class RadarTrackingService {
 
 	public static synchronized void removeTrack(final ServerLevel level,final UUID rootId,final RadarRemovalReason reason){State s=STATES.get(level);if(s==null)return;RadarTrack removed=s.tracksByRootId.remove(rootId);if(removed==null)return;if(removed.terminalWarheadId!=null)s.terminalWarheadToRootTrack.remove(removed.terminalWarheadId);RadarSubscriptionManager.broadcast(level,new ClientboundRadarTrackRemovePayload(rootId,reason));log("Radar track removed {} ({})",rootId,reason);}
 	public static synchronized List<RadarTrackSnapshot> snapshotTracks(final ServerLevel level){State s=STATES.get(level);if(s==null)return List.of();return s.tracksByRootId.values().stream().map(RadarTrack::snapshot).toList();}
-	public static synchronized List<RadarImpactSnapshot> snapshotImpacts(final ServerLevel level){State s=STATES.get(level);return s==null?List.of():List.copyOf(s.recentImpacts);}
+	public static synchronized List<RadarTrackTelemetry> currentTelemetry(final ServerLevel level,final long gameTime){
+		State s=STATES.get(level);if(s==null)return List.of();List<RadarTrackTelemetry> result=new ArrayList<>();
+		for(RadarTrack track:s.tracksByRootId.values()){
+			if(track.phase==RadarTrackPhase.IMPACT)continue;Vec3 position,velocity,target;
+			if(track.terminalWarheadId!=null){double elapsed=Math.max(0,gameTime-track.terminalLaunchGameTime);position=com.andye.warmod.warhead.WarheadTrajectory.position(track.terminalStartPosition,track.terminalTargetPosition,elapsed,track.terminalFlightTicks);velocity=com.andye.warmod.warhead.WarheadTrajectory.velocity(track.terminalStartPosition,track.terminalTargetPosition,elapsed,track.terminalFlightTicks);target=track.terminalTargetPosition;}
+			else if(track.carrierFlightPlan!=null){double elapsed=Math.max(0,gameTime-track.carrierFlightPlan.launchGameTime());position=IcbmTrajectory.position(track.carrierFlightPlan,elapsed);velocity=IcbmTrajectory.velocity(track.carrierFlightPlan,elapsed);target=track.carrierFlightPlan.intendedTarget();}
+			else continue;result.add(new RadarTrackTelemetry(track.trackId,track.payloadType,track.phase,position,velocity,target,gameTime));
+		}return List.copyOf(result);
+	}	public static synchronized List<RadarImpactSnapshot> snapshotImpacts(final ServerLevel level){State s=STATES.get(level);return s==null?List.of():List.copyOf(s.recentImpacts);}
 	public static synchronized void reconcileIcbmFlights(final ServerLevel level){for(IcbmFlightPlan plan:IcbmFlightControllerManager.snapshot(level))registerIcbm(level,plan);}
 
 	public static synchronized void tick(final ServerLevel level){State s=STATES.get(level);if(s==null)return;long now=level.getGameTime();
@@ -68,5 +81,6 @@ public final class RadarTrackingService {
 	private static void upsert(final ServerLevel l,final RadarTrack t){RadarSubscriptionManager.broadcast(l,new ClientboundRadarTrackUpsertPayload(l.getGameTime(),t.snapshot()));}
 	private static String boundedName(final String s){return s==null||s.isBlank()?"SERVER":s.substring(0,Math.min(64,s.length()));}
 	private static void log(final String format,final Object...args){if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info(format,args);}
+	public record RadarTrackTelemetry(UUID trackId,WarheadPayloadType payloadType,RadarTrackPhase phase,Vec3 currentPosition,Vec3 currentVelocity,Vec3 predictedImpactPosition,long gameTime){}
 	private static final class State{final LinkedHashMap<UUID,RadarTrack> tracksByRootId=new LinkedHashMap<>();final Map<UUID,UUID> terminalWarheadToRootTrack=new HashMap<>();final ArrayDeque<RadarImpactSnapshot> recentImpacts=new ArrayDeque<>();}
 }

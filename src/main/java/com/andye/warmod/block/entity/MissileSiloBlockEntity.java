@@ -1,6 +1,8 @@
 package com.andye.warmod.block.entity;
 
+import com.andye.warmod.WarMod;
 import com.andye.warmod.block.MissileSiloBlock;
+import com.andye.warmod.block.MissileSiloGuidanceFrameStructure;
 import com.andye.warmod.block.MissileSiloState;
 import com.andye.warmod.item.component.TargetCoordinates;
 import com.andye.warmod.silo.MissilePayloadItems;
@@ -8,6 +10,7 @@ import com.andye.warmod.silo.MissileSiloConstants;
 import com.andye.warmod.silo.MissileSiloLaunchService;
 import com.andye.warmod.silo.MissileSiloLaunchTrigger;
 import java.util.UUID;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
@@ -40,6 +43,10 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     private boolean previouslyPowered;
     private int launchingTicksRemaining;
     private int cooldownTicksRemaining;
+    private int reloadTicksRemaining;
+    private int reloadTicksTotal;
+    private long reloadStartGameTime;
+    private int installedGuidanceTier;
     private @Nullable UUID pendingLaunchRequestId;
     private ItemStack reservedMissile = ItemStack.EMPTY;
     private @Nullable UUID activeMissileId;
@@ -57,32 +64,43 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.facing = facing;
         this.ownerPlayerId = owner == null ? null : owner.getUUID();
         this.ownerDisplayName = owner == null ? "SERVER" : owner.getGameProfile().name();
-        this.recalculateState();
+        this.recalculateIdleState();
         this.sync();
     }
 
     public static void serverTick(final Level level, final BlockPos pos, final BlockState state,
         final MissileSiloBlockEntity silo) {
         if (!(level instanceof ServerLevel server) || silo.teardownInProgress) return;
-        if ((level.getGameTime() & 31L) == 0L && !com.andye.warmod.block.MissileSiloStructure.isComplete(server, pos, state.getValue(MissileSiloBlock.FACING))) {
-            silo.siloState = MissileSiloState.INVALID_STRUCTURE;
+        if ((level.getGameTime() & 31L) == 0L && !com.andye.warmod.block.MissileSiloStructure.isComplete(server, pos,
+            state.getValue(MissileSiloBlock.FACING))) {
+            silo.enterState(MissileSiloState.INVALID_STRUCTURE);
             com.andye.warmod.block.MissileSiloStructure.teardown(server, pos, state, true);
             return;
         }
-        boolean powered = MissileSiloBlock.anyPartPowered(server, pos, state.getValue(MissileSiloBlock.FACING));
-        if (powered && !silo.previouslyPowered) {
-            MissileSiloLaunchService.requestLaunch(server, silo, MissileSiloLaunchTrigger.REDSTONE,
-                silo.ownerPlayerId, silo.ownerDisplayName, null);
+        if ((level.getGameTime() & 19L) == 0L) {
+            int tier = MissileSiloGuidanceFrameStructure.installedTier(server, pos, silo.facing);
+            if (tier != silo.installedGuidanceTier) { silo.installedGuidanceTier = tier; silo.sync(); }
         }
+        boolean powered = MissileSiloBlock.anyPartPowered(server, pos, state.getValue(MissileSiloBlock.FACING));
+        if (powered && !silo.previouslyPowered) MissileSiloLaunchService.requestLaunch(server, silo,
+            MissileSiloLaunchTrigger.REDSTONE, silo.ownerPlayerId, silo.ownerDisplayName, null);
         silo.previouslyPowered = powered;
         if (silo.siloState == MissileSiloState.LAUNCHING && --silo.launchingTicksRemaining <= 0) {
-            silo.siloState = MissileSiloState.COOLDOWN;
-            silo.cooldownTicksRemaining = MissileSiloConstants.POST_LAUNCH_COOLDOWN_TICKS;
+            silo.enterState(MissileSiloState.COOLDOWN);
+            silo.cooldownTicksRemaining = MissileSiloConstants.PRE_RELOAD_COOLDOWN_TICKS;
             silo.sync();
         } else if (silo.siloState == MissileSiloState.COOLDOWN && --silo.cooldownTicksRemaining <= 0) {
+            if (!silo.missileStack().isEmpty()) silo.beginReload(server);
+            else { silo.activeMissileId = null; silo.finishTransientState(); silo.sync(); }
+        } else if (silo.siloState == MissileSiloState.RELOADING && --silo.reloadTicksRemaining <= 0) {
+            silo.reloadTicksRemaining = 0;
             silo.activeMissileId = null;
-            silo.recalculateState();
+            silo.finishTransientState();
             silo.sync();
+            if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
+                "Silo {} reload complete: payload={}, remaining={}", silo.siloId,
+                MissilePayloadItems.payloadType(silo.missileStack()).map(type -> type.serializedName()).orElse("none"),
+                silo.missileStack().getCount());
         }
     }
 
@@ -94,6 +112,10 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     public ItemStack missileStack() { return this.inventory.getItem(0); }
     public @Nullable TargetCoordinates storedTarget() { return this.storedTarget; }
     public MissileSiloState siloState() { return this.siloState; }
+    public int reloadTicksRemaining() { return this.reloadTicksRemaining; }
+    public int reloadTicksTotal() { return this.reloadTicksTotal; }
+    public long reloadStartGameTime() { return this.reloadStartGameTime; }
+    public int installedGuidanceTier() { return this.installedGuidanceTier; }
     public @Nullable UUID pendingLaunchRequestId() { return this.pendingLaunchRequestId; }
     public ItemStack reservedMissile() { return this.reservedMissile; }
     public @Nullable UUID activeMissileId() { return this.activeMissileId; }
@@ -102,7 +124,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
 
     public void setStoredTarget(final @Nullable TargetCoordinates target) {
         this.storedTarget = target != null && target.isValid() ? target : null;
-        this.recalculateState();
+        if (!isTransient(this.siloState)) this.recalculateIdleState();
         this.sync();
     }
 
@@ -116,7 +138,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         if (this.pendingLaunchRequestId != null || this.missileStack().isEmpty()) return null;
         this.reservedMissile = this.inventory.removeItem(0, 1);
         this.pendingLaunchRequestId = requestId;
-        this.siloState = MissileSiloState.PREPARING;
+        this.enterState(MissileSiloState.PREPARING);
         this.sync();
         return this.reservedMissile;
     }
@@ -129,7 +151,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         }
         this.reservedMissile = ItemStack.EMPTY;
         this.pendingLaunchRequestId = null;
-        this.recalculateState();
+        this.finishTransientState();
         this.sync();
     }
 
@@ -137,32 +159,36 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.reservedMissile = ItemStack.EMPTY;
         this.pendingLaunchRequestId = null;
         this.activeMissileId = missileId;
-        this.siloState = MissileSiloState.LAUNCHING;
+        this.enterState(MissileSiloState.LAUNCHING);
         this.launchingTicksRemaining = MissileSiloConstants.LAUNCHING_STATE_TICKS;
         this.sync();
     }
 
-    public void fail(final String reason) {
-        this.lastError = reason == null ? "launch failed" : reason;
-        this.restoreReserved();
-    }
+    public void fail(final String reason) { this.lastError = reason == null ? "launch failed" : reason; this.restoreReserved(); }
 
-    public void recalculateState() {
-        if (this.siloState == MissileSiloState.PREPARING || this.siloState == MissileSiloState.LAUNCHING
-            || this.siloState == MissileSiloState.COOLDOWN || this.siloState == MissileSiloState.INVALID_STRUCTURE) return;
+    private void enterState(final MissileSiloState state) { this.siloState = state; }
+    private void finishTransientState() { this.siloState = MissileSiloState.EMPTY; this.recalculateIdleState(); }
+    private void recalculateIdleState() {
         this.siloState = this.missileStack().isEmpty() ? MissileSiloState.EMPTY
             : this.storedTarget == null ? MissileSiloState.NO_TARGET : MissileSiloState.READY;
     }
-
-    private void inventoryChanged() {
-        this.recalculateState();
+    public void recalculateState() { if (!isTransient(this.siloState)) this.recalculateIdleState(); }
+    private static boolean isTransient(final MissileSiloState state) {
+        return state == MissileSiloState.PREPARING || state == MissileSiloState.LAUNCHING
+            || state == MissileSiloState.COOLDOWN || state == MissileSiloState.RELOADING
+            || state == MissileSiloState.INVALID_STRUCTURE || state == MissileSiloState.ERROR;
+    }
+    private void beginReload(final ServerLevel level) {
+        this.enterState(MissileSiloState.RELOADING);
+        this.reloadTicksTotal = MissileSiloConstants.RELOAD_ANIMATION_TICKS;
+        this.reloadTicksRemaining = this.reloadTicksTotal;
+        this.reloadStartGameTime = level.getGameTime();
         this.sync();
+        if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Silo {} entered reload animation", this.siloId);
     }
-
-    public void sync() {
-        this.setChanged();
-        if (this.level != null) this.level.sendBlockUpdated(this.worldPosition, this.getBlockState(), this.getBlockState(), 3);
-    }
+    private void inventoryChanged() { if (!isTransient(this.siloState)) this.recalculateIdleState(); this.sync(); }
+    public void sync() { this.setChanged(); if (this.level != null) this.level.sendBlockUpdated(this.worldPosition,
+        this.getBlockState(), this.getBlockState(), 3); }
 
     @Override protected void saveAdditional(final ValueOutput output) {
         super.saveAdditional(output);
@@ -177,6 +203,10 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         output.putBoolean("previously_powered", this.previouslyPowered);
         output.putInt("launching_ticks", this.launchingTicksRemaining);
         output.putInt("cooldown_ticks", this.cooldownTicksRemaining);
+        output.putInt("reload_ticks", this.reloadTicksRemaining);
+        output.putInt("reload_total", this.reloadTicksTotal);
+        output.putLong("reload_start_time", this.reloadStartGameTime);
+        output.putInt("guidance_tier", this.installedGuidanceTier);
         output.storeNullable("pending_request", UUIDUtil.CODEC, this.pendingLaunchRequestId);
         output.store("reserved_missile", ItemStack.OPTIONAL_CODEC, this.reservedMissile);
         output.storeNullable("active_missile", UUIDUtil.CODEC, this.activeMissileId);
@@ -200,6 +230,11 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.previouslyPowered = input.getBooleanOr("previously_powered", false);
         this.launchingTicksRemaining = Math.max(0, input.getIntOr("launching_ticks", 0));
         this.cooldownTicksRemaining = Math.max(0, input.getIntOr("cooldown_ticks", 0));
+        this.reloadTicksTotal = Math.max(0, Math.min(MissileSiloConstants.RELOAD_ANIMATION_TICKS,
+            input.getIntOr("reload_total", MissileSiloConstants.RELOAD_ANIMATION_TICKS)));
+        this.reloadTicksRemaining = Math.max(0, Math.min(this.reloadTicksTotal, input.getIntOr("reload_ticks", 0)));
+        this.reloadStartGameTime = Math.max(0L, input.getLongOr("reload_start_time", 0L));
+        this.installedGuidanceTier = Math.max(0, Math.min(3, input.getIntOr("guidance_tier", 0)));
         this.pendingLaunchRequestId = input.read("pending_request", UUIDUtil.CODEC).orElse(null);
         ItemStack reserved = input.read("reserved_missile", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
         this.reservedMissile = MissilePayloadItems.isMissile(reserved) ? reserved.copyWithCount(1) : ItemStack.EMPTY;
@@ -210,14 +245,16 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
             this.reservedMissile = ItemStack.EMPTY;
             this.pendingLaunchRequestId = null;
             this.siloState = MissileSiloState.EMPTY;
-            this.recalculateState();
+            this.recalculateIdleState();
+        } else if (this.siloState == MissileSiloState.RELOADING
+            && (this.missileStack().isEmpty() || this.reloadTicksRemaining <= 0)) {
+            this.activeMissileId = null;
+            this.finishTransientState();
         }
     }
 
     @Override public @Nullable Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    @Override public net.minecraft.nbt.CompoundTag getUpdateTag(final net.minecraft.core.HolderLookup.Provider registries) {
-        return this.saveCustomOnly(registries);
-    }
+    @Override public net.minecraft.nbt.CompoundTag getUpdateTag(final net.minecraft.core.HolderLookup.Provider registries) { return this.saveCustomOnly(registries); }
     @Override public int[] getSlotsForFace(final Direction direction) { return SLOT; }
     @Override public boolean canPlaceItemThroughFace(final int slot, final ItemStack stack, final @Nullable Direction direction) { return this.canPlaceItem(slot, stack); }
     @Override public boolean canTakeItemThroughFace(final int slot, final ItemStack stack, final Direction direction) { return slot == 0 && extractionAllowed(); }

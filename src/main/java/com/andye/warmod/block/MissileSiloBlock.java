@@ -5,6 +5,12 @@ import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.item.TargetDesignatorItem;
 import com.andye.warmod.item.component.TargetCoordinates;
 import com.andye.warmod.silo.MissilePayloadItems;
+import com.andye.warmod.menu.ModMenus;
+import com.andye.warmod.menu.MissileSiloMenu;
+import net.fabricmc.fabric.api.menu.v1.ExtendedMenuProvider;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import com.mojang.serialization.MapCodec;
 import java.util.function.BiConsumer;
 import net.minecraft.core.BlockPos;
@@ -113,12 +119,15 @@ public final class MissileSiloBlock extends BaseEntityBlock implements WorldlyCo
         if (player.isShiftKeyDown()) {
             ItemStack extracted = silo.removeItem(0, 1);
             if (!extracted.isEmpty() && !player.getInventory().add(extracted)) player.drop(extracted, false);
-        } else {
-            String payload = MissilePayloadItems.payloadType(silo.missileStack())
-                .map(type -> type.serializedName() + " x" + silo.missileStack().getCount()).orElse("Empty");
-            String target = silo.storedTarget() == null ? "Not set" : format(silo.storedTarget().position());
-            player.sendSystemMessage(Component.literal("Silo: " + silo.siloState() + " | Payload: " + payload
-                + " | Target: " + target + " | Silo ID: " + silo.siloId().toString().substring(0, 8)));
+        } else if (player instanceof ServerPlayer serverPlayer) {
+            serverPlayer.openMenu(new ExtendedMenuProvider<ModMenus.SiloOpeningData>() {
+                @Override public ModMenus.SiloOpeningData getScreenOpeningData(final ServerPlayer viewer) {
+                    return new ModMenus.SiloOpeningData(silo.getBlockPos(), silo.siloId());
+                }
+                @Override public Component getDisplayName() { return Component.literal("Missile Silo"); }
+                @Override public AbstractContainerMenu createMenu(final int id, final Inventory inventory,
+                    final Player viewer) { return new MissileSiloMenu(id, inventory, silo); }
+            });
         }
         return InteractionResult.SUCCESS_SERVER;
     }

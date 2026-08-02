@@ -9,7 +9,7 @@ import org.jspecify.annotations.Nullable;
 
 final class RadarTrack {
 	final UUID trackId; final RadarTrackKind kind; final UUID ownerPlayerId; final String ownerDisplayName;
-	final WarheadPayloadType payloadType; final long creationGameTime; final @Nullable IcbmFlightPlan carrierFlightPlan;
+	final WarheadPayloadType payloadType; final long creationGameTime; @Nullable IcbmFlightPlan carrierFlightPlan;
 	@Nullable UUID terminalWarheadId; @Nullable Vec3 terminalStartPosition; @Nullable Vec3 terminalTargetPosition;
 	long terminalLaunchGameTime; int terminalFlightTicks; long terminalVisualSeed;
 	@Nullable Vec3 impactPosition; long impactGameTime; float impactVisualScale;

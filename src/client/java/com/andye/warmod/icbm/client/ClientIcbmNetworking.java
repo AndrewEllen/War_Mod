@@ -2,6 +2,7 @@ package com.andye.warmod.icbm.client;
 
 import com.andye.warmod.icbm.client.audio.ClientIcbmAudioManager;
 import com.andye.warmod.icbm.network.ClientboundIcbmLaunchPayload;
+import com.andye.warmod.icbm.network.ClientboundIcbmGuidanceUpdatePayload;
 import com.andye.warmod.icbm.network.ClientboundIcbmRemovePayload;
 import com.andye.warmod.icbm.network.ClientboundIcbmSeparationPayload;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
@@ -18,6 +19,8 @@ public final class ClientIcbmNetworking {
 			ClientIcbmVisualManager.INSTANCE.acceptLaunch(payload);
 			ClientIcbmAudioManager.INSTANCE.acceptLaunch(payload);
 		});
+		ClientPlayNetworking.registerGlobalReceiver(ClientboundIcbmGuidanceUpdatePayload.TYPE,
+			(payload, context) -> ClientIcbmVisualManager.INSTANCE.acceptGuidance(payload));
 		ClientPlayNetworking.registerGlobalReceiver(ClientboundIcbmSeparationPayload.TYPE,
 			(payload, context) -> ClientIcbmVisualManager.INSTANCE.acceptSeparation(payload));
 		ClientPlayNetworking.registerGlobalReceiver(ClientboundIcbmRemovePayload.TYPE, (payload, context) -> {

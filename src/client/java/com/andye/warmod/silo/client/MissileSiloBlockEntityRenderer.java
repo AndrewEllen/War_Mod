@@ -3,6 +3,8 @@ package com.andye.warmod.silo.client;
 import com.andye.warmod.block.MissileSiloState;
 import com.andye.warmod.block.entity.MissileSiloBlockEntity;
 import com.andye.warmod.silo.MissilePayloadItems;
+import com.andye.warmod.silo.MissileSiloConstants;
+import net.minecraft.util.Mth;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
@@ -26,6 +28,15 @@ public final class MissileSiloBlockEntityRenderer implements BlockEntityRenderer
         state.visible = state.availableCount > 0 && state.payloadType != null
             && state.siloState != MissileSiloState.PREPARING && state.siloState != MissileSiloState.LAUNCHING && state.siloState != MissileSiloState.COOLDOWN
             && state.siloState != MissileSiloState.INVALID_STRUCTURE;
+        state.reloadOffsetY = 0.0;
+        if (state.siloState == MissileSiloState.RELOADING && silo.getLevel() != null) {
+            double duration = Math.max(1, silo.reloadTicksTotal());
+            double elapsed = silo.getLevel().getGameTime() + partialTicks - silo.reloadStartGameTime();
+            double progress = Mth.clamp(elapsed / duration, 0.0, 1.0);
+            double eased = progress * progress * (3.0 - 2.0 * progress);
+            state.reloadOffsetY = Mth.lerp(eased, MissileSiloConstants.RELOAD_START_OFFSET_Y,
+                MissileSiloConstants.RELOAD_END_OFFSET_Y);
+        }
     }
     @Override public void submit(final MissileSiloRenderState state, final PoseStack poseStack,
         final SubmitNodeCollector collector, final CameraRenderState camera) {

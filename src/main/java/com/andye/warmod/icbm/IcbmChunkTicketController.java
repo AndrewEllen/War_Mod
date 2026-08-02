@@ -12,7 +12,7 @@ import net.minecraft.world.phys.Vec3;
 /** A UUID-owned ticket window with per-chunk reference counts for Minecraft 26.2's keyless ticket API. */
 public final class IcbmChunkTicketController {
 	private final UUID missileId;
-	private final IcbmFlightPlan plan;
+	private IcbmFlightPlan plan;
 	private final Set<ChunkPos> held = new HashSet<>();
 	private ChunkPos lastCarrierChunk;
 	private boolean released;
@@ -20,6 +20,11 @@ public final class IcbmChunkTicketController {
 	public IcbmChunkTicketController(final IcbmFlightPlan plan) {
 		this.missileId = plan.missileId();
 		this.plan = plan;
+	}
+
+	public void updatePlan(final IcbmFlightPlan revised) {
+		if (!this.missileId.equals(revised.missileId())) throw new IllegalArgumentException("Missile identity changed");
+		this.plan = revised;
 	}
 
 	public void update(final ServerLevel level, final long elapsed) {

@@ -1,17 +1,1 @@
-package com.andye.warmod.rocket;
-
-import com.andye.warmod.entity.RocketProjectileEntity;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.phys.Vec3;
-
-public final class RocketLaunchService {
-    private RocketLaunchService() { }
-    public static boolean launch(final ServerLevel level, final ServerPlayer player) {
-        Vec3 direction = player.getLookAngle().normalize();
-        Vec3 start = player.getEyePosition().add(direction.scale(0.65));
-        RocketProjectileEntity rocket = new RocketProjectileEntity(level, player.getUUID(), start,
-            direction.scale(RocketConstants.SPEED_BLOCKS_PER_TICK));
-        return level.addFreshEntity(rocket);
-    }
-}
+package com.andye.warmod.rocket;import com.andye.warmod.WarMod;import com.andye.warmod.entity.RocketProjectileEntity;import net.minecraft.SharedConstants;import net.minecraft.core.particles.ParticleTypes;import net.minecraft.server.level.ServerLevel;import net.minecraft.server.level.ServerPlayer;import net.minecraft.world.phys.Vec3;public final class RocketLaunchService {private RocketLaunchService(){}public static boolean launch(ServerLevel level,ServerPlayer player,RocketPayloadType payload){Vec3 direction=player.getLookAngle().normalize(),start=player.getEyePosition().add(direction.scale(.65));long seed=level.getRandom().nextLong();RocketProjectileEntity rocket=new RocketProjectileEntity(level,player.getUUID(),start,direction.scale(payload.speed()),payload,seed);boolean added=level.addFreshEntity(rocket);if(added){Vec3 back=start.subtract(direction.scale(.35));level.sendParticles(ParticleTypes.FLAME,back.x,back.y,back.z,8,.15,.15,.15,.03);level.sendParticles(ParticleTypes.SMOKE,back.x,back.y,back.z,10,.2,.2,.2,.04);if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Rocket {} spawned: payload={}, speed={}",rocket.getUUID(),payload,payload.speed());}return added;}}

@@ -22,6 +22,7 @@ public final class IcbmVisualNetworking {
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundIcbmLaunchPayload.TYPE, ClientboundIcbmLaunchPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundIcbmSeparationPayload.TYPE, ClientboundIcbmSeparationPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundIcbmRemovePayload.TYPE, ClientboundIcbmRemovePayload.STREAM_CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(ClientboundIcbmGuidanceUpdatePayload.TYPE, ClientboundIcbmGuidanceUpdatePayload.STREAM_CODEC);
 		registered = true;
 	}
 
@@ -29,6 +30,11 @@ public final class IcbmVisualNetworking {
 		if (!payload.isWellFormed()) return;
 		send(level, payload, ownerId, payload.launchPosition(), routeCenter(payload.launchPosition(), payload.intendedTarget()),
 			apex(payload), payload.separationPosition(), payload.intendedTarget());
+	}
+
+	public static void sendGuidanceUpdate(final ServerLevel level, final ClientboundIcbmGuidanceUpdatePayload payload,
+		final UUID ownerId, final Vec3 launch) {
+		if (payload.isWellFormed()) send(level, payload, ownerId, launch, payload.separationPosition(), payload.resolvedTarget());
 	}
 
 	public static void sendSeparation(final ServerLevel level, final ClientboundIcbmSeparationPayload payload,

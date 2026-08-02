@@ -3,6 +3,7 @@ package com.andye.warmod.icbm;
 import com.andye.warmod.radar.RadarRemovalReason;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.silo.MissileSiloCollisionContext;
+import com.andye.warmod.icbm.guidance.IcbmGuidanceProfile;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,12 +35,16 @@ public final class IcbmFlightControllerManager {
 	}
 
 	public static synchronized boolean add(final ServerLevel level, final IcbmFlightPlan plan,
-		final MissileSiloCollisionContext collisionContext) {
-		return addInternal(level, plan, collisionContext);
+		final MissileSiloCollisionContext collisionContext) { return addInternal(level, plan, collisionContext, null); }
+	public static synchronized boolean add(final ServerLevel level, final IcbmFlightPlan plan,
+		final MissileSiloCollisionContext collisionContext, final IcbmGuidanceProfile guidance) {
+		return addInternal(level, plan, collisionContext, guidance);
 	}
 
 	private static boolean addInternal(final ServerLevel level, final IcbmFlightPlan plan,
-		final MissileSiloCollisionContext collisionContext) {
+		final MissileSiloCollisionContext collisionContext) { return addInternal(level, plan, collisionContext, null); }
+	private static boolean addInternal(final ServerLevel level, final IcbmFlightPlan plan,
+		final MissileSiloCollisionContext collisionContext, final IcbmGuidanceProfile guidance) {
 		LinkedHashMap<UUID, IcbmFlightController> flights = ACTIVE.computeIfAbsent(level, ignored -> new LinkedHashMap<>());
 		if (flights.containsKey(plan.missileId())) return false;
 		while (flights.size() >= MAXIMUM_ACTIVE_FLIGHTS_PER_LEVEL) {
@@ -50,7 +55,7 @@ public final class IcbmFlightControllerManager {
 			RadarTrackingService.removeTrack(level, evicted.flightPlan().missileId(), RadarRemovalReason.EVICTED);
 			iterator.remove();
 		}
-		flights.put(plan.missileId(), new IcbmFlightController(plan, collisionContext));
+		flights.put(plan.missileId(), new IcbmFlightController(plan, collisionContext, guidance));
 		RadarTrackingService.registerIcbm(level, plan);
 		return true;
 	}

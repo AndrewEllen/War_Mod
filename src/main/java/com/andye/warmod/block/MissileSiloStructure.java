@@ -53,6 +53,7 @@ public final class MissileSiloStructure {
         if (silo != null) silo.setTeardownInProgress(true);
         try {
             if (silo != null) MissileSiloManager.unregister(level, silo);
+            MissileSiloGuidanceFrameStructure.teardown(level, centre, facing, 1, dropItems);
             if (dropItems) {
                 if (silo != null) {
                     if (!silo.reservedMissile().isEmpty()) Block.popResource(level, centre, silo.reservedMissile().copy());

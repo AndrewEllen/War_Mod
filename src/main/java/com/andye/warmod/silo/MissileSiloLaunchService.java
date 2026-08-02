@@ -34,7 +34,8 @@ public final class MissileSiloLaunchService {
         if (requests.size() >= MissileSiloConstants.MAX_PENDING_LAUNCHES_PER_LEVEL)
             return MissileSiloLaunchResult.failed(MissileSiloLaunchFailure.TOO_MANY_PENDING_LAUNCHES, "Too many pending silo launches");
         if (silo.pendingLaunchRequestId() != null || silo.siloState() == com.andye.warmod.block.MissileSiloState.LAUNCHING
-            || silo.siloState() == com.andye.warmod.block.MissileSiloState.COOLDOWN)
+            || silo.siloState() == com.andye.warmod.block.MissileSiloState.COOLDOWN
+            || silo.siloState() == com.andye.warmod.block.MissileSiloState.RELOADING)
             return MissileSiloLaunchResult.failed(MissileSiloLaunchFailure.BUSY, "Silo is busy");
         if (!MissileSiloStructure.isComplete(level, silo.getBlockPos(), silo.facing()))
             return MissileSiloLaunchResult.failed(MissileSiloLaunchFailure.INVALID_STRUCTURE, "Silo structure is incomplete");
@@ -84,11 +85,15 @@ public final class MissileSiloLaunchService {
             Vec3 origin = new Vec3(silo.getBlockPos().getX() + 0.5, silo.getBlockPos().getY() + 0.9,
                 silo.getBlockPos().getZ() + 0.5);
             UUID owner = request.trigger() == MissileSiloLaunchTrigger.REDSTONE ? silo.ownerPlayerId() : request.triggeringPlayerId();
+            java.util.Set<net.minecraft.core.BlockPos> ignored = new java.util.LinkedHashSet<>(MissileSiloStructure.positions(silo.getBlockPos(), silo.facing()));
+            int guidanceTier = com.andye.warmod.block.MissileSiloGuidanceFrameStructure.installedTier(level, silo.getBlockPos(), silo.facing());
+            for (int tier = 1; tier <= guidanceTier; tier++) for (var layerPart : com.andye.warmod.block.MissileSiloGuidanceFrameLayer.values())
+                for (var framePart : com.andye.warmod.block.MissileSiloGuidanceFramePart.values()) ignored.add(
+                    com.andye.warmod.block.MissileSiloGuidanceFrameStructure.position(silo.getBlockPos(), silo.facing(), tier, layerPart, framePart));
             MissileSiloCollisionContext collision = new MissileSiloCollisionContext(silo.siloId(), silo.getBlockPos(),
-                MissileSiloStructure.positions(silo.getBlockPos(), silo.facing()), MissileSiloConstants.MISSILE_COLLISION_WIDTH,
-                MissileSiloConstants.MISSILE_COLLISION_HEIGHT);
+                ignored, MissileSiloConstants.MISSILE_COLLISION_WIDTH, MissileSiloConstants.MISSILE_COLLISION_HEIGHT);
             var result = IcbmLaunchService.launchFromSilo(level, owner, request.triggeringPlayerName(), origin,
-                request.target().position(), request.payloadType(), collision);
+                request.target().position(), request.payloadType(), collision, silo.siloId(), silo.getBlockPos(), guidanceTier);
             IcbmChunkTicketRegistry.releaseAll(level, request.temporaryTickets());
             iterator.remove();
             if (result.isPresent()) {

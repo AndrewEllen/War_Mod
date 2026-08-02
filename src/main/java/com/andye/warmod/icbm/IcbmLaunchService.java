@@ -6,6 +6,7 @@ import com.andye.warmod.icbm.network.IcbmVisualNetworking;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.silo.MissileSiloCollisionContext;
+import com.andye.warmod.icbm.guidance.IcbmGuidanceProfile;
 import java.util.Optional;
 import java.util.SplittableRandom;
 import java.util.UUID;
@@ -95,7 +96,8 @@ public final class IcbmLaunchService {
 
 	public static Optional<LaunchResult> launchFromSilo(final ServerLevel level, final @Nullable UUID ownerPlayerId,
 		final @Nullable String ownerDisplayName, final Vec3 launchPosition, final Vec3 intendedTarget,
-		final WarheadPayloadType payloadType, final MissileSiloCollisionContext collisionContext) {
+		final WarheadPayloadType payloadType, final MissileSiloCollisionContext collisionContext,
+		final UUID siloId, final BlockPos siloCentre, final int guidanceTier) {
 		if (level == null || launchPosition == null || intendedTarget == null || payloadType == null
 			|| collisionContext == null || !validRouteCoordinate(level, launchPosition)
 			|| !validTargetCoordinate(level, intendedTarget)) return Optional.empty();
@@ -107,7 +109,9 @@ public final class IcbmLaunchService {
 			^ payloadType.ordinal());
 		IcbmFlightPlan plan = createSiloFlightPlan(level, ownerPlayerId == null ? new UUID(0L, 0L) : ownerPlayerId,
 			launchPosition, intendedTarget, payloadType, missileId, seed).orElse(null);
-		return acceptPlan(level, plan, collisionContext);
+		IcbmGuidanceProfile guidance = plan == null ? null : new IcbmGuidanceProfile(siloId, siloCentre, guidanceTier,
+			intendedTarget, plan.visualSeed());
+		return acceptPlan(level, plan, collisionContext, guidance);
 	}
 
 	private static Optional<IcbmFlightPlan> createSiloFlightPlan(final ServerLevel level, final UUID ownerPlayerId,
@@ -256,6 +260,38 @@ public final class IcbmLaunchService {
 		catch (RuntimeException ignored) { return level.dimensionType().minY() + 192.0; }
 	}
 
+	public static Optional<IcbmFlightPlan> retargetFromBurnout(final ServerLevel level,
+		final IcbmFlightPlan original, final Vec3 resolvedTarget) {
+		if (!validTargetCoordinate(level, resolvedTarget)
+			|| original.launchPosition().distanceTo(resolvedTarget) > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH)
+			return Optional.empty();
+		Vec3 horizontal = new Vec3(resolvedTarget.x - original.burnoutPosition().x, 0.0,
+			resolvedTarget.z - original.burnoutPosition().z);
+		double distance = horizontal.length();
+		if (!Double.isFinite(distance) || distance < 1.0) return Optional.empty();
+		horizontal = horizontal.scale(1.0 / distance);
+		double ceiling = Math.min(2048.0, Math.max(level.dimensionType().minY() + level.dimensionType().height() + 768.0,
+			Math.max(resolvedTarget.y + 800.0, original.burnoutPosition().y + 80.0)));
+		double separationY = Math.min(ceiling - 40.0,
+			resolvedTarget.y + IcbmConstants.PREFERRED_SEPARATION_HEIGHT_ABOVE_TARGET);
+		double terminalVertical = Math.max(0.0, separationY - resolvedTarget.y);
+		double terminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS * WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
+		double maxOffset = Math.sqrt(Math.max(0.0, terminalTravel * terminalTravel - terminalVertical * terminalVertical));
+		double separationOffset = Math.min(IcbmConstants.SEPARATION_HORIZONTAL_OFFSET, maxOffset);
+		Vec3 separation = new Vec3(resolvedTarget.x - horizontal.x * separationOffset, separationY,
+			resolvedTarget.z - horizontal.z * separationOffset);
+		if (!validRouteCoordinate(level, separation)) return Optional.empty();
+		double preferredApex = Math.min(ceiling, Math.max(cloudHeight(level, original.burnoutPosition()) + 400.0,
+			Math.max(resolvedTarget.y + 560.0, original.launchPosition().y + 520.0)));
+		int coastTicks = chooseCoastTicks(original.burnoutPosition(), separation, preferredApex, ceiling,
+			Mth.clamp(distance / IcbmConstants.MAXIMUM_COAST_TICKS * 0.70, 0.25, 2.8));
+		if (coastTicks < 0) return Optional.empty();
+		try { return Optional.of(new IcbmFlightPlan(original.missileId(), original.ownerPlayerId(),
+			original.launchPosition(), original.burnoutPosition(), separation, resolvedTarget,
+			original.launchGameTime(), original.ignitionTicks(), original.boostTicks(), coastTicks,
+			original.visualSeed(), original.payloadType())); }
+		catch (IllegalArgumentException ignored) { return Optional.empty(); }
+	}
 	static boolean validTargetCoordinate(final ServerLevel level, final Vec3 position) {
 		BlockPos block = position == null ? BlockPos.ZERO : BlockPos.containing(position);
 		return validRouteCoordinate(level, position) && !level.isOutsideBuildHeight(block);
@@ -281,8 +317,8 @@ public final class IcbmLaunchService {
 	}
 
 	private static Optional<LaunchResult> acceptPlan(final ServerLevel level, final @Nullable IcbmFlightPlan plan,
-		final MissileSiloCollisionContext collisionContext) {
-		if (plan == null || !IcbmFlightControllerManager.add(level, plan, collisionContext)) return Optional.empty();
+		final MissileSiloCollisionContext collisionContext, final IcbmGuidanceProfile guidance) {
+		if (plan == null || !IcbmFlightControllerManager.add(level, plan, collisionContext, guidance)) return Optional.empty();
 		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
 			"ICBM {} silo launch accepted: launch={}, burnout={}, separation={}", plan.missileId(),

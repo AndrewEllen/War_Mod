@@ -40,10 +40,15 @@ public final class WarheadImpactService {
 	}
 	public static void detonateAt(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
 		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType) {
+		detonateAt(level, owner, id, radarRootTrackId, pos, seed, payloadType, true);
+	}
+	public static void detonateAt(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
+		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType,
+		final boolean registerRadarImpact) {
 		Objects.requireNonNull(level); Objects.requireNonNull(id); Objects.requireNonNull(pos); Objects.requireNonNull(payloadType);
 		if (!pos.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
 		WarheadImpactProfile profile = WarheadImpactProfiles.get(payloadType);
-		RadarTrackingService.registerImpact(level, id, radarRootTrackId, pos, payloadType, profile.impactVisualScale());
+		if (registerRadarImpact) RadarTrackingService.registerImpact(level, id, radarRootTrackId, pos, payloadType, profile.impactVisualScale());
 		List<DebrisCandidate> candidates = sample(level, pos, seed, profile);
 		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(id, pos.x, pos.y, pos.z,
 			level.getGameTime(), seed, payloadType, profile.impactVisualScale()), pos);

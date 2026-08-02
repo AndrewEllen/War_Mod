@@ -10,7 +10,7 @@ public final class MissileSiloMissileRenderer {
         final SubmitNodeCollector collector) {
         if (!state.visible || state.payloadType == null) return;
         poseStack.pushPose();
-        poseStack.translate(0.5, 1.35, 0.5);
+        poseStack.translate(0.5, 1.35 + state.reloadOffsetY, 0.5);
         poseStack.scale(0.52F, 0.52F, 0.52F);
         collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.PROJECTILE,
             (pose, buffer) -> MissileSiloMissileMesh.render(pose, buffer, state.payloadType, state.lightCoords));
