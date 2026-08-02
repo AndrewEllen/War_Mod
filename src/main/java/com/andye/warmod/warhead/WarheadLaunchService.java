@@ -3,6 +3,7 @@ package com.andye.warmod.warhead;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.entity.IncomingWarheadEntity;
 import com.andye.warmod.entity.ModEntityTypes;
+import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import java.util.Objects;
@@ -37,7 +38,7 @@ public final class WarheadLaunchService {
 		final Vec3 separationPosition, final Vec3 intendedTarget, final long parentVisualSeed, final WarheadPayloadType payloadType) {
 		UUID id = UUID.randomUUID();
 		long seed = deriveSeed(id, parentVisualSeed, payloadType);
-		int ticks = clamp((int)Math.ceil(separationPosition.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
+		int ticks = clampTerminal((int)Math.ceil(separationPosition.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
 		return spawn(level, owner, id, separationPosition, intendedTarget, ticks, seed, payloadType);
 	}
 	private static Optional<LaunchResult> spawn(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
@@ -75,7 +76,8 @@ public final class WarheadLaunchService {
 		long value = parent ^ id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 23) ^ ((long)type.ordinal() * 0x9E3779B97F4A7C15L);
 		value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L; value ^= value >>> 27; value *= 0x94D049BB133111EBL; return value ^ (value >>> 31);
 	}
-	private static int clamp(final int ticks) { return Math.max(38, Math.min(64, ticks)); }
+	private static int clamp(final int ticks) { return Math.max(WarheadConstants.MINIMUM_FLIGHT_TICKS, Math.min(WarheadConstants.MAXIMUM_FLIGHT_TICKS, ticks)); }
+	private static int clampTerminal(final int ticks) { return Math.max(IcbmConstants.MINIMUM_TERMINAL_TICKS, Math.min(IcbmConstants.MAXIMUM_TERMINAL_TICKS, ticks)); }
 	private static boolean loaded(final ServerLevel level, final Vec3 pos) { return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.x), SectionPos.blockToSectionCoord(pos.z)); }
 	public record LaunchResult(UUID warheadId, Vec3 startPosition, Vec3 intendedTarget, int flightTicks, long visualSeed, WarheadPayloadType payloadType) { }
 }

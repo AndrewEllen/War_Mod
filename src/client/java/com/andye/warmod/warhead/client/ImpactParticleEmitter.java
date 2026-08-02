@@ -128,7 +128,7 @@ public final class ImpactParticleEmitter {
 		int spokes = lod == ParticleLod.NEAR ? 256 : lod == ParticleLod.MEDIUM ? 160 : 96;
 		int maximum = budget.remaining(Category.GROUND);
 		for (GroundShockParticleEmitter.GroundParticleBatch batch : GroundShockParticleEmitter.collect(state, center,
-			WarheadVisualMath.groundShockwaveDistance(age, state.visualScale() * state.profile().shockwaveScale()), spokes, maximum, distance, gameTime)) {
+			WarheadVisualMath.groundShockwaveDistance(age), spokes, maximum, distance, gameTime)) {
 			int emitted = 0;
 			for (GroundShockParticleEmitter.GroundParticle particle : batch.particles()) {
 				if (emitParticle(level, particle.particle(), particle.position(), particle.velocity(), budget, Category.GROUND, particle.forceLongRange())) emitted++;

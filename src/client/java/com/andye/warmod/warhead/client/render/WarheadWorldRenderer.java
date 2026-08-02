@@ -20,6 +20,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.LightCoordsUtil;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -66,7 +67,7 @@ public final class WarheadWorldRenderer {
 			double distance = cameraPosition.distanceTo(state.impactPosition());
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			WarheadMesh.Lod lod = lod(distance);
-			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age, state.visualScale());
+			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age);
 			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
 			List<TerrainShockfrontNode> dustNodes = state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime);
 			for (TerrainShockfrontNode node : dustNodes) {
@@ -103,24 +104,24 @@ public final class WarheadWorldRenderer {
 
 	private static void renderImpact(final LevelRenderContext context, final PoseStack poseStack, final RenderFrame frame, final ImpactFrame impact) {
 		Vec3 relative = impact.position().subtract(frame.cameraPosition());
-		float shockwaveVisualScale = (float) (impact.visualScale() * impact.profile().shockwaveScale());
-		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks(), shockwaveVisualScale);
+		float thicknessScale=(float)impact.profile().shockwaveThicknessScale(),alphaScale=(float)impact.profile().shockwaveAlphaScale();
+		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks());
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
-			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, impact.ageTicks(), shockwaveVisualScale, impact.lod()));
+			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, WarheadVisualMath.airShockwaveRadius(impact.ageTicks()), impact.ageTicks(), thicknessScale, alphaScale, impact.lod()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), groundDistance,
-				frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), shockwaveVisualScale), groundFrontierAlpha(impact.ageTicks()), 208, 226, 244));
+				frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), thicknessScale), groundFrontierAlpha(impact.ageTicks(), alphaScale), 208, 226, 244));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
-			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), Math.max(0.0, groundDistance - 3.0),
-				frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), shockwaveVisualScale), dustAlpha(impact.ageTicks()), 130, 119, 108));
+			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), Math.max(0.0, groundDistance - 3.0 * thicknessScale),
+				frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), thicknessScale), dustAlpha(impact.ageTicks(), alphaScale), 130, 119, 108));
 		poseStack.popPose();
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
-			(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(), impact.gameTime(), impact.lod(), frame.cameraOrientation()));
+			(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(), impact.gameTime(), impact.lod(), (float)impact.profile().shockwaveParticleDensityScale(), frame.cameraOrientation()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
 			(pose, buffer) -> BlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(), impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
@@ -152,9 +153,9 @@ public final class WarheadWorldRenderer {
 		return new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), direction.normalize());
 	}
 	private static float groundFrontierWidth(final double age, final float scale) { return (float) WarheadVisualMath.airShockwaveThickness(age, scale); }
-	private static float groundFrontierAlpha(final double age) { return (float) (WarheadVisualMath.groundShockwaveAlpha(age) * 0.74); }
+	private static float groundFrontierAlpha(final double age,final float scale) { return Mth.clamp((float)(WarheadVisualMath.groundShockwaveAlpha(age)*0.74*scale),0.0F,1.0F); }
 	private static float dustWidth(final double age, final float scale) { return (float) (WarheadVisualMath.airShockwaveThickness(age, scale) * 2.3); }
-	private static float dustAlpha(final double age) { return (float) (WarheadVisualMath.groundShockwaveAlpha(age) * 0.58); }
+	private static float dustAlpha(final double age,final float scale) { return Mth.clamp((float)(WarheadVisualMath.groundShockwaveAlpha(age)*0.58*scale),0.0F,1.0F); }
 
 	private record WarheadFrame(Vec3 position, Vec3 velocity, float progress, float elapsedTicks, float remainingTicks,
 		int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) { }

@@ -15,7 +15,7 @@ public final class TerrainDeformationMesh {
 
 	private static void renderPatch(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final TerrainDeformationRenderState state, final TerrainDeformationPatch patch) {
-		double delta = patch.cumulativePathDistance() - com.andye.warmod.warhead.WarheadVisualMath.groundShockwaveDistance(state.ageTicks(), state.visualScale());
+		double delta = patch.cumulativePathDistance() - com.andye.warmod.warhead.WarheadVisualMath.groundShockwaveDistance(state.ageTicks());
 		double envelope = Math.exp(-(delta * delta) / (2.0 * 11.0 * 11.0));
 		double amplitude = amplitude(state.lod(), patch.seed()) * state.visualScale();
 		double displacement = amplitude * Math.sin(delta * 1.05 - state.ageTicks() * 0.45) * envelope;

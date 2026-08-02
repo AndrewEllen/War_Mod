@@ -4,7 +4,10 @@ import net.minecraft.world.phys.Vec3;
 
 /** One deterministic lobe in the coherent rising blast cloud. */
 public record BlastCloudLobe(
-	Vec3 baseOffset,
+	Vec3 originOffset,
+	Vec3 finalOffset,
+	double spawnTick,
+	double growthTicks,
 	double baseRadius,
 	double riseFactor,
 	double outwardDrift,

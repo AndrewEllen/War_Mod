@@ -23,8 +23,8 @@ import net.minecraft.world.phys.Vec3;
 public final class ClientAcousticEngine {
 	public static final ClientAcousticEngine INSTANCE = new ClientAcousticEngine();
 
-	private static final int MAX_PENDING_EVENTS = 128;
-	private static final int MAX_SCHEDULED_SOUNDS = 512;
+	private static final int MAX_PENDING_EVENTS = 512;
+	private static final int MAX_SCHEDULED_SOUNDS = 2048;
 	private static final long MAX_LIFETIME_AFTER_EXPECTED_ARRIVAL = 100L;
 
 	private final Map<UUID, PendingAcousticEvent> pendingEvents = new LinkedHashMap<>();

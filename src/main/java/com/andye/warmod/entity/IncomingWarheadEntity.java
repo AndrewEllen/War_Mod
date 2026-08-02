@@ -1,9 +1,14 @@
 package com.andye.warmod.entity;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.acoustics.AcousticEngine;
+import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.warhead.WarheadImpactService;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadTrajectory;
+import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,6 +20,7 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -30,7 +36,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class IncomingWarheadEntity extends Entity {
 	private UUID warheadId, ownerPlayerId; private Vec3 startPosition=Vec3.ZERO, intendedTarget=Vec3.ZERO;
-	private long launchGameTime=Long.MIN_VALUE, visualSeed; private int flightTicks; private boolean impacted;
+	private long launchGameTime=Long.MIN_VALUE,visualSeed,lastTerminalRushGameTime=Long.MIN_VALUE;private int flightTicks;private boolean impacted,sonicBoomEmitted;
 	private WarheadPayloadType payloadType=WarheadPayloadType.CONVENTIONAL;
 	public IncomingWarheadEntity(final EntityType<IncomingWarheadEntity> type, final Level level) {
 		super(type,level); this.noPhysics=true; setNoGravity(true); setSilent(true);
@@ -52,7 +58,7 @@ public final class IncomingWarheadEntity extends Entity {
 		if(!next.isFinite()||!previous.isFinite()||!loaded(server,next)){cancel(server);discard();return;}
 		RaycastResult raycast=raycastLoaded(server,previous,next); if(raycast.missingChunk()){cancel(server);discard();return;}
 		if(raycast.hit().isPresent()) impact(server,raycast.hit().get().getLocation()); else if(elapsedGame>=flightTicks) impact(server,intendedTarget);
-		else { setPos(next); setDeltaMovement(next.subtract(previous)); updateRotation(next.subtract(previous)); }
+		else {Vec3 velocity=WarheadTrajectory.velocity(startPosition,intendedTarget,elapsed,flightTicks);setPos(next);setDeltaMovement(velocity);updateRotation(velocity);emitTerminalAcoustics(server,next,velocity);}
 	}
 	@Override public boolean hurtServer(final ServerLevel level,final DamageSource source,final float amount){return false;}
 	@Override public boolean isPickable(){return false;} @Override public boolean isPushable(){return false;}
@@ -62,7 +68,7 @@ public final class IncomingWarheadEntity extends Entity {
 		warheadId=input.read("WarheadId",UUIDUtil.STRING_CODEC).orElse(null); ownerPlayerId=input.read("OwnerPlayerId",UUIDUtil.STRING_CODEC).orElse(null);
 		startPosition=input.read("StartPosition",Vec3.CODEC).orElse(Vec3.ZERO); intendedTarget=input.read("IntendedTarget",Vec3.CODEC).orElse(Vec3.ZERO);
 		launchGameTime=input.getLongOr("LaunchGameTime",Long.MIN_VALUE); flightTicks=input.getIntOr("FlightTicks",0); visualSeed=input.getLongOr("VisualSeed",0);
-		impacted=input.getBooleanOr("Impacted",false); payloadType=WarheadPayloadType.fromSerializedName(input.getStringOr("PayloadType","conventional")).orElse(WarheadPayloadType.CONVENTIONAL);
+		impacted=input.getBooleanOr("Impacted",false);sonicBoomEmitted=input.getBooleanOr("SonicBoomEmitted",false);lastTerminalRushGameTime=input.getLongOr("LastTerminalRushGameTime",Long.MIN_VALUE); payloadType=WarheadPayloadType.fromSerializedName(input.getStringOr("PayloadType","conventional")).orElse(WarheadPayloadType.CONVENTIONAL);
 		if(!valid()||impacted){discard();return;} setPos(startPosition);setNoGravity(true);setSilent(true);noPhysics=true;
 	}
 	@Override protected void addAdditionalSaveData(final ValueOutput output){
@@ -70,10 +76,11 @@ public final class IncomingWarheadEntity extends Entity {
 		if(startPosition!=null&&startPosition.isFinite())output.store("StartPosition",Vec3.CODEC,startPosition);
 		if(intendedTarget!=null&&intendedTarget.isFinite())output.store("IntendedTarget",Vec3.CODEC,intendedTarget);
 		output.putLong("LaunchGameTime",launchGameTime);output.putInt("FlightTicks",flightTicks);output.putLong("VisualSeed",visualSeed);
-		output.putBoolean("Impacted",impacted);output.putString("PayloadType",payloadType.serializedName());
+		output.putBoolean("Impacted",impacted);output.putBoolean("SonicBoomEmitted",sonicBoomEmitted);output.putLong("LastTerminalRushGameTime",lastTerminalRushGameTime);output.putString("PayloadType",payloadType.serializedName());
 	}
 	private boolean valid(){return warheadId!=null&&startPosition!=null&&intendedTarget!=null&&payloadType!=null&&startPosition.isFinite()&&intendedTarget.isFinite()
-		&&startPosition.distanceTo(intendedTarget)<=8192&&launchGameTime!=Long.MIN_VALUE&&flightTicks>=1&&flightTicks<=200;}
+		&&startPosition.distanceTo(intendedTarget)<=8192&&launchGameTime!=Long.MIN_VALUE&&flightTicks>=1&&flightTicks<=IcbmConstants.MAXIMUM_TERMINAL_TICKS;}
+	private void emitTerminalAcoustics(final ServerLevel server,final Vec3 position,final Vec3 velocity){if(impacted||!position.isFinite()||!velocity.isFinite())return;double normalized=WarheadVisualMath.normalizedSpeed(velocity,WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK*1.65);long now=server.getGameTime();if(normalized>.32&&(lastTerminalRushGameTime==Long.MIN_VALUE||now-lastTerminalRushGameTime>=8)){AcousticEngine.playSound(server,position,AcousticSounds.TERMINAL_DESCENT_RUSH_ID,SoundSource.BLOCKS,.55F,1.0F);lastTerminalRushGameTime=now;}if(!sonicBoomEmitted&&normalized>.55&&velocity.y<0){AcousticEngine.playSound(server,position,AcousticSounds.TERMINAL_SONIC_BOOM_ID,SoundSource.BLOCKS,1.35F,1.0F);sonicBoomEmitted=true;}}
 	private void impact(final ServerLevel server,final Vec3 hit){
 		if(impacted||!hit.isFinite())return; impacted=true; ServerPlayer owner=null;
 		if(ownerPlayerId!=null&&server.getServer()!=null){ServerPlayer p=server.getServer().getPlayerList().getPlayer(ownerPlayerId);if(p!=null&&p.level()==server)owner=p;}

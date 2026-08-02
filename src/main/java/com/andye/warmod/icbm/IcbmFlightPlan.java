@@ -13,8 +13,8 @@ public record IcbmFlightPlan(UUID missileId, UUID ownerPlayerId, Vec3 launchPosi
 		Objects.requireNonNull(burnoutPosition); Objects.requireNonNull(separationPosition); Objects.requireNonNull(intendedTarget); Objects.requireNonNull(payloadType);
 		if(!launchPosition.isFinite()||!burnoutPosition.isFinite()||!separationPosition.isFinite()||!intendedTarget.isFinite()
 			|| ignitionTicks<1||ignitionTicks>20||boostTicks<1||boostTicks>200||coastTicks<IcbmConstants.MINIMUM_COAST_TICKS
-			||coastTicks>IcbmConstants.MAXIMUM_COAST_TICKS||launchPosition.distanceTo(intendedTarget)>2048.0
-			||launchPosition.distanceTo(burnoutPosition)>1024.0||burnoutPosition.distanceTo(separationPosition)>2048.0)
+			||coastTicks>IcbmConstants.MAXIMUM_COAST_TICKS||launchPosition.distanceTo(intendedTarget)>3072.0
+			||launchPosition.distanceTo(burnoutPosition)>2048.0||burnoutPosition.distanceTo(separationPosition)>3072.0)
 			throw new IllegalArgumentException("Invalid ICBM flight plan");
 	}
 	public int separationTick(){return ignitionTicks+boostTicks+coastTicks;}

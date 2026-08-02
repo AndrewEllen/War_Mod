@@ -27,7 +27,7 @@ public final class TerrainDeformationRenderer {
 		final double ageTicks, final float visualScale, final WarheadMesh.Lod lod,
 		final List<TerrainShockfrontSpoke> spokes) {
 		if (level == null || spokes == null || spokes.size() < 2) return new TerrainDeformationRenderState(impactPosition, ageTicks, visualScale, lod, List.of());
-		double front = WarheadVisualMath.groundShockwaveDistance(ageTicks, visualScale);
+		double front = WarheadVisualMath.groundShockwaveDistance(ageTicks);
 		List<TerrainDeformationPatch> patches = new ArrayList<>();
 		for (int spokeIndex = 0; spokeIndex < spokes.size(); spokeIndex++) {
 			List<TerrainShockfrontNode> first = spokes.get(spokeIndex).snapshotNodes();

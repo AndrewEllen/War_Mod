@@ -25,7 +25,7 @@ public final class ExplosionEmitterShockwave {
 	public static int emit(final ClientLevel level, final ImpactVisualState state, final double ageTicks,
 		final long gameTime, final Profile profile, final ParticleSink sink) {
 		if (level == null || state == null || sink == null || ageTicks < 0.0) return 0;
-		double radius = WarheadVisualMath.groundShockwaveDistance(ageTicks, state.visualScale());
+		double radius = WarheadVisualMath.groundShockwaveDistance(ageTicks);
 		if (!Double.isFinite(radius) || radius > MAXIMUM_RADIUS) return 0;
 		int emitted = emitInitialBurst(state, ageTicks, sink);
 		double[] radii = { radius, Math.max(0.0, radius - 4.0), Math.max(0.0, radius - 8.0) };
@@ -33,7 +33,7 @@ public final class ExplosionEmitterShockwave {
 			double layerRadius = radii[layer];
 			if (layerRadius < 1.0) continue;
 			double circumference = Math.PI * 2.0 * layerRadius;
-			int segmentCount = Mth.clamp((int) Math.ceil(circumference / profile.segmentSpacing), profile.minimumSegments, profile.maximumSegments);
+			int segmentCount = Mth.clamp((int)Math.ceil(circumference/profile.segmentSpacing*state.profile().shockwaveParticleDensityScale()),profile.minimumSegments,profile.maximumSegments);
 			double phase = angularPhase(state.visualSeed(), gameTime, layer, segmentCount);
 			for (int index = 0; index < segmentCount; index++) {
 				double angle = phase + Math.PI * 2.0 * index / segmentCount;

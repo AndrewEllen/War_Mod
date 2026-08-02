@@ -2,6 +2,7 @@ package com.andye.warmod.warhead.network;
 
 import com.andye.warmod.WarMod;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.icbm.IcbmConstants;
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -24,7 +25,7 @@ public record ClientboundWarheadLaunchPayload(UUID warheadId, double startX, dou
 		ClientboundWarheadLaunchPayload::new);
 	public boolean isWellFormed() {
 		return warheadId != null && payloadType != null && finite(startX) && finite(startY) && finite(startZ) && finite(targetX)
-			&& finite(targetY) && finite(targetZ) && flightTicks >= 1 && flightTicks <= 200
+			&& finite(targetY) && finite(targetZ) && flightTicks >= 1 && flightTicks <= IcbmConstants.MAXIMUM_TERMINAL_TICKS
 			&& new net.minecraft.world.phys.Vec3(startX,startY,startZ).distanceToSqr(new net.minecraft.world.phys.Vec3(targetX,targetY,targetZ)) <= 8192.0*8192.0;
 	}
 	@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }

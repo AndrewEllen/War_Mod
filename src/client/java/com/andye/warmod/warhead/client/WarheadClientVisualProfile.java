@@ -7,4 +7,4 @@ public record WarheadClientVisualProfile(WarheadPayloadType payloadType,int tota
 	int smokeStartTick,int cloudRiseStartTick,int cloudRiseEndTick,int cloudDissipationEndTick,double fireballWidth,
 	double fireballHeight,double fireballRise,double smokeStemWidth,double smokeCapWidth,double maximumCloudHeight,
 	int nearFireballLobes,int mediumFireballLobes,int farFireballLobes,int nearSmokeLobes,int mediumSmokeLobes,
-	int farSmokeLobes,double shockwaveScale,double particleScale) { }
+	int farSmokeLobes,double shockwaveThicknessScale,double shockwaveAlphaScale,double shockwaveParticleDensityScale,double particleScale) { }

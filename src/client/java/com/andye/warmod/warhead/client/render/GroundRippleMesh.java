@@ -15,7 +15,7 @@ public final class GroundRippleMesh {
 
 	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer, final GroundRippleRenderState state) {
 		if (state == null || state.spokes() == null || state.spokes().size() < 3) return;
-		double front = WarheadVisualMath.groundShockwaveDistance(state.ageTicks(), state.visualScale());
+		double front = WarheadVisualMath.groundShockwaveDistance(state.ageTicks());
 		if (front <= 0.0 || state.ageTicks() >= WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS) return;
 		int desired = state.lod() == WarheadMesh.Lod.NEAR ? 80 : state.lod() == WarheadMesh.Lod.MEDIUM ? 48 : 24;
 		int count = Math.min(desired, state.spokes().size());

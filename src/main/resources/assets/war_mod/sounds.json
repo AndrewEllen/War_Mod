@@ -1,41 +1,127 @@
 {
-  "large_explosion_1_crack": {
-    "sounds": ["war_mod:explosion/large/large_explosion_1_crack"]
-  },
-  "large_explosion_1_body": {
-    "sounds": ["war_mod:explosion/large/large_explosion_1_body"]
-  },
-  "large_explosion_1_low": {
-    "sounds": ["war_mod:explosion/large/large_explosion_1_low"]
-  },
-  "large_explosion_1_tail": {
-    "sounds": ["war_mod:explosion/large/large_explosion_1_tail"]
-  },
-  "large_explosion_2_crack": {
-    "sounds": ["war_mod:explosion/large/large_explosion_2_crack"]
-  },
-  "large_explosion_2_body": {
-    "sounds": ["war_mod:explosion/large/large_explosion_2_body"]
-  },
-  "large_explosion_2_low": {
-    "sounds": ["war_mod:explosion/large/large_explosion_2_low"]
-  },
-  "large_explosion_2_tail": {
-    "sounds": ["war_mod:explosion/large/large_explosion_2_tail"]
-  },
-  "prototype_explosion_near": {
-    "sounds": ["war_mod:explosion/prototype/explosion_near"]
-  },
-  "prototype_explosion_medium": {
-    "sounds": ["war_mod:explosion/prototype/explosion_medium"]
-  },
-  "prototype_explosion_far": {
-    "sounds": ["war_mod:explosion/prototype/explosion_far"]
-  },
-  "prototype_explosion_extreme": {
-    "sounds": ["war_mod:explosion/prototype/explosion_extreme"]
-  },
-  "silent": {
-    "sounds": ["war_mod:silent"]
-  }
+    "large_explosion_1_crack":  {
+                                    "sounds":  [
+                                                   "war_mod:explosion/large/large_explosion_1_crack"
+                                               ]
+                                },
+    "large_explosion_1_body":  {
+                                   "sounds":  [
+                                                  "war_mod:explosion/large/large_explosion_1_body"
+                                              ]
+                               },
+    "large_explosion_1_low":  {
+                                  "sounds":  [
+                                                 "war_mod:explosion/large/large_explosion_1_low"
+                                             ]
+                              },
+    "large_explosion_1_tail":  {
+                                   "sounds":  [
+                                                  "war_mod:explosion/large/large_explosion_1_tail"
+                                              ]
+                               },
+    "large_explosion_2_crack":  {
+                                    "sounds":  [
+                                                   "war_mod:explosion/large/large_explosion_2_crack"
+                                               ]
+                                },
+    "large_explosion_2_body":  {
+                                   "sounds":  [
+                                                  "war_mod:explosion/large/large_explosion_2_body"
+                                              ]
+                               },
+    "large_explosion_2_low":  {
+                                  "sounds":  [
+                                                 "war_mod:explosion/large/large_explosion_2_low"
+                                             ]
+                              },
+    "large_explosion_2_tail":  {
+                                   "sounds":  [
+                                                  "war_mod:explosion/large/large_explosion_2_tail"
+                                              ]
+                               },
+    "prototype_explosion_near":  {
+                                     "sounds":  [
+                                                    "war_mod:explosion/prototype/explosion_near"
+                                                ]
+                                 },
+    "prototype_explosion_medium":  {
+                                       "sounds":  [
+                                                      "war_mod:explosion/prototype/explosion_medium"
+                                                  ]
+                                   },
+    "prototype_explosion_far":  {
+                                    "sounds":  [
+                                                   "war_mod:explosion/prototype/explosion_far"
+                                               ]
+                                },
+    "prototype_explosion_extreme":  {
+                                        "sounds":  [
+                                                       "war_mod:explosion/prototype/explosion_extreme"
+                                                   ]
+                                    },
+    "silent":  {
+                   "sounds":  [
+                                  "war_mod:silent"
+                              ]
+               },
+    "missile_engine_near":  {
+                                "sounds":  [
+                                               "war_mod:missile/engine_rumble_near"
+                                           ]
+                            },
+    "missile_engine_medium":  {
+                                  "sounds":  [
+                                                 "war_mod:missile/engine_rumble_medium"
+                                             ]
+                              },
+    "missile_engine_far":  {
+                               "sounds":  [
+                                              "war_mod:missile/engine_rumble_far"
+                                          ]
+                           },
+    "missile_engine_extreme":  {
+                                   "sounds":  [
+                                                  "war_mod:missile/engine_rumble_extreme"
+                                              ]
+                               },
+    "terminal_rush_near":  {
+                               "sounds":  [
+                                              "war_mod:warhead/terminal_rush_near"
+                                          ]
+                           },
+    "terminal_rush_medium":  {
+                                 "sounds":  [
+                                                "war_mod:warhead/terminal_rush_medium"
+                                            ]
+                             },
+    "terminal_rush_far":  {
+                              "sounds":  [
+                                             "war_mod:warhead/terminal_rush_far"
+                                         ]
+                          },
+    "terminal_rush_extreme":  {
+                                  "sounds":  [
+                                                 "war_mod:warhead/terminal_rush_extreme"
+                                             ]
+                              },
+    "sonic_boom_near":  {
+                            "sounds":  [
+                                           "war_mod:warhead/sonic_boom_near"
+                                       ]
+                        },
+    "sonic_boom_medium":  {
+                              "sounds":  [
+                                             "war_mod:warhead/sonic_boom_medium"
+                                         ]
+                          },
+    "sonic_boom_far":  {
+                           "sounds":  [
+                                          "war_mod:warhead/sonic_boom_far"
+                                      ]
+                       },
+    "sonic_boom_extreme":  {
+                               "sounds":  [
+                                              "war_mod:warhead/sonic_boom_extreme"
+                                          ]
+                           }
 }
