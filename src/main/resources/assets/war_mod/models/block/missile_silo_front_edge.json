@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "up": "war_mod:block/missile_silo_edge_top",
+    "down": "war_mod:block/missile_silo_steel",
+    "north": "war_mod:block/missile_silo_control_panel",
+    "south": "war_mod:block/missile_silo_steel",
+    "east": "war_mod:block/missile_silo_steel",
+    "west": "war_mod:block/missile_silo_steel",
+    "particle": "war_mod:block/missile_silo_steel"
+  }
+}

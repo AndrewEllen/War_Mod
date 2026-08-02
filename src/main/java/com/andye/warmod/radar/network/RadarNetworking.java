@@ -12,17 +12,14 @@ public final class RadarNetworking {
 		PayloadTypeRegistry.serverboundPlay().register(ServerboundOpenRadarPayload.TYPE,ServerboundOpenRadarPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ServerboundCloseRadarPayload.TYPE,ServerboundCloseRadarPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ServerboundRadarResyncPayload.TYPE,ServerboundRadarResyncPayload.STREAM_CODEC);
-		PayloadTypeRegistry.serverboundPlay().register(ServerboundRadarTerrainRequestPayload.TYPE,ServerboundRadarTerrainRequestPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundOpenRadarPayload.TYPE,ClientboundOpenRadarPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundCloseRadarPayload.TYPE,ClientboundCloseRadarPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarSnapshotPayload.TYPE,ClientboundRadarSnapshotPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarTrackUpsertPayload.TYPE,ClientboundRadarTrackUpsertPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarTrackRemovePayload.TYPE,ClientboundRadarTrackRemovePayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarImpactPayload.TYPE,ClientboundRadarImpactPayload.STREAM_CODEC);
-		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarTerrainBatchPayload.TYPE,ClientboundRadarTerrainBatchPayload.STREAM_CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(ServerboundOpenRadarPayload.TYPE,(payload,context)->RadarSubscriptionManager.open(context.player()));
 		ServerPlayNetworking.registerGlobalReceiver(ServerboundCloseRadarPayload.TYPE,(payload,context)->RadarSubscriptionManager.close(context.player(),false));
 		ServerPlayNetworking.registerGlobalReceiver(ServerboundRadarResyncPayload.TYPE,(payload,context)->RadarSubscriptionManager.resync(context.player()));
-		ServerPlayNetworking.registerGlobalReceiver(ServerboundRadarTerrainRequestPayload.TYPE,(payload,context)->RadarSubscriptionManager.requestTerrain(context.player(),payload.chunkCoordinates()));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler,server)->RadarSubscriptionManager.disconnect(handler.getPlayer()));registered=true;}
 }

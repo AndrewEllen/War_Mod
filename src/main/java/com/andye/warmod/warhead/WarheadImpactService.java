@@ -36,6 +36,10 @@ public final class WarheadImpactService {
 	}
 	public static void impact(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
 		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType) {
+		detonateAt(level, owner, id, radarRootTrackId, pos, seed, payloadType);
+	}
+	public static void detonateAt(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
+		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType) {
 		Objects.requireNonNull(level); Objects.requireNonNull(id); Objects.requireNonNull(pos); Objects.requireNonNull(payloadType);
 		if (!pos.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
 		WarheadImpactProfile profile = WarheadImpactProfiles.get(payloadType);

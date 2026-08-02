@@ -13,28 +13,14 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 public final class RadarSubscriptionManager {
 	private static final Map<UUID,Subscription> SUBSCRIPTIONS=new HashMap<>();
-	private static final Map<ServerLevel,RadarTerrainTileCache> TERRAIN=new WeakHashMap<>();
-	private static final Map<UUID,Long> LAST_TERRAIN_REQUEST=new HashMap<>();
 	private RadarSubscriptionManager() { }
 	public static synchronized void open(final ServerPlayer player){if(!RadarAccess.hasRadarAccess(player)){ServerPlayNetworking.send(player,new ClientboundCloseRadarPayload());return;}ServerLevel level=player.level();RadarTrackingService.reconcileIcbmFlights(level);SUBSCRIPTIONS.put(player.getUUID(),new Subscription(level,level.getGameTime()));ServerPlayNetworking.send(player,new ClientboundOpenRadarPayload(level.dimension().identifier(),level.getGameTime()));sendSnapshot(player);if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Radar subscription opened {}",player.getUUID());}
-	public static synchronized void close(final ServerPlayer player,final boolean notify){SUBSCRIPTIONS.remove(player.getUUID());LAST_TERRAIN_REQUEST.remove(player.getUUID());if(notify)ServerPlayNetworking.send(player,new ClientboundCloseRadarPayload());}
+	public static synchronized void close(final ServerPlayer player,final boolean notify){SUBSCRIPTIONS.remove(player.getUUID());if(notify)ServerPlayNetworking.send(player,new ClientboundCloseRadarPayload());}
 	public static synchronized void resync(final ServerPlayer player){if(!RadarAccess.hasRadarAccess(player)){close(player,true);return;}if(!SUBSCRIPTIONS.containsKey(player.getUUID())){open(player);return;}sendSnapshot(player);}
-	public static synchronized void requestTerrain(final ServerPlayer player,final int[] coordinates){
-		Subscription sub=SUBSCRIPTIONS.get(player.getUUID());long now=player.level().getGameTime();
-		Long previous=LAST_TERRAIN_REQUEST.get(player.getUUID());
-		boolean rateLimited=previous!=null&&now>=previous&&now-previous<10;
-		if(sub==null||sub.level!=player.level()||!RadarAccess.hasRadarAccess(player)||coordinates.length>256||coordinates.length%2!=0||rateLimited){if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Radar terrain request rejected {}",player.getUUID());return;}
-		LAST_TERRAIN_REQUEST.put(player.getUUID(),now);
-		if(previous==null&&SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Radar terrain first request accepted for {}",player.getUUID());
-		RadarTerrainTileCache cache=TERRAIN.computeIfAbsent(player.level(),l->new RadarTerrainTileCache());
-		List<RadarTerrainTile> tiles=RadarTerrainService.loadedTiles(player.level(),cache,coordinates);
-		if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Radar terrain batch requested: requested={}, returned={}",coordinates.length/2,tiles.size());
-		if(!tiles.isEmpty())ServerPlayNetworking.send(player,new ClientboundRadarTerrainBatchPayload(tiles));
-	}
 	public static synchronized void broadcast(final ServerLevel level,final CustomPacketPayload payload){for(ServerPlayer player:level.players()){Subscription sub=SUBSCRIPTIONS.get(player.getUUID());if(sub!=null&&sub.level==level)ServerPlayNetworking.send(player,payload);}}
 	public static synchronized void tick(final ServerLevel level){long now=level.getGameTime();for(ServerPlayer player:new ArrayList<>(level.players())){Subscription sub=SUBSCRIPTIONS.get(player.getUUID());if(sub==null)continue;if(sub.level!=level||!RadarAccess.hasRadarAccess(player)){close(player,true);continue;}if(now-sub.lastSnapshot>=200){sendSnapshot(player);SUBSCRIPTIONS.put(player.getUUID(),new Subscription(level,now));}}}
 	public static synchronized void disconnect(final ServerPlayer player){close(player,false);}
-	public static synchronized void stop(final MinecraftServer server){for(ServerPlayer player:server.getPlayerList().getPlayers())if(SUBSCRIPTIONS.containsKey(player.getUUID()))close(player,true);SUBSCRIPTIONS.clear();LAST_TERRAIN_REQUEST.clear();TERRAIN.values().forEach(RadarTerrainTileCache::clear);TERRAIN.clear();}
+	public static synchronized void stop(final MinecraftServer server){for(ServerPlayer player:server.getPlayerList().getPlayers())if(SUBSCRIPTIONS.containsKey(player.getUUID()))close(player,true);SUBSCRIPTIONS.clear();}
 	private static void sendSnapshot(final ServerPlayer player){ServerLevel level=player.level();ServerPlayNetworking.send(player,new ClientboundRadarSnapshotPayload(level.dimension().identifier(),level.getGameTime(),RadarTrackingService.snapshotTracks(level),RadarTrackingService.snapshotImpacts(level)));}
 	private record Subscription(ServerLevel level,long lastSnapshot) { }
 }

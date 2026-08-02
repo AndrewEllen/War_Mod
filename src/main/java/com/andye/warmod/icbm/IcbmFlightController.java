@@ -6,6 +6,10 @@ import com.andye.warmod.icbm.network.IcbmVisualNetworking;
 import com.andye.warmod.radar.RadarRemovalReason;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.warhead.WarheadLaunchService;
+import com.andye.warmod.silo.MissileSiloCollisionContext;
+import com.andye.warmod.silo.MissileSiloCollisionDetector;
+import com.andye.warmod.silo.MissileSiloDetonationService;
+import org.jspecify.annotations.Nullable;
 import java.util.Optional;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.level.ServerLevel;
@@ -16,13 +20,22 @@ import net.minecraft.world.phys.Vec3;
 public final class IcbmFlightController {
 	private final IcbmFlightPlan flightPlan;
 	private final IcbmChunkTicketController chunkTickets;
+	private final @Nullable MissileSiloCollisionContext collisionContext;
+	private Vec3 previousPosition;
 	private boolean separated;
 	private boolean completed;
 	private long cleanupElapsed = Long.MAX_VALUE;
 
 	public IcbmFlightController(final IcbmFlightPlan flightPlan) {
+		this(flightPlan, null);
+	}
+
+	public IcbmFlightController(final IcbmFlightPlan flightPlan,
+		final @Nullable MissileSiloCollisionContext collisionContext) {
 		this.flightPlan = flightPlan;
 		this.chunkTickets = new IcbmChunkTicketController(flightPlan);
+		this.collisionContext = collisionContext;
+		this.previousPosition = flightPlan.launchPosition();
 	}
 
 	public IcbmFlightPlan flightPlan() { return this.flightPlan; }
@@ -31,11 +44,31 @@ public final class IcbmFlightController {
 	public void tick(final ServerLevel level) {
 		if (this.completed) return;
 		long elapsed = Math.max(0L, level.getGameTime() - this.flightPlan.launchGameTime());
+		Vec3 currentPosition = IcbmTrajectory.position(this.flightPlan, elapsed);
+		if (this.collisionContext != null && elapsed < this.flightPlan.ignitionTicks() + this.flightPlan.boostTicks()) {
+			MissileSiloCollisionDetector.Collision collision = MissileSiloCollisionDetector.findFirst(level,
+				this.previousPosition, currentPosition, this.collisionContext);
+			if (collision != null) {
+				this.collide(level, collision);
+				return;
+			}
+		}
+		this.previousPosition = currentPosition;
 		this.chunkTickets.update(level, elapsed);
 		if (!this.separated && elapsed >= this.flightPlan.separationTick()) this.separate(level);
 		if (this.separated && elapsed >= this.cleanupElapsed) this.complete(level);
 	}
 
+	private void collide(final ServerLevel level, final MissileSiloCollisionDetector.Collision collision) {
+		IcbmVisualNetworking.sendRemove(level, this.flightPlan.missileId(), this.flightPlan.ownerPlayerId(),
+			this.flightPlan.launchPosition(), collision.impactPosition());
+		this.chunkTickets.releaseAll(level);
+		MissileSiloDetonationService.detonateAt(level, this.flightPlan.ownerPlayerId(), this.flightPlan.missileId(),
+			this.flightPlan.missileId(), collision.impactPosition(), this.flightPlan.visualSeed(), this.flightPlan.payloadType());
+		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Silo missile {} struck block {} at {}",
+			this.flightPlan.missileId(), collision.blockPosition(), collision.impactPosition());
+		this.completed = true;
+	}
 	public void cancel(final ServerLevel level) {
 		if (this.completed) return;
 		IcbmVisualNetworking.sendRemove(level, this.flightPlan.missileId(), this.flightPlan.ownerPlayerId(),

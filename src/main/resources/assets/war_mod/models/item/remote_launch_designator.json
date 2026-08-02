@@ -1,0 +1,1 @@
+{ "parent": "minecraft:item/handheld", "textures": { "layer0": "war_mod:item/remote_launch_designator" } }

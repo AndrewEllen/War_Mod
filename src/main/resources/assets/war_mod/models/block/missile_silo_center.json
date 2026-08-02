@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "top": "war_mod:block/missile_silo_center_top",
+    "bottom": "war_mod:block/missile_silo_steel",
+    "side": "war_mod:block/missile_silo_steel"
+  }
+}

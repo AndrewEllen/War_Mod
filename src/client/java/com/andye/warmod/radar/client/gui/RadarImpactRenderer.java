@@ -22,8 +22,8 @@ public final class RadarImpactRenderer {
 		int trailing = (leading & 0x00ffffff) | (nuclear ? 0x99000000 : 0x66000000);
 		graphics.fill(centerX - 2, centerY - 2, centerX + 3, centerY + 3, leading);
 		RadarPolylineRenderer.drawRing(graphics, centerX, centerY, radius, left, top, width, height,
-			leading, nuclear ? 2 : 1);
+			leading, nuclear ? 2 : 1, nuclear ? 384 : 256);
 		RadarPolylineRenderer.drawRing(graphics, centerX, centerY, Math.max(0.0, radius - (nuclear ? 4.0 : 3.0)),
-			left, top, width, height, trailing, 1);
+			left, top, width, height, trailing, 1, nuclear ? 384 : 256);
 	}
 }
