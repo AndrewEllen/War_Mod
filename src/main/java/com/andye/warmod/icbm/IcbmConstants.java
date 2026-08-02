@@ -1,0 +1,16 @@
+package com.andye.warmod.icbm;
+
+import com.andye.warmod.warhead.WarheadConstants;
+
+public final class IcbmConstants {
+	public static final int IGNITION_TICKS=4, BOOST_TICKS=52, MINIMUM_COAST_TICKS=70, MAXIMUM_COAST_TICKS=180;
+	public static final int MINIMUM_TERMINAL_TICKS=38, MAXIMUM_TERMINAL_TICKS=64;
+	public static final double COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED=0.035, LAUNCH_DISTANCE_BEHIND_PLAYER=12.0, LAUNCH_SIDE_OFFSET=3.0;
+	public static final double MINIMUM_BURNOUT_HEIGHT_ABOVE_LAUNCH=145.0, PREFERRED_BURNOUT_HEIGHT_ABOVE_LAUNCH=190.0;
+	public static final double MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET=130.0, PREFERRED_SEPARATION_HEIGHT_ABOVE_TARGET=170.0;
+	public static final double SEPARATION_HORIZONTAL_OFFSET=32.0;
+	public static final int MAX_ACTIVE_CLIENT_ICBMS=24, MAX_ACTIVE_SPENT_STAGES=48;
+	public static final int SPENT_STAGE_MINIMUM_LIFETIME_TICKS=35, SPENT_STAGE_MAXIMUM_LIFETIME_TICKS=60;
+	public static final double VISUAL_RANGE_BLOCKS=WarheadConstants.VISUAL_RANGE_BLOCKS;
+	private IcbmConstants() { }
+}

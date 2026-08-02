@@ -1,6 +1,8 @@
 package com.andye.warmod.warhead.client.render;
 
+import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
@@ -9,63 +11,11 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-/** One coherent, deterministic, dense rising blast cloud. */
 public final class BlastCloudRenderer {
-	private BlastCloudRenderer() { }
-
-	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer, final double ageTicks,
-		final float visualScale, final List<BlastCloudLobe> lobes, final WarheadMesh.Lod lod, final Quaternionf cameraOrientation) {
-		if (!Double.isFinite(ageTicks) || ageTicks < 20.0 || ageTicks >= 260.0 || lobes == null || lobes.isEmpty()) return;
-		int limit = lod == WarheadMesh.Lod.NEAR ? Math.min(96, lobes.size()) : lod == WarheadMesh.Lod.MEDIUM ? Math.min(56, lobes.size()) : Math.min(28, lobes.size());
-		float scale = Mth.clamp(visualScale, 0.55F, 1.45F);
-		double develop = smooth((ageTicks - 20.0) / 50.0);
-		double rise = smooth((ageTicks - 35.0) / 165.0);
-		double dissipate = WarheadVisualMath.clamp((ageTicks - 190.0) / 70.0, 0.0, 1.0);
-		double fade = Math.pow(1.0 - dissipate, 0.72);
-		for (int index = 0; index < limit; index++) {
-			BlastCloudLobe lobe = lobes.get(index);
-			Vec3 center = center(lobe, ageTicks, scale);
-			double roll = 1.0 + 0.10 * Math.sin(lobe.phase() + ageTicks * 0.035);
-			double separation = 1.0 + dissipate * (lobe.upperCap() ? 0.55 : 0.30);
-			center = new Vec3(center.x * separation, center.y, center.z * separation);
-			float radius = (float) (lobe.baseRadius() * scale * (0.62 + develop * (lobe.upperCap() ? 1.05 : 0.75)) * roll);
-			float alpha = (float) (lobe.opacity() * (0.68 + 0.32 * develop) * fade);
-			addBillboard(pose, buffer, center, radius, lobe.rotation() + ageTicks * 0.0025, lobe.red(), lobe.green(), lobe.blue(), alpha, cameraOrientation);
-		}
-	}
-
-	public static Vec3 center(final BlastCloudLobe lobe, final double ageTicks, final float scale) {
-		double rise = smooth((ageTicks - 35.0) / 165.0);
-		double horizontalLength = Math.sqrt(lobe.baseOffset().x * lobe.baseOffset().x + lobe.baseOffset().z * lobe.baseOffset().z);
-		double dx = horizontalLength < 1.0E-4 ? Math.cos(lobe.rotation()) : lobe.baseOffset().x / horizontalLength;
-		double dz = horizontalLength < 1.0E-4 ? Math.sin(lobe.rotation()) : lobe.baseOffset().z / horizontalLength;
-		double outward = lobe.outwardDrift() * rise;
-		double lift = rise * (lobe.upperCap() ? 34.0 : 30.0) * lobe.riseFactor();
-		return lobe.baseOffset().scale(scale).add(dx * outward, lift, dz * outward);
-	}
-
-	private static void addBillboard(final PoseStack.Pose pose, final VertexConsumer buffer, final Vec3 center,
-		final float radius, final double rotation, final int red, final int green, final int blue, final float alpha, final Quaternionf cameraOrientation) {
-		float cos = Mth.cos((float) rotation), sin = Mth.sin((float) rotation);
-		float ux = cos * radius, uy = sin * radius, vx = -sin * radius, vy = cos * radius;
-		int a = Mth.clamp((int) (alpha * 255.0F), 0, 255);
-		vertex(pose, buffer, center, -ux - vx, -uy - vy, 0, 1, red, green, blue, a, cameraOrientation);
-		vertex(pose, buffer, center, -ux + vx, -uy + vy, 0, 0, red, green, blue, a, cameraOrientation);
-		vertex(pose, buffer, center, ux + vx, uy + vy, 1, 0, red, green, blue, a, cameraOrientation);
-		vertex(pose, buffer, center, ux - vx, uy - vy, 1, 1, red, green, blue, a, cameraOrientation);
-	}
-
-	private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer, final Vec3 center,
-		final float x, final float y, final float u, final float v, final int red, final int green, final int blue,
-		final int alpha, final Quaternionf cameraOrientation) {
-		Vector3f offset = new Vector3f(x, y, 0.0F).rotate(cameraOrientation);
-		Vector3f normal = new Vector3f(0.0F, 0.0F, 1.0F).rotate(cameraOrientation);
-		buffer.addVertex(pose, (float) center.x + offset.x, (float) center.y + offset.y, (float) center.z + offset.z)
-			.setColor(red, green, blue, alpha).setUv(u, v).setOverlay(0).setLight(0xA000A0)
-			.setNormal(pose, normal.x, normal.y, normal.z);
-	}
-	private static double smooth(final double value) {
-		double t = WarheadVisualMath.clamp(value, 0.0, 1.0);
-		return t * t * (3.0 - 2.0 * t);
-	}
+	private BlastCloudRenderer(){}
+	public static void render(final PoseStack.Pose pose,final VertexConsumer buffer,final double age,final float visualScale,final WarheadClientVisualProfile p,final List<BlastCloudLobe> lobes,final WarheadMesh.Lod lod,final Quaternionf camera){if(age<p.smokeStartTick()||age>=p.cloudDissipationEndTick()||lobes==null)return;int limit=lod==WarheadMesh.Lod.NEAR?p.nearSmokeLobes():lod==WarheadMesh.Lod.MEDIUM?p.mediumSmokeLobes():p.farSmokeLobes();limit=Math.min(limit,lobes.size());double develop=smooth((age-p.smokeStartTick())/(double)Math.max(1,p.cloudRiseEndTick()-p.smokeStartTick()));double rise=smooth((age-p.cloudRiseStartTick())/(double)Math.max(1,p.cloudRiseEndTick()-p.cloudRiseStartTick()));double fade=Math.pow(1-WarheadVisualMath.clamp((age-p.cloudRiseEndTick())/(double)Math.max(1,p.cloudDissipationEndTick()-p.cloudRiseEndTick()),0,1),.72);double scale=p.payloadType()==WarheadPayloadType.NUCLEAR?1.0:Mth.clamp(visualScale,.55F,1.45F);for(int i=0;i<limit;i++){BlastCloudLobe l=lobes.get(i);Vec3 base=l.baseOffset();double horizontal=Math.sqrt(base.x*base.x+base.z*base.z),dx=horizontal<1E-4?Math.cos(l.rotation()):base.x/horizontal,dz=horizontal<1E-4?Math.sin(l.rotation()):base.z/horizontal;double capRoll=l.upperCap()?1+.11*Math.sin(l.phase()+age*.025):1;Vec3 center=new Vec3(base.x*develop*scale*capRoll,(base.y*develop+rise*(l.upperCap()?p.maximumCloudHeight()*.16:p.maximumCloudHeight()*.08)*l.riseFactor())*scale,base.z*develop*scale*capRoll).add(dx*l.outwardDrift()*rise,0,dz*l.outwardDrift()*rise);float radius=(float)(l.baseRadius()*(.45+.55*develop)*scale*(1+.08*Math.sin(l.phase()+age*.035)));float alpha=(float)(l.opacity()*(.65+.35*develop)*fade);billboard(pose,buffer,center,radius,l.rotation()+age*.0025,l.red(),l.green(),l.blue(),alpha,camera);}}
+	public static Vec3 center(final BlastCloudLobe l,final double age,final float scale){double rise=smooth((age-35)/165.0);double horizontal=Math.sqrt(l.baseOffset().x*l.baseOffset().x+l.baseOffset().z*l.baseOffset().z),dx=horizontal<1E-4?Math.cos(l.rotation()):l.baseOffset().x/horizontal,dz=horizontal<1E-4?Math.sin(l.rotation()):l.baseOffset().z/horizontal;return l.baseOffset().scale(scale).add(dx*l.outwardDrift()*rise,rise*(l.upperCap()?34:30)*l.riseFactor(),dz*l.outwardDrift()*rise);}
+	private static void billboard(final PoseStack.Pose p,final VertexConsumer b,final Vec3 c,final float radius,final double rotation,final int r,final int g,final int bl,final float alpha,final Quaternionf camera){float cos=Mth.cos((float)rotation),sin=Mth.sin((float)rotation),ux=cos*radius,uy=sin*radius,vx=-sin*radius,vy=cos*radius;int a=Mth.clamp((int)(alpha*255),0,255);vertex(p,b,c,-ux-vx,-uy-vy,0,1,r,g,bl,a,camera);vertex(p,b,c,-ux+vx,-uy+vy,0,0,r,g,bl,a,camera);vertex(p,b,c,ux+vx,uy+vy,1,0,r,g,bl,a,camera);vertex(p,b,c,ux-vx,uy-vy,1,1,r,g,bl,a,camera);}
+	private static void vertex(final PoseStack.Pose p,final VertexConsumer b,final Vec3 c,final float x,final float y,final float u,final float v,final int r,final int g,final int bl,final int a,final Quaternionf camera){Vector3f o=new Vector3f(x,y,0).rotate(camera),n=new Vector3f(0,0,1).rotate(camera);b.addVertex(p,(float)c.x+o.x,(float)c.y+o.y,(float)c.z+o.z).setColor(r,g,bl,a).setUv(u,v).setOverlay(0).setLight(0xA000A0).setNormal(p,n.x,n.y,n.z);}
+	private static double smooth(final double v){double t=WarheadVisualMath.clamp(v,0,1);return t*t*(3-2*t);}
 }

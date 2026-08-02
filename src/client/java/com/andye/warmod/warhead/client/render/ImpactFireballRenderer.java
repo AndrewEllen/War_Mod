@@ -1,6 +1,8 @@
 package com.andye.warmod.warhead.client.render;
 
+import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
@@ -9,157 +11,12 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-/** Deterministic three-dimensional fireball lobes using an eight-frame atlas. */
 public final class ImpactFireballRenderer {
-	private ImpactFireballRenderer() {
-	}
-
-	public static void renderHot(
-		final PoseStack.Pose pose,
-		final VertexConsumer buffer,
-		final double ageTicks,
-		final float visualScale,
-		final List<FireballLobe> lobes,
-		final WarheadMesh.Lod lod,
-		final Quaternionf cameraOrientation
-	) {
-		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, true, cameraOrientation);
-	}
-
-	public static void renderCooling(
-		final PoseStack.Pose pose,
-		final VertexConsumer buffer,
-		final double ageTicks,
-		final float visualScale,
-		final List<FireballLobe> lobes,
-		final WarheadMesh.Lod lod,
-		final Quaternionf cameraOrientation
-	) {
-		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, false, cameraOrientation);
-	}
-
-	private static void renderLobes(
-		final PoseStack.Pose pose,
-		final VertexConsumer buffer,
-		final double ageTicks,
-		final float visualScale,
-		final List<FireballLobe> lobes,
-		final WarheadMesh.Lod lod,
-		final boolean hot,
-		final Quaternionf cameraOrientation
-	) {
-		if (!Double.isFinite(ageTicks) || lobes == null || lobes.isEmpty()) {
-			return;
-		}
-
-		float scale = Mth.clamp(visualScale, 0.45F, 1.5F);
-		int lobeLimit = lod == WarheadMesh.Lod.NEAR ? Math.min(72, lobes.size())
-			: lod == WarheadMesh.Lod.MEDIUM ? Math.min(44, lobes.size()) : Math.min(24, lobes.size());
-		for (int index = 0; index < lobeLimit; index++) {
-			FireballLobe lobe = lobes.get(index);
-			double localAge = ageTicks - lobe.spawnDelayTicks();
-			if (localAge < 0.0 || localAge >= 80.0 || (hot && localAge > 42.0) || (!hot && localAge < 12.0)) {
-				continue;
-			}
-
-			double growth = WarheadVisualMath.clamp(localAge / 24.0, 0.0, 1.0);
-			double cooling = WarheadVisualMath.clamp((localAge - 30.0) / 50.0, 0.0, 1.0);
-			double alpha = WarheadVisualMath.fireballAlpha(localAge) * (0.48 + 0.52 * (1.0 - index / (double) Math.max(1, lobeLimit)));
-			if (hot) {
-				alpha *= 0.88 + 0.12 * (1.0 - cooling);
-			} else {
-				alpha *= 0.86 * Math.pow(1.0 - cooling, 0.45);
-			}
-			if (alpha <= 0.0) {
-				continue;
-			}
-
-			float radius = (float) (scale * lobe.baseRadius() * (0.62 + 0.58 * easeOut(growth)));
-			Vec3 driftDirection = horizontalDirection(lobe.baseOffset(), lobe.rotation());
-			double drift = lobe.horizontalDrift() * easeOut(growth);
-			double rise = lobe.riseSpeed() * WarheadVisualMath.fireballRise(localAge) / 16.0;
-			Vec3 center = lobe.baseOffset().scale(scale).add(driftDirection.scale(drift)).add(0.0, rise, 0.0);
-			int frame = frameFor(localAge, lobe.animationOffset(), hot);
-			float frameU0 = frame / 8.0F;
-			float frameU1 = (frame + 1) / 8.0F;
-			int red = hot ? 255 : Mth.lerpInt((float) cooling, 244, 132);
-			int green = hot ? Mth.lerpInt((float) cooling, 244, 104) : Mth.lerpInt((float) cooling, 148, 92);
-			int blue = hot ? Mth.lerpInt((float) cooling, 170, 34) : Mth.lerpInt((float) cooling, 52, 30);
-			int light = hot ? 0xF000F0 : 0xA000A0;
-			addBillboard(pose, buffer, center, radius, lobe.rotation(), frameU0, frameU1, red, green, blue, alpha, light, cameraOrientation);
-		}
-	}
-
-	private static int frameFor(final double localAge, final int animationOffset, final boolean hot) {
-		double duration = hot ? 40.0 : 63.0;
-		int frame = (int) Math.floor(localAge / duration * 8.0) + animationOffset;
-		return Math.floorMod(frame, 8);
-	}
-
-	private static Vec3 horizontalDirection(final Vec3 offset, final double rotation) {
-		double x = offset.x;
-		double z = offset.z;
-		double length = Math.sqrt(x * x + z * z);
-		if (length < 1.0E-5) {
-			return new Vec3(Math.cos(rotation), 0.0, Math.sin(rotation));
-		}
-		return new Vec3(x / length, 0.0, z / length);
-	}
-
-	private static void addBillboard(
-		final PoseStack.Pose pose,
-		final VertexConsumer buffer,
-		final Vec3 center,
-		final float radius,
-		final double rotation,
-		final float u0,
-		final float u1,
-		final int red,
-		final int green,
-		final int blue,
-		final double alpha,
-		final int light,
-		final Quaternionf cameraOrientation
-	) {
-		float cos = Mth.cos((float) rotation);
-		float sin = Mth.sin((float) rotation);
-		float ux = cos * radius;
-		float uy = sin * radius;
-		float vx = -sin * radius;
-		float vy = cos * radius;
-		int alphaByte = Mth.clamp((int) (alpha * 255.0), 0, 255);
-		vertex(pose, buffer, center, -ux - vx, -uy - vy, u0, 1.0F, red, green, blue, alphaByte, light, cameraOrientation);
-		vertex(pose, buffer, center, -ux + vx, -uy + vy, u0, 0.0F, red, green, blue, alphaByte, light, cameraOrientation);
-		vertex(pose, buffer, center, ux + vx, uy + vy, u1, 0.0F, red, green, blue, alphaByte, light, cameraOrientation);
-		vertex(pose, buffer, center, ux - vx, uy - vy, u1, 1.0F, red, green, blue, alphaByte, light, cameraOrientation);
-	}
-
-	private static void vertex(
-		final PoseStack.Pose pose,
-		final VertexConsumer buffer,
-		final Vec3 center,
-		final float x,
-		final float y,
-		final float u,
-		final float v,
-		final int red,
-		final int green,
-		final int blue,
-		final int alpha,
-		final int light,
-		final Quaternionf cameraOrientation
-	) {
-		Vector3f offset = new Vector3f(x, y, 0.0F).rotate(cameraOrientation);
-		Vector3f normal = new Vector3f(0.0F, 0.0F, 1.0F).rotate(cameraOrientation);
-		buffer.addVertex(pose, (float) center.x + offset.x, (float) center.y + offset.y, (float) center.z + offset.z)
-			.setColor(red, green, blue, alpha)
-			.setUv(u, v)
-			.setOverlay(0)
-			.setLight(light)
-			.setNormal(pose, normal.x, normal.y, normal.z);
-	}
-	private static double easeOut(final double value) {
-		double t = WarheadVisualMath.clamp(value, 0.0, 1.0);
-		return 1.0 - (1.0 - t) * (1.0 - t);
-	}
+	private ImpactFireballRenderer(){}
+	public static void renderHot(final PoseStack.Pose pose,final VertexConsumer buffer,final double age,final float visualScale,final WarheadClientVisualProfile profile,final List<FireballLobe> lobes,final WarheadMesh.Lod lod,final Quaternionf camera){render(pose,buffer,age,visualScale,profile,lobes,lod,true,camera);}
+	public static void renderCooling(final PoseStack.Pose pose,final VertexConsumer buffer,final double age,final float visualScale,final WarheadClientVisualProfile profile,final List<FireballLobe> lobes,final WarheadMesh.Lod lod,final Quaternionf camera){render(pose,buffer,age,visualScale,profile,lobes,lod,false,camera);}
+	private static void render(final PoseStack.Pose pose,final VertexConsumer buffer,final double age,final float visualScale,final WarheadClientVisualProfile p,final List<FireballLobe> lobes,final WarheadMesh.Lod lod,final boolean hot,final Quaternionf camera){if(age<p.fireballGrowthStartTick()||age>=p.fireballCoolingEndTick()||lobes==null)return;int limit=lod==WarheadMesh.Lod.NEAR?p.nearFireballLobes():lod==WarheadMesh.Lod.MEDIUM?p.mediumFireballLobes():p.farFireballLobes();limit=Math.min(limit,lobes.size());double growth=smooth((age-p.fireballGrowthStartTick())/(double)Math.max(1,p.fireballGrowthEndTick()-p.fireballGrowthStartTick()));double cooling=WarheadVisualMath.clamp((age-p.fireballHoldEndTick())/(double)Math.max(1,p.fireballCoolingEndTick()-p.fireballHoldEndTick()),0,1);if(hot&&cooling>=.92)return;if(!hot&&age<p.fireballGrowthEndTick()*.65)return;double geometryScale=p.payloadType()==WarheadPayloadType.NUCLEAR?1.0:Mth.clamp(visualScale,.45F,1.5F);for(int i=0;i<limit;i++){FireballLobe l=lobes.get(i);if(age<l.spawnDelayTicks())continue;double alpha=(hot?(1.0-cooling)*.92:Math.pow(1.0-cooling,.55)*.78)*(1.0-i/(double)Math.max(1,limit)*.25);if(alpha<=.01)continue;Vec3 radial=new Vec3(l.baseOffset().x,0,l.baseOffset().z);Vec3 direction=radial.lengthSqr()<1E-6?new Vec3(Math.cos(l.rotation()),0,Math.sin(l.rotation())):radial.normalize();Vec3 center=l.baseOffset().scale(growth*geometryScale).add(direction.scale(l.horizontalDrift()*growth)).add(0,p.fireballRise()*growth*.18*l.riseSpeed(),0);float radius=(float)(l.baseRadius()*(.35+.65*growth)*geometryScale);int red=hot?255:Mth.lerpInt((float)cooling,220,76),green=hot?Mth.lerpInt((float)cooling,246,112):Mth.lerpInt((float)cooling,126,78),blue=hot?Mth.lerpInt((float)cooling,180,35):Mth.lerpInt((float)cooling,46,34);billboard(pose,buffer,center,radius,l.rotation(),red,green,blue,alpha,hot?0xF000F0:0xA000A0,camera);}}
+	private static void billboard(final PoseStack.Pose pose,final VertexConsumer b,final Vec3 c,final float radius,final double rotation,final int red,final int green,final int blue,final double alpha,final int light,final Quaternionf camera){float cos=Mth.cos((float)rotation),sin=Mth.sin((float)rotation),ux=cos*radius,uy=sin*radius,vx=-sin*radius,vy=cos*radius;int a=Mth.clamp((int)(alpha*255),0,255);vertex(pose,b,c,-ux-vx,-uy-vy,0,1,red,green,blue,a,light,camera);vertex(pose,b,c,-ux+vx,-uy+vy,0,0,red,green,blue,a,light,camera);vertex(pose,b,c,ux+vx,uy+vy,1,0,red,green,blue,a,light,camera);vertex(pose,b,c,ux-vx,uy-vy,1,1,red,green,blue,a,light,camera);}
+	private static void vertex(final PoseStack.Pose p,final VertexConsumer b,final Vec3 c,final float x,final float y,final float u,final float v,final int r,final int g,final int bl,final int a,final int light,final Quaternionf camera){Vector3f o=new Vector3f(x,y,0).rotate(camera),n=new Vector3f(0,0,1).rotate(camera);b.addVertex(p,(float)c.x+o.x,(float)c.y+o.y,(float)c.z+o.z).setColor(r,g,bl,a).setUv(u,v).setOverlay(0).setLight(light).setNormal(p,n.x,n.y,n.z);}
+	private static double smooth(final double value){double t=WarheadVisualMath.clamp(value,0,1);return t*t*(3-2*t);}
 }

@@ -2,6 +2,7 @@ package com.andye.warmod.entity;
 
 import com.andye.warmod.WarMod;
 import com.andye.warmod.warhead.WarheadImpactService;
+import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadTrajectory;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import java.util.Objects;
@@ -28,260 +29,65 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class IncomingWarheadEntity extends Entity {
-	private UUID warheadId;
-	private UUID ownerPlayerId;
-	private Vec3 startPosition;
-	private Vec3 intendedTarget;
-	private long launchGameTime;
-	private int flightTicks;
-	private long visualSeed;
-	private boolean impacted;
-
+	private UUID warheadId, ownerPlayerId; private Vec3 startPosition=Vec3.ZERO, intendedTarget=Vec3.ZERO;
+	private long launchGameTime=Long.MIN_VALUE, visualSeed; private int flightTicks; private boolean impacted;
+	private WarheadPayloadType payloadType=WarheadPayloadType.CONVENTIONAL;
 	public IncomingWarheadEntity(final EntityType<IncomingWarheadEntity> type, final Level level) {
-		super(type, level);
-		this.warheadId = null;
-		this.ownerPlayerId = null;
-		this.startPosition = Vec3.ZERO;
-		this.intendedTarget = Vec3.ZERO;
-		this.launchGameTime = Long.MIN_VALUE;
-		this.flightTicks = 0;
-		this.visualSeed = 0L;
-		this.impacted = false;
-		this.noPhysics = true;
-		this.setNoGravity(true);
-		this.setSilent(true);
+		super(type,level); this.noPhysics=true; setNoGravity(true); setSilent(true);
 	}
-
-	public IncomingWarheadEntity(
-		final EntityType<IncomingWarheadEntity> type,
-		final ServerLevel level,
-		final UUID warheadId,
-		final UUID ownerPlayerId,
-		final Vec3 startPosition,
-		final Vec3 intendedTarget,
-		final long launchGameTime,
-		final int flightTicks,
-		final long visualSeed
-	) {
-		this(type, level);
-		this.warheadId = Objects.requireNonNull(warheadId, "warheadId");
-		this.ownerPlayerId = ownerPlayerId;
-		this.startPosition = Objects.requireNonNull(startPosition, "startPosition");
-		this.intendedTarget = Objects.requireNonNull(intendedTarget, "intendedTarget");
-		this.launchGameTime = launchGameTime;
-		this.flightTicks = flightTicks;
-		this.visualSeed = visualSeed;
-		this.setPos(startPosition);
+	public IncomingWarheadEntity(final EntityType<IncomingWarheadEntity> type, final ServerLevel level, final UUID warheadId,
+		final UUID ownerPlayerId, final Vec3 startPosition, final Vec3 intendedTarget, final long launchGameTime,
+		final int flightTicks, final long visualSeed, final WarheadPayloadType payloadType) {
+		this(type,level); this.warheadId=Objects.requireNonNull(warheadId); this.ownerPlayerId=ownerPlayerId;
+		this.startPosition=Objects.requireNonNull(startPosition); this.intendedTarget=Objects.requireNonNull(intendedTarget);
+		this.launchGameTime=launchGameTime; this.flightTicks=flightTicks; this.visualSeed=visualSeed; this.payloadType=Objects.requireNonNull(payloadType); setPos(startPosition);
 	}
-
-	@Override
-	protected void defineSynchedData(final SynchedEntityData.Builder builder) {
+	@Override protected void defineSynchedData(final SynchedEntityData.Builder builder) { }
+	@Override public void tick() {
+		super.tick(); if(isRemoved()||impacted||!(level() instanceof ServerLevel server)) return;
+		if(!valid()){cancel(server);discard();return;}
+		long elapsedGame=server.getGameTime()-launchGameTime; double elapsed=Math.max(0.0,Math.min(Integer.MAX_VALUE,elapsedGame));
+		Vec3 previous=WarheadTrajectory.position(startPosition,intendedTarget,Math.max(0,elapsed-1),flightTicks);
+		Vec3 next=WarheadTrajectory.position(startPosition,intendedTarget,elapsed,flightTicks);
+		if(!next.isFinite()||!previous.isFinite()||!loaded(server,next)){cancel(server);discard();return;}
+		RaycastResult raycast=raycastLoaded(server,previous,next); if(raycast.missingChunk()){cancel(server);discard();return;}
+		if(raycast.hit().isPresent()) impact(server,raycast.hit().get().getLocation()); else if(elapsedGame>=flightTicks) impact(server,intendedTarget);
+		else { setPos(next); setDeltaMovement(next.subtract(previous)); updateRotation(next.subtract(previous)); }
 	}
-
-	@Override
-	public void tick() {
-		super.tick();
-		if (this.isRemoved() || this.impacted || !(this.level() instanceof ServerLevel serverLevel)) {
-			return;
-		}
-
-		if (!this.isValidState()) {
-			this.cancelVisual(serverLevel);
-			this.discard();
-			return;
-		}
-
-		long elapsedGameTicks = serverLevel.getGameTime() - this.launchGameTime;
-		double elapsedTicks = Math.max(0.0, Math.min(Integer.MAX_VALUE, elapsedGameTicks));
-		Vec3 previousPosition = WarheadTrajectory.position(
-			this.startPosition,
-			this.intendedTarget,
-			Math.max(0.0, elapsedTicks - 1.0),
-			this.flightTicks
-		);
-		Vec3 nextPosition = WarheadTrajectory.position(
-			this.startPosition,
-			this.intendedTarget,
-			elapsedTicks,
-			this.flightTicks
-		);
-		if (!nextPosition.isFinite() || !previousPosition.isFinite()) {
-			this.cancelVisual(serverLevel);
-			this.discard();
-			return;
-		}
-
-		if (!isChunkLoaded(serverLevel, nextPosition)) {
-			this.cancelVisual(serverLevel);
-			this.discard();
-			return;
-		}
-
-		RaycastResult raycast = raycastLoaded(serverLevel, previousPosition, nextPosition);
-		if (raycast.missingChunk()) {
-			this.cancelVisual(serverLevel);
-			this.discard();
-			return;
-		}
-
-		if (raycast.hit().isPresent()) {
-			this.impact(serverLevel, raycast.hit().get().getLocation());
-		} else if (elapsedGameTicks >= this.flightTicks) {
-			this.impact(serverLevel, this.intendedTarget);
-		} else {
-			this.setPos(nextPosition);
-			this.setDeltaMovement(nextPosition.subtract(previousPosition));
-			this.updateTravelRotation(nextPosition.subtract(previousPosition));
-		}
+	@Override public boolean hurtServer(final ServerLevel level,final DamageSource source,final float amount){return false;}
+	@Override public boolean isPickable(){return false;} @Override public boolean isPushable(){return false;}
+	@Override public boolean canBeCollidedWith(final Entity entity){return false;} @Override public boolean isAttackable(){return false;}
+	@Override public boolean shouldRenderAtSqrDistance(final double distance){return false;}
+	@Override protected void readAdditionalSaveData(final ValueInput input){
+		warheadId=input.read("WarheadId",UUIDUtil.STRING_CODEC).orElse(null); ownerPlayerId=input.read("OwnerPlayerId",UUIDUtil.STRING_CODEC).orElse(null);
+		startPosition=input.read("StartPosition",Vec3.CODEC).orElse(Vec3.ZERO); intendedTarget=input.read("IntendedTarget",Vec3.CODEC).orElse(Vec3.ZERO);
+		launchGameTime=input.getLongOr("LaunchGameTime",Long.MIN_VALUE); flightTicks=input.getIntOr("FlightTicks",0); visualSeed=input.getLongOr("VisualSeed",0);
+		impacted=input.getBooleanOr("Impacted",false); payloadType=WarheadPayloadType.fromSerializedName(input.getStringOr("PayloadType","conventional")).orElse(WarheadPayloadType.CONVENTIONAL);
+		if(!valid()||impacted){discard();return;} setPos(startPosition);setNoGravity(true);setSilent(true);noPhysics=true;
 	}
-
-	@Override
-	public boolean hurtServer(final ServerLevel level, final DamageSource source, final float amount) {
-		return false;
+	@Override protected void addAdditionalSaveData(final ValueOutput output){
+		output.storeNullable("WarheadId",UUIDUtil.STRING_CODEC,warheadId); output.storeNullable("OwnerPlayerId",UUIDUtil.STRING_CODEC,ownerPlayerId);
+		if(startPosition!=null&&startPosition.isFinite())output.store("StartPosition",Vec3.CODEC,startPosition);
+		if(intendedTarget!=null&&intendedTarget.isFinite())output.store("IntendedTarget",Vec3.CODEC,intendedTarget);
+		output.putLong("LaunchGameTime",launchGameTime);output.putInt("FlightTicks",flightTicks);output.putLong("VisualSeed",visualSeed);
+		output.putBoolean("Impacted",impacted);output.putString("PayloadType",payloadType.serializedName());
 	}
-
-	@Override
-	public boolean isPickable() {
-		return false;
+	private boolean valid(){return warheadId!=null&&startPosition!=null&&intendedTarget!=null&&payloadType!=null&&startPosition.isFinite()&&intendedTarget.isFinite()
+		&&startPosition.distanceTo(intendedTarget)<=8192&&launchGameTime!=Long.MIN_VALUE&&flightTicks>=1&&flightTicks<=200;}
+	private void impact(final ServerLevel server,final Vec3 hit){
+		if(impacted||!hit.isFinite())return; impacted=true; ServerPlayer owner=null;
+		if(ownerPlayerId!=null&&server.getServer()!=null){ServerPlayer p=server.getServer().getPlayerList().getPlayer(ownerPlayerId);if(p!=null&&p.level()==server)owner=p;}
+		if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Warhead {} impacted: payload={}, position={}",warheadId,payloadType.serializedName(),hit);
+		WarheadImpactService.impact(server,owner,warheadId,hit,visualSeed,payloadType);discard();
 	}
-
-	@Override
-	public boolean isPushable() {
-		return false;
+	private void cancel(final ServerLevel server){if(warheadId!=null&&intendedTarget!=null&&intendedTarget.isFinite())WarheadVisualNetworking.sendRemove(server,warheadId,intendedTarget);}
+	private void updateRotation(final Vec3 v){if(v.lengthSqr()<1E-8)return;setYRot((float)(Math.atan2(v.z,v.x)*180/Math.PI)-90);setXRot((float)(-Math.atan2(v.y,v.horizontalDistance())*180/Math.PI));}
+	private static boolean loaded(final ServerLevel level,final Vec3 p){return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(p.x),SectionPos.blockToSectionCoord(p.z));}
+	private RaycastResult raycastLoaded(final ServerLevel level,final Vec3 from,final Vec3 to){
+		AtomicBoolean missing=new AtomicBoolean();ClipContext context=new ClipContext(from,to,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,this);
+		Optional<BlockHitResult> hit=BlockGetter.traverseBlocks(from,to,context,(c,p)->{if(!level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(p.getX()),SectionPos.blockToSectionCoord(p.getZ()))){missing.set(true);return Optional.empty();}
+			BlockState state=level.getBlockState(p);VoxelShape shape=c.getBlockShape(state,level,p);BlockHitResult result=level.clipWithInteractionOverride(from,to,p,shape,state);return result==null?null:Optional.of(result);},ignored->Optional.empty());
+		return new RaycastResult(hit==null?Optional.empty():hit,missing.get());
 	}
-
-	@Override
-	public boolean canBeCollidedWith(final Entity entity) {
-		return false;
-	}
-
-	@Override
-	public boolean isAttackable() {
-		return false;
-	}
-
-	@Override
-	public boolean shouldRenderAtSqrDistance(final double distance) {
-		return false;
-	}
-
-	@Override
-	protected void readAdditionalSaveData(final ValueInput input) {
-		this.warheadId = input.read("WarheadId", UUIDUtil.STRING_CODEC).orElse(null);
-		this.ownerPlayerId = input.read("OwnerPlayerId", UUIDUtil.STRING_CODEC).orElse(null);
-		this.startPosition = input.read("StartPosition", Vec3.CODEC).orElse(Vec3.ZERO);
-		this.intendedTarget = input.read("IntendedTarget", Vec3.CODEC).orElse(Vec3.ZERO);
-		this.launchGameTime = input.getLongOr("LaunchGameTime", Long.MIN_VALUE);
-		this.flightTicks = input.getIntOr("FlightTicks", 0);
-		this.visualSeed = input.getLongOr("VisualSeed", 0L);
-		this.impacted = input.getBooleanOr("Impacted", false);
-		if (!this.isValidState() || this.impacted) {
-			this.discard();
-			return;
-		}
-		this.setPos(this.startPosition);
-		this.setNoGravity(true);
-		this.setSilent(true);
-		this.noPhysics = true;
-	}
-
-	@Override
-	protected void addAdditionalSaveData(final ValueOutput output) {
-		output.storeNullable("WarheadId", UUIDUtil.STRING_CODEC, this.warheadId);
-		output.storeNullable("OwnerPlayerId", UUIDUtil.STRING_CODEC, this.ownerPlayerId);
-		if (this.startPosition != null && this.startPosition.isFinite()) {
-			output.store("StartPosition", Vec3.CODEC, this.startPosition);
-		}
-		if (this.intendedTarget != null && this.intendedTarget.isFinite()) {
-			output.store("IntendedTarget", Vec3.CODEC, this.intendedTarget);
-		}
-		output.putLong("LaunchGameTime", this.launchGameTime);
-		output.putInt("FlightTicks", this.flightTicks);
-		output.putLong("VisualSeed", this.visualSeed);
-		output.putBoolean("Impacted", this.impacted);
-	}
-
-	private boolean isValidState() {
-		return this.warheadId != null
-			&& this.startPosition != null
-			&& this.intendedTarget != null
-			&& this.startPosition.isFinite()
-			&& this.intendedTarget.isFinite()
-			&& this.startPosition.distanceTo(this.intendedTarget) <= 8192.0
-			&& this.launchGameTime != Long.MIN_VALUE
-			&& this.flightTicks >= 1
-			&& this.flightTicks <= 200;
-	}
-
-	private void impact(final ServerLevel serverLevel, final Vec3 hitPosition) {
-		if (this.impacted || !hitPosition.isFinite()) {
-			return;
-		}
-
-		this.impacted = true;
-		ServerPlayer owner = null;
-		if (this.ownerPlayerId != null && serverLevel.getServer() != null) {
-			ServerPlayer candidate = serverLevel.getServer().getPlayerList().getPlayer(this.ownerPlayerId);
-			if (candidate != null && candidate.level() == serverLevel) {
-				owner = candidate;
-			}
-		}
-
-		if (SharedConstants.IS_RUNNING_IN_IDE) {
-			WarMod.LOGGER.info(
-				"Warhead {} impacted: position={}, flight={}",
-				this.warheadId,
-				hitPosition,
-				Math.max(0L, serverLevel.getGameTime() - this.launchGameTime)
-			);
-		}
-		WarheadImpactService.impact(serverLevel, owner, this.warheadId, hitPosition, this.visualSeed);
-		this.discard();
-	}
-
-	private void cancelVisual(final ServerLevel serverLevel) {
-		if (this.warheadId != null && this.intendedTarget != null && this.intendedTarget.isFinite()) {
-			WarheadVisualNetworking.sendRemove(serverLevel, this.warheadId, this.intendedTarget);
-		}
-	}
-
-	private void updateTravelRotation(final Vec3 velocity) {
-		if (velocity.lengthSqr() < 1.0E-8) {
-			return;
-		}
-		this.setYRot((float)(Math.atan2(velocity.z, velocity.x) * 180.0 / Math.PI) - 90.0F);
-		this.setXRot((float)(-Math.atan2(velocity.y, velocity.horizontalDistance()) * 180.0 / Math.PI));
-	}
-
-	private static boolean isChunkLoaded(final ServerLevel level, final Vec3 position) {
-		return level.getChunkSource().hasChunk(
-			SectionPos.blockToSectionCoord(position.x),
-			SectionPos.blockToSectionCoord(position.z)
-		);
-	}
-
-	private RaycastResult raycastLoaded(final ServerLevel level, final Vec3 from, final Vec3 to) {
-		AtomicBoolean missingChunk = new AtomicBoolean(false);
-		ClipContext context = new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this);
-		Optional<BlockHitResult> hit = BlockGetter.traverseBlocks(
-			from,
-			to,
-			context,
-			(clipContext, pos) -> {
-				if (!level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()))) {
-					missingChunk.set(true);
-					return Optional.empty();
-				}
-				BlockState state = level.getBlockState(pos);
-				VoxelShape shape = clipContext.getBlockShape(state, level, pos);
-				BlockHitResult blockHit = level.clipWithInteractionOverride(from, to, pos, shape, state);
-				return blockHit == null ? null : Optional.of(blockHit);
-			},
-			ignored -> Optional.empty()
-		);
-		return new RaycastResult(hit == null ? Optional.empty() : hit, missingChunk.get());
-	}
-
-	private record RaycastResult(Optional<BlockHitResult> hit, boolean missingChunk) {
-	}
+	private record RaycastResult(Optional<BlockHitResult> hit,boolean missingChunk){}
 }

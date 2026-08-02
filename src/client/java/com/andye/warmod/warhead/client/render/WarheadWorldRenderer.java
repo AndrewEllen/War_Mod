@@ -2,6 +2,8 @@ package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.andye.warmod.warhead.client.ClientWarheadVisualManager;
 import com.andye.warmod.warhead.client.ImpactVisualState;
 import com.andye.warmod.warhead.client.TerrainShockfrontNode;
@@ -70,7 +72,7 @@ public final class WarheadWorldRenderer {
 			for (TerrainShockfrontNode node : dustNodes) {
 				if (node.state() == TerrainShockfrontNode.State.READY) state.terrainShockfrontField().markEmitted(node, gameTime);
 			}
-			impacts.add(new ImpactFrame(state.impactPosition(), age, state.visualScale(), lod,
+			impacts.add(new ImpactFrame(state.impactPosition(), age, state.visualScale(), state.payloadType(), state.profile(), lod,
 				state.terrainShockfrontField().snapshotSpokes(), dustNodes, state.fireballLobes(), state.blastCloudLobes(), gameTime));
 		}
 		currentFrame = new RenderFrame(cameraPosition, cameraOrientation, List.copyOf(warheads), List.copyOf(impacts));
@@ -101,17 +103,18 @@ public final class WarheadWorldRenderer {
 
 	private static void renderImpact(final LevelRenderContext context, final PoseStack poseStack, final RenderFrame frame, final ImpactFrame impact) {
 		Vec3 relative = impact.position().subtract(frame.cameraPosition());
-		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks(), impact.visualScale());
+		float shockwaveVisualScale = (float) (impact.visualScale() * impact.profile().shockwaveScale());
+		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks(), shockwaveVisualScale);
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
-			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.lod()));
+			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, impact.ageTicks(), shockwaveVisualScale, impact.lod()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), groundDistance,
-				frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), impact.visualScale()), groundFrontierAlpha(impact.ageTicks()), 208, 226, 244));
+				frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), shockwaveVisualScale), groundFrontierAlpha(impact.ageTicks()), 208, 226, 244));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), Math.max(0.0, groundDistance - 3.0),
-				frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), impact.visualScale()), dustAlpha(impact.ageTicks()), 130, 119, 108));
+				frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), shockwaveVisualScale), dustAlpha(impact.ageTicks()), 130, 119, 108));
 		poseStack.popPose();
 
 		poseStack.pushPose();
@@ -119,11 +122,15 @@ public final class WarheadWorldRenderer {
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
 			(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(), impact.gameTime(), impact.lod(), frame.cameraOrientation()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-			(pose, buffer) -> BlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation()));
+			(pose, buffer) -> BlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(), impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
-			(pose, buffer) -> ImpactFireballRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod(), frame.cameraOrientation()));
+			(pose, buffer) -> ImpactFireballRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(), impact.fireballLobes(), impact.lod(), frame.cameraOrientation()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
-			(pose, buffer) -> ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod(), frame.cameraOrientation()));
+			(pose, buffer) -> ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(), impact.fireballLobes(), impact.lod(), frame.cameraOrientation()));
+		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
+				(pose, buffer) -> NuclearFlashRenderer.render(pose, buffer, impact.ageTicks(), frame.cameraOrientation()));
+		}
 		poseStack.popPose();
 	}
 
@@ -151,7 +158,7 @@ public final class WarheadWorldRenderer {
 
 	private record WarheadFrame(Vec3 position, Vec3 velocity, float progress, float elapsedTicks, float remainingTicks,
 		int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) { }
-	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, WarheadMesh.Lod lod,
+	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, WarheadPayloadType payloadType, WarheadClientVisualProfile profile, WarheadMesh.Lod lod,
 		List<TerrainShockfrontSpoke> shockfrontSpokes, List<TerrainShockfrontNode> dustNodes,
 		List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) { }
 	private record RenderFrame(Vec3 cameraPosition, Quaternionf cameraOrientation, List<WarheadFrame> warheads, List<ImpactFrame> impacts) {

@@ -73,12 +73,12 @@ public final class ImpactParticleEmitter {
 		this.emitShockwaveRing(level, state, age, gameTime, lod, budget);
 		budget.releaseUnused(Category.SHOCKWAVE_RING);
 		if (!state.initialBurstEmitted()) {
-			int emitted = this.emitInitialBurst(level, center, state.visualScale(), state.visualSeed(), lod, distance, budget);
+			int emitted = this.emitInitialBurst(level, center, (float) state.profile().particleScale(), state.visualSeed(), lod, distance, budget);
 			if (emitted > 0) state.markInitialBurstEmitted();
 		}
 		if (state.lastContinuousParticleTick() != gameTime) {
-			if (age >= 1.0 && age < 40.0) this.emitExpandingFireball(level, center, state.visualScale(), state.visualSeed(), age, lod, distance, gameTime, budget);
-			if (age >= 20.0 && age < 260.0) this.emitLingeringSmoke(level, state, age, lod, distance, gameTime, budget);
+			if (age >= state.profile().fireballGrowthStartTick() && age < state.profile().fireballCoolingEndTick()) this.emitExpandingFireball(level, center, (float) state.profile().particleScale(), state.visualSeed(), age, lod, distance, gameTime, budget);
+			if (age >= state.profile().smokeStartTick() && age < state.profile().cloudDissipationEndTick()) this.emitLingeringSmoke(level, state, age, lod, distance, gameTime, budget);
 			state.markContinuousParticleTick(gameTime);
 		}
 		if (age < WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS) this.emitGroundShockfront(level, state, center, distance, age, gameTime, lod, budget);
@@ -87,8 +87,9 @@ public final class ImpactParticleEmitter {
 	private void emitShockwaveRing(final ClientLevel level, final ImpactVisualState state, final double age,
 		final long gameTime, final ParticleLod lod, final ImpactBudget budget) {
 		if (!budget.hasCapacity(Category.SHOCKWAVE_RING)) return;
-		ExplosionEmitterShockwave.Profile profile = lod == ParticleLod.NEAR ? ExplosionEmitterShockwave.Profile.NEAR
-			: lod == ParticleLod.MEDIUM ? ExplosionEmitterShockwave.Profile.MEDIUM : ExplosionEmitterShockwave.Profile.FAR;
+		ExplosionEmitterShockwave.Profile profile = state.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR
+			? (lod == ParticleLod.NEAR ? ExplosionEmitterShockwave.Profile.NUCLEAR_NEAR : lod == ParticleLod.MEDIUM ? ExplosionEmitterShockwave.Profile.NUCLEAR_MEDIUM : ExplosionEmitterShockwave.Profile.NUCLEAR_FAR)
+			: (lod == ParticleLod.NEAR ? ExplosionEmitterShockwave.Profile.NEAR : lod == ParticleLod.MEDIUM ? ExplosionEmitterShockwave.Profile.MEDIUM : ExplosionEmitterShockwave.Profile.FAR);
 		ExplosionEmitterShockwave.emit(level, state, age, gameTime, profile,
 			(particle, position, velocity) -> emitParticle(level, particle, position, velocity, budget, Category.SHOCKWAVE_RING, true));
 	}
@@ -113,7 +114,7 @@ public final class ImpactParticleEmitter {
 		final double age, final ParticleLod lod, final double distance, final long gameTime, final ImpactBudget budget) {
 		SplittableRandom random = new SplittableRandom(seed ^ CONTINUOUS_SEED ^ gameTime);
 		double multiplier = lod == ParticleLod.NEAR ? 1.0 : lod == ParticleLod.MEDIUM ? 0.5 : 0.25;
-		double radius = (4.0 + Math.min(1.0, age / 24.0) * 16.0) * Mth.clamp(scale, 0.5F, 1.5F);
+		double radius = (4.0 + Math.min(1.0, age / 24.0) * 16.0) * Mth.clamp(scale, 0.5F, 4.0F);
 		boolean force = distance > NORMAL_PARTICLE_DISTANCE;
 		Direction direction = new Direction();
 		emitRadial(level, ModParticleTypes.WARHEAD_FIREBALL, center, random, direction, scaled(random, 8, 16, scale, multiplier), 1.0, radius, 0.05, 0.18, 0.10, 0.38, budget, Category.FIREBALL, force);
@@ -127,7 +128,7 @@ public final class ImpactParticleEmitter {
 		int spokes = lod == ParticleLod.NEAR ? 256 : lod == ParticleLod.MEDIUM ? 160 : 96;
 		int maximum = budget.remaining(Category.GROUND);
 		for (GroundShockParticleEmitter.GroundParticleBatch batch : GroundShockParticleEmitter.collect(state, center,
-			WarheadVisualMath.groundShockwaveDistance(age, state.visualScale()), spokes, maximum, distance, gameTime)) {
+			WarheadVisualMath.groundShockwaveDistance(age, state.visualScale() * state.profile().shockwaveScale()), spokes, maximum, distance, gameTime)) {
 			int emitted = 0;
 			for (GroundShockParticleEmitter.GroundParticle particle : batch.particles()) {
 				if (emitParticle(level, particle.particle(), particle.position(), particle.velocity(), budget, Category.GROUND, particle.forceLongRange())) emitted++;
@@ -141,10 +142,11 @@ public final class ImpactParticleEmitter {
 		final ParticleLod lod, final double distance, final long gameTime, final ImpactBudget budget) {
 		SplittableRandom random = new SplittableRandom(state.visualSeed() ^ SMOKE_SEED ^ gameTime);
 		int count = lod == ParticleLod.NEAR ? random.nextInt(2_500, 5_001) : lod == ParticleLod.MEDIUM ? random.nextInt(1_500, 4_001) : random.nextInt(500, 1_001);
+		count = (int) Math.round(count * state.profile().particleScale());
 		boolean force = distance > NORMAL_PARTICLE_DISTANCE;
 		for (int index = 0; index < count && budget.hasCapacity(Category.SMOKE); index++) {
 			BlastCloudLobe lobe = state.blastCloudLobes().get(random.nextInt(state.blastCloudLobes().size()));
-			Vec3 offset = BlastCloudRenderer.center(lobe, age, Mth.clamp(state.visualScale(), 0.55F, 1.45F));
+			Vec3 offset = BlastCloudRenderer.center(lobe, age, state.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR ? 1.0F : Mth.clamp(state.visualScale(), 0.55F, 1.45F));
 			Vec3 horizontal = new Vec3(offset.x, 0.0, offset.z);
 			if (horizontal.lengthSqr() > 1.0E-5) horizontal = horizontal.normalize();
 			Vec3 position = state.impactPosition().add(offset).add(random.nextDouble(-2.0, 2.0), random.nextDouble(-1.0, 2.0), random.nextDouble(-2.0, 2.0));
@@ -211,7 +213,7 @@ public final class ImpactParticleEmitter {
 	private static ParticleLod lod(final double distance) { return distance < NEAR_DISTANCE ? ParticleLod.NEAR : distance < MEDIUM_DISTANCE ? ParticleLod.MEDIUM : ParticleLod.FAR; }
 	private static int lodMaximum(final ParticleLod lod) { return lod == ParticleLod.NEAR ? 50_000 : lod == ParticleLod.MEDIUM ? 27_000 : 8_000; }
 	private static int scaled(final SplittableRandom random, final int minimum, final int maximum, final float scale, final double multiplier) {
-		return Math.max(1, (int) Math.round(random.nextInt(minimum, maximum + 1) * Mth.clamp(scale, 0.5F, 1.5F) * multiplier));
+		return Math.max(1, (int) Math.round(random.nextInt(minimum, maximum + 1) * Mth.clamp(scale, 0.5F, 4.0F) * multiplier));
 	}
 	private static void randomDirection(final SplittableRandom random, final Direction direction) {
 		double x, y, z, lengthSquared;

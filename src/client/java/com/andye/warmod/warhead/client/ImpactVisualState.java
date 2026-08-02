@@ -1,9 +1,9 @@
 package com.andye.warmod.warhead.client;
 
-import com.andye.warmod.warhead.WarheadEffectMath;
-import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
+import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.client.render.BlastCloudLobe;
 import com.andye.warmod.warhead.client.render.FireballLobe;
+import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.SplittableRandom;
@@ -11,164 +11,14 @@ import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 
 public final class ImpactVisualState {
-	private static final int FIREBALL_LOBE_COUNT = 72;
-	private static final int BLAST_CLOUD_LOBE_COUNT = 96;
-	private final UUID warheadId;
-	private final Vec3 impactPosition;
-	private final long impactGameTime;
-	private final long visualSeed;
-	private final float visualScale;
-	private final TerrainRingSampler terrainSampler;
-	private final TerrainShockfrontField terrainShockfrontField;
-	private final List<FireballLobe> fireballLobes;
-	private final List<BlastCloudLobe> blastCloudLobes;
-	private boolean initialBurstEmitted;
-	private boolean secondaryBurstEmitted;
-	private long lastContinuousParticleTick = Long.MIN_VALUE;
-	private int emittedParticleCount;
-
-	public ImpactVisualState(
-		final UUID warheadId,
-		final Vec3 impactPosition,
-		final long impactGameTime,
-		final long visualSeed,
-		final float visualScale
-	) {
-		this.warheadId = warheadId;
-		this.impactPosition = impactPosition;
-		this.impactGameTime = impactGameTime;
-		this.visualSeed = visualSeed;
-		this.visualScale = visualScale;
-		this.terrainSampler = new TerrainRingSampler(impactPosition, visualSeed);
-		this.terrainShockfrontField = new TerrainShockfrontField(impactPosition, visualSeed);
-		this.fireballLobes = createFireballLobes(visualSeed);
-		this.blastCloudLobes = createBlastCloudLobes(visualSeed);
-	}
-
-	public static ImpactVisualState fromPayload(final ClientboundWarheadImpactPayload payload) {
-		return new ImpactVisualState(
-			payload.warheadId(),
-			new Vec3(payload.impactX(), payload.impactY(), payload.impactZ()),
-			payload.impactGameTime(),
-			payload.visualSeed(),
-			payload.visualScale()
-		);
-	}
-
-	public UUID warheadId() {
-		return this.warheadId;
-	}
-
-	public Vec3 impactPosition() {
-		return this.impactPosition;
-	}
-
-	public long impactGameTime() {
-		return this.impactGameTime;
-	}
-
-	public long visualSeed() {
-		return this.visualSeed;
-	}
-
-	public float visualScale() {
-		return this.visualScale;
-	}
-
-	public TerrainRingSampler terrainSampler() {
-		return this.terrainSampler;
-	}
-
-	public TerrainShockfrontField terrainShockfrontField() {
-		return this.terrainShockfrontField;
-	}
-
-	public List<FireballLobe> fireballLobes() {
-		return this.fireballLobes;
-	}
-
-	public List<BlastCloudLobe> blastCloudLobes() {
-		return this.blastCloudLobes;
-	}
-
-	public double ageTicks(final long clientGameTime, final double partialTick) {
-		long wholeTicks = clientGameTime - this.impactGameTime;
-		return Math.max(0.0, wholeTicks) + Math.max(0.0, Math.min(1.0, partialTick));
-	}
-
-	public boolean isExpired(final long clientGameTime, final double partialTick) {
-		return WarheadEffectMath.impactExpired(this.ageTicks(clientGameTime, partialTick));
-	}
-
-	boolean initialBurstEmitted() {
-		return this.initialBurstEmitted;
-	}
-
-	void markInitialBurstEmitted() {
-		this.initialBurstEmitted = true;
-	}
-
-	boolean secondaryBurstEmitted() {
-		return this.secondaryBurstEmitted;
-	}
-
-	void markSecondaryBurstEmitted() {
-		this.secondaryBurstEmitted = true;
-	}
-
-	long lastContinuousParticleTick() {
-		return this.lastContinuousParticleTick;
-	}
-
-	void markContinuousParticleTick(final long gameTime) {
-		this.lastContinuousParticleTick = gameTime;
-	}
-
-	int emittedParticleCount() {
-		return this.emittedParticleCount;
-	}
-
-	void recordParticleEmission() {
-		this.emittedParticleCount++;
-	}
-
-	private static List<FireballLobe> createFireballLobes(final long visualSeed) {
-		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x464952454C4F4245L);
-		List<FireballLobe> lobes = new ArrayList<>(FIREBALL_LOBE_COUNT);
-		for (int index = 0; index < FIREBALL_LOBE_COUNT; index++) {
-			int band = index < 36 ? 0 : index < 60 ? 1 : 2;
-			double angle = random.nextDouble(0.0, Math.PI * 2.0);
-			double radial = band == 0 ? Math.sqrt(random.nextDouble()) * 10.0
-				: band == 1 ? random.nextDouble(8.0, 22.0) : random.nextDouble(18.0, 30.0);
-			double maximumY = band == 0 ? 34.0 : band == 1 ? 40.0 : 42.0;
-			double y = Math.pow(random.nextDouble(), 0.82) * maximumY;
-			Vec3 offset = new Vec3(Math.cos(angle) * radial, y, Math.sin(angle) * radial);
-			double minimumRadius = band == 0 ? 3.8 : band == 1 ? 3.4 : 3.0;
-			double maximumRadius = band == 0 ? 6.5 : band == 1 ? 6.2 : 5.7;
-			lobes.add(new FireballLobe(offset, random.nextDouble(0.0, 3.0), random.nextDouble(minimumRadius, maximumRadius),
-				random.nextDouble(0.50, 1.15), random.nextDouble(0.45, 1.05), random.nextDouble(0.4, 3.2),
-				random.nextDouble(0.0, Math.PI * 2.0), random.nextInt(8)));
-		}
-		return List.copyOf(lobes);
-	}
-	private static List<BlastCloudLobe> createBlastCloudLobes(final long visualSeed) {
-		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x424C415354434C44L);
-		List<BlastCloudLobe> lobes = new ArrayList<>(BLAST_CLOUD_LOBE_COUNT);
-		for (int index = 0; index < BLAST_CLOUD_LOBE_COUNT; index++) {
-			boolean upper = index >= 50;
-			double angle = random.nextDouble(0.0, Math.PI * 2.0);
-			double radial = upper ? random.nextDouble(2.5, 11.0) : random.nextDouble(0.4, 4.5);
-			double y = upper ? random.nextDouble(18.0, 34.0) : random.nextDouble(0.0, 25.0);
-			boolean core = index % 3 != 0;
-			int red = core ? random.nextInt(18, 43) : random.nextInt(50, 91);
-			int green = core ? random.nextInt(20, 46) : random.nextInt(54, 96);
-			int blue = core ? random.nextInt(24, 53) : random.nextInt(60, 106);
-			float opacity = (float) (core ? random.nextDouble(0.46, 0.63) : random.nextDouble(0.28, 0.45));
-			lobes.add(new BlastCloudLobe(new Vec3(Math.cos(angle) * radial, y, Math.sin(angle) * radial),
-				upper ? random.nextDouble(3.0, 5.5) : random.nextDouble(2.5, 4.3), random.nextDouble(0.80, 1.20), random.nextDouble(1.0, 7.0),
-				random.nextDouble(0.0, Math.PI * 2.0), random.nextDouble(0.0, Math.PI * 2.0), upper,
-				red, green, blue, opacity));
-		}
-		return List.copyOf(lobes);
-	}
+	private final UUID warheadId;private final Vec3 impactPosition;private final long impactGameTime,visualSeed;private final float visualScale;private final WarheadPayloadType payloadType;private final WarheadClientVisualProfile profile;
+	private final TerrainRingSampler terrainSampler;private final TerrainShockfrontField terrainShockfrontField;private final List<FireballLobe> fireballLobes;private final List<BlastCloudLobe> blastCloudLobes;
+	private boolean initialBurstEmitted,secondaryBurstEmitted;private long lastContinuousParticleTick=Long.MIN_VALUE;private int emittedParticleCount;
+	public ImpactVisualState(final UUID id,final Vec3 position,final long time,final long seed,final WarheadPayloadType payloadType,final float scale){this.warheadId=id;this.impactPosition=position;this.impactGameTime=time;this.visualSeed=seed;this.payloadType=payloadType;this.visualScale=scale;this.profile=WarheadClientVisualProfiles.get(payloadType,seed);this.terrainSampler=new TerrainRingSampler(position,seed);this.terrainShockfrontField=new TerrainShockfrontField(position,seed);this.fireballLobes=createFireballLobes(seed,profile);this.blastCloudLobes=createSmokeLobes(seed,profile);}
+	public static ImpactVisualState fromPayload(final ClientboundWarheadImpactPayload p){return new ImpactVisualState(p.warheadId(),new Vec3(p.impactX(),p.impactY(),p.impactZ()),p.impactGameTime(),p.visualSeed(),p.payloadType(),p.impactVisualScale());}
+	public UUID warheadId(){return warheadId;}public Vec3 impactPosition(){return impactPosition;}public long impactGameTime(){return impactGameTime;}public long visualSeed(){return visualSeed;}public float visualScale(){return visualScale;}public WarheadPayloadType payloadType(){return payloadType;}public WarheadClientVisualProfile profile(){return profile;}public TerrainRingSampler terrainSampler(){return terrainSampler;}public TerrainShockfrontField terrainShockfrontField(){return terrainShockfrontField;}public List<FireballLobe> fireballLobes(){return fireballLobes;}public List<BlastCloudLobe> blastCloudLobes(){return blastCloudLobes;}
+	public double ageTicks(final long time,final double partial){return Math.max(0,time-impactGameTime)+Math.max(0,Math.min(1,partial));}public boolean isExpired(final long time,final double partial){double age=ageTicks(time,partial);return !Double.isFinite(age)||age>=profile.totalImpactLifetimeTicks();}
+	boolean initialBurstEmitted(){return initialBurstEmitted;}void markInitialBurstEmitted(){initialBurstEmitted=true;}boolean secondaryBurstEmitted(){return secondaryBurstEmitted;}void markSecondaryBurstEmitted(){secondaryBurstEmitted=true;}long lastContinuousParticleTick(){return lastContinuousParticleTick;}void markContinuousParticleTick(final long t){lastContinuousParticleTick=t;}int emittedParticleCount(){return emittedParticleCount;}void recordParticleEmission(){emittedParticleCount++;}
+	private static List<FireballLobe> createFireballLobes(final long seed,final WarheadClientVisualProfile p){SplittableRandom r=new SplittableRandom(seed^0x464952454C4F4245L);int count=p.nearFireballLobes();List<FireballLobe> list=new ArrayList<>(count);boolean nuclear=p.payloadType()==WarheadPayloadType.NUCLEAR;for(int i=0;i<count;i++){double fraction=i/(double)count;int band=fraction<.45?0:fraction<.80?1:2;double angle=r.nextDouble(0,Math.PI*2),radialFactor=band==0?Math.sqrt(r.nextDouble())*.42:band==1?r.nextDouble(.35,.72):r.nextDouble(.68,1.0);double width=nuclear?p.fireballWidth():60,height=nuclear?p.fireballHeight():84;double radial=radialFactor*width*.5;double y=Math.pow(r.nextDouble(),.82)*height;Vec3 offset=new Vec3(Math.cos(angle)*radial,y,Math.sin(angle)*radial);double base=nuclear?r.nextDouble(7,14):r.nextDouble(3,6.5);list.add(new FireballLobe(offset,r.nextDouble(0,nuclear?6:3),base,r.nextDouble(.5,1.15),r.nextDouble(.45,1.05),r.nextDouble(.4,nuclear?8:3.2),r.nextDouble(0,Math.PI*2),r.nextInt(8)));}return List.copyOf(list);}
+	private static List<BlastCloudLobe> createSmokeLobes(final long seed,final WarheadClientVisualProfile p){SplittableRandom r=new SplittableRandom(seed^0x424C415354434C44L);int count=p.nearSmokeLobes();List<BlastCloudLobe> list=new ArrayList<>(count);boolean nuclear=p.payloadType()==WarheadPayloadType.NUCLEAR;for(int i=0;i<count;i++){boolean upper=nuclear?i>=count*4/10:i>=count/2;double angle=r.nextDouble(0,Math.PI*2);double radial=upper?r.nextDouble(nuclear?p.smokeCapWidth()*.10:2.5,nuclear?p.smokeCapWidth()*.50:11):r.nextDouble(.4,nuclear?p.smokeStemWidth()*.5:4.5);double y=upper?r.nextDouble(nuclear?p.maximumCloudHeight()*.58:18,nuclear?p.maximumCloudHeight()*.82:34):r.nextDouble(0,nuclear?p.maximumCloudHeight()*.68:25);boolean core=i%3!=0;int red=core?r.nextInt(18,43):r.nextInt(55,101),green=core?r.nextInt(20,47):r.nextInt(60,106),blue=core?r.nextInt(24,55):r.nextInt(68,116);float opacity=(float)(core?r.nextDouble(nuclear?.72:.46,nuclear?.88:.63):r.nextDouble(nuclear?.48:.28,nuclear?.70:.45));double radius=nuclear?(upper?r.nextDouble(12,24):r.nextDouble(8,16)):(upper?r.nextDouble(3,5.5):r.nextDouble(2.5,4.3));list.add(new BlastCloudLobe(new Vec3(Math.cos(angle)*radial,y,Math.sin(angle)*radial),radius,r.nextDouble(.8,1.2),r.nextDouble(1,nuclear?18:7),r.nextDouble(0,Math.PI*2),r.nextDouble(0,Math.PI*2),upper,red,green,blue,opacity));}return List.copyOf(list);}
 }

@@ -15,138 +15,67 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 public final class WarheadLaunchService {
-	private WarheadLaunchService() {
+	private WarheadLaunchService() { }
+	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer owner, final Vec3 intendedTarget) {
+		return launch(level, owner, intendedTarget, WarheadPayloadType.CONVENTIONAL);
 	}
-
-	public static Optional<LaunchResult> launch(
-		final ServerLevel level,
-		final ServerPlayer owner,
-		final Vec3 intendedTarget
-	) {
-		Objects.requireNonNull(level, "level");
+	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer owner, final Vec3 intendedTarget,
+		final WarheadPayloadType payloadType) {
 		Objects.requireNonNull(owner, "owner");
-		Objects.requireNonNull(intendedTarget, "intendedTarget");
-		if (!intendedTarget.isFinite() || owner.level() != level || owner.getEyePosition().distanceTo(intendedTarget) > WarheadConstants.TARGET_RANGE_BLOCKS + 0.001) {
-			return Optional.empty();
-		}
-		if (!isChunkLoaded(level, intendedTarget)) {
-			return Optional.empty();
-		}
-
-		UUID warheadId = UUID.randomUUID();
-		long visualSeed = warheadId.getMostSignificantBits() ^ Long.rotateLeft(warheadId.getLeastSignificantBits(), 17);
-		Vec3 startPosition = calculateStartPosition(level, intendedTarget, visualSeed).orElse(null);
-		if (startPosition == null) {
-			return Optional.empty();
-		}
-
-		double trajectoryDistance = startPosition.distanceTo(intendedTarget);
-		int flightTicks = clampFlightTicks((int)Math.ceil(trajectoryDistance / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
-		long launchGameTime = level.getGameTime();
-		IncomingWarheadEntity entity = new IncomingWarheadEntity(
-			ModEntityTypes.INCOMING_WARHEAD,
-			level,
-			warheadId,
-			owner.getUUID(),
-			startPosition,
-			intendedTarget,
-			launchGameTime,
-			flightTicks,
-			visualSeed
-		);
-		if (!level.addFreshEntity(entity)) {
-			return Optional.empty();
-		}
-
-		ClientboundWarheadLaunchPayload payload = new ClientboundWarheadLaunchPayload(
-			warheadId,
-			startPosition.x,
-			startPosition.y,
-			startPosition.z,
-			intendedTarget.x,
-			intendedTarget.y,
-			intendedTarget.z,
-			launchGameTime,
-			flightTicks,
-			visualSeed
-		);
-		WarheadVisualNetworking.sendLaunch(level, payload, intendedTarget);
-
-		if (SharedConstants.IS_RUNNING_IN_IDE) {
-			WarMod.LOGGER.info(
-				"Warhead {} launched: start={}, target={}, flight={}",
-				warheadId,
-				startPosition,
-				intendedTarget,
-				flightTicks
-			);
-		}
-		return Optional.of(new LaunchResult(warheadId, startPosition, intendedTarget, flightTicks, visualSeed));
+		if (owner.level() != level || owner.getEyePosition().distanceTo(intendedTarget) > WarheadConstants.TARGET_RANGE_BLOCKS + 0.001) return Optional.empty();
+		UUID id = UUID.randomUUID();
+		long seed = deriveSeed(id, id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 17), payloadType);
+		Vec3 start = calculateStartPosition(level, intendedTarget, seed).orElse(null);
+		if (start == null) return Optional.empty();
+		return spawn(level, owner, id, start, intendedTarget,
+			clamp((int)Math.ceil(start.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK)), seed, payloadType);
 	}
-
-	private static Optional<Vec3> calculateStartPosition(final ServerLevel level, final Vec3 target, final long visualSeed) {
+	public static Optional<LaunchResult> launchFromCarrier(final ServerLevel level, final @Nullable ServerPlayer owner,
+		final Vec3 separationPosition, final Vec3 intendedTarget, final long parentVisualSeed, final WarheadPayloadType payloadType) {
+		UUID id = UUID.randomUUID();
+		long seed = deriveSeed(id, parentVisualSeed, payloadType);
+		int ticks = clamp((int)Math.ceil(separationPosition.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
+		return spawn(level, owner, id, separationPosition, intendedTarget, ticks, seed, payloadType);
+	}
+	private static Optional<LaunchResult> spawn(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
+		final Vec3 start, final Vec3 target, final int ticks, final long seed, final WarheadPayloadType payloadType) {
+		Objects.requireNonNull(level); Objects.requireNonNull(start); Objects.requireNonNull(target); Objects.requireNonNull(payloadType);
+		if (!start.isFinite() || !target.isFinite() || !loaded(level, start) || !loaded(level, target)) return Optional.empty();
+		long gameTime = level.getGameTime();
+		IncomingWarheadEntity entity = new IncomingWarheadEntity(ModEntityTypes.INCOMING_WARHEAD, level, id,
+			owner == null ? null : owner.getUUID(), start, target, gameTime, ticks, seed, payloadType);
+		if (!level.addFreshEntity(entity)) return Optional.empty();
+		WarheadVisualNetworking.sendLaunch(level, new ClientboundWarheadLaunchPayload(id, start.x, start.y, start.z,
+			target.x, target.y, target.z, gameTime, ticks, seed, payloadType), target);
+		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Warhead {} launched: payload={}, start={}, target={}, flight={}", id, payloadType.serializedName(), start, target, ticks);
+		return Optional.of(new LaunchResult(id, start, target, ticks, seed, payloadType));
+	}
+	private static Optional<Vec3> calculateStartPosition(final ServerLevel level, final Vec3 target, final long seed) {
+		if (!target.isFinite() || !loaded(level, target)) return Optional.empty();
 		float cloudHeight;
-		try {
-			cloudHeight = level.environmentAttributes().getValue(EnvironmentAttributes.CLOUD_HEIGHT, target).floatValue();
-		} catch (RuntimeException ignored) {
-			cloudHeight = Float.NaN;
-		}
-
+		try { cloudHeight = level.environmentAttributes().getValue(EnvironmentAttributes.CLOUD_HEIGHT, target).floatValue(); }
+		catch (RuntimeException ignored) { cloudHeight = Float.NaN; }
 		double desiredY = target.y + WarheadConstants.PREFERRED_SPAWN_HEIGHT_ABOVE_TARGET;
-		if (Float.isFinite(cloudHeight)) {
-			desiredY = Math.max(desiredY, cloudHeight + 8.0);
-		}
+		if (Float.isFinite(cloudHeight)) desiredY = Math.max(desiredY, cloudHeight + 8.0);
 		double maximumY = level.dimensionType().minY() + level.dimensionType().height() - 2.0;
 		double minimumY = target.y + WarheadConstants.MINIMUM_SPAWN_HEIGHT_ABOVE_TARGET;
-		double startY = desiredY <= maximumY ? desiredY : maximumY;
-		if (maximumY < target.y + 1.0) {
-			return Optional.empty();
-		}
-		if (maximumY >= minimumY) {
-			startY = Math.max(minimumY, Math.min(desiredY, maximumY));
-		}
-		if (!Double.isFinite(startY) || startY <= target.y) {
-			return Optional.empty();
-		}
-
-		SplittableRandom random = new SplittableRandom(visualSeed);
-		double angle = random.nextDouble(0.0, Math.PI * 2.0);
-		double radius = random.nextDouble(4.0, 10.0);
-		Vec3 offsetStart = new Vec3(
-			target.x + Math.cos(angle) * radius,
-			startY,
-			target.z + Math.sin(angle) * radius
-		);
-		if (isChunkLoaded(level, offsetStart)) {
-			return Optional.of(offsetStart);
-		}
-
-		Vec3 directStart = new Vec3(target.x, startY, target.z);
-		return isChunkLoaded(level, directStart) ? Optional.of(directStart) : Optional.empty();
+		double startY = maximumY >= minimumY ? Math.max(minimumY, Math.min(desiredY, maximumY)) : maximumY;
+		if (!Double.isFinite(startY) || startY <= target.y) return Optional.empty();
+		SplittableRandom random = new SplittableRandom(seed);
+		double angle = random.nextDouble(0.0, Math.PI * 2.0), radius = random.nextDouble(4.0, 10.0);
+		Vec3 offset = new Vec3(target.x + Math.cos(angle)*radius, startY, target.z + Math.sin(angle)*radius);
+		if (loaded(level, offset)) return Optional.of(offset);
+		Vec3 direct = new Vec3(target.x, startY, target.z);
+		return loaded(level, direct) ? Optional.of(direct) : Optional.empty();
 	}
-
-	private static int clampFlightTicks(final int estimatedTicks) {
-		return Math.max(
-			WarheadConstants.MINIMUM_FLIGHT_TICKS,
-			Math.min(WarheadConstants.MAXIMUM_FLIGHT_TICKS, estimatedTicks)
-		);
+	private static long deriveSeed(final UUID id, final long parent, final WarheadPayloadType type) {
+		long value = parent ^ id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 23) ^ ((long)type.ordinal() * 0x9E3779B97F4A7C15L);
+		value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L; value ^= value >>> 27; value *= 0x94D049BB133111EBL; return value ^ (value >>> 31);
 	}
-
-	private static boolean isChunkLoaded(final ServerLevel level, final Vec3 position) {
-		return level.getChunkSource().hasChunk(
-			SectionPos.blockToSectionCoord(position.x),
-			SectionPos.blockToSectionCoord(position.z)
-		);
-	}
-
-	public record LaunchResult(
-		UUID warheadId,
-		Vec3 startPosition,
-		Vec3 intendedTarget,
-		int flightTicks,
-		long visualSeed
-	) {
-	}
+	private static int clamp(final int ticks) { return Math.max(38, Math.min(64, ticks)); }
+	private static boolean loaded(final ServerLevel level, final Vec3 pos) { return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.x), SectionPos.blockToSectionCoord(pos.z)); }
+	public record LaunchResult(UUID warheadId, Vec3 startPosition, Vec3 intendedTarget, int flightTicks, long visualSeed, WarheadPayloadType payloadType) { }
 }

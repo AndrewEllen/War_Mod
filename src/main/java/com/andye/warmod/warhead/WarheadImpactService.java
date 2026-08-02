@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead;
 
+import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticEngine;
 import com.andye.warmod.acoustics.AcousticSounds;
 import com.andye.warmod.entity.WarheadDebrisEntity;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.SplittableRandom;
 import java.util.UUID;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
@@ -20,88 +22,58 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 public final class WarheadImpactService {
-	private static final int DEBRIS_SAMPLE_RADIUS = 24;
-	private static final int MAX_DEBRIS_CANDIDATES = 2048;
-	private static final int MAX_DEBRIS_ENTITIES = 320;
-	private static final int MAX_LARGE_DEBRIS_ENTITIES = 112;
-
 	private WarheadImpactService() { }
-
-	public static void impact(final ServerLevel level, final ServerPlayer owner, final UUID warheadId,
-		final Vec3 impactPosition, final long visualSeed) {
-		Objects.requireNonNull(level, "level");
-		Objects.requireNonNull(warheadId, "warheadId");
-		Objects.requireNonNull(impactPosition, "impactPosition");
-		if (!impactPosition.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
-
-		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(warheadId, impactPosition.x,
-			impactPosition.y, impactPosition.z, level.getGameTime(), visualSeed, 1.0F), impactPosition);
-		List<DebrisCandidate> debrisCandidates = sampleDebrisCandidates(level, impactPosition, visualSeed);
-		TestExplosionService.createExplosion(level, owner, impactPosition);
-		spawnDestroyedDebris(level, impactPosition, visualSeed, debrisCandidates);
-		AcousticEngine.playSound(level, impactPosition, AcousticSounds.LARGE_EXPLOSION_ID, SoundSource.BLOCKS, 1.0F, 1.0F);
+	public static void impact(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id, final Vec3 pos, final long seed) {
+		impact(level, owner, id, pos, seed, WarheadPayloadType.CONVENTIONAL);
 	}
-
-	private static List<DebrisCandidate> sampleDebrisCandidates(final ServerLevel level, final Vec3 center, final long seed) {
-		BlockPos origin = BlockPos.containing(center);
-		List<DebrisCandidate> eligible = new ArrayList<>();
-		for (int dx = -DEBRIS_SAMPLE_RADIUS; dx <= DEBRIS_SAMPLE_RADIUS; dx++) {
-			for (int dy = -DEBRIS_SAMPLE_RADIUS; dy <= DEBRIS_SAMPLE_RADIUS; dy++) {
-				for (int dz = -DEBRIS_SAMPLE_RADIUS; dz <= DEBRIS_SAMPLE_RADIUS; dz++) {
-					if (dx * dx + dy * dy + dz * dz > DEBRIS_SAMPLE_RADIUS * DEBRIS_SAMPLE_RADIUS) continue;
-					BlockPos pos = origin.offset(dx, dy, dz);
-					if (!level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()))) continue;
-					BlockState state = level.getBlockState(pos);
-					if (state.isAir() || !state.getFluidState().isEmpty() || state.hasBlockEntity()
-						|| state.getDestroySpeed(level, pos) < 0.0F || state.getRenderShape() == RenderShape.INVISIBLE) continue;
-					eligible.add(new DebrisCandidate(pos.immutable(), state));
-				}
-			}
+	public static void impact(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id, final Vec3 pos,
+		final long seed, final WarheadPayloadType payloadType) {
+		Objects.requireNonNull(level); Objects.requireNonNull(id); Objects.requireNonNull(pos); Objects.requireNonNull(payloadType);
+		if (!pos.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
+		WarheadImpactProfile profile = WarheadImpactProfiles.get(payloadType);
+		List<DebrisCandidate> candidates = sample(level, pos, seed, profile);
+		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(id, pos.x, pos.y, pos.z,
+			level.getGameTime(), seed, payloadType, profile.impactVisualScale()), pos);
+		TestExplosionService.createExplosion(level, owner, pos, profile.explosionStrength());
+		spawnDebris(level, pos, seed, candidates, profile);
+		AcousticEngine.playSound(level, pos, AcousticSounds.LARGE_EXPLOSION_ID, SoundSource.BLOCKS, profile.acousticVolume(), profile.acousticPitch());
+		if (payloadType == WarheadPayloadType.NUCLEAR && SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Nuclear warhead {} impacted at {}", id, pos);
+	}
+	private static List<DebrisCandidate> sample(final ServerLevel level, final Vec3 center, final long seed, final WarheadImpactProfile profile) {
+		int radius = profile.payloadType() == WarheadPayloadType.NUCLEAR ? 48 : 24;
+		int maximum = Math.max(2048, profile.maximumDebrisEntities() * 8);
+		BlockPos origin = BlockPos.containing(center); List<DebrisCandidate> eligible = new ArrayList<>();
+		for (int dx=-radius; dx<=radius; dx++) for (int dy=-radius; dy<=radius; dy++) for (int dz=-radius; dz<=radius; dz++) {
+			if (dx*dx+dy*dy+dz*dz > radius*radius) continue;
+			BlockPos p=origin.offset(dx,dy,dz);
+			if (!level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(p.getX()),SectionPos.blockToSectionCoord(p.getZ()))) continue;
+			BlockState s=level.getBlockState(p);
+			if (s.isAir() || !s.getFluidState().isEmpty() || s.hasBlockEntity() || s.getDestroySpeed(level,p)<0.0F || s.getRenderShape()==RenderShape.INVISIBLE) continue;
+			eligible.add(new DebrisCandidate(p.immutable(),s));
 		}
-		eligible.sort(Comparator.comparingLong(candidate -> mix(candidate.position().asLong() ^ seed)));
-		return List.copyOf(eligible.subList(0, Math.min(MAX_DEBRIS_CANDIDATES, eligible.size())));
+		eligible.sort(Comparator.comparingLong(c -> mix(c.position().asLong() ^ seed)));
+		return List.copyOf(eligible.subList(0,Math.min(maximum,eligible.size())));
 	}
-
-	private static void spawnDestroyedDebris(final ServerLevel level, final Vec3 center, final long seed,
-		final List<DebrisCandidate> candidates) {
-		List<DebrisCandidate> destroyed = new ArrayList<>();
-		for (DebrisCandidate candidate : candidates) {
-			if (!level.getBlockState(candidate.position()).equals(candidate.state())) destroyed.add(candidate);
-		}
-		destroyed.sort(Comparator.comparingLong(candidate -> mix(candidate.position().asLong() ^ seed ^ 0x444542524953L)));
-		int count = Math.min(MAX_DEBRIS_ENTITIES, destroyed.size());
-		int largeCount = Math.min(MAX_LARGE_DEBRIS_ENTITIES, count);
-		for (int index = 0; index < count; index++) {
-			DebrisCandidate candidate = destroyed.get(index);
-			SplittableRandom random = new SplittableRandom(mix(seed ^ candidate.position().asLong()));
-			boolean large = index < largeCount;
-			Vec3 spawn = Vec3.atCenterOf(candidate.position());
-			Vec3 radial = new Vec3(spawn.x - center.x, 0.0, spawn.z - center.z);
-			if (radial.lengthSqr() < 1.0E-5) radial = new Vec3(random.nextDouble(-1.0, 1.0), 0.0, random.nextDouble(-1.0, 1.0));
-			Vec3 outward = radial.normalize();
-			Vec3 sideways = new Vec3(-outward.z, 0.0, outward.x);
-			double normalizedRadius = Math.min(1.0, Math.sqrt(radial.lengthSqr()) / DEBRIS_SAMPLE_RADIUS);
-			double horizontalSpeed = large ? random.nextDouble(0.12, 0.40) : random.nextDouble(0.18, 0.58);
-			double verticalMinimum = large ? 0.20 : 0.26;
-			double verticalMaximum = large ? 0.58 : 0.74;
-			double verticalBias = (1.0 - normalizedRadius) * 0.12;
-			double verticalSpeed = Math.min(verticalMaximum, random.nextDouble(verticalMinimum, verticalMaximum) + verticalBias);
-			double horizontalBias = 0.92 + normalizedRadius * 0.08;
-			double sideSpeed = random.nextDouble(large ? -0.04 : -0.07, large ? 0.04 : 0.07);
-			Vec3 velocity = outward.scale(horizontalSpeed * horizontalBias).add(sideways.scale(sideSpeed)).add(0.0, verticalSpeed, 0.0);
-			double spinLimit = large ? 0.14 : 0.30;
-			Vec3 spin = new Vec3(random.nextDouble(-spinLimit, spinLimit), random.nextDouble(-spinLimit, spinLimit), random.nextDouble(-spinLimit, spinLimit));
-			float visualScale = (float) (large ? random.nextDouble(0.65, 1.05) : random.nextDouble(0.25, 0.60));
-			int lifetime = large ? random.nextInt(50, 101) : random.nextInt(35, 86);
-			level.addFreshEntity(new WarheadDebrisEntity(level, candidate.state(), spawn, velocity, spin, lifetime, visualScale));
-		}
+	private static void spawnDebris(final ServerLevel level, final Vec3 center, final long seed, final List<DebrisCandidate> candidates,
+		final WarheadImpactProfile profile) {
+		List<DebrisCandidate> destroyed=new ArrayList<>();
+		for (DebrisCandidate c:candidates) if (!level.getBlockState(c.position()).equals(c.state())) destroyed.add(c);
+		destroyed.sort(Comparator.comparingLong(c -> mix(c.position().asLong() ^ seed ^ 0x444542524953L)));
+		int count=Math.min(profile.maximumDebrisEntities(),destroyed.size()), largeCount=Math.min(profile.maximumLargeDebrisEntities(),count);
+		for(int i=0;i<count;i++) { DebrisCandidate c=destroyed.get(i); SplittableRandom random=new SplittableRandom(mix(seed^c.position().asLong())); boolean large=i<largeCount;
+			Vec3 spawn=Vec3.atCenterOf(c.position()), radial=new Vec3(spawn.x-center.x,0,spawn.z-center.z);
+			if(radial.lengthSqr()<1.0E-5) radial=new Vec3(random.nextDouble(-1,1),0,random.nextDouble(-1,1));
+			Vec3 outward=radial.normalize(), sideways=new Vec3(-outward.z,0,outward.x); double normalized=Math.min(1,Math.sqrt(radial.lengthSqr())/48.0);
+			double h=(large?random.nextDouble(.12,.40):random.nextDouble(.18,.58))*profile.debrisVelocityScale();
+			double v=(large?random.nextDouble(.20,.58):random.nextDouble(.26,.74))+(1-normalized)*.12;
+			Vec3 velocity=outward.scale(h).add(sideways.scale(random.nextDouble(-.07,.07))).add(0,Math.min(.95,v*profile.debrisVelocityScale()),0);
+			double spinLimit=large?.14:.30; Vec3 spin=new Vec3(random.nextDouble(-spinLimit,spinLimit),random.nextDouble(-spinLimit,spinLimit),random.nextDouble(-spinLimit,spinLimit));
+			float scale=(float)(large?random.nextDouble(.65,1.05):random.nextDouble(.25,.60)); int lifetime=large?random.nextInt(50,101):random.nextInt(35,86);
+			level.addFreshEntity(new WarheadDebrisEntity(level,c.state(),spawn,velocity,spin,lifetime,scale)); }
 	}
-
-	private static long mix(long value) {
-		value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L; value ^= value >>> 27; value *= 0x94D049BB133111EBL; return value ^ (value >>> 31);
-	}
-
+	private static long mix(long v){v^=v>>>30;v*=0xBF58476D1CE4E5B9L;v^=v>>>27;v*=0x94D049BB133111EBL;return v^(v>>>31);}
 	private record DebrisCandidate(BlockPos position, BlockState state) { }
 }

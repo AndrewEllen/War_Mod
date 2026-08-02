@@ -21,8 +21,14 @@ public final class GenerateEffectTextures {
 		Path particleDirectory = outputDirectory.resolveSibling("particle");
 		Files.createDirectories(outputDirectory);
 		Files.createDirectories(particleDirectory);
+		if (args.length > 1 && "--icbm-only".equals(args[1])) {
+			writeImage(outputDirectory.resolve("icbm_albedo.png"), createIcbmAlbedo());
+			verifyImage(outputDirectory.resolve("icbm_albedo.png"), 64, 64);
+			return;
+		}
 
 		writeImage(outputDirectory.resolve("warhead_albedo.png"), createWarheadAlbedo());
+		writeImage(outputDirectory.resolve("icbm_albedo.png"), createIcbmAlbedo());
 		writeImage(outputDirectory.resolve("vapor_noise.png"), createVaporNoise());
 		writeImage(outputDirectory.resolve("vapor_band.png"), createVaporBand());
 		writeImage(outputDirectory.resolve("pressure_shell.png"), createPressureShell());
@@ -33,6 +39,7 @@ public final class GenerateEffectTextures {
 		writeSmokeAssets(particleDirectory);
 
 		verifyImage(outputDirectory.resolve("warhead_albedo.png"), 64, 64);
+		verifyImage(outputDirectory.resolve("icbm_albedo.png"), 64, 64);
 		verifyImage(outputDirectory.resolve("vapor_noise.png"), 128, 128);
 		verifyImage(outputDirectory.resolve("vapor_band.png"), 128, 32);
 		verifyImage(outputDirectory.resolve("pressure_shell.png"), 128, 128);
@@ -68,6 +75,19 @@ public final class GenerateEffectTextures {
 				int blue = clampByte(base + 7);
 				image.setRGB(x, y, rgba(red, green, blue, 255));
 			}
+		}
+		return image;
+	}
+
+	private static BufferedImage createIcbmAlbedo() {
+		BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+		for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) {
+			double u = (x + 0.5) / 64.0, v = (y + 0.5) / 64.0;
+			int base = 34 + (int) Math.round(16.0 * (1.0 - Math.abs(u - 0.5) * 2.0));
+			if (v < 0.18) base += 22;
+			if (Math.abs(v - 0.28) < 0.018 || Math.abs(v - 0.72) < 0.018) base -= 12;
+			if (v > 0.88) base = 18;
+			image.setRGB(x, y, rgba(base, base + 4, base + 9, 255));
 		}
 		return image;
 	}

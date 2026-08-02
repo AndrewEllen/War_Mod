@@ -1,3 +1,6 @@
 {
-  "item.war_mod.acoustic_test_stick": "Acoustic Test Stick"
+  "item.war_mod.acoustic_test_stick": "Acoustic Test Stick",
+  "item.war_mod.icbm_test_stick": "ICBM Test Stick",
+  "item.war_mod.nuclear_test_stick": "Nuclear Test Stick",
+  "item.war_mod.nuclear_icbm_test_stick": "Nuclear ICBM Test Stick"
 }

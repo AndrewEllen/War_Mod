@@ -111,7 +111,8 @@ public final class ExplosionEmitterShockwave {
 	private static long mix(long value) { value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L; value ^= value >>> 27; value *= 0x94D049BB133111EBL; return value ^ (value >>> 31); }
 
 	public enum Profile {
-		NEAR(4.0, 48, 512, 4), MEDIUM(7.0, 32, 320, 6), FAR(12.0, 24, 192, 10);
+		NEAR(4.0, 48, 512, 4), MEDIUM(7.0, 32, 320, 6), FAR(12.0, 24, 192, 10),
+		NUCLEAR_NEAR(2.5, 72, 768, 3), NUCLEAR_MEDIUM(4.5, 48, 512, 4), NUCLEAR_FAR(8.0, 32, 288, 6);
 		private final double segmentSpacing;
 		private final int minimumSegments;
 		private final int maximumSegments;
