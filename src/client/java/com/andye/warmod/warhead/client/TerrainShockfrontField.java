@@ -25,7 +25,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * makes the path unreliable.
  */
 public final class TerrainShockfrontField {
-	public static final int MAX_HORIZONTAL_RANGE = 52;
+	public static final int MAX_HORIZONTAL_RANGE = 128;
 	public static final int SAMPLE_SPACING = 2;
 	public static final int MAX_SPOKES = 64;
 

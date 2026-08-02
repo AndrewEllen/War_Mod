@@ -38,8 +38,39 @@ public final class GenerateEffectTextures {
 		for (int frame = 0; frame < FIREBALL_FRAME_COUNT; frame++) {
 			verifyImage(particleDirectory.resolve("warhead_fireball_" + frame + ".png"), FIREBALL_FRAME_SIZE, FIREBALL_FRAME_SIZE);
 		}
+		if (args.length == 0) {
+			mirrorClientResources(outputDirectory, particleDirectory);
+		}
 	}
 
+	private static void mirrorClientResources(final Path effectDirectory, final Path particleDirectory) throws IOException {
+		Path clientEffectDirectory = Path.of("src/client/resources/assets/war_mod/textures/effect");
+		Path clientParticleDirectory = Path.of("src/client/resources/assets/war_mod/textures/particle");
+		Path clientDefinition = Path.of("src/client/resources/assets/war_mod/particles/warhead_fireball.json");
+		Files.createDirectories(clientEffectDirectory);
+		Files.createDirectories(clientParticleDirectory);
+		Files.createDirectories(clientDefinition.getParent());
+
+		String[] effectNames = {
+			"warhead_albedo.png",
+			"vapor_noise.png",
+			"vapor_band.png",
+			"pressure_shell.png",
+			"shockwave_strip.png",
+			"fireball_sheet.png",
+			"smoke_lobe.png"
+		};
+		for (String name : effectNames) {
+			Files.copy(effectDirectory.resolve(name), clientEffectDirectory.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+		}
+		for (int frame = 0; frame < FIREBALL_FRAME_COUNT; frame++) {
+			String name = "warhead_fireball_" + frame + ".png";
+			Files.copy(particleDirectory.resolve(name), clientParticleDirectory.resolve(name), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+		}
+
+		Path mainDefinition = Path.of("src/main/resources/assets/war_mod/particles/warhead_fireball.json");
+		Files.copy(mainDefinition, clientDefinition, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+	}
 	private static BufferedImage createWarheadAlbedo() {
 		BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
 		for (int y = 0; y < image.getHeight(); y++) {
@@ -69,7 +100,15 @@ public final class GenerateEffectTextures {
 		for (int y = 0; y < image.getHeight(); y++) {
 			for (int x = 0; x < image.getWidth(); x++) {
 				double noise = noise(x, y, 0x5641504F);
-				double alpha = Math.pow(noise, 1.35) * 0.82;
+				double edgeDistance = Math.min(
+					Math.min(x, image.getWidth() - 1 - x),
+					Math.min(y, image.getHeight() - 1 - y)
+				);
+				double edgeFade = clamp01(edgeDistance / 8.0);
+				double alpha = noise < 0.32 ? 0.0 : Math.pow((noise - 0.32) / 0.68, 1.65) * 0.88 * edgeFade;
+				if (alpha < 0.025) {
+					alpha = 0.0;
+				}
 				image.setRGB(x, y, rgba(255, 255, 255, clampByte((int) Math.round(alpha * 255.0))));
 			}
 		}
@@ -84,7 +123,7 @@ public final class GenerateEffectTextures {
 			for (int x = 0; x < image.getWidth(); x++) {
 				double horizontal = Math.sin((x + 0.5) / 128.0 * Math.PI);
 				double localNoise = 0.62 + 0.38 * noise(x * 2, y * 3, 0x42414E44);
-				double alpha = Math.pow(band, 0.72) * Math.pow(horizontal, 0.35) * localNoise * 0.92;
+				double alpha = band < 0.08 ? 0.0 : Math.pow(band, 0.72) * Math.pow(horizontal, 0.35) * localNoise * 0.92;
 				image.setRGB(x, y, rgba(255, 255, 255, clampByte((int) Math.round(alpha * 255.0))));
 			}
 		}
@@ -114,7 +153,7 @@ public final class GenerateEffectTextures {
 			double band = Math.max(0.0, 1.0 - vertical);
 			for (int x = 0; x < image.getWidth(); x++) {
 				double irregular = 0.82 + 0.18 * noise(x, y * 5, 0x53484F43);
-				double alpha = Math.pow(band, 0.55) * irregular * 0.90;
+				double alpha = band < 0.08 ? 0.0 : Math.pow(band, 0.55) * irregular * 0.90;
 				image.setRGB(x, y, rgba(226, 240, 255, clampByte((int) Math.round(alpha * 255.0))));
 			}
 		}
@@ -177,6 +216,9 @@ public final class GenerateEffectTextures {
 				double localNoise = 0.58 + 0.42 * noise(x, y, 0x534D4F4B);
 				double falloff = Math.pow(clamp01(1.0 - distance), 0.72);
 				int alpha = clampByte((int) Math.round(falloff * localNoise * 188.0));
+				if (distance > 0.96 || alpha < 6) {
+					alpha = 0;
+				}
 				int gray = clampByte((int) Math.round(72.0 + localNoise * 42.0));
 				image.setRGB(x, y, rgba(gray, gray + 2, gray + 4, alpha));
 			}

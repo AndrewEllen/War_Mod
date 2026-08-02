@@ -115,7 +115,7 @@ public final class ImpactParticleEmitter {
 		}
 
 		double age = state.ageTicks(gameTime, 0.0);
-		if (budget.hasCapacity() && age < 24.0) {
+		if (budget.hasCapacity() && age < 72.0) {
 			this.emitGroundShockfront(level, state, center, distance, age, gameTime, lod, budget);
 		}
 		if (budget.hasCapacity() && age >= 8.0 && !state.secondaryBurstEmitted() && lod != ParticleLod.FAR) {
@@ -129,8 +129,8 @@ public final class ImpactParticleEmitter {
 			if (age >= 2.0 && age < 14.0 && lod != ParticleLod.FAR) {
 				this.emitExpandingFireball(level, center, state.visualScale(), state.visualSeed(), age, lod, distance, gameTime, budget);
 			}
-			if (age >= 10.0 && age < 45.0 && lod != ParticleLod.FAR) {
-				this.emitLingeringSmoke(level, center, state.visualScale(), state.visualSeed(), lod, distance, gameTime, budget);
+			if (age >= 10.0 && age < 110.0 && lod != ParticleLod.FAR) {
+				this.emitLingeringSmoke(level, center, age, state.visualScale(), state.visualSeed(), lod, distance, gameTime, budget);
 			}
 			state.markContinuousParticleTick(gameTime);
 		}
@@ -206,9 +206,9 @@ public final class ImpactParticleEmitter {
 		for (GroundShockParticleEmitter.GroundParticle particle : GroundShockParticleEmitter.collect(
 			state,
 			center,
-			WarheadVisualMath.pressureSphereRadius(age),
+			WarheadVisualMath.groundShockwaveRadius(age),
 			desiredSpokes,
-			24,
+			48,
 			distance,
 			gameTime
 		)) {
@@ -258,6 +258,7 @@ public final class ImpactParticleEmitter {
 	private void emitLingeringSmoke(
 		final ClientLevel level,
 		final Vec3 center,
+		final double age,
 		final float visualScale,
 		final long visualSeed,
 		final ParticleLod lod,
@@ -271,22 +272,22 @@ public final class ImpactParticleEmitter {
 
 		SplittableRandom random = new SplittableRandom(visualSeed ^ LINGERING_SMOKE_SEED ^ gameTime);
 		int count = lod == ParticleLod.NEAR
-			? scaledCount(random, 1, 3, visualScale, 1.0)
-			: scaledCount(random, 1, 1, visualScale, 0.5);
+			? scaledCount(random, 2, 5, visualScale, 1.0)
+			: scaledCount(random, 1, 3, visualScale, 0.65);
 		Direction direction = new Direction();
 		emitRadial(
 			level,
-			ParticleTypes.SMOKE,
+			ParticleTypes.LARGE_SMOKE,
 			center,
 			random,
 			direction,
 			count,
-			3.0,
-			7.0,
-			0.01,
-			0.08,
-			0.04,
-			0.16,
+			1.5,
+			5.5,
+			0.02,
+			0.12,
+			0.12,
+			0.32,
 			budget,
 			distance > NORMAL_PARTICLE_DISTANCE
 		);

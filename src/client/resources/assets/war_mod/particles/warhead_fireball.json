@@ -1,0 +1,12 @@
+{
+  "textures": [
+    "war_mod:particle/warhead_fireball_0",
+    "war_mod:particle/warhead_fireball_1",
+    "war_mod:particle/warhead_fireball_2",
+    "war_mod:particle/warhead_fireball_3",
+    "war_mod:particle/warhead_fireball_4",
+    "war_mod:particle/warhead_fireball_5",
+    "war_mod:particle/warhead_fireball_6",
+    "war_mod:particle/warhead_fireball_7"
+  ]
+}

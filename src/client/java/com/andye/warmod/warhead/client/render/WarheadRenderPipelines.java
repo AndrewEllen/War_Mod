@@ -16,6 +16,7 @@ public final class WarheadRenderPipelines {
 	private static final RenderPipeline EFFECT_TRANSLUCENT_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
 			.withLocation("pipeline/war_mod_effect_translucent")
+			.withShaderDefine("ALPHA_CUTOUT", 0.1F)
 			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
 			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
 			.withCull(false)
@@ -24,6 +25,7 @@ public final class WarheadRenderPipelines {
 	private static final RenderPipeline FIREBALL_HOT_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
 			.withLocation("pipeline/war_mod_fireball_hot")
+			.withShaderDefine("ALPHA_CUTOUT", 0.1F)
 			.withShaderDefine("NO_OVERLAY")
 			.withShaderDefine("NO_CARDINAL_LIGHTING")
 			.withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))

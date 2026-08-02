@@ -181,6 +181,23 @@ public final class WarheadWorldRenderer {
 					buffer,
 					impact.shockfrontSpokes(),
 					impact.position(),
+					WarheadVisualMath.groundShockwaveRadius(impact.ageTicks()),
+					frontierSpokeCount(impact.lod()),
+					groundFrontierWidth(impact.ageTicks(), impact.visualScale()),
+					groundFrontierAlpha(impact.ageTicks()),
+					208,
+					226,
+					244
+				)
+			);
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.SHOCKWAVE,
+				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(
+					pose,
+					buffer,
+					impact.shockfrontSpokes(),
+					impact.position(),
 					WarheadVisualMath.pressureSphereRadius(impact.ageTicks()),
 					frontierSpokeCount(impact.lod()),
 					frontierWidth(impact.ageTicks(), impact.visualScale()),
@@ -229,6 +246,11 @@ public final class WarheadWorldRenderer {
 				poseStack,
 				WarheadRenderPipelines.SMOKE_LOBE,
 				(pose, buffer) -> RisingBlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod())
+			);
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.SMOKE_LOBE,
+				(pose, buffer) -> AftermathSmokeColumnRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod())
 			);
 			context.submitNodeCollector().submitCustomGeometry(
 				poseStack,
@@ -288,6 +310,15 @@ public final class WarheadWorldRenderer {
 
 	private static float pressureAlpha(final double ageTicks) {
 		return (float) (0.68 * Math.pow(1.0 - WarheadVisualMath.clamp(ageTicks / 24.0, 0.0, 1.0), 1.2));
+	}
+
+	private static float groundFrontierWidth(final double ageTicks, final float scale) {
+		double progress = WarheadVisualMath.clamp(ageTicks / 32.0, 0.0, 1.0);
+		return (float) (WarheadVisualMath.clamp(scale, 0.45F, 1.5F) * (1.4 + 2.8 * progress));
+	}
+
+	private static float groundFrontierAlpha(final double ageTicks) {
+		return (float) (WarheadVisualMath.groundShockwaveAlpha(ageTicks) * 0.78);
 	}
 
 	private static float frontierWidth(final double ageTicks, final float scale) {

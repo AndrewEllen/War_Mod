@@ -8,6 +8,9 @@ public final class WarheadVisualMath {
 	private static final double CONE_ACTIVATION_FULL = 0.55;
 	private static final double CONE_ATTACK_TICKS = 4.0;
 	private static final double PRESSURE_SHELL_LIFETIME = 24.0;
+	private static final double GROUND_SHOCKWAVE_TRAVEL_TICKS = 32.0;
+	private static final double GROUND_SHOCKWAVE_FADE_TICKS = 72.0;
+	private static final double GROUND_SHOCKWAVE_MAX_RADIUS = 128.0;
 
 	private WarheadVisualMath() {
 	}
@@ -75,6 +78,22 @@ public final class WarheadVisualMath {
 		}
 		double t = clamp(ageTicks / (PRESSURE_SHELL_LIFETIME * 0.92), 0.0, 1.0);
 		return 0.16 * Math.pow(1.0 - t, 0.72);
+	}
+
+	public static double groundShockwaveRadius(final double ageTicks) {
+		if (!Double.isFinite(ageTicks) || ageTicks < 0.0) {
+			return 2.0;
+		}
+		double t = clamp(ageTicks / GROUND_SHOCKWAVE_TRAVEL_TICKS, 0.0, 1.0);
+		return 2.0 + (GROUND_SHOCKWAVE_MAX_RADIUS - 2.0) * (1.0 - Math.pow(1.0 - t, 1.65));
+	}
+
+	public static double groundShockwaveAlpha(final double ageTicks) {
+		if (!Double.isFinite(ageTicks) || ageTicks < 0.0 || ageTicks >= GROUND_SHOCKWAVE_FADE_TICKS) {
+			return 0.0;
+		}
+		double t = clamp(ageTicks / GROUND_SHOCKWAVE_FADE_TICKS, 0.0, 1.0);
+		return 0.78 * Math.pow(1.0 - t, 1.15);
 	}
 
 	public static double fireballRise(final double ageTicks) {

@@ -26,7 +26,7 @@ public final class GroundShockParticleEmitter {
 			return List.of();
 		}
 
-		int maximumNodes = Math.max(1, Math.min(24, maximumParticles / 2));
+		int maximumNodes = Math.max(1, Math.min(48, maximumParticles / 2));
 		List<TerrainShockfrontNode> nodes = state.terrainShockfrontField().consumeReached(pressureRadius, desiredSpokes, maximumNodes);
 		if (nodes.isEmpty()) {
 			return List.of();
@@ -34,7 +34,8 @@ public final class GroundShockParticleEmitter {
 
 		SplittableRandom random = new SplittableRandom(state.visualSeed() ^ gameTime ^ 0x47524F554E444C31L);
 		List<GroundParticle> particles = new ArrayList<>();
-		for (TerrainShockfrontNode node : nodes) {
+		for (int nodeIndex = 0; nodeIndex < nodes.size(); nodeIndex++) {
+			TerrainShockfrontNode node = nodes.get(nodeIndex);
 			if (particles.size() >= maximumParticles || !node.valid() || !node.visibleFromImpact()) {
 				continue;
 			}
@@ -47,11 +48,20 @@ public final class GroundShockParticleEmitter {
 			}
 			outward = outward.scale(1.0 / horizontalLength);
 			Vec3 sideways = new Vec3(-outward.z, 0.0, outward.x);
-			double strength = Math.max(0.10, 1.0 - node.directDistance() / 56.0);
-			double outwardSpeed = random.nextDouble(0.04, 0.18) * strength;
-			double sideSpeed = random.nextDouble(-0.05, 0.05) * strength;
-			Vec3 velocity = outward.scale(outwardSpeed).add(sideways.scale(sideSpeed)).add(0.0, random.nextDouble(0.08, 0.30) * strength, 0.0);
+			double strength = Math.max(0.18, 1.0 - node.directDistance() / 128.0);
+			double outwardSpeed = random.nextDouble(0.08, 0.28) * strength;
+			double sideSpeed = random.nextDouble(-0.07, 0.07) * strength;
+			Vec3 velocity = outward.scale(outwardSpeed).add(sideways.scale(sideSpeed)).add(0.0, random.nextDouble(0.12, 0.34) * strength, 0.0);
 			boolean forceLongRange = viewerDistance > 32.0;
+
+			if (particles.size() < maximumParticles && (nodeIndex % 3 == 0 || random.nextInt(4) == 0)) {
+				particles.add(new GroundParticle(
+					ParticleTypes.EXPLOSION,
+					source,
+					velocity.scale(1.45).add(0.0, 0.10, 0.0),
+					forceLongRange
+				));
+			}
 
 			int debrisCount = 1 + random.nextInt(3);
 			ParticleOptions debris = new BlockParticleOption(ParticleTypes.BLOCK, node.surfaceState());
