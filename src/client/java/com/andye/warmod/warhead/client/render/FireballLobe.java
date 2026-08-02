@@ -11,6 +11,6 @@ public record FireballLobe(
 	double riseSpeed,
 	double horizontalDrift,
 	double rotation,
-	int animationOffset
-) {
-}
+	int animationOffset,
+	float opacityMultiplier
+) { }

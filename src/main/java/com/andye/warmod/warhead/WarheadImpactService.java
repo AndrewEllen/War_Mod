@@ -39,11 +39,13 @@ public final class WarheadImpactService {
 			level.getGameTime(), seed, payloadType, profile.impactVisualScale()), pos);
 		TestExplosionService.createExplosion(level, owner, pos, profile.explosionStrength());
 		spawnDebris(level, pos, seed, candidates, profile);
+		AcousticEngine.playSound(level, pos, AcousticSounds.WARHEAD_IMPACT_THUD_ID, SoundSource.BLOCKS, .72F, 1.0F);
 		AcousticEngine.playSound(level, pos, AcousticSounds.LARGE_EXPLOSION_ID, SoundSource.BLOCKS, profile.acousticVolume(), profile.acousticPitch());
+		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Warhead {} emitted impact thud and explosion at {}", id, pos);
 		if (payloadType == WarheadPayloadType.NUCLEAR && SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Nuclear warhead {} impacted at {}", id, pos);
 	}
 	private static List<DebrisCandidate> sample(final ServerLevel level, final Vec3 center, final long seed, final WarheadImpactProfile profile) {
-		int radius = profile.payloadType() == WarheadPayloadType.NUCLEAR ? 48 : 24;
+		int radius = profile.debrisSampleRadius();
 		int maximum = Math.max(2048, profile.maximumDebrisEntities() * 8);
 		BlockPos origin = BlockPos.containing(center); List<DebrisCandidate> eligible = new ArrayList<>();
 		for (int dx=-radius; dx<=radius; dx++) for (int dy=-radius; dy<=radius; dy++) for (int dz=-radius; dz<=radius; dz++) {
@@ -66,7 +68,7 @@ public final class WarheadImpactService {
 		for(int i=0;i<count;i++) { DebrisCandidate c=destroyed.get(i); SplittableRandom random=new SplittableRandom(mix(seed^c.position().asLong())); boolean large=i<largeCount;
 			Vec3 spawn=Vec3.atCenterOf(c.position()), radial=new Vec3(spawn.x-center.x,0,spawn.z-center.z);
 			if(radial.lengthSqr()<1.0E-5) radial=new Vec3(random.nextDouble(-1,1),0,random.nextDouble(-1,1));
-			Vec3 outward=radial.normalize(), sideways=new Vec3(-outward.z,0,outward.x); double normalized=Math.min(1,Math.sqrt(radial.lengthSqr())/48.0);
+			Vec3 outward=radial.normalize(), sideways=new Vec3(-outward.z,0,outward.x); double normalized=Math.min(1,Math.sqrt(radial.lengthSqr())/profile.debrisSampleRadius());
 			double h=(large?random.nextDouble(.12,.40):random.nextDouble(.18,.58))*profile.debrisVelocityScale();
 			double v=(large?random.nextDouble(.20,.58):random.nextDouble(.26,.74))+(1-normalized)*.12;
 			Vec3 velocity=outward.scale(h).add(sideways.scale(random.nextDouble(-.07,.07))).add(0,Math.min(.95,v*profile.debrisVelocityScale()),0);

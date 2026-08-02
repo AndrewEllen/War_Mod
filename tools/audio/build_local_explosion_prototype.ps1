@@ -3,13 +3,13 @@ Set-StrictMode -Version Latest
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $scriptDirectory '..\..'))
-$sourcePath = Join-Path $repositoryRoot 'local_audio_sources\unlicensed_explosion_reference.mp3'
+$sourcePath = Join-Path $repositoryRoot 'local_audio_sources\explosion_reference.mp3'
 $outputDirectory = Join-Path $repositoryRoot 'src\main\resources\assets\war_mod\sounds\explosion\prototype'
 $workDirectory = Join-Path $repositoryRoot 'tools\audio\work\local_explosion_prototype'
 $leadingSilenceSeconds = 0.222336
 
 if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-	throw "Local unlicensed prototype source is missing: $sourcePath"
+	throw "Local explosion prototype source is missing: $sourcePath"
 }
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 	throw 'FFmpeg was not found on PATH.'

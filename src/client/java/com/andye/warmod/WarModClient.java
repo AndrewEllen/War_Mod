@@ -4,6 +4,8 @@ import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.icbm.client.ClientIcbmNetworking;
+import com.andye.warmod.icbm.client.audio.ClientIcbmAudioManager;
+import com.andye.warmod.warhead.client.audio.ClientTerminalAudioManager;
 import com.andye.warmod.icbm.client.render.IcbmWorldRenderer;
 import com.andye.warmod.particle.WarheadParticleClient;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
@@ -18,6 +20,8 @@ public final class WarModClient implements ClientModInitializer {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
 		ClientIcbmNetworking.register();
+		ClientIcbmAudioManager.register();
+		ClientTerminalAudioManager.register();
 		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);
 		WarheadParticleClient.register();
 		WarheadWorldRenderer.register();

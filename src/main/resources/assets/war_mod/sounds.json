@@ -123,5 +123,149 @@
                                "sounds":  [
                                               "war_mod:warhead/sonic_boom_extreme"
                                           ]
-                           }
+                           },
+    "terminal_rush_loop_near":  {
+                                    "sounds":  [
+                                                   {
+                                                       "name":  "war_mod:warhead/terminal_rush_loop_near",
+                                                       "stream":  true
+                                                   }
+                                               ]
+                                },
+    "missile_engine_shutdown_near":  {
+                                         "sounds":  [
+                                                        "war_mod:missile/engine_shutdown_near"
+                                                    ]
+                                     },
+    "missile_engine_sustain_near":  {
+                                        "sounds":  [
+                                                       {
+                                                           "name":  "war_mod:missile/engine_sustain_near",
+                                                           "stream":  true
+                                                       }
+                                                   ]
+                                    },
+    "impact_thud_near":  {
+                             "sounds":  [
+                                            "war_mod:warhead/impact_thud_near"
+                                        ]
+                         },
+    "missile_engine_ignition_near":  {
+                                         "sounds":  [
+                                                        "war_mod:missile/engine_ignition_near"
+                                                    ]
+                                     },
+    "terminal_rush_tail_near":  {
+                                    "sounds":  [
+                                                   "war_mod:warhead/terminal_rush_tail_near"
+                                               ]
+                                },
+    "impact_thud_medium":  {
+                               "sounds":  [
+                                              "war_mod:warhead/impact_thud_medium"
+                                          ]
+                           },
+    "terminal_rush_loop_medium":  {
+                                      "sounds":  [
+                                                     {
+                                                         "name":  "war_mod:warhead/terminal_rush_loop_medium",
+                                                         "stream":  true
+                                                     }
+                                                 ]
+                                  },
+    "missile_engine_shutdown_medium":  {
+                                           "sounds":  [
+                                                          "war_mod:missile/engine_shutdown_medium"
+                                                      ]
+                                       },
+    "missile_engine_sustain_medium":  {
+                                          "sounds":  [
+                                                         {
+                                                             "name":  "war_mod:missile/engine_sustain_medium",
+                                                             "stream":  true
+                                                         }
+                                                     ]
+                                      },
+    "terminal_rush_tail_medium":  {
+                                      "sounds":  [
+                                                     "war_mod:warhead/terminal_rush_tail_medium"
+                                                 ]
+                                  },
+    "missile_engine_ignition_medium":  {
+                                           "sounds":  [
+                                                          "war_mod:missile/engine_ignition_medium"
+                                                      ]
+                                       },
+    "missile_engine_ignition_far":  {
+                                        "sounds":  [
+                                                       "war_mod:missile/engine_ignition_far"
+                                                   ]
+                                    },
+    "terminal_rush_tail_far":  {
+                                   "sounds":  [
+                                                  "war_mod:warhead/terminal_rush_tail_far"
+                                              ]
+                               },
+    "missile_engine_sustain_far":  {
+                                       "sounds":  [
+                                                      {
+                                                          "name":  "war_mod:missile/engine_sustain_far",
+                                                          "stream":  true
+                                                      }
+                                                  ]
+                                   },
+    "missile_engine_shutdown_far":  {
+                                        "sounds":  [
+                                                       "war_mod:missile/engine_shutdown_far"
+                                                   ]
+                                    },
+    "terminal_rush_loop_far":  {
+                                   "sounds":  [
+                                                  {
+                                                      "name":  "war_mod:warhead/terminal_rush_loop_far",
+                                                      "stream":  true
+                                                  }
+                                              ]
+                               },
+    "impact_thud_far":  {
+                            "sounds":  [
+                                           "war_mod:warhead/impact_thud_far"
+                                       ]
+                        },
+    "missile_engine_ignition_extreme":  {
+                                            "sounds":  [
+                                                           "war_mod:missile/engine_ignition_extreme"
+                                                       ]
+                                        },
+    "impact_thud_extreme":  {
+                                "sounds":  [
+                                               "war_mod:warhead/impact_thud_extreme"
+                                           ]
+                            },
+    "terminal_rush_tail_extreme":  {
+                                       "sounds":  [
+                                                      "war_mod:warhead/terminal_rush_tail_extreme"
+                                                  ]
+                                   },
+    "missile_engine_sustain_extreme":  {
+                                           "sounds":  [
+                                                          {
+                                                              "name":  "war_mod:missile/engine_sustain_extreme",
+                                                              "stream":  true
+                                                          }
+                                                      ]
+                                       },
+    "missile_engine_shutdown_extreme":  {
+                                            "sounds":  [
+                                                           "war_mod:missile/engine_shutdown_extreme"
+                                                       ]
+                                        },
+    "terminal_rush_loop_extreme":  {
+                                       "sounds":  [
+                                                      {
+                                                          "name":  "war_mod:warhead/terminal_rush_loop_extreme",
+                                                          "stream":  true
+                                                      }
+                                                  ]
+                                   }
 }

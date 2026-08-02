@@ -40,4 +40,5 @@ Desktop.ini
 
 # Generated intermediate audio files
 /tools/audio/work/
-local_audio_sources/
+/tools/audio/source/
+/local_audio_sources/
