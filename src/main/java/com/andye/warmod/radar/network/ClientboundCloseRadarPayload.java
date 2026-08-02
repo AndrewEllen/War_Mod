@@ -1,0 +1,3 @@
+package com.andye.warmod.radar.network;
+import com.andye.warmod.WarMod;import net.minecraft.network.RegistryFriendlyByteBuf;import net.minecraft.network.codec.StreamCodec;import net.minecraft.network.protocol.common.custom.CustomPacketPayload;import net.minecraft.resources.Identifier;
+public record ClientboundCloseRadarPayload() implements CustomPacketPayload{public static final Type<ClientboundCloseRadarPayload> TYPE=new Type<>(Identifier.fromNamespaceAndPath(WarMod.MOD_ID,"radar_close_ack"));public static final StreamCodec<RegistryFriendlyByteBuf,ClientboundCloseRadarPayload> STREAM_CODEC=StreamCodec.unit(new ClientboundCloseRadarPayload());@Override public Type<? extends CustomPacketPayload> type(){return TYPE;}}

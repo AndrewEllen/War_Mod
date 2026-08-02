@@ -16,6 +16,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.SharedConstants;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
@@ -38,6 +39,7 @@ public final class WarheadWorldRenderer {
 		LevelExtractionEvents.END_EXTRACTION.register(WarheadWorldRenderer::extract);
 		LevelRenderEvents.COLLECT_SUBMITS.register(WarheadWorldRenderer::collectSubmits);
 		registered = true;
+		if(SharedConstants.IS_RUNNING_IN_IDE)com.andye.warmod.WarMod.LOGGER.info("Re-entry visual configuration loaded");
 	}
 
 	private static void extract(final LevelExtractionContext context) {
@@ -98,7 +100,11 @@ public final class WarheadWorldRenderer {
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.CONE,
 			(pose, buffer) -> ShockConeMesh.render(pose, buffer, warhead.lod(), warhead.progress(), warhead.elapsedTicks(), warhead.remainingTicks(), warhead.velocity(), warhead.visualSeed(), warhead.flightTicks()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VAPOR_BAND,
-			(pose, buffer) -> VaporBandRenderer.render(pose, buffer, warhead.lod(), warhead.elapsedTicks(), warhead.visualSeed(), (float) coneActivation(warhead), (float) WarheadVisualMath.coneFade(warhead.remainingTicks())));
+			(pose, buffer) -> VaporBandRenderer.render(pose, buffer, warhead.lod(), warhead.elapsedTicks(), warhead.visualSeed(),warhead.progress(), (float) coneActivation(warhead), (float) WarheadVisualMath.coneFade(warhead.remainingTicks())));
+		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.REENTRY_PLASMA,
+			(pose, buffer) -> ReentryHeatingRenderer.renderBowShock(pose,buffer,warhead.lod(),warhead.progress(),warhead.elapsedTicks(),warhead.remainingTicks(),warhead.velocity(),warhead.visualSeed()));
+		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.REENTRY_PLASMA,
+			(pose, buffer) -> ReentryHeatingRenderer.renderGlow(pose,buffer,warhead.lod(),warhead.progress(),warhead.elapsedTicks(),warhead.remainingTicks(),warhead.velocity(),warhead.visualSeed()));
 		poseStack.popPose();
 	}
 

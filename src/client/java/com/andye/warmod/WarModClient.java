@@ -8,6 +8,8 @@ import com.andye.warmod.icbm.client.audio.ClientIcbmAudioManager;
 import com.andye.warmod.warhead.client.audio.ClientTerminalAudioManager;
 import com.andye.warmod.icbm.client.render.IcbmWorldRenderer;
 import com.andye.warmod.particle.WarheadParticleClient;
+import com.andye.warmod.radar.client.ClientRadarNetworking;
+import com.andye.warmod.radar.client.RadarKeyBindings;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
 import com.andye.warmod.warhead.client.render.WarheadWorldRenderer;
 import com.andye.warmod.warhead.client.render.NuclearFlashOverlay;
@@ -20,6 +22,8 @@ public final class WarModClient implements ClientModInitializer {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
 		ClientIcbmNetworking.register();
+		ClientRadarNetworking.register();
+		RadarKeyBindings.register();
 		ClientIcbmAudioManager.register();
 		ClientTerminalAudioManager.register();
 		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);

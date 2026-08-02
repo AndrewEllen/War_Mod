@@ -1,0 +1,3 @@
+package com.andye.warmod.radar.network;
+import com.andye.warmod.WarMod;import net.minecraft.network.RegistryFriendlyByteBuf;import net.minecraft.network.codec.StreamCodec;import net.minecraft.network.protocol.common.custom.CustomPacketPayload;import net.minecraft.resources.Identifier;
+public record ServerboundOpenRadarPayload() implements CustomPacketPayload{public static final Type<ServerboundOpenRadarPayload> TYPE=new Type<>(Identifier.fromNamespaceAndPath(WarMod.MOD_ID,"radar_open"));public static final StreamCodec<RegistryFriendlyByteBuf,ServerboundOpenRadarPayload> STREAM_CODEC=StreamCodec.unit(new ServerboundOpenRadarPayload());@Override public Type<? extends CustomPacketPayload> type(){return TYPE;}}

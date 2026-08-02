@@ -87,8 +87,14 @@ public final class IcbmLaunchService {
 		double burnoutHorizontal = Mth.clamp(horizontalDistance * 0.28, 180.0, 480.0);
 		Vec3 burnout = new Vec3(launch.x + horizontal.x * burnoutHorizontal, burnoutY,
 			launch.z + horizontal.z * burnoutHorizontal);
-		Vec3 separation = new Vec3(target.x - horizontal.x * IcbmConstants.SEPARATION_HORIZONTAL_OFFSET,
-			separationY, target.z - horizontal.z * IcbmConstants.SEPARATION_HORIZONTAL_OFFSET);
+		double verticalTravel = Math.max(0.0, separationY - target.y);
+		double maximumTerminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS
+			* WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
+		double maximumHorizontalOffset = Math.sqrt(Math.max(0.0,
+			maximumTerminalTravel * maximumTerminalTravel - verticalTravel * verticalTravel));
+		double separationOffset = Math.min(IcbmConstants.SEPARATION_HORIZONTAL_OFFSET, maximumHorizontalOffset);
+		Vec3 separation = new Vec3(target.x - horizontal.x * separationOffset,
+			separationY, target.z - horizontal.z * separationOffset);
 		if (!validRouteCoordinate(level, burnout) || !validRouteCoordinate(level, separation)) return Optional.empty();
 
 		double preferredApexY = Math.min(absoluteFlightCeiling, Math.max(cloudHeight + 400.0,

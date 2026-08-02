@@ -1,0 +1,3 @@
+package com.andye.warmod.radar;
+
+public enum RadarRemovalReason { CANCELLED, EVICTED, TERMINAL_LAUNCH_FAILED, EXPIRED, ACCESS_LOST, SERVER_STOPPED }

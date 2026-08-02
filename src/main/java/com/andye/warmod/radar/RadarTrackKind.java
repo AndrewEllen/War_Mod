@@ -1,0 +1,3 @@
+package com.andye.warmod.radar;
+
+public enum RadarTrackKind { ICBM, DIRECT_WARHEAD }

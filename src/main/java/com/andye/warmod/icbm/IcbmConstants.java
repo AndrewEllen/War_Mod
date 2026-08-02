@@ -13,9 +13,9 @@ public final class IcbmConstants {
 	public static final double MAXIMUM_VIRTUAL_SIDE_OFFSET = 16.0;
 	public static final double MINIMUM_BURNOUT_HEIGHT_ABOVE_LAUNCH = 300.0;
 	public static final double PREFERRED_BURNOUT_HEIGHT_ABOVE_LAUNCH = 360.0;
-	public static final double MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET = 300.0;
-	public static final double PREFERRED_SEPARATION_HEIGHT_ABOVE_TARGET = 360.0;
-	public static final double SEPARATION_HORIZONTAL_OFFSET = 72.0;
+	public static final double MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET = 400.0;
+	public static final double PREFERRED_SEPARATION_HEIGHT_ABOVE_TARGET = 480.0;
+	public static final double SEPARATION_HORIZONTAL_OFFSET = 128.0;
 	public static final int MAX_ACTIVE_CLIENT_ICBMS = 24;
 	public static final int MAX_ACTIVE_SPENT_STAGES = 48;
 	public static final int SPENT_STAGE_MINIMUM_LIFETIME_TICKS = 50;

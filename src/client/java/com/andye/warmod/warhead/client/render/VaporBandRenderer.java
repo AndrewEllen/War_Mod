@@ -16,15 +16,17 @@ public final class VaporBandRenderer {
 		final WarheadMesh.Lod lod,
 		final double elapsedTicks,
 		final long visualSeed,
+		final double progress,
 		final float activation,
 		final float fade
 	) {
+		double compression=WarheadVisualMath.terminalConeCompression(progress);
 		int bandCount = lod == WarheadMesh.Lod.NEAR ? 4 : lod == WarheadMesh.Lod.MEDIUM ? 3 : 2;
 		for (int band = 0; band < bandCount; band++) {
-			double phase = WarheadVisualMath.vaporBandPhase(elapsedTicks, band, bandCount, visualSeed);
-			float distance = (float) (2.0 + phase * 16.0);
-			float radius = (float) (0.4 + phase * 4.0);
-			float alpha = (float) (activation * fade * Math.sin(phase * Math.PI) * 0.18);
+			double phase = WarheadVisualMath.vaporBandPhase(elapsedTicks*(1.0+.18*compression), band, bandCount, visualSeed);
+			float distance = (float) (2.0 + phase * Mth.lerp((float)compression,16.0F,13.0F));
+			float radius = (float) ((0.4 + phase * 4.0)*Mth.lerp((float)compression,1.0F,1.30F));
+			float alpha = (float) (activation * fade * Math.sin(phase * Math.PI) * Mth.lerp((float)compression,.18F,.27F));
 			renderBand(pose, buffer, distance, radius, alpha, (float) (phase * 2.0));
 		}
 	}

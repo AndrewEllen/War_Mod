@@ -70,6 +70,7 @@ public final class WarheadRenderPipelines {
 	public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, true);
 	public static final RenderType FIREBALL_HOT = createClamped("war_mod_fireball_hot", HOT_FIRE_PIPELINE, texture("fireball_sheet.png"), false, true);
 	public static final RenderType NUCLEAR_FLASH = createClamped("war_mod_nuclear_flash", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
+	public static final RenderType REENTRY_PLASMA = createClamped("war_mod_reentry_plasma", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
 	public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;
 	public static final RenderType FIREBALL = FIREBALL_COOL;
 

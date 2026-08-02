@@ -32,11 +32,12 @@ public final class ShockConeMesh {
 		}
 
 		double pulse = WarheadVisualMath.conePulse(elapsedTicks, visualSeed);
-		float length = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 3.0F, 25.0F) * pulse);
-		float rearRadius = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 0.5F, 5.2F) * pulse);
-		float frontRadius = 0.22F;
+		float compression=(float)WarheadVisualMath.terminalConeCompression(progress);
+		float length = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 3.0F, 25.0F) * pulse * Mth.lerp(compression,1.0F,.52F));
+		float rearRadius = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 0.5F, 5.2F) * pulse * Mth.lerp(compression,1.0F,1.20F));
+		float frontRadius = Mth.lerp(compression,.22F,.44F);
 		int segments = lod == WarheadMesh.Lod.NEAR ? 16 : lod == WarheadMesh.Lod.MEDIUM ? 10 : 6;
-		float alpha = (float) (0.22 * activation * (0.96 + 0.04 * pulse));
+		float alpha = (float) (0.22 * activation * (0.96 + 0.04 * pulse) * Mth.lerp(compression,1.0F,1.22F));
 		float rearY = -length;
 		float frontY = -0.55F;
 

@@ -3,6 +3,8 @@ package com.andye.warmod.icbm;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.icbm.network.ClientboundIcbmSeparationPayload;
 import com.andye.warmod.icbm.network.IcbmVisualNetworking;
+import com.andye.warmod.radar.RadarRemovalReason;
+import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.warhead.WarheadLaunchService;
 import java.util.Optional;
 import net.minecraft.SharedConstants;
@@ -48,7 +50,7 @@ public final class IcbmFlightController {
 		Vec3 velocity = IcbmTrajectory.velocity(this.flightPlan, this.flightPlan.separationTick());
 		Optional<WarheadLaunchService.LaunchResult> result = WarheadLaunchService.launchFromCarrier(
 			level, owner, this.flightPlan.separationPosition(), this.flightPlan.intendedTarget(),
-			this.flightPlan.visualSeed(), this.flightPlan.payloadType()
+			this.flightPlan.visualSeed(), this.flightPlan.payloadType(), this.flightPlan.missileId()
 		);
 		if (result.isEmpty()) {
 			IcbmVisualNetworking.sendRemove(level, this.flightPlan.missileId(), this.flightPlan.ownerPlayerId(),
@@ -56,10 +58,12 @@ public final class IcbmFlightController {
 			if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
 				"ICBM {} cancelled: terminal launch failure", this.flightPlan.missileId()
 			);
+			RadarTrackingService.removeTrack(level, this.flightPlan.missileId(), RadarRemovalReason.TERMINAL_LAUNCH_FAILED);
 			this.complete(level);
 			return;
 		}
 		WarheadLaunchService.LaunchResult terminal = result.get();
+		RadarTrackingService.registerTerminalSeparation(level, this.flightPlan.missileId(), terminal);
 		this.cleanupElapsed = (long)this.flightPlan.separationTick() + terminal.flightTicks()
 			+ IcbmConstants.TERMINAL_TICKET_TAIL_TICKS;
 		IcbmVisualNetworking.sendSeparation(level, new ClientboundIcbmSeparationPayload(

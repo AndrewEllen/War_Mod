@@ -4,6 +4,7 @@ import com.andye.warmod.WarMod;
 import com.andye.warmod.entity.IncomingWarheadEntity;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.icbm.IcbmConstants;
+import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import java.util.Objects;
@@ -31,28 +32,33 @@ public final class WarheadLaunchService {
 		long seed = deriveSeed(id, id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 17), payloadType);
 		Vec3 start = calculateStartPosition(level, intendedTarget, seed).orElse(null);
 		if (start == null) return Optional.empty();
-		return spawn(level, owner, id, start, intendedTarget,
-			clamp((int)Math.ceil(start.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK)), seed, payloadType);
+		Optional<LaunchResult> result = spawn(level, owner, id, start, intendedTarget,
+			clamp((int)Math.ceil(start.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK)),
+			seed, payloadType, id);
+		result.ifPresent(value -> RadarTrackingService.registerDirectWarhead(level, owner, value));
+		return result;
 	}
 	public static Optional<LaunchResult> launchFromCarrier(final ServerLevel level, final @Nullable ServerPlayer owner,
-		final Vec3 separationPosition, final Vec3 intendedTarget, final long parentVisualSeed, final WarheadPayloadType payloadType) {
+		final Vec3 separationPosition, final Vec3 intendedTarget, final long parentVisualSeed,
+		final WarheadPayloadType payloadType, final UUID radarRootTrackId) {
 		UUID id = UUID.randomUUID();
 		long seed = deriveSeed(id, parentVisualSeed, payloadType);
 		int ticks = clampTerminal((int)Math.ceil(separationPosition.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
-		return spawn(level, owner, id, separationPosition, intendedTarget, ticks, seed, payloadType);
+		return spawn(level, owner, id, separationPosition, intendedTarget, ticks, seed, payloadType, radarRootTrackId);
 	}
 	private static Optional<LaunchResult> spawn(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
-		final Vec3 start, final Vec3 target, final int ticks, final long seed, final WarheadPayloadType payloadType) {
+		final Vec3 start, final Vec3 target, final int ticks, final long seed, final WarheadPayloadType payloadType,
+		final UUID radarRootTrackId) {
 		Objects.requireNonNull(level); Objects.requireNonNull(start); Objects.requireNonNull(target); Objects.requireNonNull(payloadType);
 		if (!start.isFinite() || !target.isFinite() || !loaded(level, start) || !loaded(level, target)) return Optional.empty();
 		long gameTime = level.getGameTime();
 		IncomingWarheadEntity entity = new IncomingWarheadEntity(ModEntityTypes.INCOMING_WARHEAD, level, id,
-			owner == null ? null : owner.getUUID(), start, target, gameTime, ticks, seed, payloadType);
+			owner == null ? null : owner.getUUID(), start, target, gameTime, ticks, seed, payloadType, radarRootTrackId);
 		if (!level.addFreshEntity(entity)) return Optional.empty();
 		WarheadVisualNetworking.sendLaunch(level, new ClientboundWarheadLaunchPayload(id, start.x, start.y, start.z,
 			target.x, target.y, target.z, gameTime, ticks, seed, payloadType), target);
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Warhead {} launched: payload={}, start={}, target={}, flight={}", id, payloadType.serializedName(), start, target, ticks);
-		return Optional.of(new LaunchResult(id, start, target, ticks, seed, payloadType));
+		return Optional.of(new LaunchResult(id, start, target, gameTime, ticks, seed, payloadType, radarRootTrackId));
 	}
 	private static Optional<Vec3> calculateStartPosition(final ServerLevel level, final Vec3 target, final long seed) {
 		if (!target.isFinite() || !loaded(level, target)) return Optional.empty();
@@ -79,5 +85,6 @@ public final class WarheadLaunchService {
 	private static int clamp(final int ticks) { return Math.max(WarheadConstants.MINIMUM_FLIGHT_TICKS, Math.min(WarheadConstants.MAXIMUM_FLIGHT_TICKS, ticks)); }
 	private static int clampTerminal(final int ticks) { return Math.max(IcbmConstants.MINIMUM_TERMINAL_TICKS, Math.min(IcbmConstants.MAXIMUM_TERMINAL_TICKS, ticks)); }
 	private static boolean loaded(final ServerLevel level, final Vec3 pos) { return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.x), SectionPos.blockToSectionCoord(pos.z)); }
-	public record LaunchResult(UUID warheadId, Vec3 startPosition, Vec3 intendedTarget, int flightTicks, long visualSeed, WarheadPayloadType payloadType) { }
+	public record LaunchResult(UUID warheadId, Vec3 startPosition, Vec3 intendedTarget, long launchGameTime,
+		int flightTicks, long visualSeed, WarheadPayloadType payloadType, UUID radarRootTrackId) { }
 }

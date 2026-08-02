@@ -1,7 +1,10 @@
 package com.andye.warmod.icbm;
 
+import com.andye.warmod.radar.RadarRemovalReason;
+import com.andye.warmod.radar.RadarTrackingService;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
@@ -31,11 +34,19 @@ public final class IcbmFlightControllerManager {
 		while (flights.size() >= MAXIMUM_ACTIVE_FLIGHTS_PER_LEVEL) {
 			Iterator<IcbmFlightController> iterator = flights.values().iterator();
 			if (!iterator.hasNext()) break;
-			iterator.next().cancel(level);
+			IcbmFlightController evicted = iterator.next();
+			evicted.cancel(level);
+			RadarTrackingService.removeTrack(level, evicted.flightPlan().missileId(), RadarRemovalReason.EVICTED);
 			iterator.remove();
 		}
 		flights.put(plan.missileId(), new IcbmFlightController(plan));
+		RadarTrackingService.registerIcbm(level, plan);
 		return true;
+	}
+
+	public static synchronized List<IcbmFlightPlan> snapshot(final ServerLevel level) {
+		LinkedHashMap<UUID, IcbmFlightController> flights = ACTIVE.get(level);
+		return flights == null ? List.of() : flights.values().stream().map(IcbmFlightController::flightPlan).toList();
 	}
 
 	private static synchronized void tickLevel(final ServerLevel level) {

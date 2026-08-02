@@ -1,0 +1,2 @@
+package com.andye.warmod.radar.client.gui;
+public final class RadarMapWidget{private final RadarMapTransform transform=new RadarMapTransform();private boolean dragging;public RadarMapTransform transform(){return transform;}public boolean contains(double x,double y,int left,int top,int width,int height){return x>=left&&x<left+width&&y>=top&&y<top+height;}public void beginDrag(){dragging=true;}public boolean dragging(){return dragging;}public void endDrag(){dragging=false;}}

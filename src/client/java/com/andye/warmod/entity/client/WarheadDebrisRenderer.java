@@ -2,6 +2,7 @@ package com.andye.warmod.entity.client;
 
 import com.andye.warmod.entity.WarheadDebrisEntity;
 import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -9,6 +10,8 @@ import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.world.level.CardinalLighting;
+import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.core.BlockPos;
 import org.joml.Quaternionf;
 
@@ -32,18 +35,30 @@ public final class WarheadDebrisRenderer extends EntityRenderer<WarheadDebrisEnt
 		state.movingBlock.randomSeedPos = pos;
 		state.movingBlock.blockPos = pos;
 		state.movingBlock.blockState = entity.blockState();
-		if (entity.level() instanceof ClientLevel level) {
+		state.movingBlock.biome = null;
+		state.movingBlock.cardinalLighting = CardinalLighting.DEFAULT;
+		state.movingBlock.lightEngine = LevelLightEngine.EMPTY;
+		state.trailColour = 0x8A8178;
+		if (entity.level() instanceof ClientLevel level && level.hasChunkAt(pos)) {
 			state.movingBlock.biome = level.getBiome(pos);
 			state.movingBlock.cardinalLighting = level.cardinalLighting();
 			state.movingBlock.lightEngine = level.getLightEngine();
+			state.trailColour = entity.blockState().getMapColor(level,pos).col & 0xFFFFFF;
 		}
 		state.angularVelocity = entity.angularVelocity();
+		state.velocity = entity.getDeltaMovement();
 		state.debrisAge = entity.age() + partialTick;
 		state.visualScale = entity.visualScale();
+		state.trailSeed = entity.getId();
+		state.onGround = entity.onGround();
 	}
 
 	@Override
 	public void submit(final WarheadDebrisRenderState state, final PoseStack poseStack, final SubmitNodeCollector collector, final CameraRenderState camera) {
+		poseStack.pushPose();
+		collector.submitCustomGeometry(poseStack,WarheadRenderPipelines.HEAVY_SMOKE,
+			(pose,buffer)->WarheadDebrisTrailRenderer.render(pose,buffer,state));
+		poseStack.popPose();
 		poseStack.pushPose();
 		poseStack.scale(state.visualScale, state.visualScale, state.visualScale);
 		poseStack.mulPose(new Quaternionf().rotationXYZ((float) state.angularVelocity.x * state.debrisAge,
