@@ -18,6 +18,7 @@ public final class RadarNetworking {
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarTrackUpsertPayload.TYPE,ClientboundRadarTrackUpsertPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarTrackRemovePayload.TYPE,ClientboundRadarTrackRemovePayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarImpactPayload.TYPE,ClientboundRadarImpactPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(ClientboundRadarInterceptionPayload.TYPE,ClientboundRadarInterceptionPayload.STREAM_CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(ServerboundOpenRadarPayload.TYPE,(payload,context)->RadarSubscriptionManager.open(context.player()));
 		ServerPlayNetworking.registerGlobalReceiver(ServerboundCloseRadarPayload.TYPE,(payload,context)->RadarSubscriptionManager.close(context.player(),false));
 		ServerPlayNetworking.registerGlobalReceiver(ServerboundRadarResyncPayload.TYPE,(payload,context)->RadarSubscriptionManager.resync(context.player()));

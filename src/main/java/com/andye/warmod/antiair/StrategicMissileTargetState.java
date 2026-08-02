@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.UUID;import net.minecraft.world.phys.Vec3;public record StrategicMissileTargetState(UUID rootTrackId,WarheadPayloadType payloadType,Vec3 currentPosition,Vec3 currentVelocity,boolean terminal,boolean active){}

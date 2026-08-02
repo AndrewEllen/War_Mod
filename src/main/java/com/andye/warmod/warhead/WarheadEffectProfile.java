@@ -1,7 +1,1 @@
-package com.andye.warmod.warhead;
-
-public enum WarheadEffectProfile {
-    CONVENTIONAL,
-    NUCLEAR,
-    TACTICAL_HE
-}
+package com.andye.warmod.warhead;public enum WarheadEffectProfile{CONVENTIONAL,NUCLEAR,TACTICAL_HE,ANTI_AIR_INTERCEPTION,ANTI_AIR_SAFE_SELF_DESTRUCT,ANTI_AIR_FALLBACK,ANTI_AIR_LAUNCH_FAILURE}

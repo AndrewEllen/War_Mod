@@ -3,6 +3,7 @@ package com.andye.warmod.warhead.client.render;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadEffectProfile;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.andye.warmod.warhead.client.ClientWarheadVisualManager;
 import com.andye.warmod.warhead.client.ImpactVisualState;
@@ -71,11 +72,11 @@ public final class WarheadWorldRenderer {
 			WarheadMesh.Lod lod = lod(distance);
 			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age);
 			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
-			List<TerrainShockfrontNode> dustNodes = state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime);
+			List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile()) ? state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime) : List.of();
 			for (TerrainShockfrontNode node : dustNodes) {
 				if (node.state() == TerrainShockfrontNode.State.READY) state.terrainShockfrontField().markEmitted(node, gameTime);
 			}
-			impacts.add(new ImpactFrame(state.impactPosition(), age, state.visualScale(), state.payloadType(), state.profile(), lod,
+			impacts.add(new ImpactFrame(state.impactPosition(), age, state.visualScale(), state.payloadType(), state.effectProfile(), state.profile(), lod,
 				state.terrainShockfrontField().snapshotSpokes(), dustNodes, state.fireballLobes(), state.blastCloudLobes(), gameTime));
 		}
 		currentFrame = new RenderFrame(cameraPosition, cameraOrientation, List.copyOf(warheads), List.copyOf(impacts));
@@ -118,12 +119,14 @@ public final class WarheadWorldRenderer {
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
 			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, WarheadVisualMath.airShockwaveRadius(impact.ageTicks()), impact.ageTicks(), thicknessScale, alphaScale, impact.lod()));
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
-			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), groundDistance,
-				frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), thicknessScale), groundFrontierAlpha(impact.ageTicks(), alphaScale), 208, 226, 244));
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
-			(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), Math.max(0.0, groundDistance - 3.0 * thicknessScale),
-				frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), thicknessScale), dustAlpha(impact.ageTicks(), alphaScale), 130, 119, 108));
+		if (groundEffects(impact.effectProfile())) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
+				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), groundDistance,
+					frontierSpokeCount(impact.lod()), groundFrontierWidth(impact.ageTicks(), thicknessScale), groundFrontierAlpha(impact.ageTicks(), alphaScale), 208, 226, 244));
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
+				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(), impact.position(), Math.max(0.0, groundDistance - 3.0 * thicknessScale),
+					frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), thicknessScale), dustAlpha(impact.ageTicks(), alphaScale), 130, 119, 108));
+		}
 		poseStack.popPose();
 
 		poseStack.pushPose();
@@ -142,6 +145,8 @@ public final class WarheadWorldRenderer {
 		}
 		poseStack.popPose();
 	}
+
+	private static boolean groundEffects(final WarheadEffectProfile effect) { return effect != WarheadEffectProfile.ANTI_AIR_INTERCEPTION && effect != WarheadEffectProfile.ANTI_AIR_SAFE_SELF_DESTRUCT; }
 
 	private static double coneActivation(final WarheadFrame warhead) {
 		double speed = WarheadVisualMath.normalizedSpeed(warhead.velocity(), WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
@@ -167,7 +172,7 @@ public final class WarheadWorldRenderer {
 
 	private record WarheadFrame(Vec3 position, Vec3 velocity, float progress, float elapsedTicks, float remainingTicks,
 		int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) { }
-	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, WarheadPayloadType payloadType, WarheadClientVisualProfile profile, WarheadMesh.Lod lod,
+	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, WarheadPayloadType payloadType, WarheadEffectProfile effectProfile, WarheadClientVisualProfile profile, WarheadMesh.Lod lod,
 		List<TerrainShockfrontSpoke> shockfrontSpokes, List<TerrainShockfrontNode> dustNodes,
 		List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) { }
 	private record RenderFrame(Vec3 cameraPosition, Quaternionf cameraOrientation, List<WarheadFrame> warheads, List<ImpactFrame> impacts) {

@@ -14,7 +14,7 @@ import net.minecraft.world.item.ItemStack;
 public final class ModCreativeModeTabs {
     public static final ResourceKey<CreativeModeTab> WAR_MOD_KEY = ResourceKey.create(
         Registries.CREATIVE_MODE_TAB, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod"));
-    private static final int ENTRY_COUNT = 16;
+    private static final int ENTRY_COUNT = 19;
     private static boolean registered;
 
     private ModCreativeModeTabs() { }
@@ -32,6 +32,8 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.RADAR_STATION);
                 output.accept(ModItems.CONVENTIONAL_ICBM);
                 output.accept(ModItems.NUCLEAR_ICBM);
+                output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
+                output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
                 output.accept(ModItems.ROCKET_LAUNCHER);
                 output.accept(ModItems.HE_ROCKET);
                 output.accept(ModItems.TARGET_DESIGNATOR);
@@ -41,6 +43,7 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.ICBM_TEST_STICK);
                 output.accept(ModItems.NUCLEAR_TEST_STICK);
                 output.accept(ModItems.NUCLEAR_ICBM_TEST_STICK);
+                output.accept(ModItems.ANTI_AIR_TEST_STICK);
             }).build();
         Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, WAR_MOD_KEY, tab);
         registered = true;

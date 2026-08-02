@@ -10,6 +10,7 @@ public final class ClientRadarState {
 	public static final ClientRadarState INSTANCE = new ClientRadarState();
 	private final Map<UUID, ClientRadarTrack> activeTracks = new LinkedHashMap<>();
 	private final Map<UUID, ClientRadarImpact> recentImpacts = new LinkedHashMap<>();
+    private final Map<UUID, ClientRadarInterception> interceptions = new LinkedHashMap<>();
 	private final ClientRadarClock clock = new ClientRadarClock();
 	private List<ClientRadarTrack> renderTracks = List.of();
 	private List<ClientRadarImpact> renderImpacts = List.of();
@@ -23,9 +24,11 @@ public final class ClientRadarState {
 	public void upsert(final ClientboundRadarTrackUpsertPayload payload) { clock.synchronize(payload.serverGameTime()); activeTracks.compute(payload.track().trackId(), (id, old) -> { if (old == null) return new ClientRadarTrack(payload.track()); old.update(payload.track()); return old; }); rebuildTracks(); }
 	public void remove(final ClientboundRadarTrackRemovePayload payload) { activeTracks.remove(payload.trackId()); if (!recentImpacts.containsKey(payload.trackId()) && payload.trackId().equals(selectedTrackId)) selectedTrackId = null; rebuildTracks(); }
 	public void impact(final ClientboundRadarImpactPayload payload) { recentImpacts.put(payload.impact().rootTrackId(), new ClientRadarImpact(payload.impact())); rebuildImpacts(); }
+    public void interception(final ClientboundRadarInterceptionPayload payload) { interceptions.put(payload.interceptorId(), new ClientRadarInterception(payload)); }
+    public List<ClientRadarInterception> interceptions() { return List.copyOf(interceptions.values()); }
 	public List<ClientRadarTrack> tracks() { return renderTracks; }
 	public List<ClientRadarImpact> impacts() { return renderImpacts; }
-	public void pruneImpacts(final double now) { if (recentImpacts.values().removeIf(impact -> now - impact.snapshot().impactGameTime() > com.andye.warmod.radar.RadarTrackingService.RECENT_IMPACT_RETENTION_TICKS)) rebuildImpacts(); }
+	public void pruneImpacts(final double now) { interceptions.values().removeIf(event -> event.expired(now)); if (recentImpacts.values().removeIf(impact -> now - impact.snapshot().impactGameTime() > com.andye.warmod.radar.RadarTrackingService.RECENT_IMPACT_RETENTION_TICKS)) rebuildImpacts(); }
 	public ClientRadarTrack selected() { return selectedTrackId == null ? null : activeTracks.get(selectedTrackId); }
 	public void select(final UUID id) { selectedTrackId = id; }
 	public UUID selectedTrackId() { return selectedTrackId; }
@@ -36,7 +39,7 @@ public final class ClientRadarState {
 	public Identifier dimensionId() { return dimensionId; }
 	public ClientRadarClock clock() { return clock; }
 	public long lastSnapshotServerGameTime() { return lastSnapshotServerGameTime; }
-	public void clear() { activeTracks.clear(); recentImpacts.clear(); rebuildRenderSnapshots(); selectedTrackId = null; subscribed = false; followSelectedTrack = false; dimensionId = null; lastSnapshotServerGameTime = 0; }
+	public void clear() { activeTracks.clear(); recentImpacts.clear(); interceptions.clear(); rebuildRenderSnapshots(); selectedTrackId = null; subscribed = false; followSelectedTrack = false; dimensionId = null; lastSnapshotServerGameTime = 0; }
 	private void rebuildTracks() { renderTracks = List.copyOf(activeTracks.values()); }
 	private void rebuildImpacts() { renderImpacts = List.copyOf(recentImpacts.values()); }
 	private void rebuildRenderSnapshots() { rebuildTracks(); rebuildImpacts(); }

@@ -12,6 +12,16 @@ public final class RadarDishMesh {
 
     private RadarDishMesh() { }
 
+    public static void renderMount(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final int light, final boolean warning) {
+        box(pose,buffer,-.34F,-.15F,-.34F,.34F,.02F,.34F,42,49,54,light);
+        box(pose,buffer,-.27F,.00F,-.25F,-.15F,.58F,.18F,58,67,72,light);
+        box(pose,buffer,.15F,.00F,-.25F,.27F,.58F,.18F,58,67,72,light);
+        box(pose,buffer,-.18F,.43F,-.18F,.18F,.60F,.18F,76,86,91,light);
+        box(pose,buffer,-.13F,.12F,-.62F,.13F,.34F,-.28F,38,45,50,light);
+        box(pose,buffer,-.09F,.17F,-.78F,.09F,.29F,-.62F,
+            warning?213:160,warning?52:106,warning?38:34,light);
+    }
     // Local dish forward is +Z, up is +Y and right is +X.
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
         final int light, final boolean warning) {

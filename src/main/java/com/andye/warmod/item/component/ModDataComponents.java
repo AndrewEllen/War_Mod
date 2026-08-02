@@ -11,6 +11,8 @@ public final class ModDataComponents {
         .<TargetCoordinates>builder().persistent(TargetCoordinates.CODEC).build();
     public static final DataComponentType<RocketLauncherMode> ROCKET_LAUNCHER_MODE = DataComponentType
         .<RocketLauncherMode>builder().persistent(RocketLauncherMode.CODEC).build();
+    public static final DataComponentType<AntiAirTestVariant> ANTI_AIR_TEST_VARIANT = DataComponentType
+        .<AntiAirTestVariant>builder().persistent(AntiAirTestVariant.CODEC).build();
     public static final DataComponentType<LinkedSilo> LINKED_SILO = DataComponentType
         .<LinkedSilo>builder().persistent(LinkedSilo.CODEC).build();
     private static boolean registered;
@@ -23,6 +25,7 @@ public final class ModDataComponents {
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("target_coordinates"), TARGET_COORDINATES);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_silo"), LINKED_SILO);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("rocket_launcher_mode"), ROCKET_LAUNCHER_MODE);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("anti_air_test_variant"), ANTI_AIR_TEST_VARIANT);
         registered = true;
     }
 

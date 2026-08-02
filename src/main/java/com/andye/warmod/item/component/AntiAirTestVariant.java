@@ -1,0 +1,1 @@
+package com.andye.warmod.item.component;import com.andye.warmod.antiair.AntiAirMissileVariant;import com.mojang.serialization.Codec;public record AntiAirTestVariant(AntiAirMissileVariant variant){public static final Codec<AntiAirTestVariant> CODEC=AntiAirMissileVariant.CODEC.xmap(AntiAirTestVariant::new,AntiAirTestVariant::variant);}

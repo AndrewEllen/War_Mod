@@ -1,0 +1,1 @@
+package com.andye.warmod.radar.client;import com.andye.warmod.radar.network.ClientboundRadarInterceptionPayload;public record ClientRadarInterception(ClientboundRadarInterceptionPayload payload){public double age(double now){return Math.max(0,now-payload.gameTime());}public boolean expired(double now){return age(now)>80;}}

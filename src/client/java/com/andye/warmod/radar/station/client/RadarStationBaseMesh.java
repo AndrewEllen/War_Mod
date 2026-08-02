@@ -9,18 +9,26 @@ public final class RadarStationBaseMesh {
 
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
         final int light, final boolean warning) {
-        box(pose,buffer,.12F,.34F,.12F,.88F,.52F,.88F,49,56,61,light);
-        box(pose,buffer,.30F,.50F,.30F,.70F,1.30F,.70F,57,65,70,light);
-        box(pose,buffer,.22F,1.28F,.22F,.78F,1.48F,.78F,77,86,91,light);
-        box(pose,buffer,.10F,.42F,.72F,.90F,1.12F,1.16F,39,46,51,light);
-        box(pose,buffer,.18F,.58F,1.155F,.82F,.96F,1.18F,24,30,34,light);
-        box(pose,buffer,.24F,.66F,1.18F,.62F,.82F,1.20F,184,129,34,15728880);
-        box(pose,buffer,.68F,.66F,1.18F,.74F,.72F,1.20F,
-            warning?220:55,warning?48:180,warning?38:75,15728880);
-        box(pose,buffer,.10F,.46F,-.16F,.34F,.86F,.18F,46,53,58,light);
-        box(pose,buffer,.66F,.46F,-.16F,.90F,.86F,.18F,46,53,58,light);
+        // A single centre renderer spans and visibly connects the complete 3x3 structure.
+        box(pose,buffer,-.82F,.18F,-.82F,1.82F,.34F,1.82F,42,49,54,light);
+        box(pose,buffer,-.68F,.34F,-.68F,-.46F,1.02F,-.46F,54,62,67,light);
+        box(pose,buffer,1.46F,.34F,-.68F,1.68F,1.02F,-.46F,54,62,67,light);
+        box(pose,buffer,-.68F,.34F,1.46F,-.46F,1.02F,1.68F,54,62,67,light);
+        box(pose,buffer,1.46F,.34F,1.46F,1.68F,1.02F,1.68F,54,62,67,light);
+        box(pose,buffer,.16F,.30F,.16F,.84F,.54F,.84F,48,56,61,light);
+        box(pose,buffer,.31F,.52F,.31F,.69F,2.28F,.69F,61,70,75,light);
+        box(pose,buffer,.20F,2.18F,.20F,.80F,2.38F,.80F,78,89,94,light);
+        box(pose,buffer,.08F,.42F,.76F,.92F,1.15F,1.22F,37,44,49,light);
+        box(pose,buffer,.15F,.58F,1.215F,.85F,.99F,1.24F,22,28,32,light);
+        box(pose,buffer,.22F,.68F,1.24F,.61F,.84F,1.26F,184,129,34,15728880);
+        box(pose,buffer,.68F,.69F,1.24F,.76F,.77F,1.26F,
+            warning?230:45,warning?46:190,warning?35:82,15728880);
+        // Four diagonal braces visually tie the mast into the footprint.
+        box(pose,buffer,-.48F,.88F,-.48F,.37F,1.02F,.37F,49,58,63,light);
+        box(pose,buffer,.63F,.88F,-.48F,1.48F,1.02F,.37F,49,58,63,light);
+        box(pose,buffer,-.48F,.88F,.63F,.37F,1.02F,1.48F,49,58,63,light);
+        box(pose,buffer,.63F,.88F,.63F,1.48F,1.02F,1.48F,49,58,63,light);
     }
-
     private static void box(final PoseStack.Pose p, final VertexConsumer b,
         final float x1,final float y1,final float z1,final float x2,final float y2,final float z2,
         final int r,final int g,final int bl,final int light) {

@@ -1,6 +1,9 @@
 package com.andye.warmod;
 
 import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.antiair.AntiAirFlightControllerManager;
+import com.andye.warmod.antiair.network.AntiAirNetworking;
+import com.andye.warmod.warhead.IncomingWarheadRegistry;
 import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.acoustics.network.AcousticNetworking;
 import com.andye.warmod.entity.ModEntityTypes;
@@ -34,5 +37,5 @@ import org.slf4j.LoggerFactory;
 
 public final class WarMod implements ModInitializer {
 	public static final String MOD_ID="war_mod";public static final Logger LOGGER=LoggerFactory.getLogger(MOD_ID);
-	@Override public void onInitialize(){ModSoundEvents.register();AcousticSounds.register();AcousticNetworking.registerPayloadTypes();WarheadVisualNetworking.registerPayloadTypes();IcbmVisualNetworking.registerPayloadTypes();RadarNetworking.register();SiloNetworking.register();RadarStationNetworking.register();ModDataComponents.register();ModMenus.register();ModBlocks.register();ModBlockEntities.register();MissileSiloChunkTicketType.register();RadarStationChunkTicketType.register();IcbmChunkTicketType.register();IcbmFlightControllerManager.register();IcbmPendingCommandLaunchManager.register();IcbmCommand.register();ModEntityTypes.register();ModItems.register();ModCreativeModeTabs.register();MissileSiloManager.registerLifecycle();RadarStationManager.registerLifecycle();ModParticleTypes.register();ServerTickEvents.END_LEVEL_TICK.register(level->{RadarTrackingService.tick(level);RadarSubscriptionManager.tick(level);});ServerLifecycleEvents.SERVER_STOPPING.register(RadarSubscriptionManager::stop);ServerLifecycleEvents.SERVER_STOPPED.register(server->RadarTrackingService.clearAll());LOGGER.info("War Mod initialized.");}
+	@Override public void onInitialize(){ModSoundEvents.register();AcousticSounds.register();AcousticNetworking.registerPayloadTypes();AntiAirNetworking.register();WarheadVisualNetworking.registerPayloadTypes();IcbmVisualNetworking.registerPayloadTypes();RadarNetworking.register();SiloNetworking.register();RadarStationNetworking.register();ModDataComponents.register();ModMenus.register();ModBlocks.register();ModBlockEntities.register();MissileSiloChunkTicketType.register();RadarStationChunkTicketType.register();IcbmChunkTicketType.register();IcbmFlightControllerManager.register();AntiAirFlightControllerManager.register();IcbmPendingCommandLaunchManager.register();IcbmCommand.register();ModEntityTypes.register();ModItems.register();ModCreativeModeTabs.register();MissileSiloManager.registerLifecycle();RadarStationManager.registerLifecycle();ModParticleTypes.register();ServerTickEvents.END_LEVEL_TICK.register(level->{RadarTrackingService.tick(level);RadarSubscriptionManager.tick(level);});ServerLifecycleEvents.SERVER_STOPPING.register(RadarSubscriptionManager::stop);ServerLifecycleEvents.SERVER_STOPPED.register(server->{RadarTrackingService.clearAll();IncomingWarheadRegistry.clearAll();});LOGGER.info("War Mod initialized.");}
 }

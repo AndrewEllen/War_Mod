@@ -62,7 +62,7 @@ public final class WarheadImpactService {
 		if (registerRadarImpact) RadarTrackingService.registerImpact(level, id, radarRootTrackId, pos, payloadType, profile.impactVisualScale());
 		List<DebrisCandidate> candidates = sample(level, pos, seed, profile);
 		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(id, pos.x, pos.y, pos.z,
-			level.getGameTime(), seed, payloadType, profile.impactVisualScale()), pos);
+			level.getGameTime(), seed, payloadType, profile.impactVisualScale(), profile == WarheadImpactProfiles.tacticalHe() ? WarheadEffectProfile.TACTICAL_HE : payloadType == WarheadPayloadType.NUCLEAR ? WarheadEffectProfile.NUCLEAR : WarheadEffectProfile.CONVENTIONAL), pos);
 		TestExplosionService.createExplosion(level, owner, pos, profile.explosionStrength());
 		spawnDebris(level, pos, seed, candidates, profile);
 		AcousticEngine.playSound(level, pos, AcousticSounds.WARHEAD_IMPACT_THUD_ID, SoundSource.BLOCKS, .72F, 1.0F);
@@ -72,6 +72,7 @@ public final class WarheadImpactService {
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Warhead {} emitted impact thud and explosion at {}", id, pos);
 		if (payloadType == WarheadPayloadType.NUCLEAR && SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info("Nuclear warhead {} impacted at {}", id, pos);
 	}
+	public static void detonateAntiAir(final ServerLevel level,final UUID id,final Vec3 pos,final long seed,final WarheadEffectProfile effect){float scale=switch(effect){case ANTI_AIR_INTERCEPTION->.22F;case ANTI_AIR_SAFE_SELF_DESTRUCT->.12F;case ANTI_AIR_FALLBACK->.36F;case ANTI_AIR_LAUNCH_FAILURE->.30F;default->.24F;};WarheadVisualNetworking.sendImpact(level,new ClientboundWarheadImpactPayload(id,pos.x,pos.y,pos.z,level.getGameTime(),seed,WarheadPayloadType.CONVENTIONAL,scale,effect),pos);if(effect==WarheadEffectProfile.ANTI_AIR_FALLBACK)TestExplosionService.createExplosion(level,null,pos,8.0F);else if(effect==WarheadEffectProfile.ANTI_AIR_LAUNCH_FAILURE)TestExplosionService.createExplosion(level,null,pos,7.0F);AcousticEngine.playSound(level,pos,effect==WarheadEffectProfile.ANTI_AIR_SAFE_SELF_DESTRUCT?AcousticSounds.TACTICAL_HE_EXPLOSION_ID:AcousticSounds.LARGE_EXPLOSION_ID,SoundSource.BLOCKS,effect==WarheadEffectProfile.ANTI_AIR_SAFE_SELF_DESTRUCT?.25F:.55F,effect==WarheadEffectProfile.ANTI_AIR_SAFE_SELF_DESTRUCT?1.25F:1.1F);}
 	private static List<DebrisCandidate> sample(final ServerLevel level, final Vec3 center, final long seed, final WarheadImpactProfile profile) {
 		int radius = profile.debrisSampleRadius();
 		int maximum = Math.max(2048, profile.maximumDebrisEntities() * 8);

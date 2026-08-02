@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import net.minecraft.world.phys.Vec3;public record AntiAirGuidanceResolution(int guidanceTier,Vec3 resolvedInterceptPosition,Vec3 offset,double missDistance){}

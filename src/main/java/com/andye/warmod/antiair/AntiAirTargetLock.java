@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import com.andye.warmod.icbm.IcbmFlightPlan;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.UUID;public record AntiAirTargetLock(UUID rootTrackId,WarheadPayloadType payloadType,IcbmFlightPlan carrierPlan,long acquisitionGameTime,long separationGameTime,long estimatedImpactGameTime){}

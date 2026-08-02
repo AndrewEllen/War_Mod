@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import net.minecraft.world.phys.Vec3;public final class AntiAirFallbackTrajectory{private AntiAirFallbackTrajectory(){}public static Vec3 nextVelocity(Vec3 v){return new Vec3(v.x*.997,v.y*.997-.065,v.z*.997);}public static Vec3 nextPosition(Vec3 p,Vec3 nextVelocity){return p.add(nextVelocity);}}

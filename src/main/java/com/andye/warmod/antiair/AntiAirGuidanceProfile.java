@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import java.util.UUID;import net.minecraft.world.phys.Vec3;public record AntiAirGuidanceProfile(UUID interceptorId,UUID siloId,int guidanceTier,Vec3 perfectInterceptPosition,Vec3 targetVelocityAtIntercept,long guidanceSeed){}

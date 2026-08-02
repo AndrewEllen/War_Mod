@@ -1,0 +1,1 @@
+package com.andye.warmod.radar;import net.minecraft.world.phys.Vec3;public record RadarInterceptorRouteSnapshot(Vec3 controlPoint1,Vec3 controlPoint2,Vec3 resolvedInterceptPosition,int interceptTicks,long routeLockGameTime,double resolvedMissDistance){}

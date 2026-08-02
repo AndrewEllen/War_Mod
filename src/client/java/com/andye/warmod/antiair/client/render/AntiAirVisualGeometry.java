@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair.client.render;public final class AntiAirVisualGeometry{public static final float RADIUS=.23F,BOTTOM=-1.65F,BODY_TOP=1.05F,NOSE_TIP=1.65F,CONTROL_FIN_Y=-.15F,REAR_FIN_Y=-1.28F;private AntiAirVisualGeometry(){}}

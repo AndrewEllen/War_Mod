@@ -1,14 +1,1 @@
-package com.andye.warmod.silo;
-
-import com.andye.warmod.item.component.TargetCoordinates;
-import com.andye.warmod.warhead.WarheadPayloadType;
-import java.util.Set;
-import java.util.UUID;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.ChunkPos;
-import org.jspecify.annotations.Nullable;
-
-public record MissileSiloLaunchRequest(UUID requestId, UUID siloId, BlockPos siloCentre,
-    MissileSiloLaunchTrigger trigger, @Nullable UUID triggeringPlayerId, @Nullable String triggeringPlayerName,
-    TargetCoordinates target, WarheadPayloadType payloadType, long creationGameTime, Set<ChunkPos> temporaryTickets) {
-}
+package com.andye.warmod.silo;import com.andye.warmod.antiair.*;import com.andye.warmod.item.component.TargetCoordinates;import java.util.*;import net.minecraft.core.BlockPos;import net.minecraft.world.level.ChunkPos;import org.jspecify.annotations.Nullable;public record MissileSiloLaunchRequest(UUID requestId,UUID siloId,BlockPos siloCentre,MissileSiloLaunchTrigger trigger,@Nullable UUID triggeringPlayerId,String triggeringPlayerName,SiloMissileType missileType,@Nullable TargetCoordinates strategicTarget,@Nullable AntiAirTargetLock interceptorTargetLock,@Nullable AntiAirInterceptSolution interceptorSolution,long creationGameTime,Set<ChunkPos> temporaryTickets){public MissileSiloLaunchRequest{boolean strategic=missileType.role()==SiloMissileRole.STRATEGIC_STRIKE;if(strategic!=(strategicTarget!=null)||strategic&&(interceptorTargetLock!=null||interceptorSolution!=null)||!strategic&&(strategicTarget!=null||interceptorTargetLock==null||interceptorSolution==null))throw new IllegalArgumentException("Invalid silo launch request");temporaryTickets=Set.copyOf(temporaryTickets);}}

@@ -6,6 +6,7 @@ import com.andye.warmod.acoustics.AcousticSounds;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.warhead.WarheadImpactService;
+import com.andye.warmod.warhead.IncomingWarheadRegistry;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadTrajectory;
 import com.andye.warmod.warhead.WarheadConstants;
@@ -37,7 +38,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class IncomingWarheadEntity extends Entity {
 	private UUID warheadId, ownerPlayerId, radarRootTrackId; private Vec3 startPosition=Vec3.ZERO, intendedTarget=Vec3.ZERO;
-	private long launchGameTime=Long.MIN_VALUE,visualSeed;private int flightTicks;private boolean impacted,sonicBoomEmitted;
+	private long launchGameTime=Long.MIN_VALUE,visualSeed;private int flightTicks;private boolean impacted,cancelled,sonicBoomEmitted;
 	private WarheadPayloadType payloadType=WarheadPayloadType.CONVENTIONAL;
 	public IncomingWarheadEntity(final EntityType<IncomingWarheadEntity> type, final Level level) {
 		super(type,level); this.noPhysics=true; setNoGravity(true); setSilent(true);
@@ -52,7 +53,7 @@ public final class IncomingWarheadEntity extends Entity {
 	@Override protected void defineSynchedData(final SynchedEntityData.Builder builder) { }
 	@Override public void tick() {
 		super.tick(); if(isRemoved()||impacted||!(level() instanceof ServerLevel server)) return;
-		RadarTrackingService.reconcileWarhead(server,this);
+		IncomingWarheadRegistry.register(server,this);RadarTrackingService.reconcileWarhead(server,this);
 		if(!valid()){cancel(server);discard();return;}
 		long elapsedGame=server.getGameTime()-launchGameTime; double elapsed=Math.max(0.0,Math.min(Integer.MAX_VALUE,elapsedGame));
 		Vec3 previous=WarheadTrajectory.position(startPosition,intendedTarget,Math.max(0,elapsed-1),flightTicks);
@@ -83,6 +84,7 @@ public final class IncomingWarheadEntity extends Entity {
 	public UUID warheadId(){return warheadId;} public UUID ownerPlayerId(){return ownerPlayerId;} public UUID radarRootTrackId(){return radarRootTrackId==null?warheadId:radarRootTrackId;}
 	public Vec3 startPosition(){return startPosition;} public Vec3 intendedTarget(){return intendedTarget;} public long launchGameTime(){return launchGameTime;}
 	public int flightTicks(){return flightTicks;} public long visualSeed(){return visualSeed;} public WarheadPayloadType payloadType(){return payloadType;}
+ public boolean cancelForInterception(ServerLevel server,UUID interceptorId,Vec3 interceptPosition){if(impacted||cancelled||isRemoved())return false;cancelled=true;impacted=true;WarheadVisualNetworking.sendRemove(server,warheadId,intendedTarget);IncomingWarheadRegistry.unregister(server,radarRootTrackId());discard();return true;}
 	private boolean valid(){return warheadId!=null&&radarRootTrackId()!=null&&startPosition!=null&&intendedTarget!=null&&payloadType!=null&&startPosition.isFinite()&&intendedTarget.isFinite()
 		&&startPosition.distanceTo(intendedTarget)<=8192&&launchGameTime!=Long.MIN_VALUE&&flightTicks>=1&&flightTicks<=IcbmConstants.MAXIMUM_TERMINAL_TICKS;}
 	private void emitSonicBoom(final ServerLevel server,final Vec3 position,final Vec3 velocity){
@@ -98,7 +100,7 @@ public final class IncomingWarheadEntity extends Entity {
 		if(impacted||!hit.isFinite())return; impacted=true; ServerPlayer owner=null;
 		if(ownerPlayerId!=null&&server.getServer()!=null){ServerPlayer p=server.getServer().getPlayerList().getPlayer(ownerPlayerId);if(p!=null&&p.level()==server)owner=p;}
 		if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Warhead {} impacted: payload={}, position={}",warheadId,payloadType.serializedName(),hit);
-		WarheadImpactService.impact(server,owner,warheadId,radarRootTrackId(),hit,visualSeed,payloadType);discard();
+		WarheadImpactService.impact(server,owner,warheadId,radarRootTrackId(),hit,visualSeed,payloadType);IncomingWarheadRegistry.unregister(server,radarRootTrackId());discard();
 	}
 	private void cancel(final ServerLevel server){if(warheadId!=null&&intendedTarget!=null&&intendedTarget.isFinite())WarheadVisualNetworking.sendRemove(server,warheadId,intendedTarget);}
 	private void updateRotation(final Vec3 v){if(v.lengthSqr()<1E-8)return;setYRot((float)(Math.atan2(v.z,v.x)*180/Math.PI)-90);setXRot((float)(-Math.atan2(v.y,v.horizontalDistance())*180/Math.PI));}

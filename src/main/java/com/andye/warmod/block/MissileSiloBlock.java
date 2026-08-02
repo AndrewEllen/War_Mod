@@ -160,6 +160,14 @@ public final class MissileSiloBlock extends BaseEntityBlock implements WorldlyCo
         MissileSiloStructure.teardown(level, pos, state, true);
     }
 
+    public static int maximumIncomingSignal(final ServerLevel level, final BlockPos centre, final Direction facing) {
+        int maximum = 0;
+        for (BlockPos part : MissileSiloStructure.positions(centre, facing)) {
+            if (part.getY() != centre.getY()) continue;
+            maximum = Math.max(maximum, level.getBestNeighborSignal(part));
+        }
+        return Math.min(15, maximum);
+    }
     public static boolean anyPartPowered(final ServerLevel level, final BlockPos centre, final Direction facing) {
         for (BlockPos pos : MissileSiloStructure.positions(centre, facing)) if (level.hasNeighborSignal(pos)) return true;
         return false;

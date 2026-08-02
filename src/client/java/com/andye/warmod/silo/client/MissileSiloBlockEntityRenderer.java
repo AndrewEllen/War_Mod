@@ -21,11 +21,11 @@ public final class MissileSiloBlockEntityRenderer implements BlockEntityRenderer
         final float partialTicks, final Vec3 cameraPosition,
         final ModelFeatureRenderer.@Nullable CrumblingOverlay breakProgress) {
         BlockEntityRenderer.super.extractRenderState(silo, state, partialTicks, cameraPosition, breakProgress);
-        state.payloadType = MissilePayloadItems.payloadType(silo.missileStack()).orElse(null);
+        state.missileType = MissilePayloadItems.missileType(silo.missileStack()).orElse(null);
         state.availableCount = silo.missileStack().getCount();
         state.siloState = silo.siloState();
         state.facing = silo.facing();
-        state.visible = state.availableCount > 0 && state.payloadType != null
+        state.visible = state.availableCount > 0 && state.missileType != null
             && state.siloState != MissileSiloState.PREPARING && state.siloState != MissileSiloState.LAUNCHING && state.siloState != MissileSiloState.COOLDOWN
             && state.siloState != MissileSiloState.INVALID_STRUCTURE;
         state.reloadOffsetY = 0.0;

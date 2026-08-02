@@ -28,6 +28,8 @@ public final class RadarSweepRenderer {
                 left, top, width, height, 0x1845d98b, 1);
         }
         RadarPolylineRenderer.drawRing(graphics, (int)centerX, (int)centerY,
+            state.fireRadius() / transform.blocksPerPixel(), left, top, width, height,
+            state.redstoneSignal() == 15 ? 0xff50e7ff : 0x8872b7c4, 1);        RadarPolylineRenderer.drawRing(graphics, (int)centerX, (int)centerY,
             state.warningRadius() / transform.blocksPerPixel(), left, top, width, height,
             state.warningActive() ? 0xffff3b35 : 0x99c58b35, 1);
         graphics.fill((int)centerX - 3, (int)centerY - 3,

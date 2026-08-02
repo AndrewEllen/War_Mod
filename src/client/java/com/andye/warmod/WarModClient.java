@@ -1,6 +1,8 @@
 package com.andye.warmod;
 
 import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
+import com.andye.warmod.antiair.client.ClientAntiAirNetworking;
+import com.andye.warmod.antiair.client.AntiAirWorldRenderer;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.block.entity.ModBlockEntities;
@@ -31,6 +33,7 @@ public final class WarModClient implements ClientModInitializer {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
 		ClientIcbmNetworking.register();
+        ClientAntiAirNetworking.register();
 		ClientRadarNetworking.register();
 		ClientRadarStationNetworking.register();
 		RadarKeyBindings.register();
@@ -44,6 +47,7 @@ public final class WarModClient implements ClientModInitializer {
 		WarheadParticleClient.register();
 		WarheadWorldRenderer.register();
 		IcbmWorldRenderer.register();
+        AntiAirWorldRenderer.register();
 		NuclearFlashOverlay.register();
 		WarMod.LOGGER.info("War Mod client initialized.");
 	}

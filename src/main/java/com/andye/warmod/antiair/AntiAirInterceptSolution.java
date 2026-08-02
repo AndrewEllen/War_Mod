@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import net.minecraft.world.phys.Vec3;public record AntiAirInterceptSolution(long interceptGameTime,Vec3 perfectInterceptPosition,Vec3 targetVelocityAtIntercept,AntiAirRoute nominalRoute,double requiredAverageSpeed,double requiredPeakSpeed){}

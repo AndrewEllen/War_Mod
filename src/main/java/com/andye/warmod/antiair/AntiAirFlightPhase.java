@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;public enum AntiAirFlightPhase{IGNITION,BOOST,INTERCEPT,FALLBACK,SELF_DESTRUCT,INTERCEPTED,COMPLETED}

@@ -40,7 +40,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     private final MissileSiloInventory inventory = new MissileSiloInventory(this::inventoryChanged);
     private @Nullable TargetCoordinates storedTarget;
     private MissileSiloState siloState = MissileSiloState.EMPTY;
-    private boolean previouslyPowered;
+    private int previousRedstoneSignal;
     private int launchingTicksRemaining;
     private int cooldownTicksRemaining;
     private int reloadTicksRemaining;
@@ -94,10 +94,13 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
                 silo.sync();
             }
         }
-        boolean powered = MissileSiloBlock.anyPartPowered(server, pos, state.getValue(MissileSiloBlock.FACING));
-        if (powered && !silo.previouslyPowered) MissileSiloLaunchService.requestLaunch(server, silo,
+        int signal = MissileSiloBlock.maximumIncomingSignal(server, pos, state.getValue(MissileSiloBlock.FACING));
+        boolean interceptor = MissilePayloadItems.isInterceptor(silo.missileStack());
+        boolean launchEdge = interceptor ? silo.previousRedstoneSignal < 15 && signal == 15
+            : silo.previousRedstoneSignal == 0 && signal > 0;
+        if (launchEdge) MissileSiloLaunchService.requestLaunch(server, silo,
             MissileSiloLaunchTrigger.REDSTONE, silo.ownerPlayerId, silo.ownerDisplayName, null);
-        silo.previouslyPowered = powered;
+        silo.previousRedstoneSignal = signal;
         if (silo.siloState == MissileSiloState.LAUNCHING && --silo.launchingTicksRemaining <= 0) {
             silo.enterState(MissileSiloState.COOLDOWN);
             silo.cooldownTicksRemaining = MissileSiloConstants.PRE_RELOAD_COOLDOWN_TICKS;
@@ -112,7 +115,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
             silo.sync();
             if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
                 "Silo {} reload complete: payload={}, remaining={}", silo.siloId,
-                MissilePayloadItems.payloadType(silo.missileStack()).map(type -> type.serializedName()).orElse("none"),
+                MissilePayloadItems.missileType(silo.missileStack()).map(type -> type.serializedName()).orElse("none"),
                 silo.missileStack().getCount());
         }
     }
@@ -216,7 +219,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         output.store("missile", ItemStack.OPTIONAL_CODEC, this.missileStack());
         output.storeNullable("target", TargetCoordinates.CODEC, this.storedTarget);
         output.putString("state", this.siloState.name());
-        output.putBoolean("previously_powered", this.previouslyPowered);
+        output.putInt("previous_redstone_signal", this.previousRedstoneSignal);
         output.putInt("launching_ticks", this.launchingTicksRemaining);
         output.putInt("cooldown_ticks", this.cooldownTicksRemaining);
         output.putInt("reload_ticks", this.reloadTicksRemaining);
@@ -245,7 +248,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.storedTarget = input.read("target", TargetCoordinates.CODEC).filter(TargetCoordinates::isValid).orElse(null);
         try { this.siloState = MissileSiloState.valueOf(input.getStringOr("state", "EMPTY")); }
         catch (IllegalArgumentException ignored) { this.siloState = MissileSiloState.ERROR; }
-        this.previouslyPowered = input.getBooleanOr("previously_powered", false);
+        this.previousRedstoneSignal = Math.max(0, Math.min(15, input.getIntOr("previous_redstone_signal",
+            input.getBooleanOr("previously_powered", false) ? 15 : 0)));
         this.launchingTicksRemaining = Math.max(0, input.getIntOr("launching_ticks", 0));
         this.cooldownTicksRemaining = Math.max(0, input.getIntOr("cooldown_ticks", 0));
         this.reloadTicksTotal = Math.max(0, Math.min(MissileSiloConstants.RELOAD_ANIMATION_TICKS,

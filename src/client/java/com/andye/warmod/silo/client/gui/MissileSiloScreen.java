@@ -28,7 +28,7 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
     private EditBox xField;
     private EditBox yField;
     private EditBox zField;
-    private Button launchButton;
+    private Button launchButton, applyButton, clearButton, heldButton;
 
     public MissileSiloScreen(final MissileSiloMenu menu, final Inventory inventory,
         final Component title) {
@@ -54,12 +54,12 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
             yField.setValue(format(position.y));
             zField.setValue(format(position.z));
         }
-        addRenderableWidget(Button.builder(Component.literal("Apply Target"), button -> apply())
+        applyButton = addRenderableWidget(Button.builder(Component.literal("Apply Target"), button -> apply())
             .bounds(x, y + 69, 112, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("Clear"),
+        clearButton = addRenderableWidget(Button.builder(Component.literal("Clear"),
             button -> send(new ServerboundSiloClearTargetPayload(menu.containerId,
                 menu.centre(), menu.siloId()))).bounds(x, y + 92, 53, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("From Held"),
+        heldButton = addRenderableWidget(Button.builder(Component.literal("From Held"),
             button -> send(new ServerboundSiloUseHeldDesignatorPayload(menu.containerId,
                 menu.centre(), menu.siloId()))).bounds(x + 59, y + 92, 53, 20).build());
         launchButton = addRenderableWidget(Button.builder(Component.literal("LAUNCH"),
@@ -95,6 +95,10 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
         super.containerTick();
         MissileSiloBlockEntity silo = menu.silo();
         launchButton.active = silo != null && silo.siloState() == MissileSiloState.READY;
+        boolean interceptor = silo != null && MissilePayloadItems.isInterceptor(silo.missileStack());
+        xField.active = yField.active = zField.active = !interceptor;
+        applyButton.active = clearButton.active = heldButton.active = !interceptor;
+        launchButton.setMessage(Component.literal(interceptor ? "INTERCEPT" : "LAUNCH"));
     }
 
     @Override
@@ -127,11 +131,13 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
         status(graphics, statusX, topPos + 60, "Left support", "Tier " + silo.leftGuidanceTier());
         status(graphics, statusX, topPos + 74, "Right support", "Tier " + silo.rightGuidanceTier());
         status(graphics, statusX, topPos + 88, "Effective", "Tier " + silo.installedGuidanceTier());
-        int error = (int)MissileSiloGuidanceFrameStructure
-            .maximumGuidanceError(silo.installedGuidanceTier());
-        status(graphics, statusX, topPos + 102, "Max X/Z error", error == 0 ? "0" : "±" + error);
-        status(graphics, statusX, topPos + 116, "Readiness",
-            silo.siloState() == MissileSiloState.READY ? "READY" : "HOLD");
+        boolean interceptor = MissilePayloadItems.isInterceptor(silo.missileStack());
+        int error = (int)(interceptor
+            ? com.andye.warmod.antiair.AntiAirGuidanceResolver.maximumMiss(silo.installedGuidanceTier())
+            : MissileSiloGuidanceFrameStructure.maximumGuidanceError(silo.installedGuidanceTier()));
+        status(graphics, statusX, topPos + 102, interceptor ? "Maximum miss" : "Max X/Z error", error == 0 ? "0" : "Â±" + error);
+        status(graphics, statusX, topPos + 116, interceptor ? "Target mode" : "Readiness",
+            interceptor ? "Automatic" : silo.siloState() == MissileSiloState.READY ? "READY" : "HOLD");
 
         double reload = silo.reloadTicksTotal() == 0 ? 0.0
             : 1.0 - (double)silo.reloadTicksRemaining() / silo.reloadTicksTotal();
@@ -141,7 +147,13 @@ public final class MissileSiloScreen extends AbstractContainerScreen<MissileSilo
         graphics.text(font, Component.literal("Reload " + (int)Math.round(reload * 100) + "%"),
             leftPos + 14, topPos + 122, 0xffa9bdc5);
 
-        graphics.text(font, Component.literal("TARGET"), leftPos + 246, topPos + 30, 0xff8299a2);
+        graphics.text(font, Component.literal(interceptor ? "AUTOMATIC INTERCEPTION" : "TARGET"), leftPos + 246, topPos + 30, 0xff8299a2);
+        if (interceptor) {
+            graphics.text(font, Component.literal("Defended radius  500"), leftPos + 246, topPos + 145, 0xffc5d5dc);
+            graphics.text(font, Component.literal("Acquisition  500"), leftPos + 246, topPos + 158, 0xffc5d5dc);
+            graphics.text(font, Component.literal(MissilePayloadItems.antiAirVariant(silo.missileStack()).orElseThrow().ballisticFallback() ? "Failure: ballistic fallback" : "Failure: safe self-destruct"), leftPos + 246, topPos + 171, 0xffffc45a);
+            graphics.text(font, Component.literal("Stored XYZ retained; not used"), leftPos + 246, topPos + 184, 0xff8299a2);
+        }
         if (!silo.lastError().isBlank()) {
             graphics.textWithWordWrap(font, Component.literal(silo.lastError()),
                 leftPos + 110, topPos + 132, 124, 0xffff7568);

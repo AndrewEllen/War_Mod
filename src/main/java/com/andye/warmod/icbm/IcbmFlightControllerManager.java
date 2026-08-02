@@ -65,6 +65,8 @@ public final class IcbmFlightControllerManager {
 		return flights == null ? List.of() : flights.values().stream().map(IcbmFlightController::flightPlan).toList();
 	}
 
+	public static synchronized java.util.Optional<com.andye.warmod.antiair.StrategicMissileTargetState> targetState(final ServerLevel level,final UUID rootTrackId,final long gameTime){var flights=ACTIVE.get(level);var controller=flights==null?null:flights.get(rootTrackId);return controller==null||controller.separated()?java.util.Optional.empty():java.util.Optional.of(controller.targetState(gameTime));}
+	public static synchronized boolean cancelForInterception(final ServerLevel level,final UUID rootTrackId,final UUID interceptorId,final net.minecraft.world.phys.Vec3 position){var flights=ACTIVE.get(level);var controller=flights==null?null:flights.get(rootTrackId);if(controller==null||!controller.cancelForInterception(level,interceptorId,position))return false;flights.remove(rootTrackId);if(flights.isEmpty())ACTIVE.remove(level);return true;}
 	private static synchronized void tickLevel(final ServerLevel level) {
 		LinkedHashMap<UUID, IcbmFlightController> flights = ACTIVE.get(level);
 		if (flights == null) return;

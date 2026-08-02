@@ -1,0 +1,1 @@
+package com.andye.warmod.radar;import com.andye.warmod.antiair.AntiAirMissileVariant;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.UUID;import net.minecraft.world.phys.Vec3;public record RadarInterceptionSnapshot(UUID interceptorId,UUID targetRootTrackId,Vec3 position,long gameTime,AntiAirMissileVariant variant,WarheadPayloadType interceptedPayload){}

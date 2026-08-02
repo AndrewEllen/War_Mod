@@ -3,6 +3,7 @@ package com.andye.warmod.item;
 import com.andye.warmod.block.MissileSiloBlockItem;
 import com.andye.warmod.block.MissileSiloGuidanceSupportItem;
 import com.andye.warmod.block.RadarStationBlockItem;
+import com.andye.warmod.antiair.AntiAirMissileVariant;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -19,6 +20,9 @@ public final class ModItems {
     public static final ResourceKey<Item> MISSILE_SILO_KEY = key("missile_silo");
     public static final ResourceKey<Item> CONVENTIONAL_ICBM_KEY = key("conventional_icbm");
     public static final ResourceKey<Item> NUCLEAR_ICBM_KEY = key("nuclear_icbm");
+    public static final ResourceKey<Item> ANTI_AIR_MISSILE_MK1_KEY = key("anti_air_missile_mk1");
+    public static final ResourceKey<Item> ANTI_AIR_MISSILE_MK2_KEY = key("anti_air_missile_mk2");
+    public static final ResourceKey<Item> ANTI_AIR_TEST_STICK_KEY = key("anti_air_test_stick");
     public static final ResourceKey<Item> TARGET_DESIGNATOR_KEY = key("target_designator");
     public static final ResourceKey<Item> REMOTE_LAUNCH_DESIGNATOR_KEY = key("remote_launch_designator");
     public static final ResourceKey<Item> ROCKET_LAUNCHER_KEY = key("rocket_launcher");
@@ -36,6 +40,9 @@ public final class ModItems {
     public static final Item MISSILE_SILO = new MissileSiloBlockItem(properties(MISSILE_SILO_KEY, 1));
     public static final Item CONVENTIONAL_ICBM = new ConventionalIcbmItem(properties(CONVENTIONAL_ICBM_KEY, 16));
     public static final Item NUCLEAR_ICBM = new NuclearIcbmItem(properties(NUCLEAR_ICBM_KEY, 16));
+    public static final Item ANTI_AIR_MISSILE_MK1 = new AntiAirMissileItem(properties(ANTI_AIR_MISSILE_MK1_KEY, 16), AntiAirMissileVariant.MK_I);
+    public static final Item ANTI_AIR_MISSILE_MK2 = new AntiAirMissileItem(properties(ANTI_AIR_MISSILE_MK2_KEY, 16), AntiAirMissileVariant.MK_II);
+    public static final Item ANTI_AIR_TEST_STICK = new AntiAirTestStickItem(properties(ANTI_AIR_TEST_STICK_KEY, 1));
     public static final Item TARGET_DESIGNATOR = new TargetDesignatorItem(properties(TARGET_DESIGNATOR_KEY, 1));
     public static final Item REMOTE_LAUNCH_DESIGNATOR = new RemoteLaunchDesignatorItem(properties(REMOTE_LAUNCH_DESIGNATOR_KEY, 1));
     public static final Item ROCKET_LAUNCHER = new RocketLauncherItem(properties(ROCKET_LAUNCHER_KEY, 1));
@@ -58,6 +65,9 @@ public final class ModItems {
         register(MISSILE_SILO_KEY, MISSILE_SILO);
         register(CONVENTIONAL_ICBM_KEY, CONVENTIONAL_ICBM);
         register(NUCLEAR_ICBM_KEY, NUCLEAR_ICBM);
+        register(ANTI_AIR_MISSILE_MK1_KEY, ANTI_AIR_MISSILE_MK1);
+        register(ANTI_AIR_MISSILE_MK2_KEY, ANTI_AIR_MISSILE_MK2);
+        register(ANTI_AIR_TEST_STICK_KEY, ANTI_AIR_TEST_STICK);
         register(TARGET_DESIGNATOR_KEY, TARGET_DESIGNATOR);
         register(REMOTE_LAUNCH_DESIGNATOR_KEY, REMOTE_LAUNCH_DESIGNATOR);
         register(ROCKET_LAUNCHER_KEY, ROCKET_LAUNCHER);

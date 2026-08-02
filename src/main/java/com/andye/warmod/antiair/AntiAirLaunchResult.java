@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;public record AntiAirLaunchResult(AntiAirFlightPlan flightPlan){}

@@ -17,7 +17,7 @@ public final class RadarStationTrackRenderer {
         ClientRadarTrack track = new ClientRadarTrack(observation.trackSnapshot());
         double alpha = Math.max(0.0, Math.min(1.0, blip.alpha(now, sweepPeriod)));
         int base = observation.threatensWarningZone() ? 0xff3f32
-            : observation.trackSnapshot().payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR
+            : observation.trackSnapshot().strategicPayloadType().orElse(null) == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR
                 ? 0xff663d : 0xffb43b;
         int completed = ((int)(255 * alpha) << 24) | base;
         int projected = ((int)(120 * alpha) << 24) | base;
