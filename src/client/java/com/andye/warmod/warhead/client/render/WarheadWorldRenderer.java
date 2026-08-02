@@ -105,6 +105,8 @@ public final class WarheadWorldRenderer {
 			(pose, buffer) -> ReentryHeatingRenderer.renderBowShock(pose,buffer,warhead.lod(),warhead.progress(),warhead.elapsedTicks(),warhead.remainingTicks(),warhead.velocity(),warhead.visualSeed()));
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.REENTRY_PLASMA,
 			(pose, buffer) -> ReentryHeatingRenderer.renderGlow(pose,buffer,warhead.lod(),warhead.progress(),warhead.elapsedTicks(),warhead.remainingTicks(),warhead.velocity(),warhead.visualSeed()));
+		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.REENTRY_PLASMA,
+			(pose, buffer) -> ReentryHeatingRenderer.renderFilaments(pose,buffer,warhead.lod(),warhead.progress(),warhead.elapsedTicks(),warhead.remainingTicks(),warhead.velocity(),warhead.visualSeed()));
 		poseStack.popPose();
 	}
 

@@ -1,3 +1,29 @@
 package com.andye.warmod.radar.client.gui;
-import com.andye.warmod.radar.client.ClientRadarImpact;import com.andye.warmod.warhead.*;import net.minecraft.client.gui.GuiGraphicsExtractor;import net.minecraft.world.phys.Vec3;
-public final class RadarImpactRenderer{private RadarImpactRenderer(){}public static void render(GuiGraphicsExtractor g,ClientRadarImpact impact,RadarMapTransform t,double now,int l,int top,int w,int h){var s=impact.snapshot();double age=Math.max(0,now-s.impactGameTime()),radius=WarheadVisualMath.airShockwaveRadius(age)/t.blocksPerPixel();Vec3 p=s.impactPosition();int cx=(int)t.screenX(p.x,l,w),cy=(int)t.screenY(p.z,top,h);int color=s.payloadType()==WarheadPayloadType.NUCLEAR?0xffff7040:0xffffc45a;g.fill(cx-2,cy-2,cx+3,cy+3,color);ring(g,cx,cy,(int)radius,color,l,top,w,h);ring(g,cx,cy,(int)Math.max(0,radius-3),(color&0xffffff)|0x66000000,l,top,w,h);}private static void ring(GuiGraphicsExtractor g,int cx,int cy,int r,int c,int l,int top,int w,int h){if(r<=1||r>Math.max(w,h)*2)return;int segments=Math.max(24,Math.min(128,r));for(int i=0;i<segments;i++){double a=Math.PI*2*i/segments;int x=cx+(int)(Math.cos(a)*r),y=cy+(int)(Math.sin(a)*r);if(x>=l&&x<l+w&&y>=top&&y<top+h)g.fill(x,y,x+2,y+2,c);}}}
+
+import com.andye.warmod.radar.client.ClientRadarImpact;
+import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadVisualMath;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.world.phys.Vec3;
+
+public final class RadarImpactRenderer {
+	private RadarImpactRenderer() { }
+	public static void render(final GuiGraphicsExtractor graphics, final ClientRadarImpact impact,
+		final RadarMapTransform transform, final double now, final int left, final int top,
+		final int width, final int height) {
+		var snapshot = impact.snapshot();
+		double age = Math.max(0.0, now - snapshot.impactGameTime());
+		double radius = WarheadVisualMath.airShockwaveRadius(age) / transform.blocksPerPixel();
+		Vec3 position = snapshot.impactPosition();
+		int centerX = (int)Math.round(transform.screenX(position.x, left, width));
+		int centerY = (int)Math.round(transform.screenY(position.z, top, height));
+		boolean nuclear = snapshot.payloadType() == WarheadPayloadType.NUCLEAR;
+		int leading = nuclear ? 0xffff7040 : 0xffffc45a;
+		int trailing = (leading & 0x00ffffff) | (nuclear ? 0x99000000 : 0x66000000);
+		graphics.fill(centerX - 2, centerY - 2, centerX + 3, centerY + 3, leading);
+		RadarPolylineRenderer.drawRing(graphics, centerX, centerY, radius, left, top, width, height,
+			leading, nuclear ? 2 : 1);
+		RadarPolylineRenderer.drawRing(graphics, centerX, centerY, Math.max(0.0, radius - (nuclear ? 4.0 : 3.0)),
+			left, top, width, height, trailing, 1);
+	}
+}

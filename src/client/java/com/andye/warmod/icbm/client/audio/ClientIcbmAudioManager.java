@@ -7,7 +7,6 @@ import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.acoustics.model.AcousticDistanceProfile;
 import com.andye.warmod.acoustics.model.AcousticDistanceSound;
 import com.andye.warmod.acoustics.model.AcousticSoundDefinition;
-import com.andye.warmod.acoustics.physics.AcousticAttenuation;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.icbm.client.IcbmVisualState;
 import com.andye.warmod.icbm.network.ClientboundIcbmLaunchPayload;
@@ -23,6 +22,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.sounds.SoundEvent;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 public final class ClientIcbmAudioManager {
@@ -50,7 +50,15 @@ public final class ClientIcbmAudioManager {
 			fadeAll(quietest.getValue(), 12);
 			this.states.remove(quietest.getKey());
 		}
-		this.states.put(payload.missileId(), new IcbmEngineAudioState(IcbmVisualState.fromPayload(payload).flightPlan()));
+		IcbmEngineAudioState state = new IcbmEngineAudioState(IcbmVisualState.fromPayload(payload).flightPlan());
+		this.states.put(payload.missileId(), state);
+		if (SharedConstants.IS_RUNNING_IN_IDE) {
+			Minecraft client = Minecraft.getInstance();
+			double listenerDistance = client.player == null ? Double.NaN
+				: client.player.getEyePosition().distanceTo(state.flightPlan.launchPosition());
+			WarMod.LOGGER.info("ICBM {} engine audio accepted: launchTime={}, listenerDistance={}",
+				payload.missileId(), state.flightPlan.launchGameTime(), listenerDistance);
+		}
 	}
 
 	public synchronized void acceptCancellation(final UUID missileId) {
@@ -71,10 +79,14 @@ public final class ClientIcbmAudioManager {
 			RetardedTrajectorySampler.Sample sample = RetardedTrajectorySampler.sample(state.flightPlan, currentTime, listener);
 			state.apparentPosition = sample.position(); state.apparentDistance = sample.apparentDistance();
 			if (!state.cancelled && sample.delayedThrustActive()) {
-				if (!state.started) start(client, entry.getKey(), state, sample);
-				state.currentGain = gain(sample.apparentDistance(), 0.72F);
-				update(state.ignitionSound, sample.position(), state.currentGain * 0.82F);
-				update(state.sustainSound, sample.position(), state.currentGain);
+				state.currentGain = engineGain(sample.apparentDistance(), profile(sample.apparentDistance()));
+				if (!state.started && state.currentGain > 0.0F) start(client, entry.getKey(), state, sample);
+				if (state.started) {
+					state.poweredTicks++;
+					float handoff = Mth.clamp(state.poweredTicks / 16.0F, 0.0F, 1.0F);
+					update(state.ignitionSound, sample.position(), state.currentGain * 0.82F * (1.0F - handoff));
+					update(state.sustainSound, sample.position(), state.currentGain * Math.max(0.05F, handoff));
+				}
 			} else if (state.started && !state.shutdownStarted) {
 				beginShutdown(client, entry.getKey(), state, sample.position());
 			}
@@ -88,16 +100,17 @@ public final class ClientIcbmAudioManager {
 	private static void start(final Minecraft client, final UUID id, final IcbmEngineAudioState state,
 		final RetardedTrajectorySampler.Sample sample) {
 		state.selectedProfile = profile(sample.apparentDistance());
-		state.currentGain = gain(sample.apparentDistance(), 0.72F);
+		state.currentGain = engineGain(sample.apparentDistance(), state.selectedProfile);
 		state.ignitionSound = new IcbmEngineLoopSound(ignition(state.selectedProfile), false, 4, sample.position());
-		state.sustainSound = new IcbmEngineLoopSound(sustain(state.selectedProfile), true, 16, sample.position());
+		state.sustainSound = new IcbmEngineLoopSound(sustain(state.selectedProfile), true, 1, sample.position());
 		state.ignitionSound.update(sample.position(), state.currentGain * 0.82F);
-		state.sustainSound.update(sample.position(), state.currentGain);
+		state.sustainSound.update(sample.position(), state.currentGain * 0.05F);
 		client.getSoundManager().play(state.ignitionSound);
 		client.getSoundManager().play(state.sustainSound);
 		state.started = true;
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
-			"ICBM {} engine audio started: apparentDistance={}, profile={}", id, sample.apparentDistance(), state.selectedProfile);
+			"ICBM {} engine sound started: profile={}, customGain={}, source={}",
+			id, state.selectedProfile, state.currentGain, sample.position());
 	}
 
 	private static void beginShutdown(final Minecraft client, final UUID id, final IcbmEngineAudioState state,
@@ -131,10 +144,19 @@ public final class ClientIcbmAudioManager {
 		if (state.sustainSound != null) state.sustainSound.fadeOut(ticks);
 		if (state.shutdownSound != null) state.shutdownSound.fadeOut(ticks);
 	}
-	private static float gain(final double distance, final float volume) {
+	private static float engineGain(final double distance, final AcousticDistanceProfile profile) {
 		AcousticSoundDefinition definition = AcousticSoundRegistry.get(AcousticSounds.ICBM_ENGINE_RUMBLE_ID).orElse(null);
 		AcousticDistanceSound selected = definition == null ? null : definition.soundForDistance(distance).orElse(null);
-		return selected == null ? 0.0F : (float)AcousticAttenuation.gain(distance, selected, volume);
+		if (selected == null || selected.profile() != profile) return 0.0F;
+		double base;
+		if (distance <= 32.0) base = Mth.lerp(distance / 32.0, 0.92, 0.85);
+		else if (distance <= 140.0) base = Mth.lerp((distance - 32.0) / 108.0, 0.85, 0.50);
+		else if (distance <= 400.0) base = Mth.lerp((distance - 140.0) / 260.0, 0.50, 0.20);
+		else if (distance <= 850.0) base = Mth.lerp((distance - 400.0) / 450.0, 0.20, 0.0715);
+		else if (distance <= definition.maximumDistanceBlocks())
+			base = Mth.lerp((distance - 850.0) / (definition.maximumDistanceBlocks() - 850.0), 0.0715, 0.0179);
+		else return 0.0F;
+		return Mth.clamp((float)(base * selected.volumeMultiplier()), 0.0F, 1.0F);
 	}
 	private static AcousticDistanceProfile profile(final double distance) {
 		return distance < 140.0 ? AcousticDistanceProfile.NEAR : distance < 400.0 ? AcousticDistanceProfile.MEDIUM

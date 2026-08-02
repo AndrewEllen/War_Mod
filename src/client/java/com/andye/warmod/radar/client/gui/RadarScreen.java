@@ -1,3 +1,127 @@
 package com.andye.warmod.radar.client.gui;
-import com.andye.warmod.radar.client.*;import java.util.*;import net.minecraft.client.gui.GuiGraphicsExtractor;import net.minecraft.client.gui.screens.Screen;import net.minecraft.client.input.*;import net.minecraft.network.chat.Component;import net.minecraft.world.phys.Vec3;
-public final class RadarScreen extends Screen{private final RadarMapWidget map=new RadarMapWidget();private final ClientRadarState state=ClientRadarState.INSTANCE;private int sidebarScroll,terrainDebounce;private boolean initializedMap,closing;public RadarScreen(){super(Component.literal("Missile Radar"));}@Override public boolean isPauseScreen(){return false;}@Override public boolean isInGameUi(){return true;}@Override public void tick(){double now=state.clock().now(0);ClientRadarTrack selected=state.selected();if(state.followSelectedTrack()&&selected!=null){Vec3 p=selected.position(now);map.transform().center(p.x,p.z);}if(++terrainDebounce>=8){terrainDebounce=0;requestTerrain();}}@Override public void extractRenderState(GuiGraphicsExtractor g,int mouseX,int mouseY,float partial){int top=24,bottom=22,mapWidth=Math.max(1,(int)(width*.74)),mapHeight=Math.max(1,height-top-bottom),sidebarLeft=mapWidth;double now=state.clock().now(partial);g.fill(0,0,width,height,0xff070b0d);RadarMapRenderer.render(g,state,map.transform(),now,0,top,mapWidth,mapHeight);RadarSidebar.render(g,font,state,now,sidebarLeft,top,width-sidebarLeft,mapHeight,sidebarScroll);g.fill(0,0,width,top,0xff11191d);g.text(font,Component.literal("MISSILE RADAR"),8,8,0xffffc45a);String dimension=state.dimensionId()==null?"unknown":state.dimensionId().toString();g.text(font,Component.literal(dimension+"   Active: "+state.tracks().size()+"   Scale: "+String.format(Locale.ROOT,"%.2f blocks/px",map.transform().blocksPerPixel())+"   Terrain: "+(map.transform().blocksPerPixel()<=8?state.terrainCache().size()+" tiles":"grid")),110,8,0xffc5d5dc);g.fill(0,height-bottom,width,height,0xff11191d);g.text(font,Component.literal("Drag: Pan   Wheel: Zoom   Click: Select   F: Follow   Home: Fit All   R: Centre Player   Esc: Close"),8,height-15,0xffa9bdc5);ClientRadarTrack hovered=nearest(mouseX,mouseY,12);if(hovered!=null)RadarTooltip.render(g,font,hovered,mouseX,mouseY);}@Override protected void init(){if(!initializedMap){centerPlayer();initializedMap=true;fitAll();}}@Override public boolean mouseClicked(MouseButtonEvent e,boolean doubleClick){int mapWidth=(int)(width*.74);if(map.contains(e.x(),e.y(),0,24,mapWidth,height-46)){if(e.button()==0){ClientRadarTrack hit=nearest(e.x(),e.y(),12);if(hit!=null){state.select(hit.id());return true;}map.beginDrag();return true;}}return super.mouseClicked(e,doubleClick);}@Override public boolean mouseReleased(MouseButtonEvent e){map.endDrag();return super.mouseReleased(e);}@Override public boolean mouseDragged(MouseButtonEvent e,double dx,double dy){if(map.dragging()){map.transform().panPixels(dx,dy);state.disableFollow();return true;}return super.mouseDragged(e,dx,dy);}@Override public boolean mouseScrolled(double x,double y,double sx,double sy){int mw=(int)(width*.74);if(map.contains(x,y,0,24,mw,height-46)){map.transform().zoomAt(sy,x,y,0,24,mw,height-46);state.disableFollow();return true;}sidebarScroll=Math.max(0,sidebarScroll-(int)(sy*18));return true;}@Override public boolean keyPressed(KeyEvent e){if(e.key()==70){state.toggleFollow();return true;}if(e.key()==268){fitAll();return true;}if(e.key()==82){centerPlayer();return true;}return super.keyPressed(e);}@Override public void removed(){if(!closing){closing=true;ClientRadarNetworking.close();}}private void centerPlayer(){if(minecraft.player!=null){Vec3 p=minecraft.player.position();map.transform().center(p.x,p.z);}}private void fitAll(){int mw=Math.max(1,(int)(width*.74)),mh=Math.max(1,height-46);List<Vec3> points=new ArrayList<>();if(minecraft.player!=null)points.add(minecraft.player.position());for(ClientRadarTrack t:state.tracks()){points.add(t.launch());points.add(t.target());points.add(t.position(state.clock().now(0)));}for(ClientRadarImpact i:state.impacts())points.add(i.snapshot().impactPosition());if(points.isEmpty())return;double minX=points.stream().mapToDouble(p->p.x).min().orElse(0),maxX=points.stream().mapToDouble(p->p.x).max().orElse(0),minZ=points.stream().mapToDouble(p->p.z).min().orElse(0),maxZ=points.stream().mapToDouble(p->p.z).max().orElse(0);map.transform().fit(minX,minZ,maxX,maxZ,mw,mh);}private ClientRadarTrack nearest(double x,double y,double radius){int mw=(int)(width*.74),mh=height-46;ClientRadarTrack best=null;double bestD=radius*radius,now=state.clock().now(0);for(ClientRadarTrack t:state.tracks()){Vec3 p=t.position(now);double dx=map.transform().screenX(p.x,0,mw)-x,dy=map.transform().screenY(p.z,24,mh)-y,d=dx*dx+dy*dy;if(d<bestD){bestD=d;best=t;}}return best;}private void requestTerrain(){if(map.transform().blocksPerPixel()>8)return;int mw=(int)(width*.74),mh=height-46;int minX=(int)Math.floor(map.transform().worldX(0,0,mw)/16)-1,maxX=(int)Math.floor(map.transform().worldX(mw,0,mw)/16)+1,minZ=(int)Math.floor(map.transform().worldZ(24,24,mh)/16)-1,maxZ=(int)Math.floor(map.transform().worldZ(24+mh,24,mh)/16)+1;int[] coords=new int[Math.min(128,Math.max(0,(maxX-minX+1)*(maxZ-minZ+1)))*2];int i=0;for(int z=minZ;z<=maxZ&&i<coords.length;z++)for(int x=minX;x<=maxX&&i<coords.length;x++){coords[i++]=x;coords[i++]=z;}if(i>0)ClientRadarNetworking.terrain(i==coords.length?coords:Arrays.copyOf(coords,i));}}
+
+import com.andye.warmod.radar.client.ClientRadarImpact;
+import com.andye.warmod.radar.client.ClientRadarNetworking;
+import com.andye.warmod.radar.client.ClientRadarState;
+import com.andye.warmod.radar.client.ClientRadarTerrainSampler;
+import com.andye.warmod.radar.client.ClientRadarTrack;
+import com.andye.warmod.radar.client.RadarTerrainRequestPlanner;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
+
+public final class RadarScreen extends Screen {
+	private final RadarMapWidget map = new RadarMapWidget();
+	private final ClientRadarState state = ClientRadarState.INSTANCE;
+	private final RadarTerrainRequestPlanner terrainPlanner = new RadarTerrainRequestPlanner();
+	private int sidebarScroll, terrainDebounce, localSampleDebounce;
+	private boolean initializedMap, closing;
+	public RadarScreen() { super(Component.literal("Missile Radar")); }
+	@Override public boolean isPauseScreen() { return false; }
+	@Override public boolean isInGameUi() { return true; }
+
+	@Override public void tick() {
+		double now = state.clock().now(0);
+		ClientRadarTrack selected = state.selected();
+		if (state.followSelectedTrack() && selected != null) {
+			Vec3 position = selected.position(now); map.transform().center(position.x, position.z);
+		}
+		if (++localSampleDebounce >= 20) { localSampleDebounce = 0; ClientRadarTerrainSampler.sampleAroundPlayer(minecraft, state.terrainCache(), 6); }
+		if (++terrainDebounce >= 8) { terrainDebounce = 0; requestTerrain(now); }
+	}
+
+	@Override public void extractRenderState(final GuiGraphicsExtractor graphics, final int mouseX, final int mouseY,
+		final float partialTick) {
+		int top = 24, bottom = 22, mapWidth = Math.max(1, (int)(width * .74));
+		int mapHeight = Math.max(1, height - top - bottom), sidebarLeft = mapWidth;
+		double now = state.clock().now(partialTick);
+		graphics.fill(0, 0, width, height, 0xff070b0d);
+		RadarMapRenderer.render(graphics, state, map.transform(), now, 0, top, mapWidth, mapHeight);
+		RadarSidebar.render(graphics, font, state, now, sidebarLeft, top, width - sidebarLeft, mapHeight, sidebarScroll);
+		graphics.fill(0, 0, width, top, 0xff11191d);
+		graphics.text(font, Component.literal("MISSILE RADAR"), 8, 8, 0xffffc45a);
+		String dimension = state.dimensionId() == null ? "unknown" : state.dimensionId().toString();
+		String status = dimension + "   Active: " + state.tracks().size() + "   Scale: "
+			+ String.format(Locale.ROOT, "%.2f blocks/px", map.transform().blocksPerPixel()) + "   "
+			+ terrainPlanner.status(state.terrainCache());
+		graphics.text(font, Component.literal(status), 110, 8, 0xffc5d5dc);
+		graphics.fill(0, height - bottom, width, height, 0xff11191d);
+		graphics.text(font, Component.literal("Drag: Pan   Wheel: Zoom   Click: Select   F: Follow   Home: Fit All   R: Centre Player   Esc: Close"), 8, height - 15, 0xffa9bdc5);
+		ClientRadarTrack hovered = nearest(mouseX, mouseY, 12);
+		if (hovered != null) RadarTooltip.render(graphics, font, hovered, mouseX, mouseY);
+	}
+
+	@Override protected void init() {
+		if (!initializedMap) {
+			centerPlayer(); initializedMap = true; fitAll();
+			ClientRadarTerrainSampler.sampleAroundPlayer(minecraft, state.terrainCache(), 6);
+			requestTerrain(state.clock().now(0));
+		}
+	}
+	@Override public boolean mouseClicked(final MouseButtonEvent event, final boolean doubleClick) {
+		int mapWidth = (int)(width * .74);
+		if (map.contains(event.x(), event.y(), 0, 24, mapWidth, height - 46) && event.button() == 0) {
+			ClientRadarTrack hit = nearest(event.x(), event.y(), 12);
+			if (hit != null) { state.select(hit.id()); return true; }
+			map.beginDrag(); return true;
+		}
+		return super.mouseClicked(event, doubleClick);
+	}
+	@Override public boolean mouseReleased(final MouseButtonEvent event) { map.endDrag(); return super.mouseReleased(event); }
+	@Override public boolean mouseDragged(final MouseButtonEvent event, final double dx, final double dy) {
+		if (map.dragging()) { map.transform().panPixels(dx, dy); state.disableFollow(); return true; }
+		return super.mouseDragged(event, dx, dy);
+	}
+	@Override public boolean mouseScrolled(final double x, final double y, final double scrollX, final double scrollY) {
+		int mapWidth = (int)(width * .74);
+		if (map.contains(x, y, 0, 24, mapWidth, height - 46)) {
+			map.transform().zoomAt(scrollY, x, y, 0, 24, mapWidth, height - 46); state.disableFollow(); return true;
+		}
+		sidebarScroll = Math.max(0, sidebarScroll - (int)(scrollY * 18)); return true;
+	}
+	@Override public boolean keyPressed(final KeyEvent event) {
+		if (event.key() == 70) { state.toggleFollow(); return true; }
+		if (event.key() == 268) { fitAll(); return true; }
+		if (event.key() == 82) { centerPlayer(); return true; }
+		return super.keyPressed(event);
+	}
+	@Override public void removed() { if (!closing) { closing = true; terrainPlanner.clear(); ClientRadarNetworking.close(); } }
+
+	private void centerPlayer() { if (minecraft.player != null) { Vec3 position = minecraft.player.position(); map.transform().center(position.x, position.z); } }
+	private void fitAll() {
+		int mapWidth = Math.max(1, (int)(width * .74)), mapHeight = Math.max(1, height - 46);
+		List<Vec3> points = new ArrayList<>();
+		if (minecraft.player != null) points.add(minecraft.player.position());
+		for (ClientRadarTrack track : state.tracks()) { points.add(track.launch()); points.add(track.target()); points.add(track.position(state.clock().now(0))); }
+		for (ClientRadarImpact impact : state.impacts()) points.add(impact.snapshot().impactPosition());
+		if (points.isEmpty()) return;
+		double minimumX = points.stream().mapToDouble(point -> point.x).min().orElse(0.0);
+		double maximumX = points.stream().mapToDouble(point -> point.x).max().orElse(0.0);
+		double minimumZ = points.stream().mapToDouble(point -> point.z).min().orElse(0.0);
+		double maximumZ = points.stream().mapToDouble(point -> point.z).max().orElse(0.0);
+		map.transform().fit(minimumX, minimumZ, maximumX, maximumZ, mapWidth, mapHeight);
+	}
+	private ClientRadarTrack nearest(final double x, final double y, final double radius) {
+		int mapWidth = (int)(width * .74), mapHeight = height - 46;
+		ClientRadarTrack best = null; double bestDistance = radius * radius, now = state.clock().now(0);
+		for (ClientRadarTrack track : state.tracks()) {
+			Vec3 position = track.position(now);
+			double dx = map.transform().screenX(position.x, 0, mapWidth) - x;
+			double dy = map.transform().screenY(position.z, 24, mapHeight) - y;
+			double distance = dx * dx + dy * dy;
+			if (distance < bestDistance) { bestDistance = distance; best = track; }
+		}
+		return best;
+	}
+	private void requestTerrain(final double now) {
+		int mapWidth = Math.max(1, (int)(width * .74)), mapHeight = Math.max(1, height - 46);
+		int[] coordinates = terrainPlanner.plan(minecraft, state, map.transform(), 0, 24, mapWidth, mapHeight, now);
+		if (coordinates.length > 0) ClientRadarNetworking.terrain(coordinates);
+	}
+}

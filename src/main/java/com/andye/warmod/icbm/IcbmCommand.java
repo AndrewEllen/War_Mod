@@ -39,12 +39,11 @@ public final class IcbmCommand {
 		CommandSourceStack source = context.getSource();
 		ServerPlayer player = source.getPlayerOrException();
 		Vec3 target = Vec3Argument.getVec3(context, "target");
-		var result = IcbmLaunchService.launchFromCommand(source.getLevel(), player, target, launchPosition, type);
-		if (result.isEmpty()) {
-			source.sendFailure(Component.literal("ICBM launch failed: target must be loaded and all coordinates and route bounds must be valid"));
+		if (!IcbmPendingCommandLaunchManager.queue(source.getLevel(), player, target, launchPosition, type)) {
+			source.sendFailure(Component.literal("ICBM launch failed: coordinates, build height, world border, or route bounds are invalid"));
 			return 0;
 		}
-		source.sendSuccess(() -> Component.literal("ICBM launched toward " + format(target)), true);
+		source.sendSuccess(() -> Component.literal("ICBM launch queued: loading launch and target areas"), true);
 		return 1;
 	}
 

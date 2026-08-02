@@ -19,7 +19,7 @@ public final class IcbmEngineLoopSound extends AbstractTickableSoundInstance {
 		super(soundEvent, SoundSource.BLOCKS, RandomSource.create());
 		this.looping = looping;
 		this.delay = 0;
-		this.attenuation = SoundInstance.Attenuation.LINEAR;
+		this.attenuation = SoundInstance.Attenuation.NONE;
 		this.relative = false;
 		this.fadeInTicks = Math.max(1, fadeInTicks);
 		this.volume = 0.001F;

@@ -1,4 +1,86 @@
 package com.andye.warmod.warhead.client.render;
-import com.mojang.blaze3d.vertex.*;import net.minecraft.util.Mth;
-/** Velocity-aligned oblate plasma shell; local +Y is the warhead nose. */
-public final class ReentryBowShockMesh{private ReentryBowShockMesh(){}public static void render(PoseStack.Pose pose,VertexConsumer b,WarheadMesh.Lod lod,double heat,double shimmer,double elapsed,long seed){if(heat<=.002)return;int segments=lod==WarheadMesh.Lod.NEAR?24:lod==WarheadMesh.Lod.MEDIUM?14:8,rings=lod==WarheadMesh.Lod.NEAR?6:lod==WarheadMesh.Lod.MEDIUM?4:3;layer(pose,b,segments,rings,heat,shimmer,elapsed,seed,1.0,255,247,220,.40);layer(pose,b,segments,rings,heat,shimmer,elapsed,seed,1.16,255,221,128,.24);layer(pose,b,segments,rings,heat,shimmer,elapsed,seed,1.28,214,238,255,.16);}private static void layer(PoseStack.Pose pose,VertexConsumer b,int seg,int rings,double heat,double shimmer,double elapsed,long seed,double layer,int red,int green,int blue,double alphaScale){double radius=Mth.lerp(heat,.78,4.9)*layer,depth=Mth.lerp(heat,3.1,1.25),phase=(seed&0xffff)*.0001+elapsed*.055,axial=Math.sin(elapsed*.31+phase)*.18*heat;for(int ring=0;ring<rings;ring++){double t0=ring/(double)rings,t1=(ring+1)/(double)rings;double y0=.72+axial+depth*(1-t0),y1=.72+axial+depth*(1-t1);double r0=radius*Math.sin(t0*Math.PI*.64),r1=radius*Math.sin(t1*Math.PI*.64);for(int i=0;i<seg;i++){int n=(i+1)%seg;double a0=Math.PI*2*i/seg,a1=Math.PI*2*n/seg;double wave0=1+(.04+.08*heat)*Math.sin(a0*3+phase)+.035*Math.sin(a0*7-phase*1.7),wave1=1+(.04+.08*heat)*Math.sin(a1*3+phase)+.035*Math.sin(a1*7-phase*1.7);int alpha=Mth.clamp((int)(255*alphaScale*heat*shimmer),0,255);v(pose,b,(float)(r0*wave0*Math.cos(a0)),(float)y0,(float)(r0*wave0*Math.sin(a0)),0,(float)t0,red,green,blue,alpha);v(pose,b,(float)(r1*wave0*Math.cos(a0)),(float)y1,(float)(r1*wave0*Math.sin(a0)),1,(float)t1,red,green,blue,alpha);v(pose,b,(float)(r1*wave1*Math.cos(a1)),(float)y1,(float)(r1*wave1*Math.sin(a1)),1,(float)t1,red,green,blue,alpha);v(pose,b,(float)(r0*wave1*Math.cos(a1)),(float)y0,(float)(r0*wave1*Math.sin(a1)),0,(float)t0,red,green,blue,alpha);}}}private static void v(PoseStack.Pose p,VertexConsumer b,float x,float y,float z,float u,float v,int r,int g,int bl,int a){float length=Math.max(.001F,Mth.sqrt(x*x+z*z));b.addVertex(p,x,y,z).setColor(r,g,bl,a).setUv(u,v).setOverlay(0).setLight(0xF000F0).setNormal(p,x/length,.35F,z/length);}}
+
+import com.andye.warmod.warhead.WarheadVisualMath;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.util.Mth;
+
+/** Curved velocity-aligned plasma envelope; local +Y is the warhead nose. */
+public final class ReentryBowShockMesh {
+	private ReentryBowShockMesh() { }
+
+	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer, final WarheadMesh.Lod lod,
+		final double progress, final double heat, final double shimmer, final double elapsed, final long seed) {
+		if (heat <= 0.002) return;
+		int segments = lod == WarheadMesh.Lod.NEAR ? 28 : lod == WarheadMesh.Lod.MEDIUM ? 18 : 10;
+		int rings = lod == WarheadMesh.Lod.NEAR ? 9 : lod == WarheadMesh.Lod.MEDIUM ? 7 : 5;
+		layer(pose, buffer, segments, rings, progress, heat, shimmer, elapsed, seed, 1.00, 0.42);
+		layer(pose, buffer, segments, rings, progress, heat, shimmer, elapsed, seed ^ 0x6A09E667F3BCC909L, 1.12, 0.23);
+		layer(pose, buffer, segments, rings, progress, heat, shimmer, elapsed, seed ^ 0xBB67AE8584CAA73BL, 1.23, 0.14);
+	}
+
+	private static void layer(final PoseStack.Pose pose, final VertexConsumer buffer, final int segments, final int rings,
+		final double progress, final double heat, final double shimmer, final double elapsed, final long seed,
+		final double layerScale, final double alphaScale) {
+		double widthProgress = WarheadVisualMath.reentryWidthProgress(progress);
+		double elongationProgress = WarheadVisualMath.reentryElongationProgress(progress);
+		double radius = Mth.lerp(widthProgress, 0.78, 4.45) * layerScale;
+		double depth = Mth.lerp(elongationProgress, 1.2, 3.4);
+		double basePhase = (seed & 0xffffL) / 65536.0 * Mth.TWO_PI;
+		for (int ring = 0; ring < rings; ring++) {
+			double t0 = ring / (double)rings, t1 = (ring + 1) / (double)rings;
+			for (int segment = 0; segment < segments; segment++) {
+				int next = (segment + 1) % segments;
+				VertexData a = vertex(t0, ring, segment, segments, radius, depth, heat, elapsed, basePhase);
+				VertexData b = vertex(t1, ring + 1, segment, segments, radius, depth, heat, elapsed, basePhase);
+				VertexData c = vertex(t1, ring + 1, next, segments, radius, depth, heat, elapsed, basePhase);
+				VertexData d = vertex(t0, ring, next, segments, radius, depth, heat, elapsed, basePhase);
+				put(pose, buffer, a, 0.0F, (float)t0, heat, shimmer, alphaScale);
+				put(pose, buffer, b, 1.0F, (float)t1, heat, shimmer, alphaScale);
+				put(pose, buffer, c, 1.0F, (float)t1, heat, shimmer, alphaScale);
+				put(pose, buffer, d, 0.0F, (float)t0, heat, shimmer, alphaScale);
+			}
+		}
+	}
+
+	private static VertexData vertex(final double t, final int ring, final int segment, final int segments,
+		final double radius, final double depth, final double heat, final double elapsed, final double basePhase) {
+		double angle = Mth.TWO_PI * segment / segments;
+		double segmentPhase = basePhase + segment * 0.73 + ring * 1.17;
+		double noise = Math.sin(elapsed * 0.18 + segmentPhase)
+			+ 0.55 * Math.sin(elapsed * 0.37 - segmentPhase * 1.9)
+			+ 0.30 * Math.sin(elapsed * 0.71 + segmentPhase * 0.43);
+		double radialVariation = 1.0 + noise * (0.030 + 0.040 * heat);
+		double axialVariation = noise * (0.07 + 0.11 * heat);
+		double ringRadius = radius * radiusPath(t) * radialVariation;
+		double y = 0.55 + depth * axialPath(t) + axialVariation;
+		double alphaVariation = Mth.clamp(1.0 + noise * 0.13, 0.70, 1.30);
+		double temperature = Mth.clamp(0.5 + 0.5 * Math.sin(elapsed * 0.24 + segmentPhase * 0.61), 0.0, 1.0);
+		return new VertexData((float)(ringRadius * Math.cos(angle)), (float)y,
+			(float)(ringRadius * Math.sin(angle)), (float)alphaVariation, (float)temperature);
+	}
+
+	private static double radiusPath(final double t) {
+		if (t < 0.18) return Mth.lerp(t / 0.18, 0.10, 0.47);
+		if (t < 0.62) return Mth.lerp((t - 0.18) / 0.44, 0.47, 1.0);
+		return Mth.lerp((t - 0.62) / 0.38, 1.0, 0.46);
+	}
+
+	private static double axialPath(final double t) {
+		if (t < 0.62) return Mth.lerp(t / 0.62, 0.62, 0.03);
+		return Mth.lerp((t - 0.62) / 0.38, 0.03, -0.48);
+	}
+
+	private static void put(final PoseStack.Pose pose, final VertexConsumer buffer, final VertexData vertex,
+		final float u, final float v, final double heat, final double shimmer, final double alphaScale) {
+		int red = 255;
+		int green = Mth.clamp((int)Mth.lerp(vertex.temperature, 232.0, 250.0), 0, 255);
+		int blue = Mth.clamp((int)Mth.lerp(vertex.temperature, 174.0, 255.0), 0, 255);
+		int alpha = Mth.clamp((int)(255.0 * alphaScale * heat * shimmer * vertex.alpha), 0, 255);
+		float length = Math.max(0.001F, Mth.sqrt(vertex.x * vertex.x + vertex.z * vertex.z));
+		buffer.addVertex(pose, vertex.x, vertex.y, vertex.z).setColor(red, green, blue, alpha)
+			.setUv(u, v).setOverlay(0).setLight(0xF000F0).setNormal(pose, vertex.x / length, 0.28F, vertex.z / length);
+	}
+
+	private record VertexData(float x, float y, float z, float alpha, float temperature) { }
+}

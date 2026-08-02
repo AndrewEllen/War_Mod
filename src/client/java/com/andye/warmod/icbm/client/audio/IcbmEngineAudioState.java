@@ -13,6 +13,7 @@ public final class IcbmEngineAudioState {
 	Vec3 apparentPosition;
 	double apparentDistance = Double.POSITIVE_INFINITY;
 	float currentGain;
+	int poweredTicks;
 	boolean started;
 	boolean shutdownStarted;
 	boolean cancelled;
