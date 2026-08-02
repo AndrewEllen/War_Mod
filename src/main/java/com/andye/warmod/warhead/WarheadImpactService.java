@@ -22,6 +22,10 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 public final class WarheadImpactService {
+	private static final int DEBRIS_SAMPLE_RADIUS = 12;
+	private static final int MAX_DEBRIS_CANDIDATES = 96;
+	private static final int MAX_DEBRIS_ENTITIES = 48;
+
 	private WarheadImpactService() { }
 
 	public static void impact(final ServerLevel level, final ServerPlayer owner, final UUID warheadId,
@@ -42,10 +46,10 @@ public final class WarheadImpactService {
 	private static List<DebrisCandidate> sampleDebrisCandidates(final ServerLevel level, final Vec3 center, final long seed) {
 		BlockPos origin = BlockPos.containing(center);
 		List<DebrisCandidate> eligible = new ArrayList<>();
-		for (int dx = -8; dx <= 8; dx++) {
-			for (int dy = -8; dy <= 8; dy++) {
-				for (int dz = -8; dz <= 8; dz++) {
-					if (dx * dx + dy * dy + dz * dz > 64) continue;
+		for (int dx = -DEBRIS_SAMPLE_RADIUS; dx <= DEBRIS_SAMPLE_RADIUS; dx++) {
+			for (int dy = -DEBRIS_SAMPLE_RADIUS; dy <= DEBRIS_SAMPLE_RADIUS; dy++) {
+				for (int dz = -DEBRIS_SAMPLE_RADIUS; dz <= DEBRIS_SAMPLE_RADIUS; dz++) {
+					if (dx * dx + dy * dy + dz * dz > DEBRIS_SAMPLE_RADIUS * DEBRIS_SAMPLE_RADIUS) continue;
 					BlockPos pos = origin.offset(dx, dy, dz);
 					if (!level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()))) continue;
 					BlockState state = level.getBlockState(pos);
@@ -56,7 +60,7 @@ public final class WarheadImpactService {
 			}
 		}
 		eligible.sort(Comparator.comparingLong(candidate -> mix(candidate.position().asLong() ^ seed)));
-		return List.copyOf(eligible.subList(0, Math.min(48, eligible.size())));
+		return List.copyOf(eligible.subList(0, Math.min(MAX_DEBRIS_CANDIDATES, eligible.size())));
 	}
 
 	private static void spawnDestroyedDebris(final ServerLevel level, final Vec3 center, final long seed,
@@ -67,15 +71,15 @@ public final class WarheadImpactService {
 			if (!after.equals(candidate.state())) destroyed.add(candidate);
 		}
 		destroyed.sort(Comparator.comparingLong(candidate -> mix(candidate.position().asLong() ^ seed ^ 0x444542524953L)));
-		for (int index = 0; index < Math.min(24, destroyed.size()); index++) {
+		for (int index = 0; index < Math.min(MAX_DEBRIS_ENTITIES, destroyed.size()); index++) {
 			DebrisCandidate candidate = destroyed.get(index);
 			SplittableRandom random = new SplittableRandom(seed ^ candidate.position().asLong());
 			Vec3 spawn = Vec3.atCenterOf(candidate.position());
 			Vec3 outward = new Vec3(spawn.x - center.x, 0.0, spawn.z - center.z);
 			if (outward.lengthSqr() < 1.0E-5) outward = new Vec3(random.nextDouble(-1.0, 1.0), 0.0, random.nextDouble(-1.0, 1.0));
 			outward = outward.normalize();
-			double horizontalSpeed = random.nextDouble(0.25, 0.90);
-			Vec3 velocity = outward.scale(horizontalSpeed).add(random.nextDouble(-0.08, 0.08), random.nextDouble(0.45, 1.30), random.nextDouble(-0.08, 0.08));
+			double horizontalSpeed = random.nextDouble(0.35, 1.05);
+			Vec3 velocity = outward.scale(horizontalSpeed).add(random.nextDouble(-0.08, 0.08), random.nextDouble(0.55, 1.50), random.nextDouble(-0.08, 0.08));
 			Vec3 spin = new Vec3(random.nextDouble(-0.24, 0.24), random.nextDouble(-0.24, 0.24), random.nextDouble(-0.24, 0.24));
 			level.addFreshEntity(new WarheadDebrisEntity(level, candidate.state(), spawn, velocity, spin, random.nextInt(50, 101)));
 		}

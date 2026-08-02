@@ -1,6 +1,7 @@
 package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
+import com.andye.warmod.warhead.WarheadConstants;
 import net.minecraft.core.particles.ExplosionParticleInfo;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -40,7 +41,7 @@ public final class TestExplosionService {
 			position.x,
 			position.y,
 			position.z,
-			6.0F,
+			WarheadConstants.EXPLOSION_STRENGTH,
 			false,
 			Level.ExplosionInteraction.TNT,
 			ParticleTypes.EXPLOSION,

@@ -14,7 +14,7 @@ public final class BlastCloudRenderer {
 	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer, final double ageTicks,
 		final float visualScale, final List<BlastCloudLobe> lobes, final WarheadMesh.Lod lod) {
 		if (!Double.isFinite(ageTicks) || ageTicks < 20.0 || ageTicks >= 260.0 || lobes == null || lobes.isEmpty()) return;
-		int limit = lod == WarheadMesh.Lod.NEAR ? Math.min(64, lobes.size()) : lod == WarheadMesh.Lod.MEDIUM ? Math.min(38, lobes.size()) : Math.min(18, lobes.size());
+		int limit = lod == WarheadMesh.Lod.NEAR ? Math.min(96, lobes.size()) : lod == WarheadMesh.Lod.MEDIUM ? Math.min(56, lobes.size()) : Math.min(28, lobes.size());
 		float scale = Mth.clamp(visualScale, 0.55F, 1.45F);
 		double develop = smooth((ageTicks - 20.0) / 50.0);
 		double rise = smooth((ageTicks - 35.0) / 165.0);
@@ -26,7 +26,7 @@ public final class BlastCloudRenderer {
 			double roll = 1.0 + 0.10 * Math.sin(lobe.phase() + ageTicks * 0.035);
 			double separation = 1.0 + dissipate * (lobe.upperCap() ? 0.55 : 0.30);
 			center = new Vec3(center.x * separation, center.y, center.z * separation);
-			float radius = (float) (lobe.baseRadius() * scale * (0.62 + develop * (lobe.upperCap() ? 1.18 : 0.82)) * roll);
+			float radius = (float) (lobe.baseRadius() * scale * (0.62 + develop * (lobe.upperCap() ? 1.05 : 0.75)) * roll);
 			float alpha = (float) (lobe.opacity() * (0.68 + 0.32 * develop) * fade);
 			addBillboard(pose, buffer, center, radius, lobe.rotation() + ageTicks * 0.0025, lobe.red(), lobe.green(), lobe.blue(), alpha);
 		}
@@ -38,7 +38,7 @@ public final class BlastCloudRenderer {
 		double dx = horizontalLength < 1.0E-4 ? Math.cos(lobe.rotation()) : lobe.baseOffset().x / horizontalLength;
 		double dz = horizontalLength < 1.0E-4 ? Math.sin(lobe.rotation()) : lobe.baseOffset().z / horizontalLength;
 		double outward = lobe.outwardDrift() * rise;
-		double lift = rise * (lobe.upperCap() ? 41.0 : 32.0) * lobe.riseFactor();
+		double lift = rise * (lobe.upperCap() ? 34.0 : 30.0) * lobe.riseFactor();
 		return lobe.baseOffset().scale(scale).add(dx * outward, lift, dz * outward);
 	}
 

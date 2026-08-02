@@ -13,7 +13,7 @@ out vec4 fragColor;
 
 void main() {
     vec4 noise = texture(Sampler0, rippleCoord);
-    vec4 color = vec4(vertexColor.rgb * (0.82 + noise.r * 0.24), vertexColor.a * noise.a);
+    vec4 color = vec4(vertexColor.rgb * (0.78 + noise.r * 0.30), vertexColor.a * (0.55 + noise.r * 0.45));
     color *= lightMapColor * ColorModulator;
     if (color.a < 0.008) discard;
     fragColor = apply_fog(color, sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd, FogColor);

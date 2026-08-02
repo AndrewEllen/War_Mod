@@ -7,7 +7,8 @@ public final class WarheadVisualMath {
 	private static final double CONE_ACTIVATION_START = 0.32;
 	private static final double CONE_ACTIVATION_FULL = 0.55;
 	private static final double CONE_ATTACK_TICKS = 4.0;
-	public static final double AIR_SHOCKWAVE_DURATION_TICKS = 110.0;
+	public static final double AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK = 343.0 / 20.0;
+	public static final double AIR_SHOCKWAVE_DURATION_TICKS = 24.0;
 
 	private WarheadVisualMath() {
 	}
@@ -47,12 +48,12 @@ public final class WarheadVisualMath {
 		double safeAge = Double.isFinite(ageTicks) ? ageTicks : 0.0;
 		double safeScale = Double.isFinite(visualScale) ? Math.max(0.05, visualScale) : 1.0;
 		double t = clamp(safeAge, 0.0, AIR_SHOCKWAVE_DURATION_TICKS);
-		return safeScale * (t + 110.0 * (1.0 - Math.exp(-t / 18.0)));
+		return safeScale * t * AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
 	}
 
 	public static double airShockwaveAlpha(final double ageTicks) {
 		if (!Double.isFinite(ageTicks) || ageTicks < 0.0 || ageTicks >= AIR_SHOCKWAVE_DURATION_TICKS) return 0.0;
-		double fade = 1.0 - smoothstep(24.0, AIR_SHOCKWAVE_DURATION_TICKS, ageTicks);
+		double fade = 1.0 - smoothstep(10.0, AIR_SHOCKWAVE_DURATION_TICKS, ageTicks);
 		return 0.38 * Math.pow(fade, 0.70);
 	}
 
@@ -63,7 +64,7 @@ public final class WarheadVisualMath {
 	}
 
 	public static double groundShockwaveDistance(final double ageTicks, final double visualScale) {
-		double delayedAge = Math.max(0.0, ageTicks - 2.0);
+		double delayedAge = Math.max(0.0, ageTicks - 0.75);
 		return airShockwaveRadius(delayedAge, visualScale) * 0.92;
 	}
 

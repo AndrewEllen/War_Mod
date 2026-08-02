@@ -23,10 +23,10 @@ public final class ImpactParticleEmitter {
 	private static final double MEDIUM_DISTANCE = 640.0;
 	private static final double MAX_DISTANCE = 1536.0;
 	private static final double NORMAL_PARTICLE_DISTANCE = 32.0;
-	private static final int MAX_PARTICLES_PER_CLIENT_TICK = 1600;
-	private static final int MAX_PARTICLES_PER_IMPACT_TICK = 700;
-	private static final int MIN_PARTICLES_PER_IMPACT_TICK = 80;
-	private static final int MAX_ESTIMATED_LIVING_PARTICLES = 8000;
+	private static final int MAX_PARTICLES_PER_CLIENT_TICK = 2400;
+	private static final int MAX_PARTICLES_PER_IMPACT_TICK = 1000;
+	private static final int MIN_PARTICLES_PER_IMPACT_TICK = 120;
+	private static final int MAX_ESTIMATED_LIVING_PARTICLES = 12000;
 	private static final int ESTIMATED_PARTICLE_LIFETIME_TICKS = 100;
 
 	private static final long INITIAL_SEED = 0x4D5953494E495443L;
@@ -130,7 +130,7 @@ public final class ImpactParticleEmitter {
 	private void emitLingeringSmoke(final ClientLevel level, final ImpactVisualState state, final double age,
 		final ParticleLod lod, final double distance, final long gameTime, final ImpactBudget budget) {
 		SplittableRandom random = new SplittableRandom(state.visualSeed() ^ SMOKE_SEED ^ gameTime);
-		int count = lod == ParticleLod.NEAR ? random.nextInt(8, 21) : lod == ParticleLod.MEDIUM ? random.nextInt(4, 11) : random.nextInt(1, 5);
+		int count = lod == ParticleLod.NEAR ? random.nextInt(12, 29) : lod == ParticleLod.MEDIUM ? random.nextInt(6, 15) : random.nextInt(2, 7);
 		boolean force = distance > NORMAL_PARTICLE_DISTANCE;
 		for (int index = 0; index < count && budget.hasCapacity(Category.SMOKE); index++) {
 			BlastCloudLobe lobe = state.blastCloudLobes().get(random.nextInt(state.blastCloudLobes().size()));
@@ -199,7 +199,7 @@ public final class ImpactParticleEmitter {
 	}
 
 	private static ParticleLod lod(final double distance) { return distance < NEAR_DISTANCE ? ParticleLod.NEAR : distance < MEDIUM_DISTANCE ? ParticleLod.MEDIUM : ParticleLod.FAR; }
-	private static int lodMaximum(final ParticleLod lod) { return lod == ParticleLod.NEAR ? 700 : lod == ParticleLod.MEDIUM ? 400 : 160; }
+	private static int lodMaximum(final ParticleLod lod) { return lod == ParticleLod.NEAR ? 1000 : lod == ParticleLod.MEDIUM ? 600 : 240; }
 	private static int scaled(final SplittableRandom random, final int minimum, final int maximum, final float scale, final double multiplier) {
 		return Math.max(1, (int) Math.round(random.nextInt(minimum, maximum + 1) * Mth.clamp(scale, 0.5F, 1.5F) * multiplier));
 	}
@@ -225,9 +225,9 @@ public final class ImpactParticleEmitter {
 		private int shared;
 		ImpactBudget(final TickBudget tickBudget, final ImpactVisualState state, final int maximum, final ParticleLod lod) {
 			this.tickBudget=tickBudget; this.state=state;
-			int fire = lod == ParticleLod.NEAR ? 220 : lod == ParticleLod.MEDIUM ? 130 : 50;
-			int ground = lod == ParticleLod.NEAR ? 350 : lod == ParticleLod.MEDIUM ? 180 : 60;
-			int smoke = lod == ParticleLod.NEAR ? 100 : lod == ParticleLod.MEDIUM ? 60 : 20;
+			int fire = lod == ParticleLod.NEAR ? 300 : lod == ParticleLod.MEDIUM ? 180 : 70;
+			int ground = lod == ParticleLod.NEAR ? 520 : lod == ParticleLod.MEDIUM ? 280 : 120;
+			int smoke = lod == ParticleLod.NEAR ? 150 : lod == ParticleLod.MEDIUM ? 100 : 30;
 			int total = fire + ground + smoke + 30;
 			double factor = Math.min(1.0, maximum / (double) total);
 			this.remaining.put(Category.FIREBALL, Math.max(1, (int) Math.floor(fire * factor)));

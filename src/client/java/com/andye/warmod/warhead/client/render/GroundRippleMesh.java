@@ -19,8 +19,8 @@ public final class GroundRippleMesh {
 		if (front <= 0.0 || state.ageTicks() >= WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS) return;
 		int desired = state.lod() == WarheadMesh.Lod.NEAR ? 80 : state.lod() == WarheadMesh.Lod.MEDIUM ? 48 : 24;
 		int count = Math.min(desired, state.spokes().size());
-		double amplitude = switch (state.lod()) { case NEAR -> 0.58; case MEDIUM -> 0.34; case FAR -> 0.16; };
-		float fade = (float) Math.min(0.34, WarheadVisualMath.groundShockwaveAlpha(state.ageTicks()) * 0.52);
+		double amplitude = switch (state.lod()) { case NEAR -> 1.25; case MEDIUM -> 0.75; case FAR -> 0.40; };
+		float fade = (float) Math.min(0.62, WarheadVisualMath.groundShockwaveAlpha(state.ageTicks()) * 0.90);
 		for (int spokeIndex = 0; spokeIndex < count; spokeIndex++) {
 			List<TerrainShockfrontNode> current = state.spokes().get(spokeIndex * state.spokes().size() / count).snapshotNodes();
 			List<TerrainShockfrontNode> next = state.spokes().get(((spokeIndex + 1) % count) * state.spokes().size() / count).snapshotNodes();
@@ -38,17 +38,17 @@ public final class GroundRippleMesh {
 	}
 
 	private static boolean usable(final TerrainShockfrontNode node, final double front) {
-		return node != null && node.valid() && node.visibleFromImpact() && Math.abs(node.cumulativePathDistance() - front) <= 18.0;
+		return node != null && node.valid() && node.visibleFromImpact() && Math.abs(node.cumulativePathDistance() - front) <= 26.0;
 	}
 
 	private static boolean gap(final TerrainShockfrontNode first, final TerrainShockfrontNode second) {
-		return Math.abs(first.position().y - second.position().y) > 3.5 || first.position().distanceTo(second.position()) > 20.0;
+		return Math.abs(first.position().y - second.position().y) > 3.5 || first.position().distanceTo(second.position()) > 30.0;
 	}
 
 	private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer, final TerrainShockfrontNode node,
 		final Vec3 center, final double age, final double front, final double amplitude, final float baseAlpha) {
 		double delta = node.cumulativePathDistance() - front;
-		double envelope = Math.exp(-(delta * delta) / (2.0 * 8.0 * 8.0));
+		double envelope = Math.exp(-(delta * delta) / (2.0 * 12.0 * 12.0));
 		double displacement = amplitude * Math.sin(delta * 1.10 - age * 0.42) * envelope;
 		int alpha = Mth.clamp((int) (baseAlpha * envelope * 255.0F), 0, 255);
 		buffer.addVertex(pose, (float) (node.position().x - center.x), (float) (node.position().y - center.y + 0.035), (float) (node.position().z - center.z))

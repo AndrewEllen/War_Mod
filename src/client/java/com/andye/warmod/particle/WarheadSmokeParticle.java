@@ -25,7 +25,7 @@ public final class WarheadSmokeParticle extends SingleQuadParticle {
 		this.hasPhysics = false;
 		float shade = 0.10F + this.random.nextFloat() * 0.16F;
 		this.setColor(shade, shade * 1.04F, shade * 1.12F);
-		this.setAlpha(0.88F);
+		this.setAlpha(0.48F);
 	}
 
 	@Override
@@ -36,7 +36,7 @@ public final class WarheadSmokeParticle extends SingleQuadParticle {
 		float progress = Mth.clamp((this.age + 0.5F) / this.lifetime, 0.0F, 1.0F);
 		float growth = 1.0F - (1.0F - progress) * (1.0F - progress);
 		this.quadSize = Mth.lerp(growth, this.initialSize, this.maximumSize);
-		this.setAlpha(progress < 0.75F ? 0.88F : 0.88F * (1.0F - (progress - 0.75F) / 0.25F));
+		this.setAlpha(progress < 0.75F ? 0.48F : 0.48F * (1.0F - (progress - 0.75F) / 0.25F));
 	}
 
 	@Override

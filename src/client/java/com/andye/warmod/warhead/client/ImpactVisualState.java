@@ -12,7 +12,7 @@ import net.minecraft.world.phys.Vec3;
 
 public final class ImpactVisualState {
 	private static final int FIREBALL_LOBE_COUNT = 48;
-	private static final int BLAST_CLOUD_LOBE_COUNT = 64;
+	private static final int BLAST_CLOUD_LOBE_COUNT = 96;
 	private final UUID warheadId;
 	private final Vec3 impactPosition;
 	private final long impactGameTime;
@@ -152,17 +152,17 @@ public final class ImpactVisualState {
 		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x424C415354434C44L);
 		List<BlastCloudLobe> lobes = new ArrayList<>(BLAST_CLOUD_LOBE_COUNT);
 		for (int index = 0; index < BLAST_CLOUD_LOBE_COUNT; index++) {
-			boolean upper = index >= 34;
+			boolean upper = index >= 50;
 			double angle = random.nextDouble(0.0, Math.PI * 2.0);
-			double radial = upper ? random.nextDouble(4.0, 18.0) : random.nextDouble(0.5, 8.5);
+			double radial = upper ? random.nextDouble(2.5, 11.0) : random.nextDouble(0.4, 4.5);
 			double y = upper ? random.nextDouble(18.0, 34.0) : random.nextDouble(0.0, 25.0);
 			boolean core = index % 3 != 0;
 			int red = core ? random.nextInt(18, 43) : random.nextInt(50, 91);
 			int green = core ? random.nextInt(20, 46) : random.nextInt(54, 96);
 			int blue = core ? random.nextInt(24, 53) : random.nextInt(60, 106);
-			float opacity = (float) (core ? random.nextDouble(0.68, 0.86) : random.nextDouble(0.45, 0.69));
+			float opacity = (float) (core ? random.nextDouble(0.46, 0.63) : random.nextDouble(0.28, 0.45));
 			lobes.add(new BlastCloudLobe(new Vec3(Math.cos(angle) * radial, y, Math.sin(angle) * radial),
-				random.nextDouble(3.2, 7.0), random.nextDouble(0.80, 1.20), random.nextDouble(1.0, 7.0),
+				upper ? random.nextDouble(3.0, 5.5) : random.nextDouble(2.5, 4.3), random.nextDouble(0.80, 1.20), random.nextDouble(1.0, 7.0),
 				random.nextDouble(0.0, Math.PI * 2.0), random.nextDouble(0.0, Math.PI * 2.0), upper,
 				red, green, blue, opacity));
 		}

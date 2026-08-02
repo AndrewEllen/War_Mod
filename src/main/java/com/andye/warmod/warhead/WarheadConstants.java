@@ -11,7 +11,7 @@ public final class WarheadConstants {
 	public static final int MAXIMUM_FLIGHT_TICKS = 64;
 	public static final double TRAJECTORY_SPEED_BLOCKS_PER_TICK = 3.5;
 
-	public static final float EXPLOSION_STRENGTH = 6.0F;
+	public static final float EXPLOSION_STRENGTH = 10.0F;
 
 	public static final int MAX_ACTIVE_CLIENT_WARHEADS = 32;
 	public static final int MAX_ACTIVE_CLIENT_IMPACTS = 64;

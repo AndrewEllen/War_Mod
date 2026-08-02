@@ -14,7 +14,7 @@ public final class GroundDustFrontRenderer {
 	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer, final List<TerrainShockfrontNode> nodes,
 		final Vec3 impactPosition, final long gameTime, final WarheadMesh.Lod lod) {
 		if (nodes == null || nodes.isEmpty()) return;
-		int limit = lod == WarheadMesh.Lod.NEAR ? 160 : lod == WarheadMesh.Lod.MEDIUM ? 90 : 36;
+		int limit = lod == WarheadMesh.Lod.NEAR ? 240 : lod == WarheadMesh.Lod.MEDIUM ? 140 : 60;
 		for (int index = 0; index < Math.min(limit, nodes.size()); index++) {
 			TerrainShockfrontNode node = nodes.get(index);
 			long seed = mix(node.surfaceBlock().asLong());

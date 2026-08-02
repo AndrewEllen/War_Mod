@@ -30,8 +30,7 @@ final class WarheadEffectTimingTest {
 	@Test
 	void airShockwaveUsesConfiguredExpansion() {
 		assertEquals(0.0, WarheadVisualMath.airShockwaveRadius(0.0, 1.0), 1.0E-9);
-		assertTrue(WarheadVisualMath.airShockwaveRadius(WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS, 1.0) > 215.0);
-		assertTrue(WarheadVisualMath.airShockwaveRadius(WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS, 1.0) < 220.0);
+		assertEquals(411.6, WarheadVisualMath.airShockwaveRadius(WarheadVisualMath.AIR_SHOCKWAVE_DURATION_TICKS, 1.0), 1.0E-9);
 	}
 
 	@Test

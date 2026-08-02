@@ -2,6 +2,7 @@ package com.andye.warmod.warhead.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
 
@@ -70,6 +71,7 @@ public final class WarheadMesh {
 			float normalScale = Mth.sqrt(1.0F - normalY * normalY);
 			vertex(pose, buffer, x, BODY_TOP, z, 232, 232, 232, 255, (float) index / sides, 1.0F, Mth.cos(angle) * normalScale, normalY, Mth.sin(angle) * normalScale, packedLight);
 			vertex(pose, buffer, 0.0F, NOSE_TIP, 0.0F, 248, 248, 248, 255, 0.5F, 0.0F, Mth.cos(angle) * normalScale, normalY, Mth.sin(angle) * normalScale, packedLight);
+			vertex(pose, buffer, 0.0F, NOSE_TIP, 0.0F, 248, 248, 248, 255, 0.5F, 0.0F, Mth.cos(angle) * normalScale, normalY, Mth.sin(angle) * normalScale, packedLight);
 			vertex(pose, buffer, nextX, BODY_TOP, nextZ, 228, 230, 234, 255, (float) (next + 1) / sides, 1.0F, Mth.cos(nextAngle) * normalScale, normalY, Mth.sin(nextAngle) * normalScale, packedLight);
 		}
 	}
@@ -80,6 +82,7 @@ public final class WarheadMesh {
 			float nextAngle = Mth.TWO_PI * (index + 1) / sides;
 			vertex(pose, buffer, 0.0F, BODY_BOTTOM, 0.0F, 225, 227, 231, 255, 0.5F, 0.5F, 0.0F, -1.0F, 0.0F, packedLight);
 			vertex(pose, buffer, BODY_RADIUS * Mth.cos(angle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(angle), 225, 227, 231, 255, 0.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
+			vertex(pose, buffer, BODY_RADIUS * Mth.cos(nextAngle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(nextAngle), 225, 227, 231, 255, 1.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
 			vertex(pose, buffer, BODY_RADIUS * Mth.cos(nextAngle), BODY_BOTTOM, BODY_RADIUS * Mth.sin(nextAngle), 225, 227, 231, 255, 1.0F, 0.0F, 0.0F, -1.0F, 0.0F, packedLight);
 		}
 	}
@@ -130,7 +133,7 @@ public final class WarheadMesh {
 		buffer.addVertex(pose, x, y, z)
 			.setColor(red, green, blue, alpha)
 			.setUv(u, v)
-			.setOverlay(0)
+			.setOverlay(OverlayTexture.NO_OVERLAY)
 			.setLight(packedLight)
 			.setNormal(pose, normalX, normalY, normalZ);
 	}

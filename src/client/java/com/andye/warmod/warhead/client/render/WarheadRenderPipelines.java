@@ -48,14 +48,14 @@ public final class WarheadRenderPipelines {
 	);
 
 	public static final RenderType PROJECTILE = create("war_mod_projectile", RenderPipelines.ENTITY_CUTOUT, texture("warhead_albedo.png"), true, true, false);
-	public static final RenderType CONE = create("war_mod_cone", CONDENSATION_PIPELINE, texture("vapor_noise.png"), true, true, true);
-	public static final RenderType VAPOR_BAND = create("war_mod_vapor_band", CONDENSATION_PIPELINE, texture("vapor_band.png"), true, true, true);
-	public static final RenderType PRESSURE_SHELL = create("war_mod_pressure_shell", PRESSURE_PIPELINE, texture("pressure_shell.png"), true, true, true);
+	public static final RenderType CONE = create("war_mod_cone", CONDENSATION_PIPELINE, texture("vapor_noise.png"), true, false, true);
+	public static final RenderType VAPOR_BAND = create("war_mod_vapor_band", CONDENSATION_PIPELINE, texture("vapor_band.png"), true, false, true);
+	public static final RenderType PRESSURE_SHELL = create("war_mod_pressure_shell", PRESSURE_PIPELINE, texture("pressure_shell.png"), true, false, true);
 	public static final RenderType GROUND_RIPPLE = create("war_mod_ground_ripple", GROUND_RIPPLE_PIPELINE, texture("ground_ripple_noise.png"), true, false, true);
-	public static final RenderType SHOCKWAVE = create("war_mod_shockwave", SHOCKWAVE_PIPELINE, texture("shockwave_strip.png"), true, true, true);
-	public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE, SMOKE_LOBE_TEXTURE, true, true, true);
-	public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE, SMOKE_LOBE_TEXTURE, true, true, true);
-	public static final RenderType FIREBALL_COOL = create("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, true, true);
+	public static final RenderType SHOCKWAVE = create("war_mod_shockwave", SHOCKWAVE_PIPELINE, texture("shockwave_strip.png"), true, false, true);
+	public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
+	public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
+	public static final RenderType FIREBALL_COOL = create("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, false, true);
 	public static final RenderType FIREBALL_HOT = create("war_mod_fireball_hot", HOT_FIRE_PIPELINE, texture("fireball_sheet.png"), false, false, true);
 	public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;
 	public static final RenderType FIREBALL = FIREBALL_COOL;
@@ -64,7 +64,7 @@ public final class WarheadRenderPipelines {
 
 	private static RenderPipeline translucent(final String location) {
 		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
-			.withLocation(location).withShaderDefine("ALPHA_CUTOUT", 0.02F)
+			.withLocation(location).withShaderDefine("ALPHA_CUTOUT", 0.02F).withShaderDefine("NO_OVERLAY")
 			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
 			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
 			.withCull(false).build());

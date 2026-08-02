@@ -65,7 +65,7 @@ public final class WarheadWorldRenderer {
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			WarheadMesh.Lod lod = lod(distance);
 			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age, state.visualScale());
-			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 160 : lod == WarheadMesh.Lod.MEDIUM ? 90 : 36;
+			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 240 : lod == WarheadMesh.Lod.MEDIUM ? 140 : 60;
 			List<TerrainShockfrontNode> dustNodes = state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime);
 			for (TerrainShockfrontNode node : dustNodes) {
 				if (node.state() == TerrainShockfrontNode.State.READY) state.terrainShockfrontField().markEmitted(node, gameTime);
