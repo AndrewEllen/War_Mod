@@ -1,11 +1,14 @@
 package com.andye.warmod.warhead.client.render;
 
+import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadEffectMath;
+import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.client.ClientWarheadVisualManager;
 import com.andye.warmod.warhead.client.ImpactVisualState;
 import com.andye.warmod.warhead.client.TerrainRingSampler;
 import com.andye.warmod.warhead.client.TerrainRingSampler.RingKind;
 import com.andye.warmod.warhead.client.TerrainRingSampler.RingSample;
+import com.andye.warmod.warhead.client.TerrainShockfrontSpoke;
 import com.andye.warmod.warhead.client.WarheadVisualState;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -16,6 +19,8 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -64,17 +69,21 @@ public final class WarheadWorldRenderer {
 				continue;
 			}
 			WarheadMesh.Lod lod = lod(distance);
+			double elapsed = state.elapsedTicks(gameTime, partialTick);
 			warheads.add(new WarheadFrame(
 				position,
 				velocity,
 				(float) state.progressAt(gameTime, partialTick),
-				(float) Math.max(0.0, state.elapsedTicks(gameTime, partialTick) * -1.0 + state.flightTicks()),
-				lod
+				(float) elapsed,
+				(float) Math.max(0.0, state.flightTicks() - elapsed),
+				state.flightTicks(),
+				state.visualSeed(),
+				lod,
+				sampledLight(level, position)
 			));
 		}
 
 		List<ImpactFrame> impacts = new ArrayList<>(snapshot.impacts().size());
-		int pressureSegments;
 		for (ImpactVisualState state : snapshot.impacts()) {
 			double age = state.ageTicks(gameTime, partialTick);
 			if (state.isExpired(gameTime, partialTick)) {
@@ -85,28 +94,23 @@ public final class WarheadWorldRenderer {
 				continue;
 			}
 			WarheadMesh.Lod lod = lod(distance);
-			pressureSegments = lod == WarheadMesh.Lod.NEAR ? 96 : lod == WarheadMesh.Lod.MEDIUM ? 48 : 24;
-			double pressureRadius = WarheadEffectMath.pressureRingRadius(age, state.visualScale());
+			int pressureSegments = lod == WarheadMesh.Lod.NEAR ? 96 : lod == WarheadMesh.Lod.MEDIUM ? 48 : 24;
+			double pressureRadius = WarheadVisualMath.pressureSphereRadius(age);
 			double dustRadius = WarheadEffectMath.dustRingRadius(age, state.visualScale());
 			List<RingSample> pressure = state.terrainSampler().sample(level, pressureRadius, pressureSegments, RingKind.PRESSURE, gameTime);
 			List<RingSample> dust = state.terrainSampler().sample(level, dustRadius, pressureSegments, RingKind.DUST, gameTime);
 			impacts.add(new ImpactFrame(
 				state.impactPosition(),
 				age,
-				state.visualSeed(),
 				state.visualScale(),
 				lod,
 				pressure,
-				dust
+				dust,
+				state.terrainShockfrontField().snapshotSpokes(),
+				state.fireballLobes()
 			));
 		}
-		currentFrame = new RenderFrame(
-			cameraPosition,
-			cameraOrientation,
-			gameTime,
-			List.copyOf(warheads),
-			List.copyOf(impacts)
-		);
+		currentFrame = new RenderFrame(cameraPosition, cameraOrientation, List.copyOf(warheads), List.copyOf(impacts));
 	}
 
 	private static void collectSubmits(final LevelRenderContext context) {
@@ -114,7 +118,6 @@ public final class WarheadWorldRenderer {
 		if (frame == RenderFrame.EMPTY || (frame.warheads().isEmpty() && frame.impacts().isEmpty())) {
 			return;
 		}
-
 		PoseStack poseStack = context.poseStack();
 		if (poseStack == null) {
 			return;
@@ -128,7 +131,7 @@ public final class WarheadWorldRenderer {
 			context.submitNodeCollector().submitCustomGeometry(
 				poseStack,
 				WarheadRenderPipelines.PROJECTILE,
-				(pose, buffer) -> WarheadMesh.render(pose, buffer, warhead.lod())
+				(pose, buffer) -> WarheadMesh.render(pose, buffer, warhead.lod(), warhead.packedLight())
 			);
 			context.submitNodeCollector().submitCustomGeometry(
 				poseStack,
@@ -138,33 +141,55 @@ public final class WarheadWorldRenderer {
 					buffer,
 					warhead.lod(),
 					warhead.progress(),
-					warhead.remainingTicks()
+					warhead.elapsedTicks(),
+					warhead.remainingTicks(),
+					warhead.velocity(),
+					warhead.visualSeed(),
+					warhead.flightTicks()
+				)
+			);
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.VAPOR_BAND,
+				(pose, buffer) -> VaporBandRenderer.render(
+					pose,
+					buffer,
+					warhead.lod(),
+					warhead.elapsedTicks(),
+					warhead.visualSeed(),
+					(float) coneActivation(warhead),
+					(float) WarheadVisualMath.coneFade(warhead.remainingTicks())
 				)
 			);
 			poseStack.popPose();
 		}
 
 		for (ImpactFrame impact : frame.impacts()) {
-			poseStack.pushPose();
 			Vec3 relative = impact.position().subtract(frame.cameraPosition());
+			poseStack.pushPose();
 			poseStack.translate(relative.x, relative.y, relative.z);
-			poseStack.mulPose(new Quaternionf(frame.cameraOrientation()));
 			context.submitNodeCollector().submitCustomGeometry(
 				poseStack,
-				WarheadRenderPipelines.FIREBALL,
-				(pose, buffer) -> ImpactFireballRenderer.render(
+				WarheadRenderPipelines.PRESSURE_SHELL,
+				(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.lod())
+			);
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.SHOCKWAVE,
+				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(
 					pose,
 					buffer,
-					impact.ageTicks(),
-					impact.visualScale(),
-					impact.visualSeed(),
-					impact.lod()
+					impact.shockfrontSpokes(),
+					impact.position(),
+					WarheadVisualMath.pressureSphereRadius(impact.ageTicks()),
+					frontierSpokeCount(impact.lod()),
+					frontierWidth(impact.ageTicks(), impact.visualScale()),
+					frontierAlpha(impact.ageTicks()),
+					226,
+					239,
+					251
 				)
 			);
-			poseStack.popPose();
-
-			poseStack.pushPose();
-			poseStack.translate(relative.x, relative.y, relative.z);
 			context.submitNodeCollector().submitCustomGeometry(
 				poseStack,
 				WarheadRenderPipelines.SHOCKWAVE,
@@ -174,10 +199,10 @@ public final class WarheadWorldRenderer {
 					impact.pressureSamples(),
 					impact.position(),
 					pressureWidth(impact.ageTicks(), impact.visualScale()),
-					pressureAlpha(impact.ageTicks()),
+					pressureAlpha(impact.ageTicks()) * 0.32F,
 					224,
-					230,
-					232
+					236,
+					248
 				)
 			);
 			context.submitNodeCollector().submitCustomGeometry(
@@ -190,13 +215,42 @@ public final class WarheadWorldRenderer {
 					impact.position(),
 					dustWidth(impact.ageTicks(), impact.visualScale()),
 					dustAlpha(impact.ageTicks()),
-					125,
-					113,
-					103
+					130,
+					119,
+					108
 				)
 			);
 			poseStack.popPose();
+
+			poseStack.pushPose();
+			poseStack.translate(relative.x, relative.y, relative.z);
+			poseStack.mulPose(new Quaternionf(frame.cameraOrientation()));
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.SMOKE_LOBE,
+				(pose, buffer) -> RisingBlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod())
+			);
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.FIREBALL_COOL,
+				(pose, buffer) -> ImpactFireballRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod())
+			);
+			context.submitNodeCollector().submitCustomGeometry(
+				poseStack,
+				WarheadRenderPipelines.FIREBALL_HOT,
+				(pose, buffer) -> ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.fireballLobes(), impact.lod())
+			);
+			poseStack.popPose();
 		}
+	}
+
+	private static double coneActivation(final WarheadFrame warhead) {
+		double speed = WarheadVisualMath.normalizedSpeed(warhead.velocity(), WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
+		return WarheadVisualMath.coneActivation(speed) * WarheadVisualMath.coneAttack(warhead.elapsedTicks() - warhead.flightTicks() * 0.20);
+	}
+
+	private static int frontierSpokeCount(final WarheadMesh.Lod lod) {
+		return lod == WarheadMesh.Lod.NEAR ? 64 : lod == WarheadMesh.Lod.MEDIUM ? 40 : 24;
 	}
 
 	private static WarheadMesh.Lod lod(final double distance) {
@@ -209,6 +263,15 @@ public final class WarheadWorldRenderer {
 		return WarheadMesh.Lod.FAR;
 	}
 
+	private static int sampledLight(final ClientLevel level, final Vec3 position) {
+		BlockPos block = BlockPos.containing(position);
+		if (!level.hasChunkAt(block)) {
+			return LightCoordsUtil.pack(5, 5);
+		}
+		int packed = LightCoordsUtil.getLightCoords(level, block);
+		return LightCoordsUtil.pack(Math.max(5, LightCoordsUtil.block(packed)), Math.max(5, LightCoordsUtil.sky(packed)));
+	}
+
 	private static Quaternionf rotationToVelocity(final Vec3 velocity) {
 		Vector3f direction = new Vector3f((float) velocity.x, (float) velocity.y, (float) velocity.z);
 		if (!Float.isFinite(direction.x()) || !Float.isFinite(direction.y()) || !Float.isFinite(direction.z()) || direction.lengthSquared() < 1.0E-8F) {
@@ -219,58 +282,63 @@ public final class WarheadWorldRenderer {
 	}
 
 	private static float pressureWidth(final double ageTicks, final float scale) {
-		double t = WarheadEffectMath.clamp((ageTicks - 2.0) / 30.0, 0.0, 1.0);
-		return (float) (WarheadEffectMath.clamp(scale, 0.05F, 8.0F) * (1.5 + 2.0 * t));
+		double t = WarheadVisualMath.clamp(ageTicks / 24.0, 0.0, 1.0);
+		return (float) (WarheadVisualMath.clamp(scale, 0.05F, 2.0F) * (1.0 + 1.4 * t));
 	}
 
 	private static float pressureAlpha(final double ageTicks) {
-		double t = WarheadEffectMath.clamp((ageTicks - 2.0) / 30.0, 0.0, 1.0);
-		return (float) (0.78 * Math.pow(1.0 - t, 0.72));
+		return (float) (0.68 * Math.pow(1.0 - WarheadVisualMath.clamp(ageTicks / 24.0, 0.0, 1.0), 1.2));
+	}
+
+	private static float frontierWidth(final double ageTicks, final float scale) {
+		return (float) (WarheadVisualMath.clamp(scale, 0.45F, 1.5F) * (0.7 + 0.9 * WarheadVisualMath.clamp(ageTicks / 24.0, 0.0, 1.0)));
+	}
+
+	private static float frontierAlpha(final double ageTicks) {
+		return (float) (0.64 * Math.pow(1.0 - WarheadVisualMath.clamp(ageTicks / 24.0, 0.0, 1.0), 1.7));
 	}
 
 	private static float dustWidth(final double ageTicks, final float scale) {
-		double t = WarheadEffectMath.clamp((ageTicks - 5.0) / 47.0, 0.0, 1.0);
-		return (float) (WarheadEffectMath.clamp(scale, 0.05F, 8.0F) * (4.0 + 2.0 * t));
+		double t = WarheadVisualMath.clamp((ageTicks - 5.0) / 47.0, 0.0, 1.0);
+		return (float) (WarheadVisualMath.clamp(scale, 0.05F, 2.0F) * (3.0 + 1.8 * t));
 	}
 
 	private static float dustAlpha(final double ageTicks) {
-		double t = WarheadEffectMath.clamp((ageTicks - 5.0) / 47.0, 0.0, 1.0);
-		return (float) (0.48 * Math.pow(1.0 - t, 0.64));
+		double t = WarheadVisualMath.clamp((ageTicks - 5.0) / 47.0, 0.0, 1.0);
+		return (float) (0.42 * Math.pow(1.0 - t, 0.72));
 	}
 
 	private record WarheadFrame(
 		Vec3 position,
 		Vec3 velocity,
 		float progress,
+		float elapsedTicks,
 		float remainingTicks,
-		WarheadMesh.Lod lod
+		int flightTicks,
+		long visualSeed,
+		WarheadMesh.Lod lod,
+		int packedLight
 	) {
 	}
 
 	private record ImpactFrame(
 		Vec3 position,
 		double ageTicks,
-		long visualSeed,
 		float visualScale,
 		WarheadMesh.Lod lod,
 		List<RingSample> pressureSamples,
-		List<RingSample> dustSamples
+		List<RingSample> dustSamples,
+		List<TerrainShockfrontSpoke> shockfrontSpokes,
+		List<FireballLobe> fireballLobes
 	) {
 	}
 
 	private record RenderFrame(
 		Vec3 cameraPosition,
 		Quaternionf cameraOrientation,
-		long gameTime,
 		List<WarheadFrame> warheads,
 		List<ImpactFrame> impacts
 	) {
-		private static final RenderFrame EMPTY = new RenderFrame(
-			Vec3.ZERO,
-			new Quaternionf(),
-			Long.MIN_VALUE,
-			List.of(),
-			List.of()
-		);
+		private static final RenderFrame EMPTY = new RenderFrame(Vec3.ZERO, new Quaternionf(), List.of(), List.of());
 	}
 }

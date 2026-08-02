@@ -2,16 +2,23 @@ package com.andye.warmod.warhead.client;
 
 import com.andye.warmod.warhead.WarheadEffectMath;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
+import com.andye.warmod.warhead.client.render.FireballLobe;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.SplittableRandom;
 import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 
 public final class ImpactVisualState {
+	private static final int FIREBALL_LOBE_COUNT = 24;
 	private final UUID warheadId;
 	private final Vec3 impactPosition;
 	private final long impactGameTime;
 	private final long visualSeed;
 	private final float visualScale;
 	private final TerrainRingSampler terrainSampler;
+	private final TerrainShockfrontField terrainShockfrontField;
+	private final List<FireballLobe> fireballLobes;
 	private boolean initialBurstEmitted;
 	private boolean secondaryBurstEmitted;
 	private long lastContinuousParticleTick = Long.MIN_VALUE;
@@ -30,6 +37,8 @@ public final class ImpactVisualState {
 		this.visualSeed = visualSeed;
 		this.visualScale = visualScale;
 		this.terrainSampler = new TerrainRingSampler(impactPosition, visualSeed);
+		this.terrainShockfrontField = new TerrainShockfrontField(impactPosition, visualSeed);
+		this.fireballLobes = createFireballLobes(visualSeed);
 	}
 
 	public static ImpactVisualState fromPayload(final ClientboundWarheadImpactPayload payload) {
@@ -64,6 +73,14 @@ public final class ImpactVisualState {
 
 	public TerrainRingSampler terrainSampler() {
 		return this.terrainSampler;
+	}
+
+	public TerrainShockfrontField terrainShockfrontField() {
+		return this.terrainShockfrontField;
+	}
+
+	public List<FireballLobe> fireballLobes() {
+		return this.fireballLobes;
 	}
 
 	public double ageTicks(final long clientGameTime, final double partialTick) {
@@ -105,5 +122,31 @@ public final class ImpactVisualState {
 
 	void recordParticleEmission() {
 		this.emittedParticleCount++;
+	}
+
+	private static List<FireballLobe> createFireballLobes(final long visualSeed) {
+		SplittableRandom random = new SplittableRandom(visualSeed ^ 0x464952454C4F4245L);
+		List<FireballLobe> lobes = new ArrayList<>(FIREBALL_LOBE_COUNT);
+		for (int index = 0; index < FIREBALL_LOBE_COUNT; index++) {
+			double theta = Math.acos(random.nextDouble(-0.7, 0.95));
+			double phi = random.nextDouble(0.0, Math.PI * 2.0);
+			double distance = random.nextDouble(1.5, 10.5);
+			Vec3 offset = new Vec3(
+				Math.sin(theta) * Math.cos(phi) * distance,
+				Math.cos(theta) * distance * 0.60,
+				Math.sin(theta) * Math.sin(phi) * distance
+			);
+			lobes.add(new FireballLobe(
+				offset,
+				random.nextDouble(0.0, 2.2),
+				random.nextDouble(1.8, 3.8),
+				random.nextDouble(0.70, 1.35),
+				random.nextDouble(0.65, 1.15),
+				random.nextDouble(0.5, 2.7),
+				random.nextDouble(0.0, Math.PI * 2.0),
+				random.nextInt(8)
+			));
+		}
+		return List.copyOf(lobes);
 	}
 }

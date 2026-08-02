@@ -1,9 +1,11 @@
 package com.andye.warmod.warhead.client.render;
 
-import com.andye.warmod.warhead.WarheadEffectMath;
+import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadVisualMath;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 
 public final class ShockConeMesh {
 	private ShockConeMesh() {
@@ -14,19 +16,27 @@ public final class ShockConeMesh {
 		final VertexConsumer buffer,
 		final WarheadMesh.Lod lod,
 		final double progress,
-		final double remainingTicks
+		final double elapsedTicks,
+		final double remainingTicks,
+		final Vec3 velocity,
+		final long visualSeed,
+		final int flightTicks
 	) {
-		double fade = WarheadEffectMath.clamp(remainingTicks / 4.0, 0.0, 1.0);
-		if (fade <= 0.0) {
+		double speed = WarheadVisualMath.normalizedSpeed(velocity, WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
+		double speedActivation = WarheadVisualMath.coneActivation(speed);
+		double attack = WarheadVisualMath.coneAttack(elapsedTicks - flightTicks * 0.20);
+		double fade = WarheadVisualMath.coneFade(remainingTicks);
+		double activation = speedActivation * attack * fade;
+		if (activation <= 0.001) {
 			return;
 		}
 
-		double clampedProgress = WarheadEffectMath.clamp(progress, 0.0, 1.0);
-		float length = (float) Mth.lerp((float) clampedProgress, 7.0F, 24.0F);
-		float rearRadius = (float) Mth.lerp((float) clampedProgress, 1.2F, 4.8F);
-		float frontRadius = 0.20F;
+		double pulse = WarheadVisualMath.conePulse(elapsedTicks, visualSeed);
+		float length = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 3.0F, 25.0F) * pulse);
+		float rearRadius = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 0.5F, 5.2F) * pulse);
+		float frontRadius = 0.22F;
 		int segments = lod == WarheadMesh.Lod.NEAR ? 16 : lod == WarheadMesh.Lod.MEDIUM ? 10 : 6;
-		float alpha = (float) (Mth.lerp((float) clampedProgress, 0.07F, 0.16F) * fade);
+		float alpha = (float) (0.22 * activation * (0.96 + 0.04 * pulse));
 		float rearY = -length;
 		float frontY = -0.55F;
 
@@ -47,29 +57,6 @@ public final class ShockConeMesh {
 			coneVertex(pose, buffer, nextFrontX, frontY, nextFrontZ, nextAngle, 1.0F, alpha);
 			coneVertex(pose, buffer, nextRearX, rearY, nextRearZ, nextAngle, 0.0F, alpha);
 		}
-
-		renderBand(pose, buffer, segments, rearY * 0.48F, rearRadius * 0.52F, alpha * 0.30F);
-		renderBand(pose, buffer, segments, rearY * 0.78F, rearRadius * 0.80F, alpha * 0.22F);
-	}
-
-	private static void renderBand(
-		final PoseStack.Pose pose,
-		final VertexConsumer buffer,
-		final int segments,
-		final float y,
-		final float radius,
-		final float alpha
-	) {
-		float innerRadius = Math.max(0.01F, radius - 0.10F);
-		for (int index = 0; index < segments; index++) {
-			int next = (index + 1) % segments;
-			float angle = Mth.TWO_PI * index / segments;
-			float nextAngle = Mth.TWO_PI * next / segments;
-			coneVertex(pose, buffer, innerRadius * Mth.cos(angle), y, innerRadius * Mth.sin(angle), angle, 0.0F, alpha);
-			coneVertex(pose, buffer, radius * Mth.cos(angle), y, radius * Mth.sin(angle), angle, 1.0F, alpha);
-			coneVertex(pose, buffer, radius * Mth.cos(nextAngle), y, radius * Mth.sin(nextAngle), nextAngle, 1.0F, alpha);
-			coneVertex(pose, buffer, innerRadius * Mth.cos(nextAngle), y, innerRadius * Mth.sin(nextAngle), nextAngle, 0.0F, alpha);
-		}
 	}
 
 	private static void coneVertex(
@@ -82,14 +69,12 @@ public final class ShockConeMesh {
 		final float u,
 		final float alpha
 	) {
-		float normalX = Mth.cos(angle);
-		float normalZ = Mth.sin(angle);
 		int alphaByte = Mth.clamp((int) (alpha * 255.0F), 0, 255);
 		buffer.addVertex(pose, x, y, z)
-			.setColor(215, 225, 230, alphaByte)
-			.setUv(u, y * 0.05F)
+			.setColor(232, 242, 249, alphaByte)
+			.setUv(u, y * 0.045F)
 			.setOverlay(0)
 			.setLight(0xF000F0)
-			.setNormal(pose, normalX, 0.20F, normalZ);
+			.setNormal(pose, Mth.cos(angle), 0.20F, Mth.sin(angle));
 	}
 }

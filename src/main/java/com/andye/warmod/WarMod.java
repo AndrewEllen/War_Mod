@@ -5,6 +5,7 @@ import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.acoustics.network.AcousticNetworking;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.item.ModItems;
+import com.andye.warmod.particle.ModParticleTypes;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
@@ -22,6 +23,7 @@ public final class WarMod implements ModInitializer {
 		WarheadVisualNetworking.registerPayloadTypes();
 		ModEntityTypes.register();
 		ModItems.register();
+		ModParticleTypes.register();
 		LOGGER.info("War Mod initialized.");
 	}
 }

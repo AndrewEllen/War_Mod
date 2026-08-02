@@ -1,103 +1,157 @@
 package com.andye.warmod.warhead.client.render;
 
+import com.andye.warmod.warhead.WarheadVisualMath;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.andye.warmod.warhead.WarheadEffectMath;
+import java.util.List;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 
+/** Deterministic three-dimensional fireball lobes using an eight-frame atlas. */
 public final class ImpactFireballRenderer {
 	private ImpactFireballRenderer() {
 	}
 
-	public static void render(
+	public static void renderHot(
 		final PoseStack.Pose pose,
 		final VertexConsumer buffer,
 		final double ageTicks,
 		final float visualScale,
-		final long visualSeed,
+		final List<FireballLobe> lobes,
 		final WarheadMesh.Lod lod
 	) {
-		float scale = Mth.clamp(visualScale, 0.05F, 8.0F);
-		float seedAngle = (float) ((visualSeed & 0xFFFFL) / 65536.0 * Mth.TWO_PI);
+		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, true);
+	}
 
-		if (ageTicks >= 0.0 && ageTicks < 4.0) {
-			float t = smoothstep((float) (ageTicks / 4.0));
-			float radius = scale * Mth.lerp(t, 2.0F, 8.0F);
-			float alpha = Mth.lerp(t, 1.0F, 0.15F);
-			addDisc(pose, buffer, radius, 0.0F, seedAngle, 255, 246, 184, alpha);
-			addDisc(pose, buffer, radius * 0.82F, 0.02F, seedAngle + 0.78F, 255, 222, 120, alpha * 0.85F);
+	public static void renderCooling(
+		final PoseStack.Pose pose,
+		final VertexConsumer buffer,
+		final double ageTicks,
+		final float visualScale,
+		final List<FireballLobe> lobes,
+		final WarheadMesh.Lod lod
+	) {
+		renderLobes(pose, buffer, ageTicks, visualScale, lobes, lod, false);
+	}
+
+	private static void renderLobes(
+		final PoseStack.Pose pose,
+		final VertexConsumer buffer,
+		final double ageTicks,
+		final float visualScale,
+		final List<FireballLobe> lobes,
+		final WarheadMesh.Lod lod,
+		final boolean hot
+	) {
+		if (!Double.isFinite(ageTicks) || lobes == null || lobes.isEmpty()) {
+			return;
 		}
 
-		if (ageTicks >= 0.0 && ageTicks < 20.0) {
-			float t = smoothstep((float) (ageTicks / 20.0));
-			float radius = scale * Mth.lerp(t, 3.0F, 12.0F);
-			float alpha = Mth.lerp(t, 0.90F, 0.18F);
-			int green = Mth.clamp((int) Mth.lerp(t, 238.0F, 84.0F), 0, 255);
-			int blue = Mth.clamp((int) Mth.lerp(t, 104.0F, 30.0F), 0, 255);
-			addDisc(pose, buffer, radius, 0.0F, seedAngle + 0.20F, 255, green, blue, alpha);
-			addDisc(pose, buffer, radius * 0.84F, 0.08F, seedAngle + 1.35F, 255, green, blue, alpha * 0.82F);
-			addDisc(pose, buffer, radius * 0.72F, -0.08F, seedAngle + 2.35F, 255, green, blue, alpha * 0.68F);
-		}
-
-		if (ageTicks >= 12.0 && ageTicks < 90.0) {
-			float t = (float) WarheadEffectMath.clamp((ageTicks - 12.0) / 78.0, 0.0, 1.0);
-			float radius = scale * (float) Mth.lerp((float) smoothstep((float) t), 4.0F, 7.0F);
-			float alpha = (float) (0.34 * Math.pow(1.0 - t, 0.8));
-			float rise = scale * (float) Mth.lerp((float) smoothstep((float) t), 0.0F, 14.0F);
-			addDisc(pose, buffer, radius, rise, seedAngle + 0.55F, 116, 119, 116, alpha);
-			if (lod != WarheadMesh.Lod.FAR) {
-				addDisc(pose, buffer, radius * 0.75F, rise * 0.62F, seedAngle + 1.90F, 145, 143, 136, alpha * 0.72F);
+		float scale = Mth.clamp(visualScale, 0.45F, 1.5F);
+		int lobeLimit = lod == WarheadMesh.Lod.NEAR ? Math.min(24, lobes.size())
+			: lod == WarheadMesh.Lod.MEDIUM ? Math.min(13, lobes.size()) : Math.min(6, lobes.size());
+		for (int index = 0; index < lobeLimit; index++) {
+			FireballLobe lobe = lobes.get(index);
+			double localAge = ageTicks - lobe.spawnDelayTicks();
+			if (localAge < 0.0 || localAge >= 55.0 || (hot && localAge > 20.0) || (!hot && localAge < 8.0)) {
+				continue;
 			}
+
+			double growth = WarheadVisualMath.clamp(localAge / 18.0, 0.0, 1.0);
+			double cooling = WarheadVisualMath.clamp((localAge - 12.0) / 43.0, 0.0, 1.0);
+			double alpha = WarheadVisualMath.fireballAlpha(localAge) * (0.48 + 0.52 * (1.0 - index / (double) Math.max(1, lobeLimit)));
+			if (hot) {
+				alpha *= 0.88 + 0.12 * (1.0 - cooling);
+			} else {
+				alpha *= 0.86 * Math.pow(1.0 - cooling, 0.45);
+			}
+			if (alpha <= 0.0) {
+				continue;
+			}
+
+			float radius = (float) (scale * lobe.baseRadius() * (1.0 + lobe.expansionMultiplier() * easeOut(growth)));
+			Vec3 driftDirection = horizontalDirection(lobe.baseOffset(), lobe.rotation());
+			double drift = lobe.horizontalDrift() * easeOut(growth);
+			double rise = lobe.riseSpeed() * WarheadVisualMath.fireballRise(localAge) / 16.0;
+			Vec3 center = lobe.baseOffset().scale(scale).add(driftDirection.scale(drift)).add(0.0, rise, 0.0);
+			int frame = frameFor(localAge, lobe.animationOffset(), hot);
+			float frameU0 = frame / 8.0F;
+			float frameU1 = (frame + 1) / 8.0F;
+			int red = hot ? 255 : Mth.lerpInt((float) cooling, 244, 132);
+			int green = hot ? Mth.lerpInt((float) cooling, 244, 104) : Mth.lerpInt((float) cooling, 148, 92);
+			int blue = hot ? Mth.lerpInt((float) cooling, 170, 34) : Mth.lerpInt((float) cooling, 52, 30);
+			int light = hot ? 0xF000F0 : 0xA000A0;
+			addBillboard(pose, buffer, center, radius, lobe.rotation(), frameU0, frameU1, red, green, blue, alpha, light);
 		}
 	}
 
-	private static void addDisc(
+	private static int frameFor(final double localAge, final int animationOffset, final boolean hot) {
+		double duration = hot ? 20.0 : 45.0;
+		int frame = (int) Math.floor(localAge / duration * 8.0) + animationOffset;
+		return Math.floorMod(frame, 8);
+	}
+
+	private static Vec3 horizontalDirection(final Vec3 offset, final double rotation) {
+		double x = offset.x;
+		double z = offset.z;
+		double length = Math.sqrt(x * x + z * z);
+		if (length < 1.0E-5) {
+			return new Vec3(Math.cos(rotation), 0.0, Math.sin(rotation));
+		}
+		return new Vec3(x / length, 0.0, z / length);
+	}
+
+	private static void addBillboard(
 		final PoseStack.Pose pose,
 		final VertexConsumer buffer,
+		final Vec3 center,
 		final float radius,
-		final float yOffset,
-		final float angle,
+		final double rotation,
+		final float u0,
+		final float u1,
 		final int red,
 		final int green,
 		final int blue,
-		final float alpha
+		final double alpha,
+		final int light
 	) {
-		int alphaByte = Mth.clamp((int) (alpha * 255.0F), 0, 255);
-		float cos = Mth.cos(angle);
-		float sin = Mth.sin(angle);
+		float cos = Mth.cos((float) rotation);
+		float sin = Mth.sin((float) rotation);
 		float ux = cos * radius;
 		float uy = sin * radius;
 		float vx = -sin * radius;
 		float vy = cos * radius;
-		discVertex(pose, buffer, -ux - vx, yOffset - uy - vy, 0.0F, red, green, blue, alphaByte, 0.0F, 1.0F);
-		discVertex(pose, buffer, -ux + vx, yOffset - uy + vy, 0.0F, red, green, blue, alphaByte, 0.0F, 0.0F);
-		discVertex(pose, buffer, ux + vx, yOffset + uy + vy, 0.0F, red, green, blue, alphaByte, 1.0F, 0.0F);
-		discVertex(pose, buffer, ux - vx, yOffset + uy - vy, 0.0F, red, green, blue, alphaByte, 1.0F, 1.0F);
+		int alphaByte = Mth.clamp((int) (alpha * 255.0), 0, 255);
+		vertex(pose, buffer, center, -ux - vx, -uy - vy, u0, 1.0F, red, green, blue, alphaByte, light);
+		vertex(pose, buffer, center, -ux + vx, -uy + vy, u0, 0.0F, red, green, blue, alphaByte, light);
+		vertex(pose, buffer, center, ux + vx, uy + vy, u1, 0.0F, red, green, blue, alphaByte, light);
+		vertex(pose, buffer, center, ux - vx, uy - vy, u1, 1.0F, red, green, blue, alphaByte, light);
 	}
 
-	private static void discVertex(
+	private static void vertex(
 		final PoseStack.Pose pose,
 		final VertexConsumer buffer,
+		final Vec3 center,
 		final float x,
 		final float y,
-		final float z,
+		final float u,
+		final float v,
 		final int red,
 		final int green,
 		final int blue,
 		final int alpha,
-		final float u,
-		final float v
+		final int light
 	) {
-		buffer.addVertex(pose, x, y, z)
+		buffer.addVertex(pose, (float) center.x + x, (float) center.y + y, (float) center.z)
 			.setColor(red, green, blue, alpha)
 			.setUv(u, v)
 			.setOverlay(0)
-			.setLight(0xF000F0)
+			.setLight(light)
 			.setNormal(pose, 0.0F, 0.0F, 1.0F);
 	}
 
-	private static float smoothstep(final float value) {
-		float t = Mth.clamp(value, 0.0F, 1.0F);
-		return t * t * (3.0F - 2.0F * t);
+	private static double easeOut(final double value) {
+		double t = WarheadVisualMath.clamp(value, 0.0, 1.0);
+		return 1.0 - (1.0 - t) * (1.0 - t);
 	}
 }

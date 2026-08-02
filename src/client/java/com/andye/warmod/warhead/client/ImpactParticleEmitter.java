@@ -2,6 +2,8 @@ package com.andye.warmod.warhead.client;
 
 import java.util.Arrays;
 import java.util.Collection;
+import com.andye.warmod.particle.ModParticleTypes;
+import com.andye.warmod.warhead.WarheadVisualMath;
 import java.util.SplittableRandom;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -113,6 +115,9 @@ public final class ImpactParticleEmitter {
 		}
 
 		double age = state.ageTicks(gameTime, 0.0);
+		if (budget.hasCapacity() && age < 24.0) {
+			this.emitGroundShockfront(level, state, center, distance, age, gameTime, lod, budget);
+		}
 		if (budget.hasCapacity() && age >= 8.0 && !state.secondaryBurstEmitted() && lod != ParticleLod.FAR) {
 			int emitted = this.emitSecondaryBurst(level, center, state.visualScale(), state.visualSeed(), lod, distance, budget);
 			if (emitted > 0) {
@@ -146,6 +151,7 @@ public final class ImpactParticleEmitter {
 			counts.explosion = scaledCount(random, 3, 5, visualScale, 1.0);
 			counts.flame = scaledCount(random, 4, 8, visualScale, 1.0);
 			counts.largeSmoke = scaledCount(random, 3, 6, visualScale, 1.0);
+			counts.customFireball = scaledCount(random, 2, 4, visualScale, 1.0);
 			counts.cap(24);
 		} else {
 			double lodMultiplier = lod == ParticleLod.MEDIUM ? 0.5 : 1.0;
@@ -155,6 +161,7 @@ public final class ImpactParticleEmitter {
 			counts.lava = scaledCount(random, 8, 14, visualScale, lodMultiplier);
 			counts.largeSmoke = scaledCount(random, 10, 16, visualScale, lodMultiplier);
 			counts.cloud = scaledCount(random, 6, 10, visualScale, lodMultiplier);
+			counts.customFireball = scaledCount(random, 12, 18, visualScale, lodMultiplier);
 			counts.cap(80);
 		}
 
@@ -181,6 +188,44 @@ public final class ImpactParticleEmitter {
 		return this.emitBurst(level, center, counts, random, budget, distance > NORMAL_PARTICLE_DISTANCE, true);
 	}
 
+	private void emitGroundShockfront(
+		final ClientLevel level,
+		final ImpactVisualState state,
+		final Vec3 center,
+		final double distance,
+		final double age,
+		final long gameTime,
+		final ParticleLod lod,
+		final ImpactBudget budget
+	) {
+		int desiredSpokes = switch (lod) {
+			case NEAR -> 64;
+			case MEDIUM -> 40;
+			case FAR -> 24;
+		};
+		for (GroundShockParticleEmitter.GroundParticle particle : GroundShockParticleEmitter.collect(
+			state,
+			center,
+			WarheadVisualMath.pressureSphereRadius(age),
+			desiredSpokes,
+			24,
+			distance,
+			gameTime
+		)) {
+			emitParticle(
+				level,
+				particle.particle(),
+				particle.position().x,
+				particle.position().y,
+				particle.position().z,
+				particle.velocity().x,
+				particle.velocity().y,
+				particle.velocity().z,
+				budget,
+				particle.forceLongRange()
+			);
+		}
+	}
 	private void emitExpandingFireball(
 		final ClientLevel level,
 		final Vec3 center,
@@ -202,10 +247,12 @@ public final class ImpactParticleEmitter {
 		int lavaCount = scaledCount(random, 1, 3, visualScale, lodMultiplier);
 		int smokeCount = scaledCount(random, 2, 4, visualScale, lodMultiplier);
 		int explosionCount = scaledCount(random, 1, 3, visualScale, lodMultiplier);
+		int customFireballCount = scaledCount(random, 2, 4, visualScale, lodMultiplier);
 		emitRadial(level, ParticleTypes.FLAME, center, random, direction, flameCount, radius, radius, 0.10, 0.35, 0.08, 0.35, budget, forceLongRange);
 		emitRadial(level, ParticleTypes.LAVA, center, random, direction, lavaCount, radius, radius, 0.08, 0.30, 0.20, 0.65, budget, forceLongRange);
 		emitRadial(level, ParticleTypes.SMOKE, center, random, direction, smokeCount, radius, radius, 0.03, 0.16, 0.08, 0.28, budget, forceLongRange);
 		emitRadial(level, ParticleTypes.EXPLOSION, center, random, direction, explosionCount, radius, radius, 0.05, 0.20, 0.02, 0.10, budget, forceLongRange);
+		emitRadial(level, ModParticleTypes.WARHEAD_FIREBALL, center, random, direction, customFireballCount, radius, radius, 0.06, 0.18, 0.12, 0.42, budget, forceLongRange);
 	}
 
 	private void emitLingeringSmoke(
@@ -280,6 +327,7 @@ public final class ImpactParticleEmitter {
 		}
 		counts.cloud -= mandatoryCloud;
 		counts.lava -= mandatoryLava;
+		emitRadial(level, ModParticleTypes.WARHEAD_FIREBALL, center, random, direction, counts.customFireball, 1.5, 8.0, 0.05, 0.20, 0.12, 0.42, budget, forceLongRange);
 
 		emitRadial(level, ParticleTypes.EXPLOSION, center, random, direction, counts.explosion, 1.5, 4.0, 0.05, 0.20, 0.00, 0.06, budget, forceLongRange);
 		if (counts.flash > 0) {
@@ -489,9 +537,10 @@ public final class ImpactParticleEmitter {
 		private int largeSmoke;
 		private int smoke;
 		private int cloud;
+		private int customFireball;
 
 		private int total() {
-			return this.emitter + this.explosion + this.flash + this.flame + this.lava + this.largeSmoke + this.smoke + this.cloud;
+			return this.emitter + this.explosion + this.flash + this.flame + this.lava + this.largeSmoke + this.smoke + this.cloud + this.customFireball;
 		}
 
 		private void cap(final int maximum) {
@@ -511,8 +560,11 @@ public final class ImpactParticleEmitter {
 			this.largeSmoke = scaledDown(this.largeSmoke, factor);
 			this.smoke = scaledDown(this.smoke, factor);
 			this.cloud = scaledDown(this.cloud, factor);
+			this.customFireball = scaledDown(this.customFireball, factor);
 			while (this.total() > maximum) {
-				if (this.cloud > 0) {
+				if (this.customFireball > 0) {
+					this.customFireball--;
+				} else if (this.cloud > 0) {
 					this.cloud--;
 				} else if (this.largeSmoke > 0) {
 					this.largeSmoke--;

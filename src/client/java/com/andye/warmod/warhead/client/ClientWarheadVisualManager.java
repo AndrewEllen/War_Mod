@@ -73,6 +73,14 @@ public final class ClientWarheadVisualManager {
 			}
 		}
 
+		int terrainBudget = 256;
+		for (ImpactVisualState state : this.activeImpacts.values()) {
+			if (terrainBudget <= 0) {
+				break;
+			}
+			terrainBudget -= state.terrainShockfrontField().build(client.level, terrainBudget);
+		}
+
 		int trailParticles = this.spawnWarheadTrailParticles(client, gameTime);
 		this.spawnImpactParticles(client, gameTime, trailParticles);
 	}
