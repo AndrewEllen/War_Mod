@@ -129,7 +129,7 @@ public final class WarheadWorldRenderer {
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
 			(pose, buffer) -> ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(), impact.fireballLobes(), impact.lod(), frame.cameraOrientation()));
 		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
 				(pose, buffer) -> NuclearFlashRenderer.render(pose, buffer, impact.ageTicks(), frame.cameraOrientation()));
 		}
 		poseStack.popPose();

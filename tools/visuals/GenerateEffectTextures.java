@@ -160,17 +160,17 @@ public final class GenerateEffectTextures {
 	private static void writeFireballAssets(final Path sheetPath, final Path particleDirectory) throws IOException {
 		BufferedImage sheet = new BufferedImage(FIREBALL_FRAME_SIZE * FIREBALL_FRAME_COUNT, FIREBALL_FRAME_SIZE, BufferedImage.TYPE_INT_ARGB);
 		for (int frame = 0; frame < FIREBALL_FRAME_COUNT; frame++) {
-			BufferedImage frameImage = createFireballFrame(frame);
-			for (int y = 0; y < FIREBALL_FRAME_SIZE; y++) {
-				for (int x = 0; x < FIREBALL_FRAME_SIZE; x++) {
-					sheet.setRGB(frame * FIREBALL_FRAME_SIZE + x, y, frameImage.getRGB(x, y));
-				}
+			Path framePath = particleDirectory.resolve("warhead_fireball_" + frame + ".png");
+			BufferedImage frameImage = ImageIO.read(framePath.toFile());
+			if (frameImage == null || frameImage.getWidth() != FIREBALL_FRAME_SIZE || frameImage.getHeight() != FIREBALL_FRAME_SIZE) {
+				throw new IOException("Missing or invalid canonical fireball frame: " + framePath);
 			}
-			writeImage(particleDirectory.resolve("warhead_fireball_" + frame + ".png"), frameImage);
+			for (int y = 0; y < FIREBALL_FRAME_SIZE; y++) for (int x = 0; x < FIREBALL_FRAME_SIZE; x++) {
+				sheet.setRGB(frame * FIREBALL_FRAME_SIZE + x, y, frameImage.getRGB(x, y));
+			}
 		}
 		writeImage(sheetPath, sheet);
 	}
-
 	private static BufferedImage createFireballFrame(final int frame) {
 		BufferedImage image = new BufferedImage(FIREBALL_FRAME_SIZE, FIREBALL_FRAME_SIZE, BufferedImage.TYPE_INT_ARGB);
 		double expansion = 0.70 + frame * 0.045;

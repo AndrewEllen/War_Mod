@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.WeakHashMap;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 
 public final class IcbmFlightControllerManager {
@@ -19,6 +20,7 @@ public final class IcbmFlightControllerManager {
 	public static void register() {
 		if (registered) return;
 		ServerTickEvents.END_LEVEL_TICK.register(IcbmFlightControllerManager::tickLevel);
+		ServerLifecycleEvents.SERVER_STOPPING.register(IcbmFlightControllerManager::releaseAll);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> ACTIVE.clear());
 		registered = true;
 	}
@@ -27,9 +29,9 @@ public final class IcbmFlightControllerManager {
 		LinkedHashMap<UUID, IcbmFlightController> flights = ACTIVE.computeIfAbsent(level, ignored -> new LinkedHashMap<>());
 		if (flights.containsKey(plan.missileId())) return false;
 		while (flights.size() >= MAXIMUM_ACTIVE_FLIGHTS_PER_LEVEL) {
-			Iterator<UUID> iterator = flights.keySet().iterator();
+			Iterator<IcbmFlightController> iterator = flights.values().iterator();
 			if (!iterator.hasNext()) break;
-			iterator.next();
+			iterator.next().cancel(level);
 			iterator.remove();
 		}
 		flights.put(plan.missileId(), new IcbmFlightController(plan));
@@ -46,5 +48,11 @@ public final class IcbmFlightControllerManager {
 			if (controller.completed()) iterator.remove();
 		}
 		if (flights.isEmpty()) ACTIVE.remove(level);
+	}
+
+	private static synchronized void releaseAll(final MinecraftServer server) {
+		for (Map.Entry<ServerLevel, LinkedHashMap<UUID, IcbmFlightController>> entry : ACTIVE.entrySet())
+			for (IcbmFlightController controller : entry.getValue().values()) controller.cancel(entry.getKey());
+		ACTIVE.clear();
 	}
 }

@@ -5,6 +5,8 @@ import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.platform.CompareOp;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.texture.TextureAtlas;
@@ -65,13 +67,23 @@ public final class WarheadRenderPipelines {
 	public static final RenderType SHOCKWAVE = create("war_mod_shockwave", SHOCKWAVE_PIPELINE, texture("shockwave_strip.png"), true, false, true);
 	public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
 	public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
-	public static final RenderType FIREBALL_COOL = create("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, false, true);
-	public static final RenderType FIREBALL_HOT = create("war_mod_fireball_hot", HOT_FIRE_PIPELINE, texture("fireball_sheet.png"), false, false, true);
+	public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, true);
+	public static final RenderType FIREBALL_HOT = createClamped("war_mod_fireball_hot", HOT_FIRE_PIPELINE, texture("fireball_sheet.png"), false, true);
+	public static final RenderType NUCLEAR_FLASH = createClamped("war_mod_nuclear_flash", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
 	public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;
 	public static final RenderType FIREBALL = FIREBALL_COOL;
 
 	private WarheadRenderPipelines() { }
 
+	private static RenderType createClamped(final String name, final RenderPipeline pipeline, final Identifier texture,
+		final boolean useLightmap, final boolean sortOnUpload) {
+		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline)
+			.withTexture("Sampler0", texture, () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
+			.setOutline(RenderSetup.OutlineProperty.NONE);
+		if (useLightmap) builder.useLightmap();
+		if (sortOnUpload) builder.sortOnUpload();
+		return RenderType.create(name, builder.createRenderSetup());
+	}
 	private static RenderPipeline condensation() {
 		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
 			.withLocation("pipeline/war_mod_condensation")

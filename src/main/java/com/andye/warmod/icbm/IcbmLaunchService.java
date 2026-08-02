@@ -15,45 +15,56 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.attribute.EnvironmentAttributes;
-import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 public final class IcbmLaunchService {
 	private IcbmLaunchService() { }
 
+	/** Stick launch: retains the existing 1,000-block loaded-target contract. */
 	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer player, final Vec3 target,
 		final WarheadPayloadType payloadType) {
+		return launchInternal(level, player, target, null, payloadType, true);
+	}
+
+	/** Command launch: target first, with an optional exact virtual launch coordinate. */
+	public static Optional<LaunchResult> launchFromCommand(final ServerLevel level, final ServerPlayer player,
+		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType) {
+		return launchInternal(level, player, target, requestedLaunch, payloadType, false);
+	}
+
+	private static Optional<LaunchResult> launchInternal(final ServerLevel level, final ServerPlayer player,
+		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
+		final boolean enforceStickRange) {
 		if (level == null || player == null || target == null || payloadType == null || player.level() != level
-			|| !target.isFinite() || player.getEyePosition().distanceTo(target) > WarheadConstants.TARGET_RANGE_BLOCKS + 0.001
-			|| !loaded(level, target)) return Optional.empty();
+			|| !validTarget(level, target) || (enforceStickRange
+			&& player.getEyePosition().distanceTo(target) > WarheadConstants.TARGET_RANGE_BLOCKS + 0.001)
+			|| (requestedLaunch != null && !validRouteCoordinate(level, requestedLaunch))) return Optional.empty();
 
 		UUID id = UUID.randomUUID();
 		long seed = mix(id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 17) ^ payloadType.ordinal());
-		Optional<IcbmFlightPlan> preferred = createFlightPlan(level, player, target, payloadType, id, seed, false);
-		IcbmFlightPlan plan = preferred.orElseGet(() -> createFlightPlan(level, player, target, payloadType, id, seed, true).orElse(null));
+		IcbmFlightPlan plan = createFlightPlan(level, player, target, requestedLaunch, payloadType, id, seed).orElse(null);
 		if (plan == null || !IcbmFlightControllerManager.add(level, plan)) return Optional.empty();
 
-		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan));
+		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
 		double apex = calculateApexY(plan.burnoutPosition(), IcbmTrajectory.coastInitialVelocity(plan), plan.coastTicks());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
-			"ICBM {} launched from virtual origin {}, payload={}, apex={}, separation={}", id, plan.launchPosition(),
-			payloadType.serializedName(), apex, plan.separationPosition()
+			"ICBM {} virtual launch accepted: launch={}, apex={}, separation={}", id, plan.launchPosition(), apex,
+			plan.separationPosition()
 		);
-		int terminalTicks = Mth.clamp((int)Math.ceil(plan.separationPosition().distanceTo(target)
-			/ WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK), IcbmConstants.MINIMUM_TERMINAL_TICKS, IcbmConstants.MAXIMUM_TERMINAL_TICKS);
+		int terminalTicks = terminalTicks(plan);
 		return Optional.of(new LaunchResult(plan, terminalTicks));
 	}
 
 	private static Optional<IcbmFlightPlan> createFlightPlan(final ServerLevel level, final ServerPlayer player,
-		final Vec3 target, final WarheadPayloadType payloadType, final UUID id, final long seed, final boolean closeFallback) {
-		double cloudHeight = cloudHeight(level, player.position());
-		Vec3 launch = closeFallback ? closeLaunchPosition(level, player).orElse(null)
-			: virtualLaunchPosition(level, player, target, cloudHeight, seed).orElse(null);
-		if (launch == null) return Optional.empty();
-
+		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
+		final UUID id, final long seed) {
+		double cloudHeight = cloudHeight(level, target);
+		Vec3 launch = requestedLaunch == null ? virtualLaunchPosition(level, player, target, cloudHeight, seed) : requestedLaunch;
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
 		double horizontalDistance = horizontal.length();
-		if (horizontalDistance < 1.0) return Optional.empty();
+		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) return Optional.empty();
 		horizontal = horizontal.scale(1.0 / horizontalDistance);
 
 		double dimensionBuildTop = level.dimensionType().minY() + level.dimensionType().height();
@@ -74,7 +85,7 @@ public final class IcbmLaunchService {
 			launch.z + horizontal.z * burnoutHorizontal);
 		Vec3 separation = new Vec3(target.x - horizontal.x * IcbmConstants.SEPARATION_HORIZONTAL_OFFSET,
 			separationY, target.z - horizontal.z * IcbmConstants.SEPARATION_HORIZONTAL_OFFSET);
-		if (!burnout.isFinite() || !separation.isFinite()) return Optional.empty();
+		if (!validRouteCoordinate(level, burnout) || !validRouteCoordinate(level, separation)) return Optional.empty();
 
 		double preferredApexY = Math.min(absoluteFlightCeiling, Math.max(cloudHeight + 400.0,
 			Math.max(target.y + 560.0, launch.y + 520.0)));
@@ -88,7 +99,7 @@ public final class IcbmLaunchService {
 		}
 	}
 
-	private static Optional<Vec3> virtualLaunchPosition(final ServerLevel level, final ServerPlayer player,
+	private static Vec3 virtualLaunchPosition(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final double cloudHeight, final long seed) {
 		Vec3 look = horizontalLook(player);
 		Vec3 backward = look.scale(-1.0);
@@ -99,26 +110,9 @@ public final class IcbmLaunchService {
 		double side = random.nextDouble(-IcbmConstants.MAXIMUM_VIRTUAL_SIDE_OFFSET,
 			IcbmConstants.MAXIMUM_VIRTUAL_SIDE_OFFSET);
 		Vec3 xz = player.position().add(backward.scale(distance)).add(right.scale(side));
-		if (loaded(level, xz)) {
-			int x = Mth.floor(xz.x), z = Mth.floor(xz.z);
-			int surface = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-			for (int lift = 0; lift <= 64; lift += 4) {
-				Vec3 candidate = new Vec3(x + 0.5, surface + 0.25 + lift, z + 0.5);
-				if (clear(level, candidate, lift == 0)) return Optional.of(candidate);
-			}
-			return Optional.empty();
-		}
-		double safeY = Math.max(player.getY() + 64.0, Math.max(target.y + 64.0, cloudHeight + 24.0));
+		double safeY = Math.max(player.getY() + 72.0, Math.max(target.y + 72.0, cloudHeight + 32.0));
 		safeY = Mth.clamp(safeY, level.dimensionType().minY() + 32.0, 1536.0);
-		return Optional.of(new Vec3(xz.x, safeY, xz.z));
-	}
-
-	private static Optional<Vec3> closeLaunchPosition(final ServerLevel level, final ServerPlayer player) {
-		Vec3 xz = player.position().add(horizontalLook(player).scale(-IcbmConstants.FINAL_FALLBACK_LAUNCH_DISTANCE));
-		if (!loaded(level, xz)) return Optional.empty();
-		int x = Mth.floor(xz.x), z = Mth.floor(xz.z);
-		Vec3 candidate = new Vec3(x + 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) + 0.25, z + 0.5);
-		return clear(level, candidate, true) ? Optional.of(candidate) : Optional.empty();
+		return new Vec3(xz.x, safeY, xz.z);
 	}
 
 	private static Vec3 horizontalLook(final ServerPlayer player) {
@@ -136,8 +130,9 @@ public final class IcbmLaunchService {
 			double apex = calculateApexY(burnout, initial, ticks);
 			double horizontalSpeed = initial.horizontalDistance();
 			if (!initial.isFinite() || !ending.isFinite() || !Double.isFinite(apex) || apex > ceiling
-				|| ending.y > -0.30 || horizontalSpeed < 2.8 || horizontalSpeed > 6.0) continue;
-			double score = Math.abs(apex - preferredApexY) + Math.abs(horizontalSpeed - 4.4) * 20.0
+				|| ending.y > -0.30 || horizontalSpeed < 2.8 || horizontalSpeed > 48.0) continue;
+			double preferredSpeed = Math.min(28.0, Math.max(4.4, separation.subtract(burnout).horizontalDistance() / 300.0));
+			double score = Math.abs(apex - preferredApexY) + Math.abs(horizontalSpeed - preferredSpeed) * 20.0
 				+ Math.abs(ticks - 270) * 0.03;
 			if (score < bestScore) { bestScore = score; best = ticks; }
 		}
@@ -159,23 +154,24 @@ public final class IcbmLaunchService {
 		catch (RuntimeException ignored) { return level.dimensionType().minY() + 192.0; }
 	}
 
-	private static boolean clear(final ServerLevel level, final Vec3 candidate, final boolean requireGround) {
-		BlockPos base = BlockPos.containing(candidate.x, candidate.y, candidate.z);
-		if (requireGround) {
-			BlockPos ground = base.below();
-			if (level.getBlockState(ground).getCollisionShape(level, ground).isEmpty()
-				|| !level.getFluidState(ground).isEmpty()) return false;
-		}
-		for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) for (int dy = 0; dy < 7; dy++) {
-			BlockPos position = base.offset(dx, dy, dz);
-			if (!level.getBlockState(position).getCollisionShape(level, position).isEmpty()
-				|| !level.getFluidState(position).isEmpty()) return false;
-		}
-		return true;
+	private static boolean validTarget(final ServerLevel level, final Vec3 position) {
+		BlockPos block = BlockPos.containing(position);
+		return validRouteCoordinate(level, position) && !level.isOutsideBuildHeight(block) && loaded(level, position);
+	}
+
+	private static boolean validRouteCoordinate(final ServerLevel level, final Vec3 position) {
+		return position != null && position.isFinite() && Level.isInSpawnableBounds(BlockPos.containing(position))
+			&& level.getWorldBorder().isWithinBounds(position);
 	}
 
 	private static boolean loaded(final ServerLevel level, final Vec3 position) {
 		return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(position.x), SectionPos.blockToSectionCoord(position.z));
+	}
+
+	private static int terminalTicks(final IcbmFlightPlan plan) {
+		return Mth.clamp((int)Math.ceil(plan.separationPosition().distanceTo(plan.intendedTarget())
+			/ WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK), IcbmConstants.MINIMUM_TERMINAL_TICKS,
+			IcbmConstants.MAXIMUM_TERMINAL_TICKS);
 	}
 
 	private static long mix(long value) {

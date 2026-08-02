@@ -1,19 +1,22 @@
 package com.andye.warmod.icbm.client.render;
 
+import com.andye.warmod.WarMod;
 import com.andye.warmod.icbm.IcbmTrajectory;
-import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.icbm.client.ClientIcbmVisualManager;
 import com.andye.warmod.icbm.client.IcbmTrailSample;
 import com.andye.warmod.icbm.client.IcbmVisualState;
 import com.andye.warmod.icbm.client.SpentIcbmStageState;
-import com.andye.warmod.warhead.client.render.WarheadMesh;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.SharedConstants;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
@@ -23,11 +26,119 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 public final class IcbmWorldRenderer {
-	private static volatile Frame frame=Frame.EMPTY;private static boolean registered;private IcbmWorldRenderer(){}
-	public static void register(){if(registered)return;LevelExtractionEvents.END_EXTRACTION.register(IcbmWorldRenderer::extract);LevelRenderEvents.COLLECT_SUBMITS.register(IcbmWorldRenderer::render);registered=true;}
-	private static void extract(final LevelExtractionContext context){ClientLevel level=context.level();CameraRenderState camera=context.levelState().cameraRenderState;if(level==null||camera==null||camera.pos==null){frame=Frame.EMPTY;return;}Vec3 cameraPos=camera.pos;Quaternionf orientation=camera.orientation==null?new Quaternionf():new Quaternionf(camera.orientation);long time=level.getGameTime();double partial=context.deltaTracker().getGameTimeDeltaPartialTick(true);ClientIcbmVisualManager.Snapshot snapshot=ClientIcbmVisualManager.INSTANCE.snapshot(level);List<MissileFrame> missiles=new ArrayList<>();for(IcbmVisualState state:snapshot.missiles()){Vec3 pos=state.position(time,partial),velocity=state.velocity(time,partial);double distance=cameraPos.distanceTo(pos);if(!pos.isFinite()||!velocity.isFinite()||distance>IcbmConstants.VISUAL_RANGE_BLOCKS)continue;double elapsed=state.elapsed(time,partial);missiles.add(new MissileFrame(pos,velocity,IcbmTrajectory.thrustActive(state.flightPlan(),elapsed),elapsed,state.flightPlan().visualSeed(),lod(distance),light(level,pos),state.trail(time,partial)));}List<StageFrame> stages=new ArrayList<>();for(SpentIcbmStageState state:snapshot.spentStages()){Vec3 pos=state.position(time,partial);double distance=cameraPos.distanceTo(pos);if(!pos.isFinite()||distance>IcbmConstants.VISUAL_RANGE_BLOCKS)continue;stages.add(new StageFrame(pos,state.age(time,partial),state.orientationVelocity(),state.rollDrift(),state.alpha(time,partial),lod(distance),light(level,pos)));}frame=new Frame(cameraPos,orientation,List.copyOf(missiles),List.copyOf(stages));}
-	private static void render(final LevelRenderContext context){Frame f=frame;if(f==Frame.EMPTY)return;PoseStack stack=context.poseStack();if(stack==null)return;for(MissileFrame m:f.missiles()){stack.pushPose();Vec3 rel=m.position.subtract(f.camera);stack.translate(rel.x,rel.y,rel.z);stack.mulPose(rotation(m.velocity));context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.MISSILE,(p,b)->IcbmMissileMesh.render(p,b,m.lod,m.light));if(m.thrust)context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.EXHAUST,(p,b)->IcbmExhaustRenderer.render(p,b,m.seed,m.elapsed));stack.popPose();if(!m.trail.isEmpty()){stack.pushPose();stack.translate(-f.camera.x,-f.camera.y,-f.camera.z);context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.SMOKE,(p,b)->IcbmSmokeTrailRenderer.render(p,b,m.trail,m.lod,f.orientation));stack.popPose();}}
-		for(StageFrame s:f.stages()){stack.pushPose();Vec3 rel=s.position.subtract(f.camera);stack.translate(rel.x,rel.y,rel.z);stack.mulPose(rotation(s.orientationVelocity));stack.mulPose(new Quaternionf().rotateY((float)(s.age*s.rollDrift)));context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.SPENT_STAGE,(p,b)->SpentIcbmStageRenderer.render(p,b,s.lod,s.light,s.alpha));stack.popPose();}}
-	private static WarheadMesh.Lod lod(final double d){return d<192?WarheadMesh.Lod.NEAR:d<640?WarheadMesh.Lod.MEDIUM:WarheadMesh.Lod.FAR;}private static int light(final ClientLevel l,final Vec3 p){BlockPos b=BlockPos.containing(p);if(!l.hasChunkAt(b))return LightCoordsUtil.pack(5,5);int v=LightCoordsUtil.getLightCoords(l,b);return LightCoordsUtil.pack(Math.max(5,LightCoordsUtil.block(v)),Math.max(5,LightCoordsUtil.sky(v)));}private static Quaternionf rotation(final Vec3 v){Vector3f d=new Vector3f((float)v.x,(float)v.y,(float)v.z);return d.lengthSquared()<1E-8?new Quaternionf():new Quaternionf().rotationTo(new Vector3f(0,1,0),d.normalize());}
-	private record MissileFrame(Vec3 position,Vec3 velocity,boolean thrust,double elapsed,long seed,WarheadMesh.Lod lod,int light,List<IcbmTrailSample> trail){}private record StageFrame(Vec3 position,double age,Vec3 orientationVelocity,float rollDrift,float alpha,WarheadMesh.Lod lod,int light){}private record Frame(Vec3 camera,Quaternionf orientation,List<MissileFrame> missiles,List<StageFrame> stages){private static final Frame EMPTY=new Frame(Vec3.ZERO,new Quaternionf(),List.of(),List.of());}
+	private static final Set<UUID> LOGGED_LONG_RANGE = new HashSet<>();
+	private static volatile Frame frame = Frame.EMPTY;
+	private static boolean registered;
+	private IcbmWorldRenderer() { }
+
+	public static void register() {
+		if (registered) return;
+		LevelExtractionEvents.END_EXTRACTION.register(IcbmWorldRenderer::extract);
+		LevelRenderEvents.COLLECT_SUBMITS.register(IcbmWorldRenderer::render);
+		registered = true;
+	}
+
+	private static void extract(final LevelExtractionContext context) {
+		ClientLevel level = context.level();
+		CameraRenderState camera = context.levelState().cameraRenderState;
+		if (level == null || camera == null || camera.pos == null) { frame = Frame.EMPTY; return; }
+		Vec3 cameraPos = camera.pos;
+		Quaternionf orientation = camera.orientation == null ? new Quaternionf() : new Quaternionf(camera.orientation);
+		long time = level.getGameTime();
+		double partial = context.deltaTracker().getGameTimeDeltaPartialTick(true);
+		ClientIcbmVisualManager.Snapshot snapshot = ClientIcbmVisualManager.INSTANCE.snapshot(level);
+		List<MissileFrame> missiles = new ArrayList<>();
+		for (IcbmVisualState state : snapshot.missiles()) {
+			Vec3 position = state.position(time, partial);
+			Vec3 velocity = state.velocity(time, partial);
+			if (!position.isFinite() || !velocity.isFinite()) continue;
+			IcbmLongRangeRenderContext renderContext = IcbmLongRangeRenderContext.create(cameraPos, position, camera.depthFar);
+			logLongRangeOnce(state.flightPlan().missileId(), renderContext.transform());
+			double elapsed = state.elapsed(time, partial);
+			missiles.add(new MissileFrame(position, velocity, IcbmTrajectory.thrustActive(state.flightPlan(), elapsed),
+				elapsed, state.flightPlan().visualSeed(), renderContext, light(level, position), state.trail(time, partial)));
+		}
+		List<StageFrame> stages = new ArrayList<>();
+		for (SpentIcbmStageState state : snapshot.spentStages()) {
+			Vec3 position = state.position(time, partial);
+			if (!position.isFinite()) continue;
+			IcbmLongRangeRenderContext renderContext = IcbmLongRangeRenderContext.create(cameraPos, position, camera.depthFar);
+			stages.add(new StageFrame(position, state.age(time, partial), state.orientationVelocity(), state.rollDrift(),
+				state.alpha(time, partial), renderContext, light(level, position)));
+		}
+		frame = new Frame(cameraPos, orientation, List.copyOf(missiles), List.copyOf(stages));
+	}
+
+	private static void render(final LevelRenderContext context) {
+		Frame current = frame;
+		if (current == Frame.EMPTY) return;
+		PoseStack stack = context.poseStack();
+		if (stack == null) return;
+		for (MissileFrame missile : current.missiles()) {
+			IcbmLongRangeTransform transform = missile.renderContext().transform();
+			stack.pushPose();
+			Vec3 relative = transform.renderedCenter().subtract(current.camera());
+			stack.translate(relative.x, relative.y, relative.z);
+			stack.mulPose(rotation(missile.velocity()));
+			float compression = (float)transform.compression();
+			stack.scale(compression, compression, compression);
+			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.MISSILE,
+				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.renderContext().lod(), missile.light()));
+			if (missile.thrust()) context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST,
+				(pose, buffer) -> IcbmExhaustRenderer.render(pose, buffer, missile.seed(), missile.elapsed(), missile.renderContext().lod()));
+			stack.popPose();
+			if (!missile.trail().isEmpty()) {
+				stack.pushPose();
+				stack.translate(-current.camera().x, -current.camera().y, -current.camera().z);
+				context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.SMOKE,
+					(pose, buffer) -> IcbmSmokeTrailRenderer.render(pose, buffer, missile.trail(),
+						missile.renderContext(), current.orientation()));
+				stack.popPose();
+			}
+		}
+		for (StageFrame stage : current.stages()) {
+			IcbmLongRangeTransform transform = stage.renderContext().transform();
+			stack.pushPose();
+			Vec3 relative = transform.renderedCenter().subtract(current.camera());
+			stack.translate(relative.x, relative.y, relative.z);
+			stack.mulPose(rotation(stage.orientationVelocity()));
+			stack.mulPose(new Quaternionf().rotateY((float)(stage.age() * stage.rollDrift())));
+			float compression = (float)transform.compression();
+			stack.scale(compression, compression, compression);
+			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.SPENT_STAGE,
+				(pose, buffer) -> SpentIcbmStageRenderer.render(pose, buffer, stage.renderContext().lod(),
+					stage.light(), stage.alpha()));
+			stack.popPose();
+		}
+	}
+
+	private static void logLongRangeOnce(final UUID id, final IcbmLongRangeTransform transform) {
+		if (!transform.compressed() || !SharedConstants.IS_RUNNING_IN_IDE) return;
+		synchronized (LOGGED_LONG_RANGE) {
+			if (!LOGGED_LONG_RANGE.add(id)) return;
+		}
+		WarMod.LOGGER.info("ICBM {} long-range render active: actualDistance={}, transformedDistance={}, mode=compressed",
+			id, transform.actualDistance(), transform.renderedDistance());
+	}
+
+	private static int light(final ClientLevel level, final Vec3 position) {
+		BlockPos block = BlockPos.containing(position);
+		if (!level.hasChunkAt(block)) return LightCoordsUtil.pack(5, 5);
+		int light = LightCoordsUtil.getLightCoords(level, block);
+		return LightCoordsUtil.pack(Math.max(5, LightCoordsUtil.block(light)), Math.max(5, LightCoordsUtil.sky(light)));
+	}
+
+	private static Quaternionf rotation(final Vec3 velocity) {
+		Vector3f direction = new Vector3f((float)velocity.x, (float)velocity.y, (float)velocity.z);
+		return direction.lengthSquared() < 1.0E-8F ? new Quaternionf()
+			: new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), direction.normalize());
+	}
+
+	private record MissileFrame(Vec3 position, Vec3 velocity, boolean thrust, double elapsed, long seed,
+		IcbmLongRangeRenderContext renderContext, int light, List<IcbmTrailSample> trail) { }
+	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity, float rollDrift, float alpha,
+		IcbmLongRangeRenderContext renderContext, int light) { }
+	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles, List<StageFrame> stages) {
+		private static final Frame EMPTY = new Frame(Vec3.ZERO, new Quaternionf(), List.of(), List.of());
+	}
 }

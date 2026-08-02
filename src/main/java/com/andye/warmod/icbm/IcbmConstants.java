@@ -9,9 +9,8 @@ public final class IcbmConstants {
 	public static final int MAXIMUM_TERMINAL_TICKS = 140;
 	public static final double COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED = 0.016;
 	public static final double MINIMUM_VIRTUAL_LAUNCH_DISTANCE = 500.0;
-	public static final double MAXIMUM_VIRTUAL_LAUNCH_DISTANCE = 580.0;
-	public static final double MAXIMUM_VIRTUAL_SIDE_OFFSET = 18.0;
-	public static final double FINAL_FALLBACK_LAUNCH_DISTANCE = 12.0;
+	public static final double MAXIMUM_VIRTUAL_LAUNCH_DISTANCE = 560.0;
+	public static final double MAXIMUM_VIRTUAL_SIDE_OFFSET = 16.0;
 	public static final double MINIMUM_BURNOUT_HEIGHT_ABOVE_LAUNCH = 300.0;
 	public static final double PREFERRED_BURNOUT_HEIGHT_ABOVE_LAUNCH = 360.0;
 	public static final double MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET = 300.0;
@@ -21,6 +20,11 @@ public final class IcbmConstants {
 	public static final int MAX_ACTIVE_SPENT_STAGES = 48;
 	public static final int SPENT_STAGE_MINIMUM_LIFETIME_TICKS = 50;
 	public static final int SPENT_STAGE_MAXIMUM_LIFETIME_TICKS = 90;
-	public static final double VISUAL_RANGE_BLOCKS = 2048.0;
+	public static final double CARRIER_VISUAL_RANGE_BLOCKS = 8192.0;
+	public static final double MAXIMUM_COMMAND_ROUTE_LENGTH = 32768.0;
+	public static final int CARRIER_CHUNK_RADIUS = 1;
+	public static final int TARGET_CHUNK_RADIUS = 2;
+	public static final int TERMINAL_TICKET_LEAD_TICKS = 80;
+	public static final int TERMINAL_TICKET_TAIL_TICKS = 120;
 	private IcbmConstants() { }
 }

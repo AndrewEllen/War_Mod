@@ -1,6 +1,7 @@
 package com.andye.warmod.icbm.network;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.icbm.IcbmFlightPlan;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import java.util.UUID;
@@ -24,6 +25,6 @@ public record ClientboundIcbmLaunchPayload(UUID missileId, Vec3 launchPosition, 
 		ByteBufCodecs.VAR_INT,ClientboundIcbmLaunchPayload::coastTicks,ByteBufCodecs.LONG,ClientboundIcbmLaunchPayload::visualSeed,
 		WarheadPayloadType.STREAM_CODEC,ClientboundIcbmLaunchPayload::payloadType,ClientboundIcbmLaunchPayload::new);
 	public static ClientboundIcbmLaunchPayload fromPlan(final IcbmFlightPlan p){return new ClientboundIcbmLaunchPayload(p.missileId(),p.launchPosition(),p.burnoutPosition(),p.separationPosition(),p.intendedTarget(),p.launchGameTime(),p.ignitionTicks(),p.boostTicks(),p.coastTicks(),p.visualSeed(),p.payloadType());}
-	public boolean isWellFormed(){return missileId!=null&&payloadType!=null&&launchPosition!=null&&burnoutPosition!=null&&separationPosition!=null&&intendedTarget!=null&&launchPosition.isFinite()&&burnoutPosition.isFinite()&&separationPosition.isFinite()&&intendedTarget.isFinite()&&ignitionTicks>0&&boostTicks>0&&coastTicks>=70&&coastTicks<=180;}
+	public boolean isWellFormed(){return missileId!=null&&payloadType!=null&&launchPosition!=null&&burnoutPosition!=null&&separationPosition!=null&&intendedTarget!=null&&launchPosition.isFinite()&&burnoutPosition.isFinite()&&separationPosition.isFinite()&&intendedTarget.isFinite()&&ignitionTicks>0&&boostTicks>0&&coastTicks>=IcbmConstants.MINIMUM_COAST_TICKS&&coastTicks<=IcbmConstants.MAXIMUM_COAST_TICKS;}
 	@Override public Type<? extends CustomPacketPayload> type(){return TYPE;}
 }
