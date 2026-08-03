@@ -4,6 +4,8 @@ import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -47,7 +49,9 @@ public final class ClientWarheadVisualManager {
 		this.activeImpacts.put(payload.warheadId(), ImpactVisualState.fromPayload(payload));
 	}
 
-	public synchronized void acceptRemove(final ClientboundWarheadRemovePayload payload) {
+	public synchronized void acceptTimingCorrection(final ClientboundWarheadTimingCorrectionPayload payload) { if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return; WarheadVisualState state = this.activeWarheads.get(payload.warheadId()); if (state != null) state.applyTimingCorrection(payload); }
+
+public synchronized void acceptRemove(final ClientboundWarheadRemovePayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) {
 			return;
 		}

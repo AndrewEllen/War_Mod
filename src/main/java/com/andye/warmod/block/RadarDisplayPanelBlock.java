@@ -189,11 +189,11 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
         } else {
             player.sendSystemMessage(Component.literal(
                 "Radar display "
-                    + display.size()
+                    + display.width()+"x"+display.height()
                     + "x"
-                    + display.size()
+                    + display.width()+"x"+display.height()
                     + " | Range "
-                    + RadarDisplayConstants.radius(display.size())
+                    + RadarDisplayConstants.horizontalRadius(display.width())
                     + " | Station "
                     + station
             ));

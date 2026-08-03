@@ -1,0 +1,3 @@
+package com.andye.warmod.icbm;
+import net.minecraft.world.phys.Vec3;
+public final class IcbmRouteRules { private IcbmRouteRules(){} public static double horizontalDistance(Vec3 first,Vec3 second){if(first==null||second==null||!first.isFinite()||!second.isFinite())return Double.NaN;return Math.hypot(second.x-first.x,second.z-first.z);} public static boolean strategicRangeValid(Vec3 launch,Vec3 target){double distance=horizontalDistance(launch,target);return Double.isFinite(distance)&&distance>=1.0&&distance<=IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS+.001;} }

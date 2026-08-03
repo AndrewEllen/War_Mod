@@ -63,7 +63,7 @@ public final class IcbmLaunchService {
 		if (!validRouteCoordinate(level, launch)) return Optional.empty();
 		double horizontalDistance = launch.subtract(target).horizontalDistance();
 		if (!Double.isFinite(horizontalDistance) || horizontalDistance < 1.0
-			|| horizontalDistance > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) return Optional.empty();
+			|| horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
 		return Optional.of(new PreparedCommandLaunch(requestId, launch, seed));
 	}
 
@@ -72,7 +72,7 @@ public final class IcbmLaunchService {
 			|| !validTargetCoordinate(level, request.target()) || !validRouteCoordinate(level, request.launchPosition())) return false;
 		double horizontalDistance = request.launchPosition().subtract(request.target()).horizontalDistance();
 		return Double.isFinite(horizontalDistance) && horizontalDistance >= 1.0
-			&& horizontalDistance <= IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH;
+			&& horizontalDistance <= IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS;
 	}
 
 	public static Optional<LaunchResult> completePendingCommandLaunch(final ServerLevel level, final ServerPlayer player,
@@ -110,7 +110,7 @@ public final class IcbmLaunchService {
 			|| !validTargetCoordinate(level, intendedTarget)) return Optional.empty();
 		double horizontalDistance = launchPosition.subtract(intendedTarget).horizontalDistance();
 		if (!Double.isFinite(horizontalDistance) || horizontalDistance < 1.0
-			|| horizontalDistance > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) return Optional.empty();
+			|| horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
 		UUID missileId = UUID.randomUUID();
 		long seed = mix(missileId.getMostSignificantBits() ^ Long.rotateLeft(missileId.getLeastSignificantBits(), 17)
 			^ payloadType.ordinal());
@@ -126,7 +126,7 @@ public final class IcbmLaunchService {
 		double cloudHeight = cloudHeight(level, launch);
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
 		double horizontalDistance = horizontal.length();
-		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) return Optional.empty();
+		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
 		horizontal = horizontal.scale(1.0 / horizontalDistance);
 		double buildTop = level.dimensionType().minY() + level.dimensionType().height();
 		double ceiling = Math.min(2048.0, Math.max(buildTop + 768.0,
@@ -164,7 +164,7 @@ public final class IcbmLaunchService {
 		if (!validRouteCoordinate(level, launch)) return Optional.empty();
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
 		double horizontalDistance = horizontal.length();
-		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) return Optional.empty();
+		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
 		horizontal = horizontal.scale(1.0 / horizontalDistance);
 
 		double dimensionBuildTop = level.dimensionType().minY() + level.dimensionType().height();
@@ -229,24 +229,7 @@ public final class IcbmLaunchService {
 		return look.lengthSqr() < 1.0E-8 ? new Vec3(0.0, 0.0, 1.0) : look.normalize();
 	}
 
-	private static int chooseCoastTicks(final Vec3 burnout, final Vec3 separation, final double preferredApexY,
-		final double ceiling, final double minimumHorizontalSpeed) {
-		int best = -1;
-		double bestScore = Double.POSITIVE_INFINITY;
-		for (int ticks = IcbmConstants.MINIMUM_COAST_TICKS; ticks <= IcbmConstants.MAXIMUM_COAST_TICKS; ticks++) {
-			Vec3 initial = coastInitialVelocity(burnout, separation, ticks);
-			Vec3 ending = initial.add(0.0, -IcbmConstants.COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED * ticks, 0.0);
-			double apex = calculateApexY(burnout, initial, ticks);
-			double horizontalSpeed = initial.horizontalDistance();
-			if (!initial.isFinite() || !ending.isFinite() || !Double.isFinite(apex) || apex > ceiling
-				|| ending.y > -0.30 || horizontalSpeed < minimumHorizontalSpeed || horizontalSpeed > 48.0) continue;
-			double preferredSpeed = Math.min(28.0, Math.max(4.4, separation.subtract(burnout).horizontalDistance() / 300.0));
-			double score = Math.abs(apex - preferredApexY) + Math.abs(horizontalSpeed - preferredSpeed) * 20.0
-				+ Math.abs(ticks - 270) * 0.03;
-			if (score < bestScore) { bestScore = score; best = ticks; }
-		}
-		return best;
-	}
+	private static int chooseCoastTicks(final Vec3 burnout, final Vec3 separation, final double preferredApexY, final double ceiling, final double horizontalDistance) { return IcbmTrajectory.requiredCoastTicks(burnout, separation); }
 
 	private static Vec3 coastInitialVelocity(final Vec3 burnout, final Vec3 separation, final int ticks) {
 		Vec3 gravity = new Vec3(0.0, -IcbmConstants.COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED, 0.0);
@@ -266,7 +249,7 @@ public final class IcbmLaunchService {
 	public static Optional<IcbmFlightPlan> retargetFromBurnout(final ServerLevel level,
 		final IcbmFlightPlan original, final Vec3 resolvedTarget) {
 		if (!validBoostGeometry(original) || !validTargetCoordinate(level, resolvedTarget)
-			|| original.launchPosition().distanceTo(resolvedTarget) > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH)
+			|| original.launchPosition().distanceTo(resolvedTarget) > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS)
 			return Optional.empty();
 		Vec3 horizontal = new Vec3(resolvedTarget.x - original.burnoutPosition().x, 0.0,
 			resolvedTarget.z - original.burnoutPosition().z);

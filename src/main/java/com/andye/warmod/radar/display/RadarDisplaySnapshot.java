@@ -13,8 +13,10 @@ public record RadarDisplaySnapshot(
     Identifier dimension,
     BlockPos controller,
     Direction facing,
-    int size,
-    int displayRadius,
+    int width,
+    int height,
+    double horizontalRadius,
+    double verticalRadius,
     boolean structureValid,
     boolean online,
     RadarDisplayOfflineReason offlineReason,
@@ -45,14 +47,8 @@ public record RadarDisplaySnapshot(
             throw new IllegalArgumentException("Invalid display facing");
         }
 
-        if (size < 0 || size > RadarDisplayConstants.MAX_SIZE) {
-            throw new IllegalArgumentException("Invalid display size");
-        }
-
-        if (displayRadius < 0
-            || displayRadius > RadarDisplayConstants.MAX_SIZE * 500) {
-            throw new IllegalArgumentException("Invalid display radius");
-        }
+        if (width < 0 || width > RadarDisplayConstants.MAX_WIDTH) { throw new IllegalArgumentException("Invalid display width: " + width); }
+        if (height < 0 || height > RadarDisplayConstants.MAX_HEIGHT) { throw new IllegalArgumentException("Invalid display height: " + height); }
 
         redstoneSignal = Math.max(0, Math.min(15, redstoneSignal));
 

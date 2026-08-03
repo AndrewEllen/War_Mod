@@ -4,6 +4,8 @@ import com.andye.warmod.warhead.client.audio.ClientTerminalAudioManager;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -22,7 +24,8 @@ public final class ClientWarheadNetworking {
 			ClientWarheadVisualManager.INSTANCE.acceptImpact(payload);
 			ClientTerminalAudioManager.INSTANCE.acceptImpact(payload.warheadId());
 		});
-		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadRemovePayload.TYPE, (payload, context) -> {
+		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadTimingCorrectionPayload.TYPE, (payload, context) -> ClientWarheadVisualManager.INSTANCE.acceptTimingCorrection(payload));
+ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadRemovePayload.TYPE, (payload, context) -> {
 			ClientWarheadVisualManager.INSTANCE.acceptRemove(payload);
 			ClientTerminalAudioManager.INSTANCE.acceptRemoval(payload.warheadId());
 		});

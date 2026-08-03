@@ -43,8 +43,10 @@ public record ClientboundRadarDisplayStatePayload(
         buffer.writeIdentifier(snapshot.dimension());
         buffer.writeBlockPos(snapshot.controller());
         buffer.writeVarInt(snapshot.facing().get3DDataValue());
-        buffer.writeVarInt(snapshot.size());
-        buffer.writeVarInt(snapshot.displayRadius());
+        buffer.writeVarInt(snapshot.width());
+        buffer.writeVarInt(snapshot.height());
+        buffer.writeDouble(snapshot.horizontalRadius());
+        buffer.writeDouble(snapshot.verticalRadius());
         buffer.writeBoolean(snapshot.structureValid());
         buffer.writeBoolean(snapshot.online());
         buffer.writeVarInt(snapshot.offlineReason().ordinal());
@@ -115,8 +117,10 @@ public record ClientboundRadarDisplayStatePayload(
             );
         }
 
-        int size = buffer.readVarInt();
-        int displayRadius = buffer.readVarInt();
+        int width = buffer.readVarInt();
+        int height = buffer.readVarInt();
+        double horizontalRadius = buffer.readDouble();
+        double verticalRadius = buffer.readDouble();
         boolean structureValid = buffer.readBoolean();
         boolean online = buffer.readBoolean();
 
@@ -171,8 +175,10 @@ public record ClientboundRadarDisplayStatePayload(
                 dimension,
                 controller,
                 facing,
-                size,
-                displayRadius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 structureValid,
                 online,
                 reason,

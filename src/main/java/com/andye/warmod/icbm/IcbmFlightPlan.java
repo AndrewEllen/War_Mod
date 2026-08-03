@@ -16,9 +16,7 @@ public record IcbmFlightPlan(UUID missileId, UUID ownerPlayerId, Vec3 launchPosi
             || launchGameTime < 0 || ignitionTicks < 1 || ignitionTicks > 20 || boostTicks < 1 || boostTicks > 200
             || coastTicks < IcbmConstants.MINIMUM_COAST_TICKS || coastTicks > IcbmConstants.MAXIMUM_COAST_TICKS
             || boostHorizontal > IcbmConstants.MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS
-            || burnoutPosition.y <= launchPosition.y || launchPosition.distanceTo(intendedTarget) > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH
-            || launchPosition.distanceTo(burnoutPosition) > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH
-            || burnoutPosition.distanceTo(separationPosition) > IcbmConstants.MAXIMUM_COMMAND_ROUTE_LENGTH) {
+            || burnoutPosition.y <= launchPosition.y || !IcbmRouteRules.strategicRangeValid(launchPosition, intendedTarget)) {
             throw new IllegalArgumentException("Invalid ICBM flight plan");
         }
     }

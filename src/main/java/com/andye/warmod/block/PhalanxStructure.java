@@ -27,7 +27,14 @@ public final class PhalanxStructure {
     }
     public static BlockPos controller(final BlockPos position, final BlockState state) {
         if (!state.is(ModBlocks.PHALANX_TURRET)) return position;
-        return state.getValue(PhalanxTurretBlock.PART) == PhalanxPart.TOP_00 ? position.below() : position;
+        return state.getValue(PhalanxTurretBlock.PART).controller(position);
+    }
+    private static boolean hasLegacyParts(final ServerLevel level, final BlockPos controller) {
+        for (PhalanxPart part : PhalanxPart.values()) {
+            if (part == PhalanxPart.BASE_00 || part == PhalanxPart.TOP_00) continue;
+            if (level.getBlockState(controller.offset(part.offset())).is(ModBlocks.PHALANX_TURRET)) return true;
+        }
+        return false;
     }
     public static void teardown(final ServerLevel level, final BlockPos anyPosition, final BlockState state, final boolean drops) {
         if (!state.is(ModBlocks.PHALANX_TURRET) || PhalanxStructureAssembly.contains(level, anyPosition)) return;
@@ -41,7 +48,8 @@ public final class PhalanxStructure {
                 Block.popResource(level, controller, new ItemStack(ModItems.PHALANX_TURRET));
                 if (blockEntity != null) for (int slot = 0; slot < 2; slot++) { ItemStack ammunition = blockEntity.removeItemNoUpdate(slot); if (!ammunition.isEmpty()) Block.popResource(level, controller, ammunition); }
             }
-            for (PhalanxPart part : PhalanxPart.compactStructure()) { BlockPos position = controller.offset(part.offset()); if (level.getBlockState(position).is(ModBlocks.PHALANX_TURRET)) level.setBlock(position, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL); }
+            Iterable<PhalanxPart> removalParts = hasLegacyParts(level, controller) ? java.util.List.of(PhalanxPart.values()) : PhalanxPart.compactStructure();
+            for (PhalanxPart part : removalParts) { BlockPos position = controller.offset(part.offset()); if (level.getBlockState(position).is(ModBlocks.PHALANX_TURRET)) level.setBlock(position, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL); }
         } finally { if (blockEntity != null) blockEntity.setTeardown(false); }
     }
 }

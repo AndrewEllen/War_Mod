@@ -52,11 +52,16 @@ public final class IcbmTrajectory {
         return p1.subtract(p0).scale(3 * (1 - u) * (1 - u)).add(p2.subtract(p1).scale(6 * (1 - u) * u))
             .add(p3.subtract(p2).scale(3 * u * u)).scale(1.0 / plan.coastTicks());
     }
-    private static Vec3 coastControlOne(IcbmFlightPlan plan) { return plan.burnoutPosition().add(0, IcbmConstants.BOOST_ASCENT_CONTROL_DISTANCE, 0); }
+    private static Vec3 coastControlOne(IcbmFlightPlan plan) { return coastControlOne(plan.burnoutPosition()); }
+    private static Vec3 coastControlOne(Vec3 burnout) { return burnout.add(0, IcbmConstants.BOOST_ASCENT_CONTROL_DISTANCE, 0); }
     private static Vec3 coastControlTwo(IcbmFlightPlan plan) {
         Vec3 delta = plan.separationPosition().subtract(plan.burnoutPosition()); Vec3 horizontal = new Vec3(delta.x, 0, delta.z);
         Vec3 approach = horizontal.lengthSqr() < 1.0E-8 ? Vec3.ZERO : horizontal.normalize().scale(
             Math.min(IcbmConstants.COAST_APPROACH_CONTROL_DISTANCE, horizontal.length() * .20));
         return plan.separationPosition().subtract(approach).add(0, IcbmConstants.COAST_TERMINAL_CONTROL_HEIGHT, 0);
     }
-}
+    private static Vec3 coastDerivativePerUnit(final Vec3 burnout, final Vec3 separation, final double rawU) { double u=Mth.clamp(rawU,0.0,1.0),inverse=1-u; Vec3 p0=burnout,p1=coastControlOne(burnout),p2=coastControlTwo(burnout,separation),p3=separation; return p1.subtract(p0).scale(3*inverse*inverse).add(p2.subtract(p1).scale(6*inverse*u)).add(p3.subtract(p2).scale(3*u*u)); }
+    private static Vec3 coastControlTwo(final Vec3 burnout, final Vec3 separation) { Vec3 delta=separation.subtract(burnout),horizontal=new Vec3(delta.x,0,delta.z); Vec3 approach=horizontal.lengthSqr()<1E-8?Vec3.ZERO:horizontal.normalize().scale(Math.min(IcbmConstants.COAST_APPROACH_CONTROL_DISTANCE,horizontal.length()*.20)); return separation.subtract(approach).add(0,IcbmConstants.COAST_TERMINAL_CONTROL_HEIGHT,0); }
+    public static double estimatedPeakCoastDerivative(Vec3 burnout,Vec3 separation){double maximum=0;for(int i=0;i<=4096;i++)maximum=Math.max(maximum,coastDerivativePerUnit(burnout,separation,i/4096.0).length());return maximum*1.005;}
+    public static int requiredCoastTicks(Vec3 burnout,Vec3 separation){double peak=estimatedPeakCoastDerivative(burnout,separation);if(!Double.isFinite(peak))return -1;int ticks=Math.max(IcbmConstants.MINIMUM_COAST_TICKS,Math.max((int)Math.ceil(peak/IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK),(int)Math.ceil(peak/IcbmConstants.PREFERRED_CARRIER_SPEED_BLOCKS_PER_TICK)));if(ticks>IcbmConstants.MAXIMUM_COAST_TICKS)return -1;while(peak/ticks>IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK&&ticks<IcbmConstants.MAXIMUM_COAST_TICKS)ticks++;return peak/ticks<=IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK+.001?ticks:-1;}
+    public static double estimatedPeakCoastSpeed(IcbmFlightPlan plan){return estimatedPeakCoastDerivative(plan.burnoutPosition(),plan.separationPosition())/plan.coastTicks();}}

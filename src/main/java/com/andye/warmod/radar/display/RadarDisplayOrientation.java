@@ -1,0 +1,3 @@
+package com.andye.warmod.radar.display;
+import net.minecraft.core.Direction;
+public final class RadarDisplayOrientation { private RadarDisplayOrientation() { } public static Direction screenRight(final Direction facing) { if(!facing.getAxis().isHorizontal()) throw new IllegalArgumentException("Radar display facing must be horizontal"); return facing.getCounterClockWise(); } public static Direction screenLeft(final Direction facing) { return screenRight(facing).getOpposite(); } }

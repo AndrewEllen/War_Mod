@@ -1,6 +1,11 @@
 package com.andye.warmod.radar.display.network;
 
+import com.andye.warmod.block.RadarDisplayPanelBlock;
 import com.andye.warmod.block.entity.RadarDisplayPanelBlockEntity;
+import com.andye.warmod.radar.display.RadarDisplayOrientation;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import net.minecraft.core.Direction;
 import com.andye.warmod.radar.display.RadarDisplaySnapshot;
 import com.andye.warmod.radar.display.RadarDisplayStateService;
 import java.util.UUID;
@@ -50,12 +55,17 @@ public final class RadarDisplayNetworking {
         ClientboundRadarDisplayStatePayload payload =
             new ClientboundRadarDisplayStatePayload(snapshot);
 
-        for (ServerPlayer player
-            : PlayerLookup.tracking(level, display.getBlockPos())) {
+        for (ServerPlayer player : recipients(level, display)) {
             ServerPlayNetworking.send(player, payload);
         }
     }
 
+    private static Set<ServerPlayer> recipients(final ServerLevel level, final RadarDisplayPanelBlockEntity display) {
+        LinkedHashSet<ServerPlayer> players = new LinkedHashSet<>();
+        Direction right = RadarDisplayOrientation.screenRight(display.getBlockState().getValue(RadarDisplayPanelBlock.FACING));
+        for (int y = 0; y < display.height(); y++) for (int x = 0; x < display.width(); x++) players.addAll(PlayerLookup.tracking(level, display.controller().relative(right, x).above(y)));
+        return players;
+    }
     public static void clear(
         final ServerLevel level,
         final BlockPos controller,

@@ -54,4 +54,6 @@ public final class IcbmChunkTicketRegistry {
 		for (int x = center.x() - radius; x <= center.x() + radius; x++)
 			for (int z = center.z() - radius; z <= center.z() + radius; z++) positions.add(new ChunkPos(x, z));
 	}
-}
+
+	public static boolean allLoaded(final ServerLevel level, final Set<ChunkPos> chunks) { for (ChunkPos chunk : chunks) if (!level.getChunkSource().hasChunk(chunk.x(), chunk.z())) return false; return true; }
+	public static void addSegmentWindow(final Set<ChunkPos> output, final Vec3 from, final Vec3 to, final int radius, final double spacing) { if(output==null||from==null||to==null||!from.isFinite()||!to.isFinite()||radius<0||!Double.isFinite(spacing)||spacing<=0)throw new IllegalArgumentException("Invalid rolling ticket segment");double dx=to.x-from.x,dz=to.z-from.z;int steps=Math.max(1,(int)Math.ceil(Math.max(Math.abs(dx),Math.abs(dz))/spacing));for(int index=0;index<=steps;index++){double fraction=index/(double)steps;addWindow(output,chunk(new Vec3(from.x+dx*fraction,from.y,from.z+dz*fraction)),radius);} }}

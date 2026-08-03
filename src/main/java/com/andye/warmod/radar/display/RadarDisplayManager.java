@@ -81,7 +81,10 @@ public final class RadarDisplayManager {
                 display.configure(
                     displayId,
                     structure.controller(),
-                    structure.size(),
+                    structure.width(),
+                    structure.height(),
+                    structure.tileX(position),
+                    structure.tileY(position),
                     structure.valid(),
                     commonLink
                 );
@@ -128,7 +131,7 @@ public final class RadarDisplayManager {
         final BlockPos removed,
         final Direction facing
     ) {
-        Direction horizontal = facing.getClockWise();
+        Direction horizontal = RadarDisplayOrientation.screenRight(facing);
 
         LinkedHashSet<BlockPos> candidates =
             new LinkedHashSet<>(List.of(

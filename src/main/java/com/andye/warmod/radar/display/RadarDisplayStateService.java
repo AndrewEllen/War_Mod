@@ -41,8 +41,10 @@ public final class RadarDisplayStateService {
         Direction facing = display.getBlockState()
             .getValue(RadarDisplayPanelBlock.FACING);
 
-        int size = display.size();
-        int radius = display.radius();
+        int width = display.width();
+        int height = display.height();
+        double horizontalRadius = display.horizontalRadius();
+        double verticalRadius = display.verticalRadius();
 
         if (!display.valid() || !display.controllerPanel()) {
             return offline(
@@ -50,8 +52,10 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 false,
                 RadarDisplayOfflineReason.INVALID_STRUCTURE
             );
@@ -65,8 +69,10 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 true,
                 RadarDisplayOfflineReason.UNLINKED
             );
@@ -78,8 +84,10 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 true,
                 RadarDisplayOfflineReason.WRONG_DIMENSION
             );
@@ -97,8 +105,10 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 true,
                 RadarDisplayOfflineReason.OUT_OF_LINK_RANGE
             );
@@ -111,8 +121,10 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 true,
                 RadarDisplayOfflineReason.STATION_MISSING
             );
@@ -124,8 +136,10 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 true,
                 RadarDisplayOfflineReason.STATION_REPLACED
             );
@@ -141,15 +155,17 @@ public final class RadarDisplayStateService {
                 displayId,
                 display.controller(),
                 facing,
-                size,
-                radius,
+                width,
+                height,
+                horizontalRadius,
+                verticalRadius,
                 true,
                 RadarDisplayOfflineReason.STATION_STRUCTURE_INVALID
             );
         }
 
         Vec3 radarCentre = Vec3.atCenterOf(station.getBlockPos());
-        double radiusSquared = radius * (double)radius;
+
 
         List<RadarStationObservation> observations = new ArrayList<>();
 
@@ -157,7 +173,8 @@ public final class RadarDisplayStateService {
             if (!touchesViewport(
                 observation,
                 radarCentre,
-                radiusSquared
+                horizontalRadius,
+                verticalRadius
             )) {
                 continue;
             }
@@ -175,8 +192,10 @@ public final class RadarDisplayStateService {
             level.dimension().identifier(),
             display.controller(),
             facing,
-            size,
-            radius,
+            width,
+            height,
+            horizontalRadius,
+            verticalRadius,
             true,
             true,
             RadarDisplayOfflineReason.NONE,
@@ -197,8 +216,10 @@ public final class RadarDisplayStateService {
         final UUID displayId,
         final BlockPos controller,
         final Direction facing,
-        final int size,
-        final int radius,
+        final int width,
+        final int height,
+        final double horizontalRadius,
+        final double verticalRadius,
         final boolean structureValid,
         final RadarDisplayOfflineReason reason
     ) {
@@ -207,8 +228,10 @@ public final class RadarDisplayStateService {
             level.dimension().identifier(),
             controller,
             facing,
-            Math.max(0, size),
-            Math.max(0, radius),
+            Math.max(0, width),
+            Math.max(0, height),
+            Math.max(0.0, horizontalRadius),
+            Math.max(0.0, verticalRadius),
             structureValid,
             false,
             reason,
@@ -227,13 +250,15 @@ public final class RadarDisplayStateService {
     private static boolean touchesViewport(
         final RadarStationObservation observation,
         final Vec3 centre,
-        final double radiusSquared
+        final double horizontalRadius,
+        final double verticalRadius
     ) {
-        if (inside(observation.observedPosition(), centre, radiusSquared)
-            || inside(
+        if (insideViewport(observation.observedPosition(), centre, horizontalRadius, verticalRadius)
+            || insideViewport(
                 observation.predictedImpactPosition(),
                 centre,
-                radiusSquared
+                horizontalRadius,
+                verticalRadius
             )) {
             return true;
         }
@@ -244,25 +269,27 @@ public final class RadarDisplayStateService {
             RadarCarrierPlanSnapshot carrier =
                 snapshot.carrierPlan().get();
 
-            if (inside(carrier.launchPosition(), centre, radiusSquared)
-                || inside(carrier.burnoutPosition(), centre, radiusSquared)
-                || inside(
+            if (insideViewport(carrier.launchPosition(), centre, horizontalRadius, verticalRadius)
+                || insideViewport(carrier.burnoutPosition(), centre, horizontalRadius, verticalRadius)
+                || insideViewport(
                     carrier.separationPosition(),
                     centre,
-                    radiusSquared
+                    horizontalRadius,
+                verticalRadius
                 )
-                || inside(carrier.intendedTarget(), centre, radiusSquared)) {
+                || insideViewport(carrier.intendedTarget(), centre, horizontalRadius, verticalRadius)) {
                 return true;
             }
         }
 
         for (RadarTerminalPlanSnapshot terminal
             : snapshot.terminalPlans()) {
-            if (inside(terminal.startPosition(), centre, radiusSquared)
-                || inside(
+            if (insideViewport(terminal.startPosition(), centre, horizontalRadius, verticalRadius)
+                || insideViewport(
                     terminal.targetPosition(),
                     centre,
-                    radiusSquared
+                    horizontalRadius,
+                verticalRadius
                 )) {
                 return true;
             }
@@ -272,20 +299,23 @@ public final class RadarDisplayStateService {
             RadarInterceptorPlanSnapshot interceptor =
                 snapshot.interceptorPlan().get();
 
-            if (inside(
+            if (insideViewport(
                     interceptor.launchPosition(),
                     centre,
-                    radiusSquared
+                    horizontalRadius,
+                verticalRadius
                 )
-                || inside(
+                || insideViewport(
                     interceptor.burnoutPosition(),
                     centre,
-                    radiusSquared
+                    horizontalRadius,
+                verticalRadius
                 )
-                || interceptor.route().map(route -> inside(
+                || interceptor.route().map(route -> insideViewport(
                     route.resolvedInterceptPosition(),
                     centre,
-                    radiusSquared
+                    horizontalRadius,
+                verticalRadius
                 )).orElse(false)) {
                 return true;
             }
@@ -294,14 +324,5 @@ public final class RadarDisplayStateService {
         return false;
     }
 
-    private static boolean inside(
-        final Vec3 point,
-        final Vec3 centre,
-        final double radiusSquared
-    ) {
-        double deltaX = point.x - centre.x;
-        double deltaZ = point.z - centre.z;
-
-        return deltaX * deltaX + deltaZ * deltaZ <= radiusSquared;
-    }
+    private static boolean insideViewport(final Vec3 point, final Vec3 centre, final double horizontalRadius, final double verticalRadius) { return Math.abs(point.x - centre.x) <= horizontalRadius && Math.abs(point.z - centre.z) <= verticalRadius; }
 }
