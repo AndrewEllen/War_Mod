@@ -1,2 +1,380 @@
-package com.andye.warmod.radar.display.client;import com.mojang.blaze3d.vertex.*;import net.minecraft.core.Direction;
-public final class RadarDisplayPrimitiveBuilder{private RadarDisplayPrimitiveBuilder(){}public static void render(PoseStack.Pose p,VertexConsumer b,int size,Direction facing,boolean online,double sweep){float z=.505F;for(int y=0;y<size;y++)for(int x=0;x<size;x++)quad(p,b,x+.04F,y+.04F,z,x+.96F,y+.04F,z,x+.96F,y+.96F,z,x+.04F,y+.96F,z,online?12:7,online?31:10,online?27:12,255);if(!online)return;for(int i=0;i<=size;i++){float v=i;line(p,b,0,v,z+.002F,size,v,z+.002F,30,83,64,100);line(p,b,v,0,z+.002F,v,size,z+.002F,30,83,64,100);}float cx=size*.5F,cy=size*.5F,r=size*.48F;line(p,b,cx,cy,z+.006F,cx+(float)Math.cos(sweep)*r,cy+(float)Math.sin(sweep)*r,z+.006F,88,235,159,230);}private static void line(PoseStack.Pose p,VertexConsumer b,float ax,float ay,float az,float bx,float by,float bz,int r,int g,int bl,int a){float w=.012F;quad(p,b,ax-w,ay-w,az,bx-w,by-w,bz,bx+w,by+w,bz,ax+w,ay+w,az,r,g,bl,a);}private static void quad(PoseStack.Pose p,VertexConsumer b,float ax,float ay,float az,float bx,float by,float bz,float cx,float cy,float cz,float dx,float dy,float dz,int r,int g,int bl,int a){v(p,b,ax,ay,az,r,g,bl,a);v(p,b,bx,by,bz,r,g,bl,a);v(p,b,cx,cy,cz,r,g,bl,a);v(p,b,dx,dy,dz,r,g,bl,a);}private static void v(PoseStack.Pose p,VertexConsumer b,float x,float y,float z,int r,int g,int bl,int a){b.addVertex(p,x,y,z).setColor(r,g,bl,a).setUv(0,0).setOverlay(0).setLight(0xF000F0).setNormal(p,0,0,1);}}
+package com.andye.warmod.radar.display.client;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.List;
+import net.minecraft.world.phys.Vec3;
+
+public final class RadarDisplayPrimitiveBuilder {
+    private RadarDisplayPrimitiveBuilder() {
+    }
+
+    public static void fill(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double minimumX,
+        final double minimumY,
+        final double maximumX,
+        final double maximumY,
+        final double depth,
+        final int argb
+    ) {
+        vertex(
+            pose,
+            buffer,
+            plane,
+            minimumX,
+            minimumY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            maximumX,
+            minimumY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            maximumX,
+            maximumY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            minimumX,
+            maximumY,
+            depth,
+            argb
+        );
+    }
+
+    public static void line(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double startX,
+        final double startY,
+        final double endX,
+        final double endY,
+        final double width,
+        final double depth,
+        final int argb
+    ) {
+        double deltaX = endX - startX;
+        double deltaY = endY - startY;
+        double length = Math.hypot(deltaX, deltaY);
+
+        if (!Double.isFinite(length)
+            || length < 1.0E-7) {
+            return;
+        }
+
+        double perpendicularX =
+            -deltaY / length * width * 0.5;
+
+        double perpendicularY =
+            deltaX / length * width * 0.5;
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            startX + perpendicularX,
+            startY + perpendicularY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            startX - perpendicularX,
+            startY - perpendicularY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            endX - perpendicularX,
+            endY - perpendicularY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            endX + perpendicularX,
+            endY + perpendicularY,
+            depth,
+            argb
+        );
+    }
+
+    public static void clippedLine(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final RadarDisplayMapTransform transform,
+        final RadarDisplayMapTransform.Point start,
+        final RadarDisplayMapTransform.Point end,
+        final double width,
+        final double depth,
+        final int argb
+    ) {
+        RadarDisplayMapTransform.Segment segment =
+            transform.clip(start, end);
+
+        if (segment == null) {
+            return;
+        }
+
+        line(
+            pose,
+            buffer,
+            plane,
+            segment.start().x(),
+            segment.start().y(),
+            segment.end().x(),
+            segment.end().y(),
+            width,
+            depth,
+            argb
+        );
+    }
+
+    public static void route(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final RadarDisplayMapTransform transform,
+        final List<Vec3> points,
+        final int completedSegments,
+        final int completedColour,
+        final int projectedColour,
+        final double completedWidth,
+        final double projectedWidth,
+        final double depth
+    ) {
+        for (int index = 0;
+            index + 1 < points.size();
+            index++) {
+            boolean completed =
+                index < completedSegments;
+
+            // Projected route uses alternating segments.
+            if (!completed && (index & 1) != 0) {
+                continue;
+            }
+
+            RadarDisplayMapTransform.Point start =
+                transform.map(points.get(index));
+
+            RadarDisplayMapTransform.Point end =
+                transform.map(points.get(index + 1));
+
+            clippedLine(
+                pose,
+                buffer,
+                plane,
+                transform,
+                start,
+                end,
+                completed
+                    ? completedWidth
+                    : projectedWidth,
+                depth,
+                completed
+                    ? completedColour
+                    : projectedColour
+            );
+        }
+    }
+
+    public static void ring(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double centreX,
+        final double centreY,
+        final double radius,
+        final int segments,
+        final double width,
+        final double depth,
+        final int argb
+    ) {
+        if (!Double.isFinite(radius)
+            || radius <= 0.0) {
+            return;
+        }
+
+        int count = Math.max(
+            24,
+            Math.min(256, segments)
+        );
+
+        for (int index = 0; index < count; index++) {
+            double first =
+                Math.PI * 2.0 * index / count;
+
+            double second =
+                Math.PI * 2.0 * (index + 1) / count;
+
+            line(
+                pose,
+                buffer,
+                plane,
+                centreX + Math.cos(first) * radius,
+                centreY + Math.sin(first) * radius,
+                centreX + Math.cos(second) * radius,
+                centreY + Math.sin(second) * radius,
+                width,
+                depth,
+                argb
+            );
+        }
+    }
+
+    public static void diamond(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double centreX,
+        final double centreY,
+        final double radius,
+        final double depth,
+        final int argb
+    ) {
+        vertex(
+            pose,
+            buffer,
+            plane,
+            centreX,
+            centreY + radius,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            centreX + radius,
+            centreY,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            centreX,
+            centreY - radius,
+            depth,
+            argb
+        );
+
+        vertex(
+            pose,
+            buffer,
+            plane,
+            centreX - radius,
+            centreY,
+            depth,
+            argb
+        );
+    }
+
+    public static void cross(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double centreX,
+        final double centreY,
+        final double radius,
+        final double width,
+        final double depth,
+        final int argb
+    ) {
+        line(
+            pose,
+            buffer,
+            plane,
+            centreX - radius,
+            centreY,
+            centreX + radius,
+            centreY,
+            width,
+            depth,
+            argb
+        );
+
+        line(
+            pose,
+            buffer,
+            plane,
+            centreX,
+            centreY - radius,
+            centreX,
+            centreY + radius,
+            width,
+            depth,
+            argb
+        );
+    }
+
+    private static void vertex(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double x,
+        final double y,
+        final double depth,
+        final int argb
+    ) {
+        Vec3 point = plane.point(x, y, depth);
+        Vec3 normal = plane.normal();
+
+        int alpha = argb >>> 24 & 0xFF;
+        int red = argb >>> 16 & 0xFF;
+        int green = argb >>> 8 & 0xFF;
+        int blue = argb & 0xFF;
+
+        buffer
+            .addVertex(
+                pose,
+                (float)point.x,
+                (float)point.y,
+                (float)point.z
+            )
+            .setColor(red, green, blue, alpha)
+            .setUv(0.5F, 0.5F)
+            .setOverlay(0)
+            .setLight(0xF000F0)
+            .setNormal(
+                pose,
+                (float)normal.x,
+                (float)normal.y,
+                (float)normal.z
+            );
+    }
+}

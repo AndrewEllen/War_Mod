@@ -1,6 +1,6 @@
 {
     "type":  "minecraft:crafting_shaped",
-    "category":  "combat",
+    "category": "equipment",
     "key":  {
                 "N":  "minecraft:nether_star",
                 "O":  "minecraft:obsidian",

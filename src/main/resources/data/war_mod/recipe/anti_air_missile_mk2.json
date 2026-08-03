@@ -1,6 +1,6 @@
 {
     "type":  "minecraft:crafting_shaped",
-    "category":  "combat",
+    "category": "equipment",
     "key":  {
                 "M":  "war_mod:anti_air_missile_mk1",
                 "R":  "minecraft:redstone_block",

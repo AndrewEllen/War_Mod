@@ -1,2 +1,204 @@
-package com.andye.warmod.block;import com.andye.warmod.block.entity.*;import com.andye.warmod.radar.display.*;import com.mojang.serialization.MapCodec;import net.minecraft.core.*;import net.minecraft.network.chat.Component;import net.minecraft.server.level.ServerLevel;import net.minecraft.world.*;import net.minecraft.world.entity.*;import net.minecraft.world.entity.player.Player;import net.minecraft.world.item.*;import net.minecraft.world.item.context.BlockPlaceContext;import net.minecraft.world.level.*;import net.minecraft.world.level.block.*;import net.minecraft.world.level.block.entity.BlockEntity;import net.minecraft.world.level.block.state.*;import net.minecraft.world.level.block.state.properties.*;import net.minecraft.world.phys.BlockHitResult;import org.jspecify.annotations.Nullable;
-public final class RadarDisplayPanelBlock extends BaseEntityBlock{public static final MapCodec<RadarDisplayPanelBlock> CODEC=simpleCodec(RadarDisplayPanelBlock::new);public static final Property<Direction> FACING=HorizontalDirectionalBlock.FACING;public RadarDisplayPanelBlock(BlockBehaviour.Properties p){super(p);registerDefaultState(stateDefinition.any().setValue(FACING,Direction.NORTH));}@Override protected MapCodec<? extends RadarDisplayPanelBlock> codec(){return CODEC;}@Override protected void createBlockStateDefinition(StateDefinition.Builder<Block,BlockState>b){b.add(FACING);}@Override public @Nullable BlockEntity newBlockEntity(BlockPos p,BlockState s){return new RadarDisplayPanelBlockEntity(p,s);}@Override public BlockState getStateForPlacement(BlockPlaceContext c){Player p=c.getPlayer();return defaultBlockState().setValue(FACING,p==null?Direction.NORTH:p.getDirection().getOpposite());}@Override public void setPlacedBy(Level l,BlockPos p,BlockState s,@Nullable LivingEntity placer,ItemStack stack){super.setPlacedBy(l,p,s,placer,stack);if(l instanceof ServerLevel server)RadarDisplayManager.rebuild(server,p);}@Override protected InteractionResult useWithoutItem(BlockState s,Level l,BlockPos p,Player player,BlockHitResult hit){if(l.isClientSide())return InteractionResult.SUCCESS;RadarDisplayStructure d=RadarDisplayStructure.resolve(l,p);if(!d.valid()){player.sendSystemMessage(Component.literal("Display must form a filled square from 1x1 to 10x10"));return InteractionResult.SUCCESS_SERVER;}var be=l.getBlockEntity(d.controller())instanceof RadarDisplayPanelBlockEntity x?x:null;String station=be==null||be.link()==null?"OFFLINE":be.link().radarId().toString().substring(0,8);player.sendSystemMessage(Component.literal(player.isShiftKeyDown()?"Controller "+d.controller()+" | Facing "+d.facing()+" | Valid":"Radar display "+d.size()+"x"+d.size()+" | Range "+RadarDisplayConstants.radius(d.size())+" | Station "+station));return InteractionResult.SUCCESS_SERVER;}}
+package com.andye.warmod.block;
+
+import com.andye.warmod.block.entity.ModBlockEntities;
+import com.andye.warmod.block.entity.RadarDisplayPanelBlockEntity;
+import com.andye.warmod.radar.display.RadarDisplayConstants;
+import com.andye.warmod.radar.display.RadarDisplayManager;
+import com.andye.warmod.radar.display.RadarDisplayStructure;
+import com.mojang.serialization.MapCodec;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.BaseEntityBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.BlockHitResult;
+import org.jspecify.annotations.Nullable;
+
+public final class RadarDisplayPanelBlock extends BaseEntityBlock {
+    public static final MapCodec<RadarDisplayPanelBlock> CODEC =
+        simpleCodec(RadarDisplayPanelBlock::new);
+
+    public static final Property<Direction> FACING =
+        HorizontalDirectionalBlock.FACING;
+
+    public RadarDisplayPanelBlock(
+        final BlockBehaviour.Properties properties
+    ) {
+        super(properties);
+
+        registerDefaultState(
+            stateDefinition.any()
+                .setValue(FACING, Direction.NORTH)
+        );
+    }
+
+    @Override
+    protected MapCodec<? extends RadarDisplayPanelBlock> codec() {
+        return CODEC;
+    }
+
+    @Override
+    protected void createBlockStateDefinition(
+        final StateDefinition.Builder<Block, BlockState> builder
+    ) {
+        builder.add(FACING);
+    }
+
+    @Override
+    public @Nullable BlockEntity newBlockEntity(
+        final BlockPos position,
+        final BlockState state
+    ) {
+        return new RadarDisplayPanelBlockEntity(position, state);
+    }
+
+    @Override
+    public <T extends BlockEntity> @Nullable BlockEntityTicker<T>
+        getTicker(
+            final Level level,
+            final BlockState state,
+            final BlockEntityType<T> type
+        ) {
+        if (level.isClientSide()) {
+            return null;
+        }
+
+        return createTickerHelper(
+            type,
+            ModBlockEntities.RADAR_DISPLAY_PANEL,
+            RadarDisplayPanelBlockEntity::serverTick
+        );
+    }
+
+    @Override
+    public BlockState getStateForPlacement(
+        final BlockPlaceContext context
+    ) {
+        Player player = context.getPlayer();
+
+        return defaultBlockState().setValue(
+            FACING,
+            player == null
+                ? Direction.NORTH
+                : player.getDirection().getOpposite()
+        );
+    }
+
+    @Override
+    public void setPlacedBy(
+        final Level level,
+        final BlockPos position,
+        final BlockState state,
+        final @Nullable LivingEntity placer,
+        final ItemStack stack
+    ) {
+        super.setPlacedBy(
+            level,
+            position,
+            state,
+            placer,
+            stack
+        );
+
+        if (level instanceof ServerLevel server) {
+            RadarDisplayManager.rebuild(server, position);
+        }
+    }
+
+    @Override
+    protected void affectNeighborsAfterRemoval(
+        final BlockState state,
+        final ServerLevel level,
+        final BlockPos position,
+        final boolean movedByPiston
+    ) {
+        super.affectNeighborsAfterRemoval(
+            state,
+            level,
+            position,
+            movedByPiston
+        );
+
+        RadarDisplayManager.rebuildNeighbours(
+            level,
+            position,
+            state.getValue(FACING)
+        );
+    }
+
+    @Override
+    protected InteractionResult useWithoutItem(
+        final BlockState state,
+        final Level level,
+        final BlockPos position,
+        final Player player,
+        final BlockHitResult hit
+    ) {
+        if (level.isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+
+        RadarDisplayStructure display =
+            RadarDisplayStructure.resolve(level, position);
+
+        if (!display.valid()) {
+            player.sendSystemMessage(Component.literal(
+                "Display must form a filled square from 1x1 to 10x10"
+            ));
+
+            return InteractionResult.SUCCESS_SERVER;
+        }
+
+        RadarDisplayPanelBlockEntity controller =
+            level.getBlockEntity(display.controller())
+                instanceof RadarDisplayPanelBlockEntity found
+                    ? found
+                    : null;
+
+        String station =
+            controller == null || controller.link() == null
+                ? "OFFLINE"
+                : controller.link()
+                    .radarId()
+                    .toString()
+                    .substring(0, 8);
+
+        if (player.isShiftKeyDown()) {
+            player.sendSystemMessage(Component.literal(
+                "Controller "
+                    + display.controller()
+                    + " | Facing "
+                    + display.facing()
+                    + " | Valid"
+            ));
+        } else {
+            player.sendSystemMessage(Component.literal(
+                "Radar display "
+                    + display.size()
+                    + "x"
+                    + display.size()
+                    + " | Range "
+                    + RadarDisplayConstants.radius(display.size())
+                    + " | Station "
+                    + station
+            ));
+        }
+
+        return InteractionResult.SUCCESS_SERVER;
+    }
+}

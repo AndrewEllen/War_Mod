@@ -20,9 +20,21 @@ public final class PhalanxTurretBlockItem extends BlockItem {
     private enum Stage { PRECHECK, CONTROLLER_BLOCK, CONTROLLER_BLOCK_ENTITY, INITIALIZATION, REMAINING_PARTS, STRUCTURE_VALIDATION, MANAGER_REGISTRATION, ITEM_CONSUMPTION, COMPLETE }
     public PhalanxTurretBlockItem(Properties properties) { super(ModBlocks.PHALANX_TURRET, properties); }
     @Override public InteractionResult place(BlockPlaceContext context) {
-        if (context.getLevel().isClientSide()) return InteractionResult.SUCCESS;
-        if (!(context.getLevel() instanceof ServerLevel level)) return InteractionResult.FAIL;
-        Player player = context.getPlayer(); BlockPos controller = context.getClickedPos();
+        if (context.getLevel().isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+
+        BlockPlaceContext placementContext = getPlacementContext(context);
+        if (placementContext == null) {
+            return InteractionResult.FAIL;
+        }
+
+        if (!(placementContext.getLevel() instanceof ServerLevel level)) {
+            return InteractionResult.FAIL;
+        }
+
+        Player player = placementContext.getPlayer();
+        BlockPos controller = placementContext.getClickedPos();
         Direction facing = player == null ? Direction.NORTH : player.getDirection().getOpposite();
         List<BlockPos> positions = Arrays.stream(PhalanxPart.values()).map(part -> controller.offset(part.offset())).toList();
         Stage stage = Stage.PRECHECK; List<BlockPos> placed = new ArrayList<>(); PhalanxBlockEntity entity = null;
@@ -45,15 +57,24 @@ public final class PhalanxTurretBlockItem extends BlockItem {
             for (PhalanxPart part : PhalanxPart.values()) if (part != PhalanxPart.BASE_00) { BlockPos position = controller.offset(part.offset()); if (!level.setBlock(position, state(part, facing), Block.UPDATE_ALL)) throw new IllegalStateException("part setBlock returned false: " + part); placed.add(position); }
             stage = Stage.STRUCTURE_VALIDATION; if (!PhalanxStructure.complete(level, controller)) throw new IllegalStateException("placed structure is incomplete");
             stage = Stage.MANAGER_REGISTRATION; PhalanxRegistrationResult registration = PhalanxManager.register(level, entity); if (!registration.accepted()) throw new IllegalStateException("manager registration rejected: " + registration.failure());
-            stage = Stage.ITEM_CONSUMPTION; context.getItemInHand().consume(1, player); stage = Stage.COMPLETE;
+            stage = Stage.ITEM_CONSUMPTION; placementContext.getItemInHand().consume(1, player); stage = Stage.COMPLETE;
             return InteractionResult.SUCCESS_SERVER;
         } catch (RuntimeException exception) {
             if (entity != null) { PhalanxManager.unregister(level, entity); PhalanxBulletManager.removeForTurret(level, entity.turretId()); }
             for (BlockPos position : placed) level.setBlock(position, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
             WarMod.LOGGER.error("Phalanx placement failed at stage {}: controller={}, facing={}, placedParts={}", stage, controller, facing, placed.size(), exception);
             if (SharedConstants.IS_RUNNING_IN_IDE && player != null) player.sendSystemMessage(Component.literal("Phalanx placement failed at " + stage));
-            return fail(player, "Phalanx placement failed atomically");
+            String detail = exception.getMessage() == null
+                ? exception.getClass().getSimpleName()
+                : exception.getMessage();
+            return fail(
+                player,
+                "Phalanx placement failed at " + stage + ": " + detail
+            );
         } finally { PhalanxStructureAssembly.end(level, positions); }
+    }
+    private BlockPlaceContext getPlacementContext(final BlockPlaceContext context) {
+        return context;
     }
     private static net.minecraft.world.level.block.state.BlockState state(PhalanxPart part, Direction facing) { return ModBlocks.PHALANX_TURRET.defaultBlockState().setValue(PhalanxTurretBlock.PART, part).setValue(PhalanxTurretBlock.FACING, facing); }
     private static InteractionResult fail(Player player, String message) { if (player != null) player.sendSystemMessage(Component.literal(message)); return InteractionResult.FAIL; }

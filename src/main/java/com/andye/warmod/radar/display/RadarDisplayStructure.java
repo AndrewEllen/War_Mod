@@ -1,2 +1,175 @@
-package com.andye.warmod.radar.display;import com.andye.warmod.block.*;import java.util.*;import net.minecraft.core.*;import net.minecraft.world.level.LevelAccessor;import net.minecraft.world.level.block.state.BlockState;
-public record RadarDisplayStructure(boolean valid,int size,Direction facing,BlockPos controller,List<BlockPos> panels,int missingPanels){public static RadarDisplayStructure resolve(LevelAccessor level,BlockPos start){BlockState first=level.getBlockState(start);if(!first.is(ModBlocks.RADAR_DISPLAY_PANEL))return invalid(start,Direction.NORTH,List.of(),1);Direction facing=first.getValue(RadarDisplayPanelBlock.FACING);Direction horizontal=facing.getClockWise();ArrayDeque<BlockPos> queue=new ArrayDeque<>();LinkedHashSet<BlockPos> found=new LinkedHashSet<>();queue.add(start);while(!queue.isEmpty()&&found.size()<=RadarDisplayConstants.MAX_PANELS){BlockPos p=queue.removeFirst();if(!found.add(p))continue;for(BlockPos n:List.of(p.above(),p.below(),p.relative(horizontal),p.relative(horizontal.getOpposite()))){BlockState s=level.getBlockState(n);if(s.is(ModBlocks.RADAR_DISPLAY_PANEL)&&s.getValue(RadarDisplayPanelBlock.FACING)==facing&&!found.contains(n))queue.add(n);}}if(found.size()>RadarDisplayConstants.MAX_PANELS)return invalid(start,facing,List.copyOf(found),0);int minY=found.stream().mapToInt(BlockPos::getY).min().orElse(start.getY()),maxY=found.stream().mapToInt(BlockPos::getY).max().orElse(start.getY());int minL=found.stream().mapToInt(p->left(p,horizontal)).min().orElse(0),maxL=found.stream().mapToInt(p->left(p,horizontal)).max().orElse(0);int w=maxL-minL+1,h=maxY-minY+1,missing=w*h-found.size();BlockPos controller=found.stream().filter(p->p.getY()==minY&&left(p,horizontal)==minL).findFirst().orElse(start);boolean valid=w==h&&w>=1&&w<=RadarDisplayConstants.MAX_SIZE&&missing==0;return new RadarDisplayStructure(valid,valid?w:0,facing,controller,List.copyOf(found),Math.max(0,missing));}private static int left(BlockPos p,Direction axis){return p.getX()*axis.getStepX()+p.getZ()*axis.getStepZ();}private static RadarDisplayStructure invalid(BlockPos p,Direction f,List<BlockPos> panels,int missing){return new RadarDisplayStructure(false,0,f,p,panels,missing);}}
+package com.andye.warmod.radar.display;
+
+import com.andye.warmod.block.ModBlocks;
+import com.andye.warmod.block.RadarDisplayPanelBlock;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.block.state.BlockState;
+
+public record RadarDisplayStructure(
+    boolean valid,
+    int size,
+    Direction facing,
+    BlockPos controller,
+    List<BlockPos> panels,
+    int missingPanels
+) {
+    public RadarDisplayStructure {
+        panels = List.copyOf(panels);
+    }
+
+    public static RadarDisplayStructure resolve(
+        final LevelAccessor level,
+        final BlockPos start
+    ) {
+        BlockState first = level.getBlockState(start);
+
+        if (!first.is(ModBlocks.RADAR_DISPLAY_PANEL)) {
+            return invalid(
+                start,
+                Direction.NORTH,
+                List.of(),
+                1
+            );
+        }
+
+        Direction facing =
+            first.getValue(RadarDisplayPanelBlock.FACING);
+
+        // From a viewer standing in front of the monitor.
+        Direction screenLeft = facing.getClockWise();
+
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+        LinkedHashSet<BlockPos> found = new LinkedHashSet<>();
+
+        queue.add(start);
+
+        while (!queue.isEmpty()) {
+            BlockPos current = queue.removeFirst();
+
+            if (!found.add(current)) {
+                continue;
+            }
+
+            if (found.size() > RadarDisplayConstants.MAX_PANELS) {
+                return invalid(
+                    start,
+                    facing,
+                    List.copyOf(found),
+                    0
+                );
+            }
+
+            for (BlockPos neighbour : List.of(
+                current.above(),
+                current.below(),
+                current.relative(screenLeft),
+                current.relative(screenLeft.getOpposite())
+            )) {
+                BlockState state = level.getBlockState(neighbour);
+
+                if (state.is(ModBlocks.RADAR_DISPLAY_PANEL)
+                    && state.getValue(RadarDisplayPanelBlock.FACING)
+                        == facing
+                    && !found.contains(neighbour)) {
+                    queue.addLast(neighbour);
+                }
+            }
+        }
+
+        int minY = found.stream()
+            .mapToInt(BlockPos::getY)
+            .min()
+            .orElse(start.getY());
+
+        int maxY = found.stream()
+            .mapToInt(BlockPos::getY)
+            .max()
+            .orElse(start.getY());
+
+        int minimumLeftCoordinate = found.stream()
+            .mapToInt(position ->
+                coordinateAlong(position, screenLeft))
+            .min()
+            .orElse(0);
+
+        int maximumLeftCoordinate = found.stream()
+            .mapToInt(position ->
+                coordinateAlong(position, screenLeft))
+            .max()
+            .orElse(0);
+
+        int width =
+            maximumLeftCoordinate - minimumLeftCoordinate + 1;
+
+        int height =
+            maxY - minY + 1;
+
+        int missing =
+            width * height - found.size();
+
+        // Controller is the bottom-left panel as seen from the front.
+        BlockPos controller = found.stream()
+            .filter(position ->
+                position.getY() == minY
+                && coordinateAlong(position, screenLeft)
+                    == maximumLeftCoordinate)
+            .findFirst()
+            .orElse(start);
+
+        boolean valid =
+            width == height
+            && width >= 1
+            && width <= RadarDisplayConstants.MAX_SIZE
+            && missing == 0;
+
+        List<BlockPos> orderedPanels =
+            new ArrayList<>(found);
+
+        orderedPanels.sort(
+            Comparator
+                .<BlockPos>comparingInt(BlockPos::getY)
+                .thenComparingInt(position ->
+                    -coordinateAlong(position, screenLeft))
+        );
+
+        return new RadarDisplayStructure(
+            valid,
+            valid ? width : 0,
+            facing,
+            controller,
+            orderedPanels,
+            Math.max(0, missing)
+        );
+    }
+
+    private static int coordinateAlong(
+        final BlockPos position,
+        final Direction axis
+    ) {
+        return position.getX() * axis.getStepX()
+            + position.getZ() * axis.getStepZ();
+    }
+
+    private static RadarDisplayStructure invalid(
+        final BlockPos position,
+        final Direction facing,
+        final List<BlockPos> panels,
+        final int missing
+    ) {
+        return new RadarDisplayStructure(
+            false,
+            0,
+            facing,
+            position,
+            panels,
+            missing
+        );
+    }
+}
