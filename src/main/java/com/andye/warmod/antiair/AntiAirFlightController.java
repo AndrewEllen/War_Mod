@@ -49,6 +49,10 @@ public final class AntiAirFlightController {
     public AntiAirFlightPlan plan() { return plan; }
     public AntiAirFlightPhase phase() { return phase; } public Vec3 currentPosition(){return currentPosition;} public Vec3 currentVelocity(){return currentVelocity;} public long fallbackStart(){return fallbackStart;} public boolean cancelForPointDefence(ServerLevel level,java.util.UUID bulletId,Vec3 hitPosition){if(completed||phase!=AntiAirFlightPhase.FALLBACK)return false;AntiAirNetworking.send(level,new ClientboundAntiAirRemovePayload(plan.interceptorId()));RadarTrackingService.removeInterceptor(level,plan.interceptorId(),RadarRemovalReason.INTERCEPTED);complete(level,RadarRemovalReason.INTERCEPTED);return true;}
     public boolean completed() { return completed; }
+    public boolean isTargetTracking(java.util.UUID targetId) {
+        return !completed && plan.targetRootTrackId() != null && plan.targetRootTrackId().equals(targetId)
+            && (phase == AntiAirFlightPhase.IGNITION || phase == AntiAirFlightPhase.BOOST || phase == AntiAirFlightPhase.INTERCEPT);
+    }
 
     public void tick(ServerLevel level) {
         if (completed) return;
@@ -119,6 +123,8 @@ public final class AntiAirFlightController {
         if (closest.distanceSquared <= AntiAirConstants.INTERCEPT_FUSE_RADIUS_SQUARED) {
             var result = StrategicMissileInterceptionService.intercept(level, plan.targetRootTrackId(), plan.interceptorId(), closest.midpoint);
             if (result.success()) {
+                releaseTargetClaim(level, "target_intercepted");
+                AntiAirTargetClaimRegistry.releaseTarget(level, plan.targetRootTrackId(), "target_intercepted");
                 WarheadImpactService.detonateAntiAir(level, plan.interceptorId(), closest.midpoint, plan.visualSeed(),
                     WarheadEffectProfile.ANTI_AIR_INTERCEPTION);
                 RadarTrackingService.registerInterception(level, new RadarInterceptionSnapshot(plan.interceptorId(),
@@ -154,6 +160,7 @@ public final class AntiAirFlightController {
     }
 
     private void beginFallback(ServerLevel level) {
+        releaseTargetClaim(level, "ballistic_fallback");
         phase = AntiAirFlightPhase.FALLBACK;
         fallbackStart = level.getGameTime();
         if (currentVelocity.lengthSqr() < 1.0E-8) currentVelocity = new Vec3(0.0, -0.1, 0.0);
@@ -184,6 +191,7 @@ public final class AntiAirFlightController {
     }
 
     private void beginSelfDestruct(ServerLevel level) {
+        releaseTargetClaim(level, "self_destruct");
         phase = AntiAirFlightPhase.SELF_DESTRUCT;
         selfDestructStart = level.getGameTime();
         RadarTrackingService.updateInterceptorPhase(level, plan.interceptorId(), RadarTrackPhase.SELF_DESTRUCT);
@@ -196,11 +204,16 @@ public final class AntiAirFlightController {
     }
 
     private void complete(ServerLevel level, RadarRemovalReason reason) {
+        releaseTargetClaim(level, "completed_" + reason.name().toLowerCase(java.util.Locale.ROOT));
         tickets.releaseAll(level);
         RadarTrackingService.removeInterceptor(level, plan.interceptorId(), reason);
         AntiAirNetworking.send(level, new ClientboundAntiAirRemovePayload(plan.interceptorId()));
         completed = true;
         phase = AntiAirFlightPhase.COMPLETED;
+    }
+
+    private void releaseTargetClaim(ServerLevel level, String reason) {
+        AntiAirTargetClaimRegistry.releaseInterceptor(level, plan.interceptorId(), reason);
     }
 
     private static Closest closest(Vec3 a0, Vec3 a1, Vec3 b0, Vec3 b1) {

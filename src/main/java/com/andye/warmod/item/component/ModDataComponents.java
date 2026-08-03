@@ -16,6 +16,7 @@ public final class ModDataComponents {
     public static final DataComponentType<LinkedSilo> LINKED_SILO = DataComponentType
         .<LinkedSilo>builder().persistent(LinkedSilo.CODEC).build();
     public static final DataComponentType<LinkedRadarStation> LINKED_RADAR_STATION = DataComponentType.<LinkedRadarStation>builder().persistent(LinkedRadarStation.CODEC).build();
+    public static final DataComponentType<IcbmTestDeliveryMode> ICBM_TEST_DELIVERY_MODE = DataComponentType.<IcbmTestDeliveryMode>builder().persistent(IcbmTestDeliveryMode.CODEC).build();
     private static boolean registered;
 
     private ModDataComponents() {
@@ -28,6 +29,7 @@ public final class ModDataComponents {
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("rocket_launcher_mode"), ROCKET_LAUNCHER_MODE);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("anti_air_test_variant"), ANTI_AIR_TEST_VARIANT);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_radar_station"), LINKED_RADAR_STATION);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("icbm_test_delivery_mode"), ICBM_TEST_DELIVERY_MODE);
         registered = true;
     }
 

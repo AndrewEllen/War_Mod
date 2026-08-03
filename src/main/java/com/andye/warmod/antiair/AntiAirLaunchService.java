@@ -53,6 +53,13 @@ public final class AntiAirLaunchService {
         if (!decision.valid() || !AntiAirFlightControllerManager.canAccept(level) || !origin.isFinite()
             || !nominalBurnout.isFinite()) return Optional.empty();
         UUID id = UUID.randomUUID();
+        if (decision.mode() != AntiAirLaunchMode.NO_TARGET_ASCENT) {
+            AntiAirTargetSelectionResult selected = AntiAirTargetClaimRegistry.selectAndClaim(level, id, origin,
+                nominalBurnout, tier).orElse(null);
+            if (selected == null) return Optional.empty();
+            decision = new AntiAirLaunchDecision(selected.mode(), selected.selection(), selected.solution(),
+                "claim_balanced");
+        }
         long seed = id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 19);
         Vec3 noTargetOffset = decision.mode() == AntiAirLaunchMode.NO_TARGET_ASCENT ? noTargetOffset(id, seed) : Vec3.ZERO;
         Vec3 burnout = decision.mode() == AntiAirLaunchMode.NO_TARGET_ASCENT ? nominalBurnout.add(noTargetOffset) : nominalBurnout;
@@ -62,7 +69,10 @@ public final class AntiAirLaunchService {
             lock == null ? null : lock.rootTrackId(), origin, burnout, noTargetOffset, lock, solution, decision.mode(),
             level.getGameTime(), AntiAirConstants.IGNITION_TICKS, AntiAirConstants.BOOST_TICKS, seed, tier,
             debugNoTargetFlight);
-        if (!AntiAirFlightControllerManager.add(level, plan, collision)) return Optional.empty();
+        if (!AntiAirFlightControllerManager.add(level, plan, collision)) {
+            AntiAirTargetClaimRegistry.releaseInterceptor(level, id, "launch_rejected");
+            return Optional.empty();
+        }
         RadarInterceptorPlanSnapshot radar = new RadarInterceptorPlanSnapshot(variant,
             Optional.ofNullable(plan.targetRootTrackId()), origin, burnout, noTargetOffset, plan.launchGameTime(),
             plan.ignitionTicks(), plan.boostTicks(), tier, AntiAirGuidanceResolver.maximumMiss(tier), Optional.empty(),

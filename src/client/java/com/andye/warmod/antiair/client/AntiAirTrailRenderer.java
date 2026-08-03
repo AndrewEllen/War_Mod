@@ -1,3 +1,37 @@
 package com.andye.warmod.antiair.client;
-import com.mojang.blaze3d.vertex.*;import java.util.*;import net.minecraft.world.phys.Vec3;
-public final class AntiAirTrailRenderer{private AntiAirTrailRenderer(){}public static void render(PoseStack.Pose p,VertexConsumer b,List<AntiAirTrailSampler.Sample> samples,Vec3 origin){for(int i=0;i+1<samples.size();i++){var a=samples.get(i);var c=samples.get(i+1);Vec3 x=a.position().subtract(origin),y=c.position().subtract(origin),dir=y.subtract(x);if(dir.lengthSqr()<1E-8)continue;Vec3 side=dir.cross(new Vec3(0,1,0));if(side.lengthSqr()<1E-8)side=dir.cross(new Vec3(1,0,0));side=side.normalize().scale(a.width());int alpha=(int)(150*a.alpha());quad(p,b,x.add(side),x.subtract(side),y.subtract(side),y.add(side),205,211,208,alpha);Vec3 inner=side.scale(.42);quad(p,b,x.add(inner),x.subtract(inner),y.subtract(inner),y.add(inner),232,235,226,Math.min(180,alpha+25));}}private static void quad(PoseStack.Pose p,VertexConsumer b,Vec3 a,Vec3 c,Vec3 d,Vec3 e,int r,int g,int bl,int al){v(p,b,a,r,g,bl,al);v(p,b,c,r,g,bl,al);v(p,b,d,r,g,bl,Math.max(0,al-8));v(p,b,e,r,g,bl,Math.max(0,al-8));}private static void v(PoseStack.Pose p,VertexConsumer b,Vec3 v,int r,int g,int bl,int a){b.addVertex(p,(float)v.x,(float)v.y,(float)v.z).setColor(r,g,bl,a).setUv(0,0).setOverlay(0).setLight(0xF000F0).setNormal(p,0,1,0);}}
+
+import com.mojang.blaze3d.vertex.*;
+import java.util.*;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
+
+/** World-space smoke samples rendered as independent camera-facing billboards. */
+public final class AntiAirTrailRenderer {
+    private AntiAirTrailRenderer() { }
+    public static void render(PoseStack.Pose pose, VertexConsumer buffer, List<AntiAirTrailSampler.Sample> samples,
+        Vec3 origin, Quaternionf camera) {
+        for (AntiAirTrailSampler.Sample sample : samples) {
+            Vec3 centre = sample.position().subtract(origin);
+            if (!centre.isFinite()) continue;
+            float radius = sample.width() * (1.1F + sample.age() * 2.2F);
+            float alpha = sample.alpha() * .72F;
+            billboard(pose, buffer, centre, radius, alpha, camera);
+        }
+    }
+    private static void billboard(PoseStack.Pose pose, VertexConsumer buffer, Vec3 centre, float radius, float alpha,
+        Quaternionf camera) {
+        vertex(pose, buffer, centre, -radius, -radius, 0, 1, alpha, camera);
+        vertex(pose, buffer, centre, -radius, radius, 0, 0, alpha, camera);
+        vertex(pose, buffer, centre, radius, radius, 1, 0, alpha, camera);
+        vertex(pose, buffer, centre, radius, -radius, 1, 1, alpha, camera);
+    }
+    private static void vertex(PoseStack.Pose pose, VertexConsumer buffer, Vec3 centre, float x, float y, float u,
+        float v, float alpha, Quaternionf camera) {
+        Vector3f offset = new Vector3f(x, y, 0).rotate(camera);
+        Vector3f normal = new Vector3f(0, 0, 1).rotate(camera);
+        buffer.addVertex(pose, (float)centre.x + offset.x, (float)centre.y + offset.y, (float)centre.z + offset.z)
+            .setColor(185, 193, 188, (int)(Math.max(0, Math.min(1, alpha)) * 255)).setUv(u, v)
+            .setOverlay(0).setLight(0xA000A0).setNormal(pose, normal.x, normal.y, normal.z);
+    }
+}

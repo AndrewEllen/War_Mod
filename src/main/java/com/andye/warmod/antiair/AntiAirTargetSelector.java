@@ -24,6 +24,15 @@ public final class AntiAirTargetSelector {
     private AntiAirTargetSelector() { }
 
     public static Optional<AntiAirTargetSelection> acquire(ServerLevel level, Vec3 origin) {
+        return candidates(level, origin).stream().min(Comparator
+            .comparingLong((AntiAirTargetSelection selection) -> selection.projection().firstEntryGameTime())
+            .thenComparingLong(selection -> selection.projection().estimatedImpactGameTime())
+            .thenComparingDouble(selection -> selection.projection().closestHorizontalDistance())
+            .thenComparingInt(selection -> selection.targetLock().payloadType() == WarheadPayloadType.NUCLEAR ? 0 : 1)
+            .thenComparing(selection -> selection.targetLock().rootTrackId().toString()));
+    }
+
+    public static List<AntiAirTargetSelection> candidates(ServerLevel level, Vec3 origin) {
         long now = level.getGameTime();
         List<AntiAirTargetSelection> candidates = new ArrayList<>();
         for (RadarTrackingService.RadarTrackTelemetry telemetry : RadarTrackingService.currentTelemetry(level, now)) {
@@ -31,12 +40,8 @@ public final class AntiAirTargetSelector {
                 || telemetry.strategicPayloadType().isEmpty() || telemetry.snapshot().carrierPlan().isEmpty()) continue;
             project(telemetry, origin, now).ifPresent(candidates::add);
         }
-        return candidates.stream().min(Comparator
-            .comparingLong((AntiAirTargetSelection selection) -> selection.projection().firstEntryGameTime())
-            .thenComparingLong(selection -> selection.projection().estimatedImpactGameTime())
-            .thenComparingDouble(selection -> selection.projection().closestHorizontalDistance())
-            .thenComparingInt(selection -> selection.targetLock().payloadType() == WarheadPayloadType.NUCLEAR ? 0 : 1)
-            .thenComparing(selection -> selection.targetLock().rootTrackId().toString()));
+        return List.copyOf(candidates);
+
     }
 
     private static Optional<AntiAirTargetSelection> project(RadarTrackingService.RadarTrackTelemetry telemetry,

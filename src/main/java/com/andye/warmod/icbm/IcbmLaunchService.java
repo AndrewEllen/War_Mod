@@ -27,7 +27,14 @@ public final class IcbmLaunchService {
 	/** Stick launch: retains the existing 1,000-block loaded-target contract. */
 	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer player, final Vec3 target,
 		final WarheadPayloadType payloadType) {
-		return launchInternal(level, player, target, null, payloadType, true, true);
+		return launch(level, player, target, payloadType, com.andye.warmod.warhead.WarheadDeliveryMode.SINGLE);
+	}
+	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer player, final Vec3 target,
+		final WarheadPayloadType payloadType, final com.andye.warmod.warhead.WarheadDeliveryMode deliveryMode) {
+		Optional<LaunchResult> result = launchInternal(level, player, target, null, payloadType, true, true);
+		result.ifPresent(launch -> com.andye.warmod.warhead.StrategicMissilePayloadRegistry.put(
+			launch.flightPlan().missileId(), new com.andye.warmod.warhead.StrategicMissilePayload(payloadType, deliveryMode)));
+		return result;
 	}
 
 	/** Immediate completion entry retained for already-loaded internal callers; commands use the pending manager. */

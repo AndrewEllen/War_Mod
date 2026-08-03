@@ -1,0 +1,2 @@
+package com.andye.warmod.phalanx;
+public record PhalanxRegistrationResult(boolean accepted, PhalanxRegistrationFailure failure) { public static PhalanxRegistrationResult success() { return new PhalanxRegistrationResult(true, PhalanxRegistrationFailure.NONE); } public static PhalanxRegistrationResult rejected(PhalanxRegistrationFailure failure) { return new PhalanxRegistrationResult(false, failure); } }
