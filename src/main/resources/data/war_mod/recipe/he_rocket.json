@@ -1,0 +1,20 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "combat",
+    "key":  {
+                "N":  "minecraft:iron_nugget",
+                "T":  "minecraft:tnt",
+                "G":  "minecraft:gunpowder",
+                "R":  "minecraft:redstone",
+                "F":  "minecraft:firework_rocket"
+            },
+    "pattern":  [
+                    "NTN",
+                    "GFG",
+                    "NRN"
+                ],
+    "result":  {
+                   "id":  "war_mod:he_rocket",
+                   "count":  4
+               }
+}

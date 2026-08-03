@@ -1,1 +1,81 @@
-package com.andye.warmod.item;import com.andye.warmod.antiair.*;import com.andye.warmod.item.component.*;import com.andye.warmod.testtool.TestTargeting;import java.util.*;import java.util.function.Consumer;import net.minecraft.network.chat.Component;import net.minecraft.server.level.*;import net.minecraft.world.*;import net.minecraft.world.entity.player.Player;import net.minecraft.world.item.*;import net.minecraft.world.item.component.TooltipDisplay;import net.minecraft.world.level.Level;import net.minecraft.world.phys.Vec3;public final class AntiAirTestStickItem extends Item{public AntiAirTestStickItem(Properties p){super(p);}private static AntiAirMissileVariant variant(ItemStack s){AntiAirTestVariant v=s.get(ModDataComponents.ANTI_AIR_TEST_VARIANT);return v==null?AntiAirMissileVariant.MK_I:v.variant();}@Override public InteractionResult use(Level level,Player player,InteractionHand hand){if(level.isClientSide()||!(level instanceof ServerLevel server)||!(player instanceof ServerPlayer sp))return InteractionResult.PASS;ItemStack stack=player.getItemInHand(hand);if(player.isShiftKeyDown()){AntiAirMissileVariant next=variant(stack)==AntiAirMissileVariant.MK_I?AntiAirMissileVariant.MK_II:AntiAirMissileVariant.MK_I;stack.set(ModDataComponents.ANTI_AIR_TEST_VARIANT,new AntiAirTestVariant(next));sp.sendOverlayMessage(Component.literal("Anti-Air Test Stick: "+next.displayName()));return InteractionResult.SUCCESS_SERVER;}var hit=TestTargeting.findTarget(sp,1000);if(hit.isEmpty()){sp.sendOverlayMessage(Component.literal("No loaded block found within 1000 blocks"));return InteractionResult.SUCCESS_SERVER;}Vec3 origin=hit.get().getLocation().add(0,1,0);var lock=AntiAirTargetSelector.acquire(server,origin);AntiAirInterceptSolution solution=null;if(lock.isPresent()){Vec3 burnout=AntiAirLaunchService.estimatedBurnout(server,origin);solution=AntiAirInterceptSolver.solve(burnout,server.getGameTime()+AntiAirConstants.IGNITION_TICKS+AntiAirConstants.BOOST_TICKS,lock.get()).orElse(null);if(solution==null)lock=Optional.empty();}var launched=AntiAirLaunchService.launchDebug(server,sp.getUUID(),sp.getGameProfile().name(),origin,variant(stack),lock.orElse(null),solution);if(launched.isEmpty()){sp.sendOverlayMessage(Component.literal("Anti-air test launch rejected"));return InteractionResult.SUCCESS_SERVER;}sp.getCooldowns().addCooldown(stack,2);sp.sendOverlayMessage(Component.literal(lock.isPresent()?"Interceptor launched":"No intercept target found - test ascent launched"));return InteractionResult.SUCCESS_SERVER;}@Override public void appendHoverText(ItemStack s,TooltipContext c,TooltipDisplay d,Consumer<Component> lines,TooltipFlag f){lines.accept(Component.literal("Launches a test interceptor from the selected block"));lines.accept(Component.literal("Crouch-use to change variant"));lines.accept(Component.literal("Selected: "+variant(s).displayName()));}}
+package com.andye.warmod.item;
+
+import com.andye.warmod.antiair.AntiAirConstants;
+import com.andye.warmod.antiair.AntiAirLaunchDecision;
+import com.andye.warmod.antiair.AntiAirLaunchMode;
+import com.andye.warmod.antiair.AntiAirLaunchPlanner;
+import com.andye.warmod.antiair.AntiAirLaunchService;
+import com.andye.warmod.antiair.AntiAirMissileVariant;
+import com.andye.warmod.item.component.AntiAirTestVariant;
+import com.andye.warmod.item.component.ModDataComponents;
+import com.andye.warmod.testtool.TestTargeting;
+import java.util.function.Consumer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.TooltipDisplay;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+
+public final class AntiAirTestStickItem extends Item {
+    public AntiAirTestStickItem(Properties properties) { super(properties); }
+
+    private static AntiAirMissileVariant variant(ItemStack stack) {
+        AntiAirTestVariant selected = stack.get(ModDataComponents.ANTI_AIR_TEST_VARIANT);
+        return selected == null ? AntiAirMissileVariant.MK_I : selected.variant();
+    }
+
+    @Override
+    public InteractionResult use(Level level, Player player, InteractionHand hand) {
+        if (level.isClientSide() || !(level instanceof ServerLevel server) || !(player instanceof ServerPlayer serverPlayer))
+            return InteractionResult.PASS;
+        ItemStack stack = player.getItemInHand(hand);
+        if (player.isShiftKeyDown()) {
+            AntiAirMissileVariant next = variant(stack) == AntiAirMissileVariant.MK_I
+                ? AntiAirMissileVariant.MK_II : AntiAirMissileVariant.MK_I;
+            stack.set(ModDataComponents.ANTI_AIR_TEST_VARIANT, new AntiAirTestVariant(next));
+            serverPlayer.sendOverlayMessage(Component.literal("Anti-Air Test Stick: " + next.displayName()));
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        var hit = TestTargeting.findTarget(serverPlayer, 1000);
+        if (hit.isEmpty()) {
+            serverPlayer.sendOverlayMessage(Component.literal("No loaded block found within 1000 blocks"));
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        Vec3 origin = hit.get().getLocation().add(0.0, 1.0, 0.0);
+        AntiAirLaunchDecision decision = AntiAirLaunchPlanner.plan(server, origin,
+            AntiAirLaunchService.estimatedBurnout(server, origin)).orElse(null);
+        if (decision == null) {
+            serverPlayer.sendOverlayMessage(Component.literal("Anti-air test launch rejected"));
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        var launched = AntiAirLaunchService.launchDebug(server, serverPlayer.getUUID(), serverPlayer.getGameProfile().name(),
+            origin, variant(stack), decision);
+        if (launched.isEmpty()) {
+            serverPlayer.sendOverlayMessage(Component.literal("Anti-air test launch rejected"));
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        serverPlayer.getCooldowns().addCooldown(stack, 2);
+        String message = switch (decision.mode()) {
+            case TRACKED_INTERCEPT -> "Interceptor launched";
+            case BEST_EFFORT_INTERCEPT -> "Best-effort interceptor launched";
+            case NO_TARGET_ASCENT -> "No intercept target found - test ascent launched";
+        };
+        serverPlayer.sendOverlayMessage(Component.literal(message));
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay display,
+        Consumer<Component> lines, TooltipFlag flag) {
+        lines.accept(Component.literal("Launches a test interceptor from the selected block"));
+        lines.accept(Component.literal("Crouch-use to change variant"));
+        lines.accept(Component.literal("Selected: " + variant(stack).displayName()));
+    }
+}

@@ -1,0 +1,19 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "equipment",
+    "key":  {
+                "G":  "minecraft:glass_pane",
+                "S":  "minecraft:spyglass",
+                "R":  "minecraft:redstone",
+                "C":  "minecraft:compass",
+                "I":  "minecraft:iron_ingot"
+            },
+    "pattern":  [
+                    "GSG",
+                    "RCR",
+                    "III"
+                ],
+    "result":  {
+                   "id":  "war_mod:target_designator"
+               }
+}

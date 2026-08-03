@@ -1,1 +1,54 @@
-package com.andye.warmod.radar.station.client;import com.andye.warmod.radar.client.gui.*;import com.andye.warmod.radar.station.network.*;import net.fabricmc.fabric.api.client.networking.v1.*;import net.minecraft.client.Minecraft;public final class ClientRadarStationNetworking {private static boolean registered;private ClientRadarStationNetworking(){}public static void register(){if(registered)return;ClientPlayNetworking.registerGlobalReceiver(ClientboundOpenRadarStationPayload.TYPE,(p,c)->{ClientRadarStationState.INSTANCE.open(p);Minecraft.getInstance().gui.setScreen(new RadarScreen(RadarScreenMode.STATION));});ClientPlayNetworking.registerGlobalReceiver(ClientboundRadarStationObservationPayload.TYPE,(p,c)->ClientRadarStationState.INSTANCE.observe(p));ClientPlayNetworking.registerGlobalReceiver(ClientboundRadarStationStatePayload.TYPE,(p,c)->ClientRadarStationState.INSTANCE.state(p));ClientPlayNetworking.registerGlobalReceiver(ClientboundCloseRadarStationPayload.TYPE,(p,c)->{if(ClientRadarStationState.INSTANCE.radarId()!=null&&ClientRadarStationState.INSTANCE.radarId().equals(p.radarId())){ClientRadarStationState.INSTANCE.clear();if(Minecraft.getInstance().gui.screen()instanceof RadarScreen)Minecraft.getInstance().gui.setScreen(null);}});ClientPlayConnectionEvents.DISCONNECT.register((h,c)->ClientRadarStationState.INSTANCE.clear());registered=true;}public static void configure(double warningRadius,double fireRadius){var s=ClientRadarStationState.INSTANCE;if(s.open()&&ClientPlayNetworking.canSend(ServerboundConfigureRadarStationPayload.TYPE))ClientPlayNetworking.send(new ServerboundConfigureRadarStationPayload(s.radarId(),s.centre(),warningRadius,fireRadius));}public static void close(){var s=ClientRadarStationState.INSTANCE;if(s.open()&&ClientPlayNetworking.canSend(ServerboundCloseRadarStationPayload.TYPE))ClientPlayNetworking.send(new ServerboundCloseRadarStationPayload(s.radarId()));s.clear();}}
+package com.andye.warmod.radar.station.client;
+
+import com.andye.warmod.radar.client.gui.RadarScreen;
+import com.andye.warmod.radar.client.gui.RadarScreenMode;
+import com.andye.warmod.radar.station.RadarRedstoneMode;
+import com.andye.warmod.radar.station.network.ClientboundCloseRadarStationPayload;
+import com.andye.warmod.radar.station.network.ClientboundOpenRadarStationPayload;
+import com.andye.warmod.radar.station.network.ClientboundRadarStationObservationPayload;
+import com.andye.warmod.radar.station.network.ClientboundRadarStationStatePayload;
+import com.andye.warmod.radar.station.network.ServerboundCloseRadarStationPayload;
+import com.andye.warmod.radar.station.network.ServerboundConfigureRadarStationPayload;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.Minecraft;
+
+public final class ClientRadarStationNetworking {
+    private static boolean registered;
+    private ClientRadarStationNetworking() { }
+
+    public static void register() {
+        if (registered) return;
+        ClientPlayNetworking.registerGlobalReceiver(ClientboundOpenRadarStationPayload.TYPE, (payload, context) -> {
+            ClientRadarStationState.INSTANCE.open(payload);
+            Minecraft.getInstance().gui.setScreen(new RadarScreen(RadarScreenMode.STATION));
+        });
+        ClientPlayNetworking.registerGlobalReceiver(ClientboundRadarStationObservationPayload.TYPE,
+            (payload, context) -> ClientRadarStationState.INSTANCE.observe(payload));
+        ClientPlayNetworking.registerGlobalReceiver(ClientboundRadarStationStatePayload.TYPE,
+            (payload, context) -> ClientRadarStationState.INSTANCE.state(payload));
+        ClientPlayNetworking.registerGlobalReceiver(ClientboundCloseRadarStationPayload.TYPE, (payload, context) -> {
+            if (ClientRadarStationState.INSTANCE.radarId() != null
+                && ClientRadarStationState.INSTANCE.radarId().equals(payload.radarId())) {
+                ClientRadarStationState.INSTANCE.clear();
+                if (Minecraft.getInstance().gui.screen() instanceof RadarScreen) Minecraft.getInstance().gui.setScreen(null);
+            }
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientRadarStationState.INSTANCE.clear());
+        registered = true;
+    }
+
+    public static void configure(double warningRadius, double fireRadius, RadarRedstoneMode mode) {
+        var state = ClientRadarStationState.INSTANCE;
+        if (state.open() && ClientPlayNetworking.canSend(ServerboundConfigureRadarStationPayload.TYPE))
+            ClientPlayNetworking.send(new ServerboundConfigureRadarStationPayload(state.radarId(), state.centre(),
+                warningRadius, fireRadius, mode));
+    }
+
+    public static void close() {
+        var state = ClientRadarStationState.INSTANCE;
+        if (state.open() && ClientPlayNetworking.canSend(ServerboundCloseRadarStationPayload.TYPE))
+            ClientPlayNetworking.send(new ServerboundCloseRadarStationPayload(state.radarId()));
+        state.clear();
+    }
+}

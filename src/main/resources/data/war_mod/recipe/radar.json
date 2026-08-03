@@ -1,0 +1,19 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "equipment",
+    "key":  {
+                "G":  "minecraft:glass_pane",
+                "M":  "minecraft:map",
+                "R":  "minecraft:redstone",
+                "C":  "minecraft:compass",
+                "I":  "minecraft:iron_ingot"
+            },
+    "pattern":  [
+                    "GCG",
+                    "RMR",
+                    "III"
+                ],
+    "result":  {
+                   "id":  "war_mod:radar"
+               }
+}

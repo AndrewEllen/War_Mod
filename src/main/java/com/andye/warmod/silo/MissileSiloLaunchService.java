@@ -34,49 +34,36 @@ public final class MissileSiloLaunchService {
         if (!AntiAirFlightControllerManager.canAccept(level)) return failInterceptor(silo,
             MissileSiloLaunchFailure.INTERCEPTOR_CONTROLLER_REJECTED, "Interceptor controller limit reached");
         Vec3 origin = origin(silo);
-        AntiAirTargetLock lock = AntiAirTargetSelector.acquire(level, origin).orElse(null);
-        AntiAirLaunchMode mode;
-        AntiAirInterceptSolution solution = null;
-        if (lock == null) {
-            mode = AntiAirLaunchMode.NO_TARGET_ASCENT;
-        } else {
-            Vec3 burnout = AntiAirLaunchService.estimatedBurnout(level, origin);
-            solution = AntiAirInterceptSolver.solve(burnout,
-                level.getGameTime() + AntiAirConstants.IGNITION_TICKS + AntiAirConstants.BOOST_TICKS, lock).orElse(null);
-            if (solution != null) mode = AntiAirLaunchMode.TRACKED_INTERCEPT;
-            else {
-                solution = AntiAirInterceptSolver.bestEffort(burnout,
-                    level.getGameTime() + AntiAirConstants.IGNITION_TICKS + AntiAirConstants.BOOST_TICKS, lock).orElse(null);
-                if (solution == null) return failInterceptor(silo, MissileSiloLaunchFailure.INTERCEPT_NOT_FEASIBLE,
-                    "Interceptor route geometry is invalid");
-                mode = AntiAirLaunchMode.BEST_EFFORT_INTERCEPT;
-            }
-        }
+        AntiAirLaunchDecision decision = AntiAirLaunchPlanner.plan(level, origin,
+            AntiAirLaunchService.estimatedBurnout(level, origin)).orElse(null);
+        if (decision == null) return failInterceptor(silo, MissileSiloLaunchFailure.INTERCEPT_NOT_FEASIBLE,
+            "Interceptor route geometry is invalid");
         UUID requestId = UUID.randomUUID();
         if (silo.reserveOne(requestId) == null) return failInterceptor(silo, MissileSiloLaunchFailure.BUSY, "Silo is busy");
         int tier = MissileSiloGuidanceFrameStructure.installedTier(level, silo.getBlockPos(), silo.facing());
         var launch = AntiAirLaunchService.launchFromSilo(level,
-            trigger == MissileSiloLaunchTrigger.REDSTONE ? silo.ownerPlayerId() : player, name == null ? "SERVER" : name,
-            silo.siloId(), silo.getBlockPos(), origin, type.antiAirVariant().orElseThrow(), lock, solution, mode, tier,
-            collision(silo));
-        if (launch.isEmpty()) { silo.restoreReserved(); return failInterceptor(silo,
-            MissileSiloLaunchFailure.INTERCEPTOR_CONTROLLER_REJECTED, "Interceptor controller rejected launch"); }
+            trigger == MissileSiloLaunchTrigger.REDSTONE ? silo.ownerPlayerId() : player,
+            name == null ? "SERVER" : name, silo.siloId(), silo.getBlockPos(), origin,
+            type.antiAirVariant().orElseThrow(), decision, tier, collision(silo));
+        if (launch.isEmpty()) {
+            silo.restoreReserved();
+            return failInterceptor(silo, MissileSiloLaunchFailure.INTERCEPTOR_CONTROLLER_REJECTED,
+                "Interceptor controller rejected launch");
+        }
         silo.launchAccepted(launch.get().flightPlan().interceptorId());
         int signal = MissileSiloBlock.maximumIncomingSignal(level, silo.getBlockPos(), silo.facing());
-        if (SharedConstants.IS_RUNNING_IN_IDE) {
-            String modeName = switch (mode) { case TRACKED_INTERCEPT -> "tracked"; case BEST_EFFORT_INTERCEPT -> "best_effort"; case NO_TARGET_ASCENT -> "no_target"; };
-            WarMod.LOGGER.info("Silo {} interceptor launch: variant={}, mode={}, trigger={}, signal={}", silo.siloId(),
-                type.antiAirVariant().orElseThrow().serializedName(), modeName, trigger.name().toLowerCase(Locale.ROOT), signal);
-            if (mode == AntiAirLaunchMode.NO_TARGET_ASCENT) WarMod.LOGGER.info("Silo {} launched {} without target",
-                silo.siloId(), type.antiAirVariant().orElseThrow().serializedName());
-            if (mode == AntiAirLaunchMode.BEST_EFFORT_INTERCEPT) WarMod.LOGGER.info(
-                "Silo {} launched best-effort interceptor: target={}, reason=too_late", silo.siloId(), lock.rootTrackId());
-        }
-        notify(level, player, mode == AntiAirLaunchMode.BEST_EFFORT_INTERCEPT
-            ? "Best-effort interceptor launch accepted" : "Interceptor launch accepted");
+        if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
+            "Silo {} interceptor launch: variant={}, mode={}, trigger={}, signal={}", silo.siloId(),
+            type.antiAirVariant().orElseThrow().serializedName(), decision.mode().name().toLowerCase(Locale.ROOT),
+            trigger.name().toLowerCase(Locale.ROOT), signal);
+        String notification = switch (decision.mode()) {
+            case TRACKED_INTERCEPT -> "Interceptor launch accepted";
+            case BEST_EFFORT_INTERCEPT -> "Best-effort interceptor launch accepted";
+            case NO_TARGET_ASCENT -> "No projected threat - interceptor test ascent accepted";
+        };
+        notify(level, player, notification);
         return MissileSiloLaunchResult.accepted(requestId);
-    }
-    private static MissileSiloLaunchResult strategic(ServerLevel level, MissileSiloBlockEntity silo,
+    }    private static MissileSiloLaunchResult strategic(ServerLevel level, MissileSiloBlockEntity silo,
         MissileSiloLaunchTrigger trigger, @Nullable UUID player, @Nullable String name, @Nullable TargetCoordinates override,
         SiloMissileType type) {
         var requests = PENDING.computeIfAbsent(level, ignored -> new LinkedHashMap<>());

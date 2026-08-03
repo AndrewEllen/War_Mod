@@ -1,0 +1,20 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "redstone",
+    "key":  {
+                "N":  "minecraft:nether_star",
+                "2":  "war_mod:missile_silo_guidance_support_tier_2",
+                "D":  "minecraft:diamond",
+                "R":  "minecraft:redstone_block",
+                "C":  "minecraft:comparator"
+            },
+    "pattern":  [
+                    "DND",
+                    "2C2",
+                    "DRD"
+                ],
+    "result":  {
+                   "id":  "war_mod:missile_silo_guidance_support_tier_3",
+                   "count":  2
+               }
+}

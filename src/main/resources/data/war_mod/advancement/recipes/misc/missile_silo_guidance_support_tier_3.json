@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_missile_silo_guidance_support_tier_2":  {
+                                                                      "trigger":  "minecraft:inventory_changed",
+                                                                      "conditions":  {
+                                                                                         "items":  [
+                                                                                                       {
+                                                                                                           "items":  "war_mod:missile_silo_guidance_support_tier_2"
+                                                                                                       }
+                                                                                                   ]
+                                                                                     }
+                                                                  },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:missile_silo_guidance_support_tier_3"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_missile_silo_guidance_support_tier_2",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:missile_silo_guidance_support_tier_3"
+                                ]
+                }
+}

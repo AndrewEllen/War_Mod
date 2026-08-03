@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_minecraft_compass":  {
+                                                   "trigger":  "minecraft:inventory_changed",
+                                                   "conditions":  {
+                                                                      "items":  [
+                                                                                    {
+                                                                                        "items":  "minecraft:compass"
+                                                                                    }
+                                                                                ]
+                                                                  }
+                                               },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:radar"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_minecraft_compass",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:radar"
+                                ]
+                }
+}

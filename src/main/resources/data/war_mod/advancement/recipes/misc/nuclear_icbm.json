@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_conventional_icbm":  {
+                                                   "trigger":  "minecraft:inventory_changed",
+                                                   "conditions":  {
+                                                                      "items":  [
+                                                                                    {
+                                                                                        "items":  "war_mod:conventional_icbm"
+                                                                                    }
+                                                                                ]
+                                                                  }
+                                               },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:nuclear_icbm"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_conventional_icbm",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:nuclear_icbm"
+                                ]
+                }
+}

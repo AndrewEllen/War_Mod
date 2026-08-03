@@ -1,0 +1,17 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "combat",
+    "key":  {
+                "D":  "minecraft:dispenser",
+                "C":  "minecraft:crossbow",
+                "I":  "minecraft:iron_ingot"
+            },
+    "pattern":  [
+                    "III",
+                    "DCI",
+                    "III"
+                ],
+    "result":  {
+                   "id":  "war_mod:rocket_launcher"
+               }
+}

@@ -1,53 +1,81 @@
 package com.andye.warmod.antiair;
 
-import com.andye.warmod.icbm.IcbmTrajectory;
 import java.util.Optional;
 import net.minecraft.world.phys.Vec3;
 
+/** Builds a once-locked route from a sampled carrier-or-terminal trajectory point. */
 public final class AntiAirInterceptSolver {
     private AntiAirInterceptSolver() { }
 
-    public static Optional<AntiAirInterceptSolution> solve(Vec3 burnout, long burnoutTime, AntiAirTargetLock lock) {
-        long last = Math.min(burnoutTime + AntiAirConstants.MAXIMUM_INTERCEPT_LOOKAHEAD_TICKS,
-            lock.separationGameTime() + AntiAirConstants.SEPARATION_INTERCEPT_GRACE_TICKS);
-        for (long time = burnoutTime + AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS; time <= last;
-            time += AntiAirConstants.INTERCEPT_SAMPLE_STEP_TICKS) {
-            AntiAirInterceptSolution solution = routeFor(burnout, burnoutTime, lock, time, true);
+    public static Optional<AntiAirInterceptSolution> solve(Vec3 burnout, long burnoutGameTime,
+        AntiAirTargetSelection selection) {
+        long impact = selection.projection().estimatedImpactGameTime();
+        for (long targetTime = burnoutGameTime + AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS;
+            targetTime <= impact; targetTime += AntiAirConstants.INTERCEPT_SAMPLE_STEP_TICKS) {
+            AntiAirInterceptSolution solution = routeFor(burnout, burnoutGameTime, selection, targetTime, true);
             if (solution != null) return Optional.of(solution);
         }
         return Optional.empty();
     }
 
-    /** Builds a speed-limited fixed route even after the normal intercept window has closed. */
-    public static Optional<AntiAirInterceptSolution> bestEffort(Vec3 burnout, long burnoutTime, AntiAirTargetLock lock) {
-        long captured = Math.max(burnoutTime + AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS,
-            Math.min(lock.separationGameTime(), burnoutTime + AntiAirConstants.MAXIMUM_INTERCEPT_LOOKAHEAD_TICKS));
-        return Optional.ofNullable(routeFor(burnout, burnoutTime, lock, captured, false));
+    /** Uses the most useful projected point but never increases speed or continuously homes. */
+    public static Optional<AntiAirInterceptSolution> bestEffort(Vec3 burnout, long burnoutGameTime,
+        AntiAirTargetSelection selection) {
+        AntiAirThreatProjection projection = selection.projection();
+        long[] candidates = { projection.firstEntryGameTime(), projection.closestApproachGameTime(),
+            Math.max(burnoutGameTime + AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS,
+                projection.estimatedImpactGameTime() - AntiAirConstants.INTERCEPT_SAMPLE_STEP_TICKS) };
+        for (long targetTime : candidates) {
+            if (targetTime < burnoutGameTime + AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS
+                || targetTime > projection.estimatedImpactGameTime()) continue;
+            AntiAirInterceptSolution solution = routeFor(burnout, burnoutGameTime, selection, targetTime, false);
+            if (solution != null) return Optional.of(solution);
+        }
+        return Optional.empty();
     }
 
-    private static AntiAirInterceptSolution routeFor(Vec3 burnout, long burnoutTime, AntiAirTargetLock lock,
-        long targetTime, boolean requireArrivalByTargetTime) {
-        double targetElapsed = targetTime - lock.carrierPlan().launchGameTime();
-        Vec3 target = IcbmTrajectory.position(lock.carrierPlan(), targetElapsed);
-        Vec3 velocity = IcbmTrajectory.velocity(lock.carrierPlan(), targetElapsed);
-        if (!burnout.isFinite() || !target.isFinite() || !velocity.isFinite()) return null;
-        Vec3 approach = velocity.lengthSqr() < 1.0E-8 ? new Vec3(0, 0, 1) : velocity.normalize();
-        double control = Math.min(120, Math.max(24, burnout.distanceTo(target) * .28));
-        AntiAirRoute unitRoute = new AntiAirRoute(burnout, burnout.add(0, Math.min(96, control), 0),
+    private static AntiAirInterceptSolution routeFor(Vec3 burnout, long burnoutGameTime,
+        AntiAirTargetSelection selection, long targetTime, boolean requireArrivalByTargetTime) {
+        Vec3 target = AntiAirTargetSelector.positionAt(selection.targetLock(), targetTime);
+        Vec3 velocity = AntiAirTargetSelector.velocityAt(selection.targetLock(), targetTime);
+        if (!burnout.isFinite() || target == null || velocity == null || !target.isFinite() || !velocity.isFinite()) return null;
+        Vec3 approach = velocity.lengthSqr() < 1.0E-8 ? target.subtract(burnout) : velocity;
+        approach = approach.lengthSqr() < 1.0E-8 ? new Vec3(0.0, 0.0, 1.0) : approach.normalize();
+        double control = Math.min(120.0, Math.max(24.0, burnout.distanceTo(target) * 0.28));
+        AntiAirRoute geometry = new AntiAirRoute(burnout, burnout.add(0.0, Math.min(96.0, control), 0.0),
             target.subtract(approach.scale(control)), target, 1);
-        double peakAtOneTick = 0;
-        for (int i = 0; i <= 16; i++) peakAtOneTick = Math.max(peakAtOneTick, unitRoute.velocity(i / 16.0).length());
-        int speedLimitedDuration = Math.max(AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS,
-            (int)Math.ceil(Math.max(unitRoute.arcLength(), peakAtOneTick)
-                / AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK));
-        int duration = requireArrivalByTargetTime ? (int)(targetTime - burnoutTime) : speedLimitedDuration;
-        if (duration < AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS) return null;
-        AntiAirRoute route = new AntiAirRoute(burnout, burnout.add(0, Math.min(96, control), 0),
-            target.subtract(approach.scale(control)), target, duration);
-        double average = route.arcLength() / duration, peak = 0;
-        for (int i = 0; i <= 16; i++) peak = Math.max(peak, route.velocity(duration * i / 16.0).length());
-        if (average > AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK
-            || peak > AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK) return null;
-        return new AntiAirInterceptSolution(targetTime, target, velocity, route, average, peak);
+        double originalLength = geometry.arcLength();
+        if (!Double.isFinite(originalLength) || originalLength <= 0.0) return null;
+        if (requireArrivalByTargetTime) {
+            int duration = (int)(targetTime - burnoutGameTime);
+            if (duration < AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS
+                || originalLength > AntiAirConstants.MAX_POWERED_INTERCEPT_ARC_BLOCKS) return null;
+            AntiAirRoute route = geometry.withDuration(duration);
+            double average = route.arcLength() / duration;
+            double peak = peakSpeed(route);
+            if (average > AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK
+                || peak > AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK) return null;
+            return new AntiAirInterceptSolution(targetTime, target, velocity, route, average, peak,
+                true, false, false, originalLength, originalLength);
+        }
+        AntiAirRoute capped = originalLength > AntiAirConstants.MAX_POWERED_INTERCEPT_ARC_BLOCKS
+            ? geometry.truncatedAtArcLength(AntiAirConstants.MAX_POWERED_INTERCEPT_ARC_BLOCKS) : geometry;
+        int duration = Math.max(AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS,
+            capped.minimumDurationForSpeed(AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK));
+        AntiAirRoute route = capped.withDuration(duration);
+        double average = route.arcLength() / duration;
+        double peak = peakSpeed(route);
+        if (average > AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK + 1.0E-8
+            || peak > AntiAirConstants.MAXIMUM_INTERCEPTOR_SPEED_BLOCKS_PER_TICK + 1.0E-8) return null;
+        return new AntiAirInterceptSolution(targetTime, target, velocity, route, average, peak,
+            false, true, originalLength > AntiAirConstants.MAX_POWERED_INTERCEPT_ARC_BLOCKS,
+            originalLength, route.arcLength());
+    }
+
+    private static double peakSpeed(AntiAirRoute route) {
+        double peak = 0.0;
+        for (int sample = 0; sample <= 64; sample++)
+            peak = Math.max(peak, route.velocity(route.durationTicks() * sample / 64.0).length());
+        return peak;
     }
 }

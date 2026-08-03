@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_minecraft_spyglass":  {
+                                                    "trigger":  "minecraft:inventory_changed",
+                                                    "conditions":  {
+                                                                       "items":  [
+                                                                                     {
+                                                                                         "items":  "minecraft:spyglass"
+                                                                                     }
+                                                                                 ]
+                                                                   }
+                                                },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:target_designator"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_minecraft_spyglass",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:target_designator"
+                                ]
+                }
+}

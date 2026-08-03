@@ -1,0 +1,19 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "redstone",
+    "key":  {
+                "O":  "minecraft:observer",
+                "L":  "minecraft:lightning_rod",
+                "R":  "minecraft:redstone_block",
+                "C":  "minecraft:copper_block",
+                "I":  "minecraft:iron_block"
+            },
+    "pattern":  [
+                    "CLC",
+                    "IOI",
+                    "IRI"
+                ],
+    "result":  {
+                   "id":  "war_mod:radar_station"
+               }
+}

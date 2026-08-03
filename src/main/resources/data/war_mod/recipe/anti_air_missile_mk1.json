@@ -1,0 +1,19 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "combat",
+    "key":  {
+                "F":  "minecraft:feather",
+                "O":  "minecraft:observer",
+                "R":  "minecraft:redstone",
+                "H":  "war_mod:he_rocket",
+                "I":  "minecraft:iron_ingot"
+            },
+    "pattern":  [
+                    "IOI",
+                    "FHF",
+                    "IRI"
+                ],
+    "result":  {
+                   "id":  "war_mod:anti_air_missile_mk1"
+               }
+}

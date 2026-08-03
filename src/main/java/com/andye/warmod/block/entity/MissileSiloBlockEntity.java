@@ -41,6 +41,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     private @Nullable TargetCoordinates storedTarget;
     private MissileSiloState siloState = MissileSiloState.EMPTY;
     private int previousRedstoneSignal;
+    private boolean redstoneCycleConsumed;
+    private boolean pendingRedstoneLaunch;
     private int launchingTicksRemaining;
     private int cooldownTicksRemaining;
     private int reloadTicksRemaining;
@@ -95,12 +97,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
             }
         }
         int signal = MissileSiloBlock.maximumIncomingSignal(server, pos, state.getValue(MissileSiloBlock.FACING));
-        boolean interceptor = MissilePayloadItems.isInterceptor(silo.missileStack());
-        boolean launchEdge = interceptor ? silo.previousRedstoneSignal < 15 && signal == 15
-            : silo.previousRedstoneSignal == 0 && signal > 0;
-        if (launchEdge) MissileSiloLaunchService.requestLaunch(server, silo,
-            MissileSiloLaunchTrigger.REDSTONE, silo.ownerPlayerId, silo.ownerDisplayName, null);
-        silo.previousRedstoneSignal = signal;
+        silo.processRedstoneSignal(server, signal);
         if (silo.siloState == MissileSiloState.LAUNCHING && --silo.launchingTicksRemaining <= 0) {
             silo.enterState(MissileSiloState.COOLDOWN);
             silo.cooldownTicksRemaining = MissileSiloConstants.PRE_RELOAD_COOLDOWN_TICKS;
@@ -118,8 +115,61 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
                 MissilePayloadItems.missileType(silo.missileStack()).map(type -> type.serializedName()).orElse("none"),
                 silo.missileStack().getCount());
         }
+        silo.processPendingRedstoneLaunch(server);
     }
 
+    private void processRedstoneSignal(final ServerLevel server, final int incomingSignal) {
+        int signal = Math.max(0, Math.min(15, incomingSignal));
+        boolean changed = this.previousRedstoneSignal != signal;
+        this.previousRedstoneSignal = signal;
+        if (signal == 0) {
+            if (this.redstoneCycleConsumed || this.pendingRedstoneLaunch) changed = true;
+            this.redstoneCycleConsumed = false;
+            this.pendingRedstoneLaunch = false;
+            if (changed) this.sync();
+            return;
+        }
+        if (!this.redstoneCycleConsumed) {
+            this.redstoneCycleConsumed = true;
+            if (readyForRedstoneLaunch()) {
+                attemptRedstoneLaunch(server, false);
+            } else if (transientlyBusyForRedstone()) {
+                this.pendingRedstoneLaunch = true;
+            }
+            changed = true;
+            if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
+                "Silo {} redstone cycle: signal={}, consumed={}, pending={}, state={}", this.siloId, signal,
+                this.redstoneCycleConsumed, this.pendingRedstoneLaunch, this.siloState);
+        }
+        if (changed) this.sync();
+    }
+
+    private void processPendingRedstoneLaunch(final ServerLevel server) {
+        if (!this.pendingRedstoneLaunch || this.previousRedstoneSignal <= 0 || !readyForRedstoneLaunch()) return;
+        this.pendingRedstoneLaunch = false;
+        if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
+            "Silo {} redstone cycle: signal={}, consumed={}, pending={}, state={}", this.siloId,
+            this.previousRedstoneSignal, this.redstoneCycleConsumed, false, this.siloState);
+        this.sync();
+        attemptRedstoneLaunch(server, true);
+    }
+
+    private void attemptRedstoneLaunch(final ServerLevel server, final boolean pending) {
+        MissileSiloLaunchService.requestLaunch(server, this, MissileSiloLaunchTrigger.REDSTONE,
+            this.ownerPlayerId, this.ownerDisplayName, null);
+        if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
+            "Silo {} redstone cycle: signal={}, consumed={}, pending={}, state={}", this.siloId,
+            this.previousRedstoneSignal, this.redstoneCycleConsumed, pending, this.siloState);
+    }
+
+    private boolean readyForRedstoneLaunch() {
+        return this.siloState == MissileSiloState.READY && this.pendingLaunchRequestId == null;
+    }
+
+    private boolean transientlyBusyForRedstone() {
+        return this.siloState == MissileSiloState.PREPARING || this.siloState == MissileSiloState.LAUNCHING
+            || this.siloState == MissileSiloState.COOLDOWN || this.siloState == MissileSiloState.RELOADING;
+    }
     public UUID siloId() { return this.siloId; }
     public ResourceKey<Level> dimension() { return this.dimension; }
     public Direction facing() { return this.facing; }
@@ -221,6 +271,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         output.storeNullable("target", TargetCoordinates.CODEC, this.storedTarget);
         output.putString("state", this.siloState.name());
         output.putInt("previous_redstone_signal", this.previousRedstoneSignal);
+        output.putBoolean("redstone_cycle_consumed", this.redstoneCycleConsumed);
+        output.putBoolean("pending_redstone_launch", this.pendingRedstoneLaunch);
         output.putInt("launching_ticks", this.launchingTicksRemaining);
         output.putInt("cooldown_ticks", this.cooldownTicksRemaining);
         output.putInt("reload_ticks", this.reloadTicksRemaining);
@@ -251,7 +303,8 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         catch (IllegalArgumentException ignored) { this.siloState = MissileSiloState.ERROR; }
         this.previousRedstoneSignal = Math.max(0, Math.min(15, input.getIntOr("previous_redstone_signal",
             input.getBooleanOr("previously_powered", false) ? 15 : 0)));
-        this.launchingTicksRemaining = Math.max(0, input.getIntOr("launching_ticks", 0));
+        this.redstoneCycleConsumed = input.getBooleanOr("redstone_cycle_consumed", this.previousRedstoneSignal > 0);
+        this.pendingRedstoneLaunch = input.getBooleanOr("pending_redstone_launch", false);        this.launchingTicksRemaining = Math.max(0, input.getIntOr("launching_ticks", 0));
         this.cooldownTicksRemaining = Math.max(0, input.getIntOr("cooldown_ticks", 0));
         this.reloadTicksTotal = Math.max(0, Math.min(MissileSiloConstants.RELOAD_ANIMATION_TICKS,
             input.getIntOr("reload_total", MissileSiloConstants.RELOAD_ANIMATION_TICKS)));

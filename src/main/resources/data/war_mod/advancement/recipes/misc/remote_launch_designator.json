@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_target_designator":  {
+                                                   "trigger":  "minecraft:inventory_changed",
+                                                   "conditions":  {
+                                                                      "items":  [
+                                                                                    {
+                                                                                        "items":  "war_mod:target_designator"
+                                                                                    }
+                                                                                ]
+                                                                  }
+                                               },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:remote_launch_designator"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_target_designator",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:remote_launch_designator"
+                                ]
+                }
+}

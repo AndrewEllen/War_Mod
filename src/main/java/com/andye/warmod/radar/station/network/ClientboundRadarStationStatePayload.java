@@ -1,1 +1,31 @@
-package com.andye.warmod.radar.station.network;import com.andye.warmod.WarMod;import java.util.UUID;import net.minecraft.network.RegistryFriendlyByteBuf;import net.minecraft.network.codec.StreamCodec;import net.minecraft.network.protocol.common.custom.CustomPacketPayload;import net.minecraft.resources.Identifier;import org.jspecify.annotations.Nullable;public record ClientboundRadarStationStatePayload(UUID radarId,double warningRadius,double fireRadius,int redstoneSignal,@Nullable UUID primaryThreatId,double primaryThreatDistance,boolean warningActive,int contacts,int threats,long serverGameTime)implements CustomPacketPayload{public static final Type<ClientboundRadarStationStatePayload> TYPE=new Type<>(Identifier.fromNamespaceAndPath(WarMod.MOD_ID,"radar_station_state"));public static final StreamCodec<RegistryFriendlyByteBuf,ClientboundRadarStationStatePayload> STREAM_CODEC=StreamCodec.of((b,p)->{b.writeUUID(p.radarId);b.writeDouble(p.warningRadius);b.writeDouble(p.fireRadius);b.writeVarInt(p.redstoneSignal);b.writeBoolean(p.primaryThreatId!=null);if(p.primaryThreatId!=null)b.writeUUID(p.primaryThreatId);b.writeDouble(p.primaryThreatDistance);b.writeBoolean(p.warningActive);b.writeVarInt(p.contacts);b.writeVarInt(p.threats);b.writeLong(p.serverGameTime);},b->new ClientboundRadarStationStatePayload(b.readUUID(),b.readDouble(),b.readDouble(),b.readVarInt(),b.readBoolean()?b.readUUID():null,b.readDouble(),b.readBoolean(),b.readVarInt(),b.readVarInt(),b.readLong()));@Override public Type<? extends CustomPacketPayload> type(){return TYPE;}}
+package com.andye.warmod.radar.station.network;
+
+import com.andye.warmod.WarMod;
+import com.andye.warmod.radar.station.RadarRedstoneMode;
+import java.util.UUID;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
+import org.jspecify.annotations.Nullable;
+
+public record ClientboundRadarStationStatePayload(UUID radarId, double warningRadius, double fireRadius,
+    int redstoneSignal, RadarRedstoneMode redstoneMode, @Nullable UUID primaryThreatId, double primaryThreatDistance,
+    boolean warningActive, int contacts, int threats, long serverGameTime) implements CustomPacketPayload {
+    public static final Type<ClientboundRadarStationStatePayload> TYPE = new Type<>(
+        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "radar_station_state"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundRadarStationStatePayload> STREAM_CODEC =
+        StreamCodec.of((buffer, payload) -> {
+            buffer.writeUUID(payload.radarId); buffer.writeDouble(payload.warningRadius); buffer.writeDouble(payload.fireRadius);
+            buffer.writeVarInt(payload.redstoneSignal); buffer.writeVarInt(payload.redstoneMode.ordinal());
+            buffer.writeBoolean(payload.primaryThreatId != null); if (payload.primaryThreatId != null) buffer.writeUUID(payload.primaryThreatId);
+            buffer.writeDouble(payload.primaryThreatDistance); buffer.writeBoolean(payload.warningActive);
+            buffer.writeVarInt(payload.contacts); buffer.writeVarInt(payload.threats); buffer.writeLong(payload.serverGameTime);
+        }, buffer -> new ClientboundRadarStationStatePayload(buffer.readUUID(), buffer.readDouble(), buffer.readDouble(),
+            buffer.readVarInt(), mode(buffer.readVarInt()), buffer.readBoolean() ? buffer.readUUID() : null,
+            buffer.readDouble(), buffer.readBoolean(), buffer.readVarInt(), buffer.readVarInt(), buffer.readLong()));
+    private static RadarRedstoneMode mode(int id) {
+        return RadarRedstoneMode.fromNetworkId(id).orElseThrow(() -> new IllegalArgumentException("Invalid radar mode"));
+    }
+    @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+}

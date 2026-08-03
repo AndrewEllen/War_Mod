@@ -1,0 +1,19 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "redstone",
+    "key":  {
+                "O":  "minecraft:observer",
+                "R":  "minecraft:redstone",
+                "C":  "minecraft:copper_ingot",
+                "I":  "minecraft:iron_ingot"
+            },
+    "pattern":  [
+                    "ICI",
+                    "ROR",
+                    "ICI"
+                ],
+    "result":  {
+                   "id":  "war_mod:missile_silo_guidance_support_tier_1",
+                   "count":  2
+               }
+}

@@ -1,0 +1,18 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "redstone",
+    "key":  {
+                "O":  "minecraft:obsidian",
+                "R":  "minecraft:redstone_block",
+                "B":  "minecraft:blast_furnace",
+                "I":  "minecraft:iron_block"
+            },
+    "pattern":  [
+                    "IRI",
+                    "OBO",
+                    "IOI"
+                ],
+    "result":  {
+                   "id":  "war_mod:missile_silo"
+               }
+}

@@ -1,0 +1,19 @@
+{
+    "type":  "minecraft:crafting_shaped",
+    "category":  "equipment",
+    "key":  {
+                "T":  "war_mod:target_designator",
+                "R":  "minecraft:redstone",
+                "E":  "minecraft:ender_pearl",
+                "C":  "minecraft:comparator",
+                "I":  "minecraft:iron_ingot"
+            },
+    "pattern":  [
+                    "ECE",
+                    "RTR",
+                    "III"
+                ],
+    "result":  {
+                   "id":  "war_mod:remote_launch_designator"
+               }
+}

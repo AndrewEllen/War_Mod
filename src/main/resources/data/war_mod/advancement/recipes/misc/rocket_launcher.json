@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_minecraft_crossbow":  {
+                                                    "trigger":  "minecraft:inventory_changed",
+                                                    "conditions":  {
+                                                                       "items":  [
+                                                                                     {
+                                                                                         "items":  "minecraft:crossbow"
+                                                                                     }
+                                                                                 ]
+                                                                   }
+                                                },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:rocket_launcher"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_minecraft_crossbow",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:rocket_launcher"
+                                ]
+                }
+}

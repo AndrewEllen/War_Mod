@@ -1,0 +1,30 @@
+{
+    "parent":  "minecraft:recipes/root",
+    "criteria":  {
+                     "has_he_rocket":  {
+                                           "trigger":  "minecraft:inventory_changed",
+                                           "conditions":  {
+                                                              "items":  [
+                                                                            {
+                                                                                "items":  "war_mod:he_rocket"
+                                                                            }
+                                                                        ]
+                                                          }
+                                       },
+                     "has_the_recipe":  {
+                                            "trigger":  "minecraft:recipe_unlocked",
+                                            "conditions":  {
+                                                               "recipe":  "war_mod:anti_air_missile_mk1"
+                                                           }
+                                        }
+                 },
+    "requirements":  [
+                         ["has_he_rocket",
+                         "has_the_recipe"]
+                     ],
+    "rewards":  {
+                    "recipes":  [
+                                    "war_mod:anti_air_missile_mk1"
+                                ]
+                }
+}
