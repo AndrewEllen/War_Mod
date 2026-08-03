@@ -38,17 +38,17 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class IncomingWarheadEntity extends Entity {
 	private UUID warheadId, ownerPlayerId, radarRootTrackId; private Vec3 startPosition=Vec3.ZERO, intendedTarget=Vec3.ZERO;
-	private long launchGameTime=Long.MIN_VALUE,visualSeed;private int flightTicks;private boolean impacted,cancelled,sonicBoomEmitted;
+	private long launchGameTime=Long.MIN_VALUE,visualSeed;private int flightTicks,clusterIndex,clusterCount=1;private boolean impacted,cancelled,sonicBoomEmitted;
 	private WarheadPayloadType payloadType=WarheadPayloadType.CONVENTIONAL;
 	public IncomingWarheadEntity(final EntityType<IncomingWarheadEntity> type, final Level level) {
 		super(type,level); this.noPhysics=true; setNoGravity(true); setSilent(true);
 	}
 	public IncomingWarheadEntity(final EntityType<IncomingWarheadEntity> type, final ServerLevel level, final UUID warheadId,
 		final UUID ownerPlayerId, final Vec3 startPosition, final Vec3 intendedTarget, final long launchGameTime,
-		final int flightTicks, final long visualSeed, final WarheadPayloadType payloadType, final UUID radarRootTrackId) {
+		final int flightTicks, final long visualSeed, final WarheadPayloadType payloadType, final UUID radarRootTrackId, final int clusterIndex, final int clusterCount) {
 		this(type,level); this.warheadId=Objects.requireNonNull(warheadId); this.ownerPlayerId=ownerPlayerId;
 		this.startPosition=Objects.requireNonNull(startPosition); this.intendedTarget=Objects.requireNonNull(intendedTarget);
-		this.launchGameTime=launchGameTime; this.flightTicks=flightTicks; this.visualSeed=visualSeed; this.payloadType=Objects.requireNonNull(payloadType); this.radarRootTrackId=Objects.requireNonNull(radarRootTrackId); setPos(startPosition);
+		this.launchGameTime=launchGameTime; this.flightTicks=flightTicks; this.visualSeed=visualSeed; this.payloadType=Objects.requireNonNull(payloadType); this.radarRootTrackId=Objects.requireNonNull(radarRootTrackId); this.clusterIndex=clusterIndex; this.clusterCount=Math.max(1,clusterCount); setPos(startPosition);
 	}
 	@Override protected void defineSynchedData(final SynchedEntityData.Builder builder) { }
 	@Override public void tick() {
@@ -71,7 +71,7 @@ public final class IncomingWarheadEntity extends Entity {
 		warheadId=input.read("WarheadId",UUIDUtil.STRING_CODEC).orElse(null); ownerPlayerId=input.read("OwnerPlayerId",UUIDUtil.STRING_CODEC).orElse(null); radarRootTrackId=input.read("RadarRootTrackId",UUIDUtil.STRING_CODEC).orElse(warheadId);
 		startPosition=input.read("StartPosition",Vec3.CODEC).orElse(Vec3.ZERO); intendedTarget=input.read("IntendedTarget",Vec3.CODEC).orElse(Vec3.ZERO);
 		launchGameTime=input.getLongOr("LaunchGameTime",Long.MIN_VALUE); flightTicks=input.getIntOr("FlightTicks",0); visualSeed=input.getLongOr("VisualSeed",0);
-		impacted=input.getBooleanOr("Impacted",false);sonicBoomEmitted=input.getBooleanOr("SonicBoomEmitted",false); payloadType=WarheadPayloadType.fromSerializedName(input.getStringOr("PayloadType","conventional")).orElse(WarheadPayloadType.CONVENTIONAL);
+		impacted=input.getBooleanOr("Impacted",false);sonicBoomEmitted=input.getBooleanOr("SonicBoomEmitted",false); payloadType=WarheadPayloadType.fromSerializedName(input.getStringOr("PayloadType","conventional")).orElse(WarheadPayloadType.CONVENTIONAL); clusterIndex=input.getIntOr("ClusterIndex",0);clusterCount=Math.max(1,input.getIntOr("ClusterCount",1));
 		if(!valid()||impacted){discard();return;} setPos(startPosition);setNoGravity(true);setSilent(true);noPhysics=true;
 	}
 	@Override protected void addAdditionalSaveData(final ValueOutput output){
@@ -79,12 +79,12 @@ public final class IncomingWarheadEntity extends Entity {
 		if(startPosition!=null&&startPosition.isFinite())output.store("StartPosition",Vec3.CODEC,startPosition);
 		if(intendedTarget!=null&&intendedTarget.isFinite())output.store("IntendedTarget",Vec3.CODEC,intendedTarget);
 		output.putLong("LaunchGameTime",launchGameTime);output.putInt("FlightTicks",flightTicks);output.putLong("VisualSeed",visualSeed);
-		output.putBoolean("Impacted",impacted);output.putBoolean("SonicBoomEmitted",sonicBoomEmitted);output.putString("PayloadType",payloadType.serializedName());
+		output.putBoolean("Impacted",impacted);output.putBoolean("SonicBoomEmitted",sonicBoomEmitted);output.putString("PayloadType",payloadType.serializedName());output.putInt("ClusterIndex",clusterIndex);output.putInt("ClusterCount",clusterCount);
 	}
 	public UUID warheadId(){return warheadId;} public UUID ownerPlayerId(){return ownerPlayerId;} public UUID radarRootTrackId(){return radarRootTrackId==null?warheadId:radarRootTrackId;}
 	public Vec3 startPosition(){return startPosition;} public Vec3 intendedTarget(){return intendedTarget;} public long launchGameTime(){return launchGameTime;}
-	public int flightTicks(){return flightTicks;} public long visualSeed(){return visualSeed;} public WarheadPayloadType payloadType(){return payloadType;}
- public boolean cancelForInterception(ServerLevel server,UUID interceptorId,Vec3 interceptPosition){if(impacted||cancelled||isRemoved())return false;cancelled=true;impacted=true;WarheadVisualNetworking.sendRemove(server,warheadId,intendedTarget);IncomingWarheadRegistry.unregister(server,radarRootTrackId());discard();return true;}
+	public int flightTicks(){return flightTicks;} public long visualSeed(){return visualSeed;} public WarheadPayloadType payloadType(){return payloadType;} public int clusterIndex(){return clusterIndex;} public int clusterCount(){return clusterCount;}
+ public boolean cancelForInterception(ServerLevel server,UUID interceptorId,Vec3 interceptPosition){if(impacted||cancelled||isRemoved())return false;cancelled=true;impacted=true;WarheadVisualNetworking.sendRemove(server,warheadId,intendedTarget);IncomingWarheadRegistry.unregister(server,radarRootTrackId(),warheadId);discard();return true;} public boolean cancelForPointDefence(ServerLevel server,UUID bulletId,Vec3 hitPosition){return cancelForInterception(server,bulletId,hitPosition);}
 	private boolean valid(){return warheadId!=null&&radarRootTrackId()!=null&&startPosition!=null&&intendedTarget!=null&&payloadType!=null&&startPosition.isFinite()&&intendedTarget.isFinite()
 		&&startPosition.distanceTo(intendedTarget)<=8192&&launchGameTime!=Long.MIN_VALUE&&flightTicks>=1&&flightTicks<=IcbmConstants.MAXIMUM_TERMINAL_TICKS;}
 	private void emitSonicBoom(final ServerLevel server,final Vec3 position,final Vec3 velocity){
@@ -100,7 +100,7 @@ public final class IncomingWarheadEntity extends Entity {
 		if(impacted||!hit.isFinite())return; impacted=true; ServerPlayer owner=null;
 		if(ownerPlayerId!=null&&server.getServer()!=null){ServerPlayer p=server.getServer().getPlayerList().getPlayer(ownerPlayerId);if(p!=null&&p.level()==server)owner=p;}
 		if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Warhead {} impacted: payload={}, position={}",warheadId,payloadType.serializedName(),hit);
-		WarheadImpactService.impact(server,owner,warheadId,radarRootTrackId(),hit,visualSeed,payloadType);IncomingWarheadRegistry.unregister(server,radarRootTrackId());discard();
+		WarheadImpactService.impact(server,owner,warheadId,radarRootTrackId(),hit,visualSeed,payloadType);IncomingWarheadRegistry.unregister(server,radarRootTrackId(),warheadId);discard();
 	}
 	private void cancel(final ServerLevel server){if(warheadId!=null&&intendedTarget!=null&&intendedTarget.isFinite())WarheadVisualNetworking.sendRemove(server,warheadId,intendedTarget);}
 	private void updateRotation(final Vec3 v){if(v.lengthSqr()<1E-8)return;setYRot((float)(Math.atan2(v.z,v.x)*180/Math.PI)-90);setXRot((float)(-Math.atan2(v.y,v.horizontalDistance())*180/Math.PI));}

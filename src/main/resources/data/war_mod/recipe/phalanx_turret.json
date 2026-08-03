@@ -1,0 +1,1 @@
+{"type":"minecraft:crafting_shaped","category":"redstone","pattern":["IDI","RCR","IOI"],"key":{"I":"minecraft:iron_block","D":"minecraft:dispenser","R":"minecraft:redstone_block","C":"minecraft:comparator","O":"minecraft:observer"},"result":{"id":"war_mod:phalanx_turret"}}

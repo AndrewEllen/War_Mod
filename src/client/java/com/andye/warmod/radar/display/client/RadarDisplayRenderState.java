@@ -1,0 +1,1 @@
+package com.andye.warmod.radar.display.client;import net.minecraft.client.renderer.blockentity.state.BlockEntityRenderState;import net.minecraft.core.Direction;public final class RadarDisplayRenderState extends BlockEntityRenderState{public int size;public Direction facing=Direction.NORTH;public boolean controller,online;public double sweep;}

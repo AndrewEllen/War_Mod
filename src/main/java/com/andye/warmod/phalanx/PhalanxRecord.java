@@ -1,0 +1,1 @@
+package com.andye.warmod.phalanx;import java.util.UUID;import net.minecraft.core.*;public record PhalanxRecord(UUID turretId,BlockPos centre,Direction facing,UUID ownerId,String ownerName,boolean enabled,float bloom){}

@@ -47,6 +47,7 @@ public final class AntiAirFlightController {
     }
 
     public AntiAirFlightPlan plan() { return plan; }
+    public AntiAirFlightPhase phase() { return phase; } public Vec3 currentPosition(){return currentPosition;} public Vec3 currentVelocity(){return currentVelocity;} public long fallbackStart(){return fallbackStart;} public boolean cancelForPointDefence(ServerLevel level,java.util.UUID bulletId,Vec3 hitPosition){if(completed||phase!=AntiAirFlightPhase.FALLBACK)return false;AntiAirNetworking.send(level,new ClientboundAntiAirRemovePayload(plan.interceptorId()));RadarTrackingService.removeInterceptor(level,plan.interceptorId(),RadarRemovalReason.INTERCEPTED);complete(level,RadarRemovalReason.INTERCEPTED);return true;}
     public boolean completed() { return completed; }
 
     public void tick(ServerLevel level) {

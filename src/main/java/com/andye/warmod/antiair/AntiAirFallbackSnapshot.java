@@ -1,0 +1,1 @@
+package com.andye.warmod.antiair;import java.util.UUID;import net.minecraft.world.phys.Vec3;public record AntiAirFallbackSnapshot(UUID interceptorId,Vec3 currentPosition,Vec3 currentVelocity,long fallbackStartTime,AntiAirMissileVariant variant,boolean active){}

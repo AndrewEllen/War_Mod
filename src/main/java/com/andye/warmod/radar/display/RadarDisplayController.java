@@ -1,0 +1,1 @@
+package com.andye.warmod.radar.display;public final class RadarDisplayController{private RadarDisplayController(){}public static boolean isController(net.minecraft.core.BlockPos pos,RadarDisplayStructure structure){return structure.valid()&&structure.controller().equals(pos);}}

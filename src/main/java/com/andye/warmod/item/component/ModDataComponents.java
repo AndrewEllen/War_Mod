@@ -15,6 +15,7 @@ public final class ModDataComponents {
         .<AntiAirTestVariant>builder().persistent(AntiAirTestVariant.CODEC).build();
     public static final DataComponentType<LinkedSilo> LINKED_SILO = DataComponentType
         .<LinkedSilo>builder().persistent(LinkedSilo.CODEC).build();
+    public static final DataComponentType<LinkedRadarStation> LINKED_RADAR_STATION = DataComponentType.<LinkedRadarStation>builder().persistent(LinkedRadarStation.CODEC).build();
     private static boolean registered;
 
     private ModDataComponents() {
@@ -26,6 +27,7 @@ public final class ModDataComponents {
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_silo"), LINKED_SILO);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("rocket_launcher_mode"), ROCKET_LAUNCHER_MODE);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("anti_air_test_variant"), ANTI_AIR_TEST_VARIANT);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_radar_station"), LINKED_RADAR_STATION);
         registered = true;
     }
 
@@ -33,3 +35,4 @@ public final class ModDataComponents {
         return Identifier.fromNamespaceAndPath(WarMod.MOD_ID, path);
     }
 }
+

@@ -1,0 +1,1 @@
+package com.andye.warmod.phalanx;import net.minecraft.world.phys.Vec3;public final class PhalanxBulletTrajectory{private PhalanxBulletTrajectory(){}public static Vec3 position(Vec3 origin,Vec3 velocity,double ticks){return origin.add(velocity.scale(ticks)).add(0,-.5*PhalanxConstants.BULLET_GRAVITY_PER_TICK_SQUARED*ticks*ticks,0);}}

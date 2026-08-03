@@ -1,0 +1,1 @@
+package com.andye.warmod.phalanx;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.*;import net.minecraft.world.phys.Vec3;public record PhalanxTargetSnapshot(UUID targetId,UUID rootId,PhalanxTargetKind kind,Optional<WarheadPayloadType> payloadType,Vec3 position,Vec3 velocity,Vec3 predictedImpact,double ticksToImpact,double hitRadius){}

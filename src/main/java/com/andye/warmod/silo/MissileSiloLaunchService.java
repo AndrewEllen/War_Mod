@@ -104,8 +104,7 @@ public final class MissileSiloLaunchService {
                 request.strategicTarget().position(), request.missileType().payloadType().orElseThrow(), collision(silo),
                 silo.siloId(), silo.getBlockPos(), tier);
             release(level, request); iterator.remove();
-            if (result.isPresent()) { silo.launchAccepted(result.get().flightPlan().missileId()); notify(level,
-                request.triggeringPlayerId(), "Missile launch accepted"); }
+            if (result.isPresent()) { com.andye.warmod.warhead.StrategicMissilePayloadRegistry.put(result.get().flightPlan().missileId(), request.missileType().strategicPayload()); silo.launchAccepted(result.get().flightPlan().missileId()); notify(level, request.triggeringPlayerId(), "Missile launch accepted"); }
             else { silo.fail("Flight plan could not be constructed"); notify(level, request.triggeringPlayerId(), "Missile launch failed"); }
         }
         if (requests.isEmpty()) PENDING.remove(level);

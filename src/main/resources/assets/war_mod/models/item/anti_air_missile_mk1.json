@@ -1,4 +1,4 @@
-﻿{"textures":{"all":"war_mod:item/anti_air_missile_mk1"},
+{"textures":{"all":"war_mod:item/anti_air_missile_mk1"},
   "elements":[
     {"name":"body","from":[7,2,7],"to":[9,13,9],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},
     {"name":"payload_band","from":[6.35,9,6.35],"to":[9.65,10.5,9.65],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}},

@@ -3,6 +3,7 @@ package com.andye.warmod;
 import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
 import com.andye.warmod.antiair.client.ClientAntiAirNetworking;
 import com.andye.warmod.antiair.client.AntiAirWorldRenderer;
+import com.andye.warmod.antiair.client.audio.AntiAirEngineAudioManager;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.block.entity.ModBlockEntities;
@@ -10,6 +11,11 @@ import com.andye.warmod.silo.client.MissileSiloBlockEntityRenderer;
 import com.andye.warmod.silo.client.gui.MissileSiloScreen;
 import com.andye.warmod.menu.ModMenus;
 import com.andye.warmod.radar.station.client.RadarStationBlockEntityRenderer;
+import com.andye.warmod.phalanx.client.PhalanxBlockEntityRenderer;
+import com.andye.warmod.phalanx.client.ClientPhalanxNetworking;
+import com.andye.warmod.phalanx.client.PhalanxTracerRenderer;
+import com.andye.warmod.phalanx.client.gui.PhalanxScreen;
+import com.andye.warmod.radar.display.client.RadarDisplayBlockEntityRenderer;
 import com.andye.warmod.radar.station.client.ClientRadarStationNetworking;
 import net.minecraft.client.gui.screens.MenuScreens;
 import com.andye.warmod.rocket.client.RocketProjectileRenderer;
@@ -34,21 +40,29 @@ public final class WarModClient implements ClientModInitializer {
 		ClientWarheadNetworking.register();
 		ClientIcbmNetworking.register();
         ClientAntiAirNetworking.register();
+		ClientPhalanxNetworking.register();
 		ClientRadarNetworking.register();
 		ClientRadarStationNetworking.register();
 		RadarKeyBindings.register();
 		ClientIcbmAudioManager.register();
+		AntiAirEngineAudioManager.register();
 		ClientTerminalAudioManager.register();
 		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);
 		EntityRendererRegistry.register(ModEntityTypes.ROCKET_PROJECTILE, RocketProjectileRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.MISSILE_SILO, MissileSiloBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.RADAR_STATION, RadarStationBlockEntityRenderer::new);
+		BlockEntityRenderers.register(ModBlockEntities.PHALANX_TURRET, PhalanxBlockEntityRenderer::new);
+		BlockEntityRenderers.register(ModBlockEntities.RADAR_DISPLAY_PANEL, RadarDisplayBlockEntityRenderer::new);
 		MenuScreens.register(ModMenus.MISSILE_SILO, MissileSiloScreen::new);
+		MenuScreens.register(ModMenus.PHALANX, PhalanxScreen::new);
 		WarheadParticleClient.register();
 		WarheadWorldRenderer.register();
 		IcbmWorldRenderer.register();
         AntiAirWorldRenderer.register();
+		PhalanxTracerRenderer.register();
 		NuclearFlashOverlay.register();
 		WarMod.LOGGER.info("War Mod client initialized.");
 	}
 }
+
+

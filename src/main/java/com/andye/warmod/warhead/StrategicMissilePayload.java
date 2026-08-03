@@ -1,0 +1,1 @@
+package com.andye.warmod.warhead;import java.util.Objects;public record StrategicMissilePayload(WarheadPayloadType payloadType,WarheadDeliveryMode deliveryMode){public StrategicMissilePayload{Objects.requireNonNull(payloadType);Objects.requireNonNull(deliveryMode);}}

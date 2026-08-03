@@ -1,78 +1,13 @@
 package com.andye.warmod.antiair.client;
-
-import com.andye.warmod.antiair.client.render.AntiAirMissileMesh;
-import com.andye.warmod.icbm.client.render.*;
-import com.andye.warmod.warhead.client.render.*;
-import com.mojang.blaze3d.vertex.PoseStack;
-import java.util.*;
-import net.fabricmc.fabric.api.client.rendering.v1.level.*;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
-import net.minecraft.core.BlockPos;
-import net.minecraft.util.LightCoordsUtil;
-import net.minecraft.world.phys.Vec3;
-import org.joml.*;
-
-public final class AntiAirWorldRenderer {
-    private static volatile Frame frame = Frame.EMPTY; private static boolean registered;
-    private AntiAirWorldRenderer() { }
-    public static void register() { if (registered) return; LevelExtractionEvents.END_EXTRACTION.register(AntiAirWorldRenderer::extract);
-        LevelRenderEvents.COLLECT_SUBMITS.register(AntiAirWorldRenderer::render); registered = true; }
-    private static void extract(LevelExtractionContext context) {
-        ClientLevel level = context.level(); CameraRenderState camera = context.levelState().cameraRenderState;
-        if (level == null || camera == null || camera.pos == null) { frame = Frame.EMPTY; return; }
-        long time = level.getGameTime(); double partial = context.deltaTracker().getGameTimeDeltaPartialTick(true);
-        List<Missile> missiles = new ArrayList<>();
-        for (var state : ClientAntiAirVisualManager.INSTANCE.snapshot()) {
-            Vec3 position = state.position(time, partial), velocity = state.velocity(time, partial);
-            if (!position.isFinite() || !velocity.isFinite()) continue;
-            missiles.add(new Missile(position, velocity, state.variant(), state.seed(), state.thrust(), state.fallback(),
-                state.fallbackAge(time, partial), IcbmLongRangeRenderContext.create(camera.pos, position, camera.depthFar),
-                light(level, position), time + partial));
-        }
-        frame = new Frame(camera.pos, List.copyOf(missiles));
-    }
-    private static void render(LevelRenderContext context) {
-        Frame current = frame; if (current == Frame.EMPTY || context.poseStack() == null) return;
-        PoseStack stack = context.poseStack();
-        for (var missile : current.missiles) {
-            var transform = missile.context.transform(); stack.pushPose();
-            Vec3 relative = transform.renderedCenter().subtract(current.camera); stack.translate(relative.x, relative.y, relative.z);
-            stack.mulPose(rotation(missile.velocity)); float compression = (float)transform.compression(); stack.scale(compression, compression, compression);
-            context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.MISSILE,
-                (pose, buffer) -> AntiAirMissileMesh.render(pose, buffer, missile.variant, missile.light));
-            if (missile.thrust) context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST,
-                (pose, buffer) -> IcbmExhaustRenderer.render(pose, buffer, missile.seed, missile.time, missile.context.lod()));
-            if (missile.fallback) renderFallbackAtmosphere(context, stack, missile);
-            stack.popPose();
-        }
-    }
-    private static void renderFallbackAtmosphere(LevelRenderContext context, PoseStack stack, Missile missile) {
-        WarheadMesh.Lod lod = switch (missile.context.lod()) {
-            case NEAR -> WarheadMesh.Lod.NEAR; case MEDIUM -> WarheadMesh.Lod.MEDIUM; default -> WarheadMesh.Lod.FAR;
-        };
-        double progress = java.lang.Math.min(.98, .70 + missile.fallbackAge / 220.0), remaining = java.lang.Math.max(1, 600 - missile.fallbackAge);
-        context.submitNodeCollector().submitCustomGeometry(stack, WarheadRenderPipelines.CONE,
-            (pose, buffer) -> ShockConeMesh.render(pose, buffer, lod, progress, missile.fallbackAge, remaining,
-                missile.velocity, missile.seed, 1));
-        context.submitNodeCollector().submitCustomGeometry(stack, WarheadRenderPipelines.VAPOR_BAND,
-            (pose, buffer) -> VaporBandRenderer.render(pose, buffer, lod, missile.fallbackAge, missile.seed,
-                progress, (float)java.lang.Math.min(1, missile.velocity.length() / 6.0), 1));
-        context.submitNodeCollector().submitCustomGeometry(stack, WarheadRenderPipelines.REENTRY_PLASMA,
-            (pose, buffer) -> ReentryHeatingRenderer.renderBowShock(pose, buffer, lod, progress,
-                missile.fallbackAge, remaining, missile.velocity, missile.seed));
-        context.submitNodeCollector().submitCustomGeometry(stack, WarheadRenderPipelines.REENTRY_PLASMA,
-            (pose, buffer) -> ReentryHeatingRenderer.renderGlow(pose, buffer, lod, progress,
-                missile.fallbackAge, remaining, missile.velocity, missile.seed));
-        context.submitNodeCollector().submitCustomGeometry(stack, WarheadRenderPipelines.REENTRY_PLASMA,
-            (pose, buffer) -> ReentryHeatingRenderer.renderFilaments(pose, buffer, lod, progress,
-                missile.fallbackAge, remaining, missile.velocity, missile.seed));
-    }
-    private static int light(ClientLevel level, Vec3 position) { BlockPos block = BlockPos.containing(position);
-        return !level.hasChunkAt(block) ? LightCoordsUtil.pack(7, 7) : LightCoordsUtil.getLightCoords(level, block); }
-    private static Quaternionf rotation(Vec3 velocity) { Vector3f direction = new Vector3f((float)velocity.x, (float)velocity.y, (float)velocity.z);
-        return direction.lengthSquared() < 1.0E-8 ? new Quaternionf() : new Quaternionf().rotationTo(new Vector3f(0, 1, 0), direction.normalize()); }
-    private record Missile(Vec3 position, Vec3 velocity, com.andye.warmod.antiair.AntiAirMissileVariant variant,
-        long seed, boolean thrust, boolean fallback, double fallbackAge, IcbmLongRangeRenderContext context, int light, double time) { }
-    private record Frame(Vec3 camera, List<Missile> missiles) { private static final Frame EMPTY = new Frame(Vec3.ZERO, List.of()); }
+import com.andye.warmod.antiair.client.render.AntiAirMissileMesh;import com.andye.warmod.icbm.client.render.*;import com.andye.warmod.warhead.client.render.*;import com.mojang.blaze3d.vertex.PoseStack;import java.util.*;import net.fabricmc.fabric.api.client.rendering.v1.level.*;import net.minecraft.client.multiplayer.ClientLevel;import net.minecraft.client.renderer.state.level.CameraRenderState;import net.minecraft.core.BlockPos;import net.minecraft.util.LightCoordsUtil;import net.minecraft.world.phys.Vec3;import org.joml.*;
+public final class AntiAirWorldRenderer{
+ private static volatile Frame frame=Frame.EMPTY;private static boolean registered;private AntiAirWorldRenderer(){}
+ public static void register(){if(registered)return;LevelExtractionEvents.END_EXTRACTION.register(AntiAirWorldRenderer::extract);LevelRenderEvents.COLLECT_SUBMITS.register(AntiAirWorldRenderer::render);registered=true;}
+ private static void extract(LevelExtractionContext context){ClientLevel level=context.level();CameraRenderState camera=context.levelState().cameraRenderState;if(level==null||camera==null||camera.pos==null){frame=Frame.EMPTY;return;}long time=level.getGameTime();double partial=context.deltaTracker().getGameTimeDeltaPartialTick(true);List<Missile> missiles=new ArrayList<>();for(var state:ClientAntiAirVisualManager.INSTANCE.snapshot()){Vec3 position=state.position(time,partial),velocity=state.velocity(time,partial);if(!position.isFinite()||!velocity.isFinite())continue;var rc=IcbmLongRangeRenderContext.create(camera.pos,position,camera.depthFar);missiles.add(new Missile(position,velocity,state.variant(),state.seed(),state.phase(),state.thrust(),state.fallback(),state.fallbackAge(time,partial),rc,AntiAirTrailSampler.sample(state,time,partial,rc.lod()),light(level,position),time+partial));}frame=new Frame(camera.pos,List.copyOf(missiles));}
+ private static void render(LevelRenderContext context){Frame current=frame;if(current==Frame.EMPTY||context.poseStack()==null)return;PoseStack stack=context.poseStack();for(var missile:current.missiles){var transform=missile.context.transform();stack.pushPose();Vec3 relative=transform.renderedCenter().subtract(current.camera);stack.translate(relative.x,relative.y,relative.z);stack.mulPose(rotation(missile.velocity));float compression=(float)transform.compression();stack.scale(compression,compression,compression);context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.MISSILE,(pose,buffer)->AntiAirMissileMesh.render(pose,buffer,missile.variant,missile.light));if(missile.thrust)context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.EXHAUST,(pose,buffer)->AntiAirThrustRenderer.render(pose,buffer,missile.phase,missile.seed,missile.time,missile.context.lod()));if(missile.fallback)renderFallbackAtmosphere(context,stack,missile);stack.popPose();if(missile.thrust&&missile.trail.size()>1){stack.pushPose();Vec3 origin=missile.position,trailRelative=origin.subtract(current.camera);stack.translate(trailRelative.x,trailRelative.y,trailRelative.z);context.submitNodeCollector().submitCustomGeometry(stack,IcbmRenderPipelines.SMOKE,(pose,buffer)->AntiAirTrailRenderer.render(pose,buffer,missile.trail,origin));stack.popPose();}}}
+ private static void renderFallbackAtmosphere(LevelRenderContext context,PoseStack stack,Missile missile){WarheadMesh.Lod lod=switch(missile.context.lod()){case NEAR->WarheadMesh.Lod.NEAR;case MEDIUM->WarheadMesh.Lod.MEDIUM;default->WarheadMesh.Lod.FAR;};double progress=java.lang.Math.min(.98,.70+missile.fallbackAge/220.0),remaining=java.lang.Math.max(1,600-missile.fallbackAge);context.submitNodeCollector().submitCustomGeometry(stack,WarheadRenderPipelines.CONE,(pose,buffer)->ShockConeMesh.render(pose,buffer,lod,progress,missile.fallbackAge,remaining,missile.velocity,missile.seed,1));context.submitNodeCollector().submitCustomGeometry(stack,WarheadRenderPipelines.VAPOR_BAND,(pose,buffer)->VaporBandRenderer.render(pose,buffer,lod,missile.fallbackAge,missile.seed,progress,(float)java.lang.Math.min(1,missile.velocity.length()/6.0),1));context.submitNodeCollector().submitCustomGeometry(stack,WarheadRenderPipelines.REENTRY_PLASMA,(pose,buffer)->ReentryHeatingRenderer.renderBowShock(pose,buffer,lod,progress,missile.fallbackAge,remaining,missile.velocity,missile.seed));context.submitNodeCollector().submitCustomGeometry(stack,WarheadRenderPipelines.REENTRY_PLASMA,(pose,buffer)->ReentryHeatingRenderer.renderGlow(pose,buffer,lod,progress,missile.fallbackAge,remaining,missile.velocity,missile.seed));context.submitNodeCollector().submitCustomGeometry(stack,WarheadRenderPipelines.REENTRY_PLASMA,(pose,buffer)->ReentryHeatingRenderer.renderFilaments(pose,buffer,lod,progress,missile.fallbackAge,remaining,missile.velocity,missile.seed));}
+ private static int light(ClientLevel level,Vec3 position){BlockPos block=BlockPos.containing(position);return!level.hasChunkAt(block)?LightCoordsUtil.pack(7,7):LightCoordsUtil.getLightCoords(level,block);}
+ private static Quaternionf rotation(Vec3 velocity){Vector3f direction=new Vector3f((float)velocity.x,(float)velocity.y,(float)velocity.z);return direction.lengthSquared()<1E-8?new Quaternionf():new Quaternionf().rotationTo(new Vector3f(0,1,0),direction.normalize());}
+ private record Missile(Vec3 position,Vec3 velocity,com.andye.warmod.antiair.AntiAirMissileVariant variant,long seed,com.andye.warmod.antiair.AntiAirFlightPhase phase,boolean thrust,boolean fallback,double fallbackAge,IcbmLongRangeRenderContext context,List<AntiAirTrailSampler.Sample> trail,int light,double time){}
+ private record Frame(Vec3 camera,List<Missile> missiles){private static final Frame EMPTY=new Frame(Vec3.ZERO,List.of());}
 }

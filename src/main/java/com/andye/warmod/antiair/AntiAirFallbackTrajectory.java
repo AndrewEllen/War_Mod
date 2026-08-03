@@ -20,4 +20,5 @@ public final class AntiAirFallbackTrajectory {
         return initialPosition.add(initialVelocity.x * velocitySum,
             initialVelocity.y * velocitySum - gravitySum, initialVelocity.z * velocitySum);
     }
+    public static java.util.Optional<Vec3> predictImpact(net.minecraft.server.level.ServerLevel level,Vec3 position,Vec3 velocity,int maximumTicks){Vec3 p=position,v=velocity;for(int i=0;i<Math.max(1,maximumTicks);i++){v=nextVelocity(v);Vec3 next=nextPosition(p,v);if(!next.isFinite()||!level.hasChunkAt(net.minecraft.core.BlockPos.containing(next)))return java.util.Optional.empty();int ground=level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,(int)Math.floor(next.x),(int)Math.floor(next.z));if(next.y<=ground)return java.util.Optional.of(new Vec3(next.x,ground,next.z));p=next;}return java.util.Optional.empty();}
 }

@@ -1,0 +1,1 @@
+package com.andye.warmod.radar.display;public final class RadarDisplayConstants{public static final int MAX_SIZE=10,MAX_PANELS=100,MAX_OBSERVED_TRACKS=128;public static final double LINK_DISTANCE_BLOCKS=100;private RadarDisplayConstants(){}public static int radius(int size){return Math.max(1,Math.min(MAX_SIZE,size))*500;}}

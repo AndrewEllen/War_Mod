@@ -1,4 +1,4 @@
-﻿{
+{
     "item.war_mod.acoustic_test_stick":  "Acoustic Test Stick",
     "item.war_mod.icbm_test_stick":  "ICBM Test Stick",
     "item.war_mod.nuclear_test_stick":  "Nuclear Test Stick",
@@ -10,9 +10,9 @@
     "item.war_mod.missile_silo":  "Missile Silo",
     "item.war_mod.conventional_icbm":  "Conventional ICBM",
     "item.war_mod.nuclear_icbm":  "Nuclear ICBM",
-    "item.war_mod.anti_air_missile_mk1": "Anti-Air Missile Mk I",
-    "item.war_mod.anti_air_missile_mk2": "Anti-Air Missile Mk II",
-    "item.war_mod.anti_air_test_stick": "Anti-Air Test Stick",
+    "item.war_mod.anti_air_missile_mk1":  "Anti-Air Missile Mk I",
+    "item.war_mod.anti_air_missile_mk2":  "Anti-Air Missile Mk II",
+    "item.war_mod.anti_air_test_stick":  "Anti-Air Test Stick",
     "item.war_mod.target_designator":  "Target Designator",
     "item.war_mod.remote_launch_designator":  "Remote Launch Designator",
     "item.war_mod.rocket_launcher":  "Rocket Launcher",
@@ -33,5 +33,14 @@
     "block.war_mod.missile_silo_guidance_support":  "Silo Guidance Support",
     "item.war_mod.missile_silo_guidance_support_tier_1":  "Silo Guidance Support â€” Tier 1",
     "item.war_mod.missile_silo_guidance_support_tier_2":  "Silo Guidance Support â€” Tier 2",
-    "item.war_mod.missile_silo_guidance_support_tier_3":  "Silo Guidance Support â€” Tier 3"
+    "item.war_mod.missile_silo_guidance_support_tier_3":  "Silo Guidance Support â€” Tier 3",
+    "block.war_mod.phalanx_turret":  "Phalanx Anti-Air Turret",
+    "item.war_mod.phalanx_turret":  "Phalanx Anti-Air Turret",
+    "item.war_mod.anti_air_gun_ammo":  "Anti-Air Gun Ammo",
+    "item.war_mod.conventional_cluster_icbm":  "Conventional Cluster ICBM",
+    "item.war_mod.nuclear_cluster_icbm":  "Nuclear Cluster ICBM",
+    "block.war_mod.radar_display_panel":  "Radar Display Panel",
+    "item.war_mod.radar_display_panel":  "Radar Display Panel",
+    "item.war_mod.radar_linking_tool":  "Radar Linking Tool",
+    "container.war_mod.phalanx":  "Phalanx Anti-Air Turret"
 }

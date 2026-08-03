@@ -25,6 +25,7 @@ public final class AntiAirVisualState {
     public AntiAirMissileVariant variant() { return launch.variant(); }
     public long seed() { return launch.visualSeed(); }
     public AntiAirFlightPhase phase() { return phase; }
+    public long launchGameTime() { return launch.launchGameTime(); }
 
     public void lock(ClientboundAntiAirRouteLockPayload payload) {
         route = new AntiAirRoute(launch.burnoutPosition(), payload.controlPoint1(), payload.controlPoint2(),
@@ -61,5 +62,5 @@ public final class AntiAirVisualState {
         return fallbackStartPosition == null ? 0.0 : Math.max(0.0, time + partial - fallbackStartGameTime);
     }
     public boolean fallback() { return phase == AntiAirFlightPhase.FALLBACK && fallbackStartPosition != null; }
-    public boolean thrust() { return !fallback() && phase != AntiAirFlightPhase.SELF_DESTRUCT; }
+    public boolean thrust() { return phase == AntiAirFlightPhase.IGNITION || phase == AntiAirFlightPhase.BOOST || phase == AntiAirFlightPhase.INTERCEPT; }
 }

@@ -1,0 +1,2 @@
+package com.andye.warmod.block;import net.minecraft.util.StringRepresentable;import net.minecraft.core.BlockPos;
+public enum PhalanxPart implements StringRepresentable{BASE_00(0,0,0),BASE_10(1,0,0),BASE_01(0,0,1),BASE_11(1,0,1),TOP_00(0,1,0),TOP_10(1,1,0),TOP_01(0,1,1),TOP_11(1,1,1);final int x,y,z;PhalanxPart(int x,int y,int z){this.x=x;this.y=y;this.z=z;}public BlockPos offset(){return new BlockPos(x,y,z);}public BlockPos controller(BlockPos pos){return pos.offset(-x,-y,-z);}@Override public String getSerializedName(){return name().toLowerCase(java.util.Locale.ROOT);}}

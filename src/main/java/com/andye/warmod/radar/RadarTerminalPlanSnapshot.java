@@ -1,7 +1,2 @@
-package com.andye.warmod.radar;
-
-import java.util.UUID;
-import net.minecraft.world.phys.Vec3;
-
-public record RadarTerminalPlanSnapshot(UUID warheadId, Vec3 startPosition, Vec3 targetPosition,
-	long launchGameTime, int flightTicks, long visualSeed) { }
+package com.andye.warmod.radar;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.UUID;import net.minecraft.world.phys.Vec3;
+public record RadarTerminalPlanSnapshot(UUID warheadId,int clusterIndex,int clusterCount,Vec3 startPosition,Vec3 targetPosition,long launchGameTime,int flightTicks,long visualSeed,WarheadPayloadType payloadType){public RadarTerminalPlanSnapshot(UUID id,Vec3 start,Vec3 target,long time,int ticks,long seed){this(id,0,1,start,target,time,ticks,seed,WarheadPayloadType.CONVENTIONAL);}}
