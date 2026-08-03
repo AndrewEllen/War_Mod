@@ -1,1 +1,1 @@
-package com.andye.warmod.phalanx;public enum PhalanxTargetKind{TERMINAL_WARHEAD,CLUSTER_SUBMUNITION,MK_I_FALLBACK,DIRECT_WARHEAD}
+package com.andye.warmod.phalanx;public enum PhalanxTargetKind{ICBM_CARRIER,TERMINAL_WARHEAD,CLUSTER_SUBMUNITION,MK_I_FALLBACK,DIRECT_WARHEAD}

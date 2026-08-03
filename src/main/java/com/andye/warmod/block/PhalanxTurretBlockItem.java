@@ -36,16 +36,16 @@ public final class PhalanxTurretBlockItem extends BlockItem {
         Player player = placementContext.getPlayer();
         BlockPos controller = placementContext.getClickedPos();
         Direction facing = player == null ? Direction.NORTH : player.getDirection().getOpposite();
-        List<BlockPos> positions = Arrays.stream(PhalanxPart.values()).map(part -> controller.offset(part.offset())).toList();
+        List<BlockPos> positions = PhalanxPart.compactStructure().stream().map(part -> controller.offset(part.offset())).toList();
         Stage stage = Stage.PRECHECK; List<BlockPos> placed = new ArrayList<>(); PhalanxBlockEntity entity = null;
         try {
             if (!PhalanxManager.canPlace(level)) return fail(player, "Phalanx limit reached");
-            if (new HashSet<>(positions).size() != 8) return fail(player, "Phalanx placement has duplicate positions");
+            if (new HashSet<>(positions).size() != 2) return fail(player, "Phalanx placement has duplicate positions");
             for (BlockPos position : positions) {
                 if (level.isOutsideBuildHeight(position) || !level.getWorldBorder().isWithinBounds(position)
                     || !level.getBlockState(position).canBeReplaced() || level.getBlockEntity(position) != null
                     || (player != null && !level.mayInteract(player, position)) || !level.getEntities(null, new AABB(position)).isEmpty())
-                    return fail(player, "Cannot place complete 2x2x2 Phalanx here");
+                    return fail(player, "Cannot place complete 1x1x2 Phalanx here");
             }
             PhalanxStructureAssembly.begin(level, positions);
             stage = Stage.CONTROLLER_BLOCK;
@@ -54,7 +54,7 @@ public final class PhalanxTurretBlockItem extends BlockItem {
             if (!(level.getBlockEntity(controller) instanceof PhalanxBlockEntity found)) throw new IllegalStateException("controller block entity missing");
             entity = found; stage = Stage.INITIALIZATION; entity.initialize(player, facing);
             stage = Stage.REMAINING_PARTS;
-            for (PhalanxPart part : PhalanxPart.values()) if (part != PhalanxPart.BASE_00) { BlockPos position = controller.offset(part.offset()); if (!level.setBlock(position, state(part, facing), Block.UPDATE_ALL)) throw new IllegalStateException("part setBlock returned false: " + part); placed.add(position); }
+            for (PhalanxPart part : PhalanxPart.compactStructure()) if (part != PhalanxPart.BASE_00) { BlockPos position = controller.offset(part.offset()); if (!level.setBlock(position, state(part, facing), Block.UPDATE_ALL)) throw new IllegalStateException("part setBlock returned false: " + part); placed.add(position); }
             stage = Stage.STRUCTURE_VALIDATION; if (!PhalanxStructure.complete(level, controller)) throw new IllegalStateException("placed structure is incomplete");
             stage = Stage.MANAGER_REGISTRATION; PhalanxRegistrationResult registration = PhalanxManager.register(level, entity); if (!registration.accepted()) throw new IllegalStateException("manager registration rejected: " + registration.failure());
             stage = Stage.ITEM_CONSUMPTION; placementContext.getItemInHand().consume(1, player); stage = Stage.COMPLETE;

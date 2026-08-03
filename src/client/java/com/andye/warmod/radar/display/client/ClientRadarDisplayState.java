@@ -69,12 +69,6 @@ public final class ClientRadarDisplayState {
             return null;
         }
 
-        if (clientTime - entry.receivedClientTime()
-            > EXPIRY_TICKS) {
-            states.remove(key);
-            return null;
-        }
-
         double serverNow =
             entry.snapshot().serverGameTime()
             + clientTime

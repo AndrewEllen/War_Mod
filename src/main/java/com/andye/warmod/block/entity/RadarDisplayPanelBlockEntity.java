@@ -50,7 +50,7 @@ public final class RadarDisplayPanelBlockEntity extends BlockEntity {
         long now = server.getGameTime();
 
         // Two updates per second, plus immediate updates from linking/rebuild.
-        if (now - display.lastBroadcastGameTime < 10L) {
+        if (display.lastBroadcastGameTime != Long.MIN_VALUE && now - display.lastBroadcastGameTime < 10L) {
             return;
         }
 

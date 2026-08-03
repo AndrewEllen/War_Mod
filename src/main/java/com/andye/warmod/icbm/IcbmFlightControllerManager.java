@@ -65,6 +65,24 @@ public final class IcbmFlightControllerManager {
 		return flights == null ? List.of() : flights.values().stream().map(IcbmFlightController::flightPlan).toList();
 	}
 
+	public static synchronized List<IcbmPointDefenceSnapshot> pointDefenceSnapshots(final ServerLevel level, final long gameTime) {
+		LinkedHashMap<UUID, IcbmFlightController> flights = ACTIVE.get(level);
+		if (flights == null || flights.isEmpty()) return List.of();
+		java.util.ArrayList<IcbmPointDefenceSnapshot> snapshots = new java.util.ArrayList<>();
+		for (IcbmFlightController controller : flights.values()) {
+			if (controller.completed() || controller.separated()) continue;
+			IcbmFlightPlan plan = controller.flightPlan();
+			double elapsed = Math.max(0.0, gameTime - plan.launchGameTime());
+			var position = IcbmTrajectory.position(plan, elapsed);
+			var velocity = IcbmTrajectory.velocity(plan, elapsed);
+			double carrierRemaining = Math.max(0.0, plan.separationTick() - elapsed);
+			double terminalDistance = plan.separationPosition().distanceTo(plan.intendedTarget());
+			double terminalTicks = Math.ceil(terminalDistance / com.andye.warmod.warhead.WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK);
+			terminalTicks = net.minecraft.util.Mth.clamp(terminalTicks, IcbmConstants.MINIMUM_TERMINAL_TICKS, IcbmConstants.MAXIMUM_TERMINAL_TICKS);
+			snapshots.add(new IcbmPointDefenceSnapshot(plan.missileId(), plan.payloadType(), position, velocity, plan.intendedTarget(), carrierRemaining + terminalTicks));
+		}
+		return List.copyOf(snapshots);
+	}
 	public static synchronized java.util.Optional<com.andye.warmod.antiair.StrategicMissileTargetState> targetState(final ServerLevel level,final UUID rootTrackId,final long gameTime){var flights=ACTIVE.get(level);var controller=flights==null?null:flights.get(rootTrackId);return controller==null||controller.separated()?java.util.Optional.empty():java.util.Optional.of(controller.targetState(gameTime));}
 	public static synchronized boolean cancelForInterception(final ServerLevel level,final UUID rootTrackId,final UUID interceptorId,final net.minecraft.world.phys.Vec3 position){var flights=ACTIVE.get(level);var controller=flights==null?null:flights.get(rootTrackId);if(controller==null||!controller.cancelForInterception(level,interceptorId,position))return false;flights.remove(rootTrackId);if(flights.isEmpty())ACTIVE.remove(level);return true;}
 	private static synchronized void tickLevel(final ServerLevel level) {

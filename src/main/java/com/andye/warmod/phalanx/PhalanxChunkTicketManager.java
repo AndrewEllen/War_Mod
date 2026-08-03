@@ -43,7 +43,7 @@ public final class PhalanxChunkTicketManager {
         LevelState state = ACTIVE.computeIfAbsent(level, ignored -> new LevelState());
         Set<ChunkPos> requested = touchedChunks(controller);
 
-        if (requested.isEmpty() || requested.size() > 4) {
+        if (requested.isEmpty() || requested.size() != 1) {
             WarMod.LOGGER.error(
                 "Invalid Phalanx chunk footprint: turret={}, controller={}, chunks={}",
                 turretId,
@@ -167,12 +167,12 @@ public final class PhalanxChunkTicketManager {
     }
 
     /**
-     * Calculates the unique chunks touched by all eight structure parts.
+     * Calculates the unique chunks touched by the compact structure parts.
      */
     static Set<ChunkPos> touchedChunks(final BlockPos controller) {
         LinkedHashSet<ChunkPos> chunks = new LinkedHashSet<>();
 
-        for (PhalanxPart part : PhalanxPart.values()) {
+        for (PhalanxPart part : PhalanxPart.compactStructure()) {
             BlockPos partPosition = controller.offset(part.offset());
 
             chunks.add(new ChunkPos(

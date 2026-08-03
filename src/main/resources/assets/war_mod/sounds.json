@@ -267,5 +267,10 @@
                                                           "stream":  true
                                                       }
                                                   ]
-                                   }
+                                   },
+    "phalanx_fire": {
+        "sounds": [
+            { "name": "war_mod:impact_thud_near", "volume": 0.42, "pitch": 1.75 }
+        ]
+    }
 }
