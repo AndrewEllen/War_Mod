@@ -1,3 +1,111 @@
-package com.andye.warmod.phalanx;import com.andye.warmod.block.entity.PhalanxBlockEntity;import java.util.*;import net.fabricmc.fabric.api.event.lifecycle.v1.*;import net.minecraft.server.level.ServerLevel;import net.minecraft.world.level.ClipContext;import net.minecraft.world.phys.*;
-public final class PhalanxBulletManager{private static final Map<ServerLevel,LinkedHashMap<UUID,PhalanxBullet>> ACTIVE=new WeakHashMap<>();private static boolean registered;private PhalanxBulletManager(){}public static void register(){if(registered)return;ServerTickEvents.END_LEVEL_TICK.register(PhalanxBulletManager::tick);ServerLifecycleEvents.SERVER_STOPPED.register(s->ACTIVE.clear());registered=true;}public static synchronized boolean fire(ServerLevel level,PhalanxBlockEntity turret,UUID target,Vec3 origin,Vec3 velocity,long seed){var map=ACTIVE.computeIfAbsent(level,x->new LinkedHashMap<>());if(map.size()>=PhalanxConstants.MAX_ACTIVE_BULLETS_PER_LEVEL)return false;UUID id=UUID.randomUUID();map.put(id,new PhalanxBullet(id,turret.turretId(),target,origin,velocity,seed));float pitch=.94F+(float)((seed >>> 8 & 15L)/120.0);level.playSound(null,net.minecraft.core.BlockPos.containing(origin),com.andye.warmod.acoustics.ModSoundEvents.PHALANX_FIRE,net.minecraft.sounds.SoundSource.BLOCKS,.72F,pitch);level.sendParticles(net.minecraft.core.particles.ParticleTypes.SMOKE,origin.x,origin.y,origin.z,2,.05,.05,.05,.015);com.andye.warmod.phalanx.network.PhalanxNetworking.send(level,new com.andye.warmod.phalanx.network.ClientboundPhalanxShotPayload(id,turret.turretId(),target,origin,velocity,seed));return true;}public static synchronized void removeForTurret(ServerLevel level,UUID turret){var map=ACTIVE.get(level);if(map!=null)map.values().removeIf(b->b.turretId.equals(turret));}private static synchronized void tick(ServerLevel level){var map=ACTIVE.get(level);if(map==null)return;Map<UUID,PhalanxTargetSnapshot> targets=new HashMap<>();for(var t:PhalanxTargetService.snapshot(level))targets.put(t.targetId(),t);var it=map.values().iterator();while(it.hasNext()){PhalanxBullet bullet=it.next();bullet.tick();if(bullet.age>PhalanxConstants.BULLET_LIFETIME_TICKS||!bullet.position.isFinite()){it.remove();continue;}net.minecraft.core.BlockPos a=net.minecraft.core.BlockPos.containing(bullet.previousPosition),b=net.minecraft.core.BlockPos.containing(bullet.position);if(!level.hasChunkAt(a)||!level.hasChunkAt(b)){it.remove();continue;}BlockHitResult block=level.clip(new ClipContext(bullet.previousPosition,bullet.position,ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,(net.minecraft.world.entity.Entity)null));double blockDistance=block.getType()==HitResult.Type.MISS?Double.POSITIVE_INFINITY:block.getLocation().distanceToSqr(bullet.previousPosition);PhalanxTargetSnapshot target=targets.get(bullet.targetId);if(target!=null&&PhalanxBulletCollision.intersects(bullet.previousPosition,bullet.position,target.position(),target.hitRadius())){double targetDistance=target.position().distanceToSqr(bullet.previousPosition);if(targetDistance<=blockDistance){PointDefenceInterceptionService.intercept(level,target,bullet.bulletId,target.position());com.andye.warmod.phalanx.network.PhalanxNetworking.send(level,new com.andye.warmod.phalanx.network.ClientboundPhalanxImpactPayload(bullet.bulletId));it.remove();continue;}}if(blockDistance<Double.POSITIVE_INFINITY)it.remove();}if(map.isEmpty())ACTIVE.remove(level);}}
+package com.andye.warmod.phalanx;
 
+import com.andye.warmod.block.entity.PhalanxBlockEntity;
+import java.util.*;
+import net.fabricmc.fabric.api.event.lifecycle.v1.*;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.*;
+
+public final class PhalanxBulletManager {
+  private static final Map<ServerLevel, LinkedHashMap<UUID, PhalanxBullet>> ACTIVE = new WeakHashMap<>();
+  private static boolean registered;
+
+  private PhalanxBulletManager() {
+  }
+
+  public static void register() {
+    if (registered)
+      return;
+    ServerTickEvents.END_LEVEL_TICK.register(PhalanxBulletManager::tick);
+    ServerLifecycleEvents.SERVER_STOPPED.register(s -> ACTIVE.clear());
+    registered = true;
+  }
+
+  public static synchronized boolean fire(
+    final ServerLevel level,
+    final PhalanxBlockEntity turret,
+    final UUID target,
+    final Vec3 origin,
+    final Vec3 velocity,
+    final int maximumAge,
+    final long seed
+) {
+    var map = ACTIVE.computeIfAbsent(level, x -> new LinkedHashMap<>());
+    if (map.size() >= PhalanxConstants.MAX_ACTIVE_BULLETS_PER_LEVEL)
+      return false;
+    UUID id = UUID.randomUUID();
+    map.put(
+    id,
+    new PhalanxBullet(
+        id,
+        turret.turretId(),
+        target,
+        origin,
+        velocity,
+        maximumAge,
+        seed
+    )
+);
+    float pitch = .94F + (float) ((seed >>> 8 & 15L) / 120.0);
+    level.playSound(null, net.minecraft.core.BlockPos.containing(origin),
+        com.andye.warmod.acoustics.ModSoundEvents.PHALANX_FIRE, net.minecraft.sounds.SoundSource.BLOCKS, .72F, pitch);
+    level.sendParticles(net.minecraft.core.particles.ParticleTypes.SMOKE, origin.x, origin.y, origin.z, 2, .05, .05,
+        .05, .015);
+    com.andye.warmod.phalanx.network.PhalanxNetworking.send(level,
+        new com.andye.warmod.phalanx.network.ClientboundPhalanxShotPayload(id, turret.turretId(), target, origin,
+            velocity, seed));
+    return true;
+  }
+
+  public static synchronized void removeForTurret(ServerLevel level, UUID turret) {
+    var map = ACTIVE.get(level);
+    if (map != null)
+      map.values().removeIf(b -> b.turretId.equals(turret));
+  }
+
+  private static synchronized void tick(ServerLevel level) {
+    var map = ACTIVE.get(level);
+    if (map == null)
+      return;
+    Map<UUID, PhalanxTargetSnapshot> targets = new HashMap<>();
+    for (var t : PhalanxTargetService.snapshot(level))
+      targets.put(t.targetId(), t);
+    var it = map.values().iterator();
+    while (it.hasNext()) {
+      PhalanxBullet bullet = it.next();
+      bullet.tick();
+      if (bullet.age > bullet.maximumAge
+    || !bullet.position.isFinite()) {
+        it.remove();
+        continue;
+      }
+      net.minecraft.core.BlockPos a = net.minecraft.core.BlockPos.containing(bullet.previousPosition),
+          b = net.minecraft.core.BlockPos.containing(bullet.position);
+      if (!level.hasChunkAt(a) || !level.hasChunkAt(b)) {
+        it.remove();
+        continue;
+      }
+      BlockHitResult block = level.clip(new ClipContext(bullet.previousPosition, bullet.position,
+          ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, (net.minecraft.world.entity.Entity) null));
+      double blockDistance = block.getType() == HitResult.Type.MISS ? Double.POSITIVE_INFINITY
+          : block.getLocation().distanceToSqr(bullet.previousPosition);
+      PhalanxTargetSnapshot target = targets.get(bullet.targetId);
+      if (target != null && PhalanxBulletCollision.intersects(bullet.previousPosition, bullet.position,
+          target.position(), target.hitRadius())) {
+        double targetDistance = target.position().distanceToSqr(bullet.previousPosition);
+        if (targetDistance <= blockDistance) {
+          PointDefenceInterceptionService.intercept(level, target, bullet.bulletId, target.position());
+          com.andye.warmod.phalanx.network.PhalanxNetworking.send(level,
+              new com.andye.warmod.phalanx.network.ClientboundPhalanxImpactPayload(bullet.bulletId));
+          it.remove();
+          continue;
+        }
+      }
+      if (blockDistance < Double.POSITIVE_INFINITY)
+        it.remove();
+    }
+    if (map.isEmpty())
+      ACTIVE.remove(level);
+  }
+}
