@@ -1,498 +1,1217 @@
 package com.andye.warmod.block.entity;
 
-import com.andye.warmod.block.*;
+import com.andye.warmod.block.PhalanxStructure;
+import com.andye.warmod.block.PhalanxTurretBlock;
 import com.andye.warmod.item.ModItems;
-import com.andye.warmod.phalanx.*;
-import java.util.*;
-import net.minecraft.core.*;
-import net.minecraft.network.protocol.*;
-import net.minecraft.network.protocol.game.*;
+import com.andye.warmod.phalanx.PhalanxBulletManager;
+import com.andye.warmod.phalanx.PhalanxConstants;
+import com.andye.warmod.phalanx.PhalanxGunStatus;
+import com.andye.warmod.phalanx.PhalanxLeadSolver;
+import com.andye.warmod.phalanx.PhalanxTargetSelector;
+import com.andye.warmod.phalanx.PhalanxTargetService;
+import com.andye.warmod.phalanx.PhalanxTargetSnapshot;
+import java.util.List;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
-import net.minecraft.world.*;
+import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.storage.*;
-import net.minecraft.world.phys.*;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
-public final class PhalanxBlockEntity extends BlockEntity implements WorldlyContainer {
-  private static final int[] SLOTS = { 0, 1 };
-  private final ItemStack[] ammo = { ItemStack.EMPTY, ItemStack.EMPTY };
-  private UUID turretId = UUID.randomUUID();
-  private @Nullable UUID ownerId, currentTarget;
-  private String ownerName = "SERVER";
-  private Direction facing = Direction.NORTH;
-  private boolean enabled = true, teardown;
-  private float yaw, pitch, desiredYaw, desiredPitch, bloom, barrelSpin;
-  private long shotSequence, lastStateBroadcast = Long.MIN_VALUE;
-  private float lastBroadcastYaw, lastBroadcastPitch, lastBroadcastSpin;
-  private PhalanxGunStatus lastBroadcastStatus = PhalanxGunStatus.IDLE;
-  private int lastBroadcastRounds = -1;
-  private int shotCooldown, burstShots, recovery;
-  private PhalanxGunStatus status = PhalanxGunStatus.IDLE;
+public final class PhalanxBlockEntity
+    extends BlockEntity
+    implements WorldlyContainer {
 
-  public PhalanxBlockEntity(BlockPos p, BlockState s) {
-    super(ModBlockEntities.PHALANX_TURRET, p, s);
-    if (s.hasProperty(PhalanxTurretBlock.FACING))
-      facing = s.getValue(PhalanxTurretBlock.FACING);
-  }
+    private static final int[] SLOTS = {
+        0,
+        1
+    };
 
-  public void initialize(
-      final @Nullable Player owner,
-      final Direction facing
-  ) {
-      turretId = UUID.randomUUID();
+    private final ItemStack[] ammo = {
+        ItemStack.EMPTY,
+        ItemStack.EMPTY
+    };
 
-      ownerId =
-          owner == null
-              ? null
-              : owner.getUUID();
+    private UUID turretId =
+        UUID.randomUUID();
 
-      ownerName =
-          owner == null
-              ? "SERVER"
-              : owner.getGameProfile().name();
+    private @Nullable UUID ownerId;
+    private @Nullable UUID currentTarget;
 
-      this.facing = facing;
+    private String ownerName =
+        "SERVER";
 
-      /*
-      * Yaw zero points south because the moving model points along local +Z.
-      */
-      yaw = yawForFacing(facing);
-      desiredYaw = yaw;
+    private Direction facing =
+        Direction.NORTH;
 
-      pitch = 0.0F;
-      desiredPitch = 0.0F;
+    private boolean enabled = true;
+    private boolean teardown;
 
-      sync();
-  }
+    private float yaw;
+    private float pitch;
+    private float desiredYaw;
+    private float desiredPitch;
+    private float bloom;
+    private float barrelSpin;
 
-  public UUID turretId() {
-    return turretId;
-  }
+    private long shotSequence;
+    private long lastStateBroadcast =
+        Long.MIN_VALUE;
 
-  public boolean enabled() {
-    return enabled;
-  }
+    private float lastBroadcastYaw;
+    private float lastBroadcastPitch;
+    private float lastBroadcastSpin;
 
-  public void setEnabled(boolean v) {
-    enabled = v;
-    sync();
-  }
+    private PhalanxGunStatus lastBroadcastStatus =
+        PhalanxGunStatus.IDLE;
 
-  public int rounds() {
-    return ammo[0].getCount() + ammo[1].getCount();
-  }
+    private int lastBroadcastRounds = -1;
 
-  public PhalanxGunStatus status() {
-    return status;
-  }
+    private int shotCooldown;
+    private int burstShots;
+    private int recovery;
 
-  public float yaw() {
-    return yaw;
-  }
+    private PhalanxGunStatus status =
+        PhalanxGunStatus.IDLE;
 
-  public float pitch() {
-    return pitch;
-  }
+    public PhalanxBlockEntity(
+        final BlockPos position,
+        final BlockState state
+    ) {
+        super(
+            ModBlockEntities.PHALANX_TURRET,
+            position,
+            state
+        );
 
-  public float bloom() {
-    return bloom;
-  }
-
-  public float barrelSpin() {
-    return barrelSpin;
-  }
-
-  public @Nullable UUID currentTarget() {
-    return currentTarget;
-  }
-
-  public boolean teardown() {
-    return teardown;
-  }
-
-  public void setTeardown(boolean v) {
-    teardown = v;
-  }
-
-  public static void serverTick(Level l, BlockPos p, BlockState s, PhalanxBlockEntity be) {
-    if (!(l instanceof ServerLevel level))
-      return;
-    be.tick(level);
-  }
-
-  private void tick(ServerLevel level) {
-    if (!PhalanxStructure.complete(level, worldPosition) || !enabled) {
-      status = PhalanxGunStatus.IDLE;
-      cool();
-      broadcastStateIfNeeded(level, false);
-      return;
+        if (
+            state.hasProperty(
+                PhalanxTurretBlock.FACING
+            )
+        ) {
+            facing =
+                state.getValue(
+                    PhalanxTurretBlock.FACING
+                );
+        }
     }
-    if (rounds() == 0) {
-      status = PhalanxGunStatus.OUT_OF_AMMO;
-      currentTarget = null;
-      cool();
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    Vec3 centre = Vec3.atCenterOf(worldPosition), pivot = centre.add(0, 1.42, 0);
-    List<PhalanxTargetSnapshot> candidates = PhalanxTargetService.snapshot(level);
-    PhalanxTargetSnapshot target = null;
-    if (currentTarget != null)
-      target = candidates.stream().filter(c -> c.targetId().equals(currentTarget))
-          .filter(c -> PhalanxTargetSelector.valid(centre, pivot, c)).findFirst().orElse(null);
-    if (target == null)
-      target = PhalanxTargetSelector.select(centre, pivot, candidates).orElse(null);
-    if (target == null) {
-      status = PhalanxGunStatus.IDLE;
-      currentTarget = null;
-      cool();
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    currentTarget = target.targetId();
-    PhalanxLeadSolver.Solution solution = PhalanxLeadSolver.solve(pivot, target.position(), target.velocity())
-        .orElse(null);
-    if (solution == null) {
-      status = PhalanxGunStatus.TARGET_OUT_OF_ARC;
-      cool();
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    Vec3 aimDirection = solution.direction().normalize();
-    desiredYaw = (float) Math.toDegrees(Math.atan2(-aimDirection.x, aimDirection.z));
-    desiredPitch = (float) -Math.toDegrees(Math.atan2(aimDirection.y, aimDirection.horizontalDistance()));
-    /*
-    * Yaw is not clamped. It may rotate through the complete 360-degree azimuth.
-    */
-    yaw = approachAngle(
-        yaw,
-        desiredYaw,
-        12.0F
-    );
 
-    pitch = approachLinear(
-        pitch,
-        desiredPitch,
-        8.0F
-    );
-    double elevation = -pitch;
-    if (elevation > PhalanxConstants.MAX_ELEVATION_DEGREES || elevation < PhalanxConstants.MIN_ELEVATION_DEGREES) {
-      status = PhalanxGunStatus.TARGET_OUT_OF_ARC;
-      cool();
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    status = PhalanxGunStatus.TRACKING;
-    barrelSpin = Math.min(1, barrelSpin + .12F);
-    if (recovery > 0) {
-      recovery--;
-      status = PhalanxGunStatus.RELOADING;
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    if (shotCooldown > 0) {
-      shotCooldown--;
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    if (angleError(aimDirection) > 2.5 || barrelSpin < .72F) {
-      broadcastStateIfNeeded(level, false);
-      return;
-    }
-    double spread = Math.min(PhalanxConstants.MAX_SPREAD_DEGREES, PhalanxConstants.BASE_SPREAD_DEGREES + bloom);
-    Vec3 direction = PhalanxLeadSolver.spread(aimDirection, turretId, shotSequence, level.getGameTime(), spread);
-    Vec3 muzzle = pivot.add(aimDirection.scale(.90));
+    public void initialize(
+        final @Nullable Player owner,
+        final Direction facing
+    ) {
+        turretId =
+            UUID.randomUUID();
 
-    double requiredLifetime =
-    Math.ceil(solution.flightTicks())
-        + PhalanxConstants
-            .BULLET_LIFETIME_SAFETY_TICKS;
+        ownerId =
+            owner == null
+                ? null
+                : owner.getUUID();
 
-    if (!Double.isFinite(requiredLifetime)
-        || requiredLifetime <= 0.0
-        || requiredLifetime
-            > Integer.MAX_VALUE) {
+        ownerName =
+            owner == null
+                ? "SERVER"
+                : owner.getGameProfile()
+                    .name();
+
+        this.facing =
+            facing;
+
+        yaw =
+            yawForFacing(facing);
+
+        desiredYaw =
+            yaw;
+
+        pitch =
+            0.0F;
+
+        desiredPitch =
+            0.0F;
+
+        sync();
+    }
+
+    public UUID turretId() {
+        return turretId;
+    }
+
+    public boolean enabled() {
+        return enabled;
+    }
+
+    public void setEnabled(
+        final boolean value
+    ) {
+        enabled =
+            value;
+
+        sync();
+    }
+
+    public int rounds() {
+        return ammo[0].getCount()
+            + ammo[1].getCount();
+    }
+
+    public PhalanxGunStatus status() {
+        return status;
+    }
+
+    public float yaw() {
+        return yaw;
+    }
+
+    public float pitch() {
+        return pitch;
+    }
+
+    public float bloom() {
+        return bloom;
+    }
+
+    public float barrelSpin() {
+        return barrelSpin;
+    }
+
+    public @Nullable UUID currentTarget() {
+        return currentTarget;
+    }
+
+    public boolean teardown() {
+        return teardown;
+    }
+
+    public void setTeardown(
+        final boolean value
+    ) {
+        teardown =
+            value;
+    }
+
+    public static void serverTick(
+        final Level level,
+        final BlockPos position,
+        final BlockState state,
+        final PhalanxBlockEntity blockEntity
+    ) {
+        if (
+            level
+                instanceof ServerLevel server
+        ) {
+            blockEntity.tick(server);
+        }
+    }
+
+    private void tick(
+        final ServerLevel level
+    ) {
+        if (
+            !PhalanxStructure.complete(
+                level,
+                worldPosition
+            )
+            || !enabled
+        ) {
+            status =
+                PhalanxGunStatus.IDLE;
+
+            currentTarget =
+                null;
+
+            cool();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        if (rounds() == 0) {
+            status =
+                PhalanxGunStatus.OUT_OF_AMMO;
+
+            currentTarget =
+                null;
+
+            cool();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        Vec3 centre =
+            Vec3.atCenterOf(
+                worldPosition
+            );
+
+        Vec3 pivot =
+            centre.add(
+                0.0,
+                1.42,
+                0.0
+            );
+
+        List<PhalanxTargetSnapshot> candidates =
+            PhalanxTargetService.snapshot(
+                level
+            );
+
+        PhalanxTargetSnapshot target =
+            retainedTarget(candidates);
+
+        if (target == null) {
+            target =
+                PhalanxTargetSelector.select(
+                    centre,
+                    pivot,
+                    candidates
+                ).orElse(null);
+        }
+
+        if (target == null) {
+            status =
+                PhalanxGunStatus.IDLE;
+
+            currentTarget =
+                null;
+
+            cool();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        currentTarget =
+            target.targetId();
+
+        boolean insideFiringCylinder =
+            PhalanxTargetSelector
+                .withinFiringCylinder(
+                    pivot,
+                    target
+                );
+
+        PhalanxLeadSolver.Solution solution =
+            insideFiringCylinder
+                ? PhalanxLeadSolver.solve(
+                    pivot,
+                    target.position(),
+                    target.velocity()
+                ).orElse(null)
+                : null;
+
+        Vec3 aimDirection =
+            solution == null
+                ? directTrackingDirection(
+                    pivot,
+                    target.position()
+                )
+                : solution.direction()
+                    .normalize();
+
+        if (
+            aimDirection == null
+            || !aimDirection.isFinite()
+            || aimDirection.lengthSqr()
+                < 1.0E-8
+        ) {
+            status =
+                PhalanxGunStatus.TARGET_OUT_OF_ARC;
+
+            cool();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        desiredYaw =
+            (float)Math.toDegrees(
+                Math.atan2(
+                    -aimDirection.x,
+                    aimDirection.z
+                )
+            );
+
+        double desiredElevation =
+            Math.toDegrees(
+                Math.atan2(
+                    aimDirection.y,
+                    aimDirection.horizontalDistance()
+                )
+            );
+
+        desiredElevation =
+            Mth.clamp(
+                desiredElevation,
+                PhalanxConstants
+                    .MIN_ELEVATION_DEGREES,
+                PhalanxConstants
+                    .MAX_ELEVATION_DEGREES
+            );
+
+        desiredPitch =
+            (float)-desiredElevation;
+
+        yaw =
+            approachAngle(
+                yaw,
+                desiredYaw,
+                12.0F
+            );
+
+        pitch =
+            approachLinear(
+                pitch,
+                desiredPitch,
+                8.0F
+            );
+
         status =
-            PhalanxGunStatus.TARGET_OUT_OF_ARC;
+            PhalanxGunStatus.TRACKING;
 
-        cool();
-        broadcastStateIfNeeded(level, false);
+        barrelSpin =
+            Math.min(
+                1.0F,
+                barrelSpin + 0.12F
+            );
 
-        return;
-    }
+        /*
+         * The turret may track and spin up at any distance. It only fires after
+         * the target enters the 400-block horizontal cylinder.
+         */
+        if (!insideFiringCylinder) {
+            recoverCooldowns();
 
-    int bulletLifetime =
-        Math.max(
-            1,
-            (int)requiredLifetime
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        if (solution == null) {
+            status =
+                PhalanxGunStatus.TARGET_OUT_OF_ARC;
+
+            recoverCooldowns();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        double elevation =
+            solution.elevationDegrees();
+
+        if (
+            elevation
+                > PhalanxConstants.MAX_ELEVATION_DEGREES
+            || elevation
+                < PhalanxConstants.MIN_ELEVATION_DEGREES
+        ) {
+            status =
+                PhalanxGunStatus.TARGET_OUT_OF_ARC;
+
+            recoverCooldowns();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        if (recovery > 0) {
+            recovery--;
+
+            status =
+                PhalanxGunStatus.RELOADING;
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        if (shotCooldown > 0) {
+            shotCooldown--;
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        if (
+            angleError(
+                solution.direction()
+            ) > 2.5
+            || barrelSpin < 0.72F
+        ) {
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        double spread =
+            Math.min(
+                PhalanxConstants.MAX_SPREAD_DEGREES,
+                PhalanxConstants.BASE_SPREAD_DEGREES
+                    + bloom
+            );
+
+        Vec3 direction =
+            PhalanxLeadSolver.spread(
+                solution.direction(),
+                turretId,
+                shotSequence,
+                level.getGameTime(),
+                spread
+            );
+
+        Vec3 muzzle =
+            pivot.add(
+                solution.direction()
+                    .normalize()
+                    .scale(0.90)
+            );
+
+        double requiredLifetime =
+            Math.ceil(
+                solution.flightTicks()
+            )
+                + PhalanxConstants
+                    .BULLET_LIFETIME_SAFETY_TICKS;
+
+        if (
+            !Double.isFinite(
+                requiredLifetime
+            )
+            || requiredLifetime <= 0.0
+            || requiredLifetime
+                > Integer.MAX_VALUE
+        ) {
+            status =
+                PhalanxGunStatus.TARGET_OUT_OF_ARC;
+
+            recoverCooldowns();
+
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        int bulletLifetime =
+            Math.max(
+                1,
+                (int)requiredLifetime
+            );
+
+        if (
+            !PhalanxBulletManager.fire(
+                level,
+                this,
+                target.targetId(),
+                muzzle,
+                direction.scale(
+                    PhalanxConstants
+                        .BULLET_SPEED_BLOCKS_PER_TICK
+                ),
+                bulletLifetime,
+                turretId.getMostSignificantBits()
+                    ^ shotSequence
+            )
+        ) {
+            broadcastStateIfNeeded(
+                level,
+                false
+            );
+
+            return;
+        }
+
+        consumeRound();
+
+        shotSequence++;
+        burstShots++;
+
+        shotCooldown =
+            PhalanxConstants.SHOT_INTERVAL_TICKS;
+
+        status =
+            PhalanxGunStatus.FIRING;
+
+        bloom =
+            (float)Math.min(
+                PhalanxConstants.MAX_SPREAD_DEGREES
+                    - PhalanxConstants.BASE_SPREAD_DEGREES,
+                bloom
+                    + PhalanxConstants
+                        .BLOOM_PER_SHOT_DEGREES
+            );
+
+        if (
+            burstShots
+                >= PhalanxConstants.BURST_SIZE
+        ) {
+            burstShots = 0;
+
+            recovery =
+                PhalanxConstants
+                    .BURST_RECOVERY_TICKS;
+        }
+
+        broadcastStateIfNeeded(
+            level,
+            true
         );
-
-    if (!PhalanxBulletManager.fire(
-    level,
-    this,
-    target.targetId(),
-    muzzle,
-    direction.scale(
-        PhalanxConstants
-            .BULLET_SPEED_BLOCKS_PER_TICK
-    ),
-    bulletLifetime,
-    turretId.getMostSignificantBits()
-        ^ shotSequence
-)) {
-      broadcastStateIfNeeded(level, false);
-      return;
     }
-    consumeRound();
-    shotSequence++;
-    burstShots++;
-    shotCooldown = PhalanxConstants.SHOT_INTERVAL_TICKS;
-    status = PhalanxGunStatus.FIRING;
-    bloom = (float) Math.min(PhalanxConstants.MAX_SPREAD_DEGREES - PhalanxConstants.BASE_SPREAD_DEGREES,
-        bloom + PhalanxConstants.BLOOM_PER_SHOT_DEGREES);
-    if (burstShots >= PhalanxConstants.BURST_SIZE) {
-      burstShots = 0;
-      recovery = PhalanxConstants.BURST_RECOVERY_TICKS;
+
+    private @Nullable PhalanxTargetSnapshot retainedTarget(
+        final List<PhalanxTargetSnapshot> candidates
+    ) {
+        if (currentTarget == null) {
+            return null;
+        }
+
+        return candidates.stream()
+            .filter(candidate ->
+                candidate.targetId()
+                    .equals(currentTarget)
+            )
+            .filter(
+                PhalanxTargetSelector::trackable
+            )
+            .findFirst()
+            .orElse(null);
     }
-    broadcastStateIfNeeded(level, true);
-  }
 
-  private void broadcastStateIfNeeded(ServerLevel level, boolean force) {
-    long now = level.getGameTime();
-    boolean active = status == PhalanxGunStatus.TRACKING || status == PhalanxGunStatus.FIRING
-        || status == PhalanxGunStatus.RELOADING;
-    long minimumInterval = active ? 2L : 20L;
-    boolean intervalElapsed = lastStateBroadcast == Long.MIN_VALUE || now - lastStateBroadcast >= minimumInterval;
-    boolean heartbeat = lastStateBroadcast == Long.MIN_VALUE || now - lastStateBroadcast >= 80L;
-    boolean changed = Math.abs(Mth.wrapDegrees(yaw - lastBroadcastYaw)) >= .5F
-        || Math.abs(pitch - lastBroadcastPitch) >= .5F || Math.abs(barrelSpin - lastBroadcastSpin) >= .04F
-        || status != lastBroadcastStatus || rounds() != lastBroadcastRounds;
-    if (!force && !heartbeat && (!intervalElapsed || !changed))
-      return;
-    lastStateBroadcast = now;
-    lastBroadcastYaw = yaw;
-    lastBroadcastPitch = pitch;
-    lastBroadcastSpin = barrelSpin;
-    lastBroadcastStatus = status;
-    lastBroadcastRounds = rounds();
-    com.andye.warmod.phalanx.network.PhalanxNetworking.sendState(level, this);
-  }
+    private static @Nullable Vec3 directTrackingDirection(
+        final Vec3 origin,
+        final Vec3 target
+    ) {
+        Vec3 direction =
+            target.subtract(origin);
 
-  private double angleError(Vec3 direction) {
-    Vec3 aim = new Vec3(-Mth.sin(yaw * Mth.DEG_TO_RAD) * Mth.cos(pitch * Mth.DEG_TO_RAD),
-        -Mth.sin(pitch * Mth.DEG_TO_RAD), Mth.cos(yaw * Mth.DEG_TO_RAD) * Mth.cos(pitch * Mth.DEG_TO_RAD));
-    return Math.toDegrees(Math.acos(Mth.clamp(aim.normalize().dot(direction), -1, 1)));
-  }
+        if (
+            !direction.isFinite()
+            || direction.lengthSqr()
+                < 1.0E-8
+        ) {
+            return null;
+        }
 
-private static float approachAngle(
-    final float current,
-    final float target,
-    final float maximumChange
-) {
-    float difference =
-        Mth.wrapDegrees(
-            target - current
+        return direction.normalize();
+    }
+
+    private void recoverCooldowns() {
+        if (shotCooldown > 0) {
+            shotCooldown--;
+        }
+
+        if (recovery > 0) {
+            recovery--;
+        }
+
+        bloom =
+            Math.max(
+                0.0F,
+                bloom
+                    - (float)PhalanxConstants
+                        .BLOOM_RECOVERY_DEGREES_PER_TICK
+            );
+    }
+
+    private void broadcastStateIfNeeded(
+        final ServerLevel level,
+        final boolean force
+    ) {
+        long now =
+            level.getGameTime();
+
+        boolean active =
+            status == PhalanxGunStatus.TRACKING
+                || status == PhalanxGunStatus.FIRING
+                || status == PhalanxGunStatus.RELOADING;
+
+        long minimumInterval =
+            active
+                ? 2L
+                : 20L;
+
+        boolean intervalElapsed =
+            lastStateBroadcast == Long.MIN_VALUE
+                || now - lastStateBroadcast
+                    >= minimumInterval;
+
+        boolean heartbeat =
+            lastStateBroadcast == Long.MIN_VALUE
+                || now - lastStateBroadcast
+                    >= 80L;
+
+        boolean changed =
+            Math.abs(
+                Mth.wrapDegrees(
+                    yaw - lastBroadcastYaw
+                )
+            ) >= 0.5F
+                || Math.abs(
+                    pitch - lastBroadcastPitch
+                ) >= 0.5F
+                || Math.abs(
+                    barrelSpin
+                        - lastBroadcastSpin
+                ) >= 0.04F
+                || status
+                    != lastBroadcastStatus
+                || rounds()
+                    != lastBroadcastRounds;
+
+        if (
+            !force
+            && !heartbeat
+            && (
+                !intervalElapsed
+                || !changed
+            )
+        ) {
+            return;
+        }
+
+        lastStateBroadcast =
+            now;
+
+        lastBroadcastYaw =
+            yaw;
+
+        lastBroadcastPitch =
+            pitch;
+
+        lastBroadcastSpin =
+            barrelSpin;
+
+        lastBroadcastStatus =
+            status;
+
+        lastBroadcastRounds =
+            rounds();
+
+        com.andye.warmod.phalanx.network
+            .PhalanxNetworking.sendState(
+                level,
+                this
+            );
+    }
+
+    private double angleError(
+        final Vec3 direction
+    ) {
+        Vec3 aim =
+            new Vec3(
+                -Mth.sin(
+                    yaw * Mth.DEG_TO_RAD
+                ) * Mth.cos(
+                    pitch * Mth.DEG_TO_RAD
+                ),
+                -Mth.sin(
+                    pitch * Mth.DEG_TO_RAD
+                ),
+                Mth.cos(
+                    yaw * Mth.DEG_TO_RAD
+                ) * Mth.cos(
+                    pitch * Mth.DEG_TO_RAD
+                )
+            );
+
+        return Math.toDegrees(
+            Math.acos(
+                Mth.clamp(
+                    aim.normalize()
+                        .dot(
+                            direction.normalize()
+                        ),
+                    -1.0,
+                    1.0
+                )
+            )
         );
+    }
 
-    float result =
-        current
+    private static float approachAngle(
+        final float current,
+        final float target,
+        final float maximumChange
+    ) {
+        float difference =
+            Mth.wrapDegrees(
+                target - current
+            );
+
+        return Mth.wrapDegrees(
+            current
+                + Mth.clamp(
+                    difference,
+                    -maximumChange,
+                    maximumChange
+                )
+        );
+    }
+
+    private static float approachLinear(
+        final float current,
+        final float target,
+        final float maximumChange
+    ) {
+        return current
             + Mth.clamp(
-                difference,
+                target - current,
                 -maximumChange,
                 maximumChange
             );
+    }
 
-    /*
-     * Keep the stored value normalized while still allowing unrestricted
-     * circular rotation.
-     */
-    return Mth.wrapDegrees(result);
-}
+    private static float yawForFacing(
+        final Direction direction
+    ) {
+        return switch (direction) {
+            case SOUTH -> 0.0F;
+            case WEST -> 90.0F;
+            case NORTH -> 180.0F;
+            case EAST -> -90.0F;
+            default -> 0.0F;
+        };
+    }
 
-  private static float approachLinear(
-      final float current,
-      final float target,
-      final float maximumChange
-  ) {
-      return current
-          + Mth.clamp(
-              target - current,
-              -maximumChange,
-              maximumChange
-          );
-  }
+    private void cool() {
+        bloom =
+            Math.max(
+                0.0F,
+                bloom
+                    - (float)PhalanxConstants
+                        .BLOOM_RECOVERY_DEGREES_PER_TICK
+            );
 
-  private static float yawForFacing(
-      final Direction direction
-  ) {
-      return switch (direction) {
-          case SOUTH -> 0.0F;
-          case WEST -> 90.0F;
-          case NORTH -> 180.0F;
-          case EAST -> -90.0F;
-          default -> 0.0F;
-      };
-  }
+        barrelSpin =
+            Math.max(
+                0.0F,
+                barrelSpin - 0.08F
+            );
+    }
 
-  private void cool() {
-    bloom = Math.max(0, bloom - (float) PhalanxConstants.BLOOM_RECOVERY_DEGREES_PER_TICK);
-    barrelSpin = Math.max(0, barrelSpin - .08F);
-  }
+    private void consumeRound() {
+        for (
+            int index = 0;
+            index < ammo.length;
+            index++
+        ) {
+            if (ammo[index].isEmpty()) {
+                continue;
+            }
 
-  private void consumeRound() {
-    for (int i = 0; i < 2; i++)
-      if (!ammo[i].isEmpty()) {
-        ammo[i].shrink(1);
-        if (ammo[i].isEmpty())
-          ammo[i] = ItemStack.EMPTY;
+            ammo[index].shrink(1);
+
+            if (ammo[index].isEmpty()) {
+                ammo[index] =
+                    ItemStack.EMPTY;
+            }
+
+            setChanged();
+
+            return;
+        }
+    }
+
+    private void sync() {
         setChanged();
-        return;
-      }
-  }
 
-  private void sync() {
-    setChanged();
-    if (level != null)
-      level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-  }
+        if (level != null) {
+            level.sendBlockUpdated(
+                worldPosition,
+                getBlockState(),
+                getBlockState(),
+                3
+            );
+        }
+    }
 
-  @Override
-  public int getContainerSize() {
-    return 2;
-  }
+    @Override
+    public int getContainerSize() {
+        return 2;
+    }
 
-  @Override
-  public boolean isEmpty() {
-    return rounds() == 0;
-  }
+    @Override
+    public boolean isEmpty() {
+        return rounds() == 0;
+    }
 
-  @Override
-  public ItemStack getItem(int slot) {
-    return slot >= 0 && slot < 2 ? ammo[slot] : ItemStack.EMPTY;
-  }
+    @Override
+    public ItemStack getItem(
+        final int slot
+    ) {
+        return slot >= 0
+                && slot < ammo.length
+            ? ammo[slot]
+            : ItemStack.EMPTY;
+    }
 
-  @Override
-  public ItemStack removeItem(int slot, int count) {
-    if (slot < 0 || slot > 1 || count <= 0)
-      return ItemStack.EMPTY;
-    ItemStack result = ammo[slot].split(count);
-    if (ammo[slot].isEmpty())
-      ammo[slot] = ItemStack.EMPTY;
-    sync();
-    return result;
-  }
+    @Override
+    public ItemStack removeItem(
+        final int slot,
+        final int count
+    ) {
+        if (
+            slot < 0
+            || slot >= ammo.length
+            || count <= 0
+        ) {
+            return ItemStack.EMPTY;
+        }
 
-  @Override
-  public ItemStack removeItemNoUpdate(int slot) {
-    if (slot < 0 || slot > 1)
-      return ItemStack.EMPTY;
-    ItemStack result = ammo[slot];
-    ammo[slot] = ItemStack.EMPTY;
-    return result;
-  }
+        ItemStack result =
+            ammo[slot].split(count);
 
-  @Override
-  public void setItem(int slot, ItemStack stack) {
-    if (slot < 0 || slot > 1)
-      return;
-    ammo[slot] = stack.is(ModItems.ANTI_AIR_GUN_AMMO) ? stack.copyWithCount(Math.min(64, stack.getCount()))
-        : ItemStack.EMPTY;
-    sync();
-  }
+        if (ammo[slot].isEmpty()) {
+            ammo[slot] =
+                ItemStack.EMPTY;
+        }
 
-  @Override
-  public int getMaxStackSize() {
-    return 64;
-  }
+        sync();
 
-  @Override
-  public boolean stillValid(Player p) {
-    return level == p.level() && p.distanceToSqr(Vec3.atCenterOf(worldPosition)) <= 64;
-  }
+        return result;
+    }
 
-  @Override
-  public boolean canPlaceItem(int slot, ItemStack stack) {
-    return slot >= 0 && slot < 2 && stack.is(ModItems.ANTI_AIR_GUN_AMMO);
-  }
+    @Override
+    public ItemStack removeItemNoUpdate(
+        final int slot
+    ) {
+        if (
+            slot < 0
+            || slot >= ammo.length
+        ) {
+            return ItemStack.EMPTY;
+        }
 
-  @Override
-  public void clearContent() {
-    ammo[0] = ammo[1] = ItemStack.EMPTY;
-    sync();
-  }
+        ItemStack result =
+            ammo[slot];
 
-  @Override
-  public int[] getSlotsForFace(Direction d) {
-    return SLOTS;
-  }
+        ammo[slot] =
+            ItemStack.EMPTY;
 
-  @Override
-  public boolean canPlaceItemThroughFace(int slot, ItemStack stack, @Nullable Direction d) {
-    return canPlaceItem(slot, stack);
-  }
+        return result;
+    }
 
-  @Override
-  public boolean canTakeItemThroughFace(int slot, ItemStack stack, Direction d) {
-    return slot >= 0 && slot < 2;
-  }
+    @Override
+    public void setItem(
+        final int slot,
+        final ItemStack stack
+    ) {
+        if (
+            slot < 0
+            || slot >= ammo.length
+        ) {
+            return;
+        }
 
-  @Override
-  protected void saveAdditional(ValueOutput o) {
-    super.saveAdditional(o);
-    o.store("turret_id", UUIDUtil.CODEC, turretId);
-    o.storeNullable("owner_id", UUIDUtil.CODEC, ownerId);
-    o.putString("owner_name", ownerName);
-    o.putString("facing", facing.getSerializedName());
-    o.putBoolean("enabled", enabled);
-    o.putFloat("yaw", yaw);
-    o.putFloat("pitch", pitch);
-    o.putFloat("bloom", bloom);
-    o.putLong("shot_sequence", shotSequence);
-    o.store("ammo_0", ItemStack.CODEC, ammo[0]);
-    o.store("ammo_1", ItemStack.CODEC, ammo[1]);
-  }
+        ammo[slot] =
+            stack.is(
+                ModItems.ANTI_AIR_GUN_AMMO
+            )
+                ? stack.copyWithCount(
+                    Math.min(
+                        64,
+                        stack.getCount()
+                    )
+                )
+                : ItemStack.EMPTY;
 
-  @Override
-  protected void loadAdditional(ValueInput i) {
-    super.loadAdditional(i);
-    turretId = i.read("turret_id", UUIDUtil.CODEC).orElseGet(UUID::randomUUID);
-    ownerId = i.read("owner_id", UUIDUtil.CODEC).orElse(null);
-    ownerName = i.getStringOr("owner_name", "SERVER");
-    facing = Direction.byName(i.getStringOr("facing", "north"));
-    if (facing == null)
-      facing = Direction.NORTH;
-    enabled = i.getBooleanOr("enabled", true);
-    yaw = i.getFloatOr(
-        "yaw",
-        yawForFacing(facing)
-    );
+        sync();
+    }
 
-    pitch = i.getFloatOr(
-        "pitch",
-        0.0F
-    );
+    @Override
+    public int getMaxStackSize() {
+        return 64;
+    }
 
-    desiredYaw = yaw;
-    desiredPitch = pitch;
-    bloom = i.getFloatOr("bloom", 0);
-    shotSequence = i.getLongOr("shot_sequence", 0);
-    ammo[0] = i.read("ammo_0", ItemStack.CODEC).orElse(ItemStack.EMPTY);
-    ammo[1] = i.read("ammo_1", ItemStack.CODEC).orElse(ItemStack.EMPTY);
-  }
+    @Override
+    public boolean stillValid(
+        final Player player
+    ) {
+        return level
+                == player.level()
+            && player.distanceToSqr(
+                Vec3.atCenterOf(
+                    worldPosition
+                )
+            ) <= 64.0;
+    }
 
-  @Override
-  public @Nullable Packet<ClientGamePacketListener> getUpdatePacket() {
-    return ClientboundBlockEntityDataPacket.create(this);
-  }
+    @Override
+    public boolean canPlaceItem(
+        final int slot,
+        final ItemStack stack
+    ) {
+        return slot >= 0
+            && slot < ammo.length
+            && stack.is(
+                ModItems.ANTI_AIR_GUN_AMMO
+            );
+    }
 
-  @Override
-  public net.minecraft.nbt.CompoundTag getUpdateTag(net.minecraft.core.HolderLookup.Provider r) {
-    return saveCustomOnly(r);
-  }
+    @Override
+    public void clearContent() {
+        ammo[0] =
+            ItemStack.EMPTY;
+
+        ammo[1] =
+            ItemStack.EMPTY;
+
+        sync();
+    }
+
+    @Override
+    public int[] getSlotsForFace(
+        final Direction direction
+    ) {
+        return SLOTS;
+    }
+
+    @Override
+    public boolean canPlaceItemThroughFace(
+        final int slot,
+        final ItemStack stack,
+        final @Nullable Direction direction
+    ) {
+        return canPlaceItem(
+            slot,
+            stack
+        );
+    }
+
+    @Override
+    public boolean canTakeItemThroughFace(
+        final int slot,
+        final ItemStack stack,
+        final Direction direction
+    ) {
+        return slot >= 0
+            && slot < ammo.length;
+    }
+
+    @Override
+    protected void saveAdditional(
+        final ValueOutput output
+    ) {
+        super.saveAdditional(output);
+
+        output.store(
+            "turret_id",
+            UUIDUtil.CODEC,
+            turretId
+        );
+
+        output.storeNullable(
+            "owner_id",
+            UUIDUtil.CODEC,
+            ownerId
+        );
+
+        output.putString(
+            "owner_name",
+            ownerName
+        );
+
+        output.putString(
+            "facing",
+            facing.getSerializedName()
+        );
+
+        output.putBoolean(
+            "enabled",
+            enabled
+        );
+
+        output.putFloat(
+            "yaw",
+            yaw
+        );
+
+        output.putFloat(
+            "pitch",
+            pitch
+        );
+
+        output.putFloat(
+            "bloom",
+            bloom
+        );
+
+        output.putLong(
+            "shot_sequence",
+            shotSequence
+        );
+
+        output.store(
+            "ammo_0",
+            ItemStack.CODEC,
+            ammo[0]
+        );
+
+        output.store(
+            "ammo_1",
+            ItemStack.CODEC,
+            ammo[1]
+        );
+    }
+
+    @Override
+    protected void loadAdditional(
+        final ValueInput input
+    ) {
+        super.loadAdditional(input);
+
+        turretId =
+            input.read(
+                "turret_id",
+                UUIDUtil.CODEC
+            ).orElseGet(
+                UUID::randomUUID
+            );
+
+        ownerId =
+            input.read(
+                "owner_id",
+                UUIDUtil.CODEC
+            ).orElse(null);
+
+        ownerName =
+            input.getStringOr(
+                "owner_name",
+                "SERVER"
+            );
+
+        facing =
+            Direction.byName(
+                input.getStringOr(
+                    "facing",
+                    "north"
+                )
+            );
+
+        if (facing == null) {
+            facing =
+                Direction.NORTH;
+        }
+
+        enabled =
+            input.getBooleanOr(
+                "enabled",
+                true
+            );
+
+        yaw =
+            input.getFloatOr(
+                "yaw",
+                yawForFacing(facing)
+            );
+
+        pitch =
+            input.getFloatOr(
+                "pitch",
+                0.0F
+            );
+
+        desiredYaw =
+            yaw;
+
+        desiredPitch =
+            pitch;
+
+        bloom =
+            input.getFloatOr(
+                "bloom",
+                0.0F
+            );
+
+        shotSequence =
+            input.getLongOr(
+                "shot_sequence",
+                0L
+            );
+
+        ammo[0] =
+            input.read(
+                "ammo_0",
+                ItemStack.CODEC
+            ).orElse(
+                ItemStack.EMPTY
+            );
+
+        ammo[1] =
+            input.read(
+                "ammo_1",
+                ItemStack.CODEC
+            ).orElse(
+                ItemStack.EMPTY
+            );
+    }
+
+    @Override
+    public @Nullable Packet<
+        ClientGamePacketListener
+    > getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket
+            .create(this);
+    }
+
+    @Override
+    public net.minecraft.nbt.CompoundTag getUpdateTag(
+        final net.minecraft.core.HolderLookup.Provider registries
+    ) {
+        return saveCustomOnly(
+            registries
+        );
+    }
 }

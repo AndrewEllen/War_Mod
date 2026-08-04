@@ -20,8 +20,9 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Transient target claims used to balance initial interceptor assignment.
  *
- * Claims are created only for fully synchronized and physically reachable
- * intercept solutions. A far-future "best effort" point is not claimable.
+ * Exact synchronized routes are preferred. A bounded low-probability attempt
+ * may be claimed when no exact route exists, but it still has a finite powered
+ * duration and can never loiter.
  */
 public final class AntiAirTargetClaimRegistry {
     private static final long STALE_TIMEOUT_TICKS =
@@ -69,11 +70,19 @@ public final class AntiAirTargetClaimRegistry {
                     selection
                 ).orElse(null);
 
-            /*
-             * No automatic best-effort launch. If the missile cannot arrive at
-             * the same point at the same time inside all limits, do not launch
-             * at this target yet.
-             */
+            boolean exact =
+                solution != null
+                    && !solution.rangeLimited();
+
+            if (solution == null) {
+                solution =
+                    AntiAirInterceptSolver.bestEffort(
+                        burnoutPosition,
+                        burnoutTime,
+                        selection
+                    ).orElse(null);
+            }
+
             if (solution == null) {
                 continue;
             }
@@ -82,7 +91,7 @@ public final class AntiAirTargetClaimRegistry {
                 new Option(
                     selection,
                     solution,
-                    AntiAirLaunchMode.TRACKED_INTERCEPT,
+                    exact,
                     claimCount(
                         level,
                         selection.targetLock()
@@ -99,7 +108,7 @@ public final class AntiAirTargetClaimRegistry {
         int unclaimed =
             (int)options.stream()
                 .filter(option ->
-                    option.claims == 0
+                    option.claims() == 0
                 )
                 .count();
 
@@ -107,24 +116,27 @@ public final class AntiAirTargetClaimRegistry {
             Comparator
                 .comparingInt(
                     (Option option) ->
-                        option.claims
+                        option.claims()
+                )
+                .thenComparingInt(option ->
+                    option.exact() ? 0 : 1
                 )
                 .thenComparingLong(option ->
-                    option.selection
+                    option.selection()
                         .projection()
                         .firstEntryGameTime()
                 )
                 .thenComparingLong(option ->
-                    option.solution
+                    option.solution()
                         .interceptGameTime()
                 )
                 .thenComparingDouble(option ->
-                    option.selection
+                    option.selection()
                         .projection()
                         .closestHorizontalDistance()
                 )
                 .thenComparing(option ->
-                    option.selection
+                    option.selection()
                         .targetLock()
                         .rootTrackId()
                         .toString()
@@ -134,45 +146,46 @@ public final class AntiAirTargetClaimRegistry {
         Option chosen =
             options.getFirst();
 
+        UUID targetId =
+            chosen.selection()
+                .targetLock()
+                .rootTrackId();
+
         claim(
             level,
             interceptorId,
-            chosen.selection
-                .targetLock()
-                .rootTrackId()
+            targetId
         );
 
         if (SharedConstants.IS_RUNNING_IN_IDE) {
             WarMod.LOGGER.info(
                 "Anti-air target assignment: "
-                    + "interceptor={}, target={}, "
+                    + "interceptor={}, target={}, exact={}, "
                     + "claimsBefore={}, claimsAfter={}, "
-                    + "feasibleCandidates={}, "
-                    + "unclaimedCandidates={}, "
-                    + "interceptTicks={}, "
-                    + "interceptPosition={}",
+                    + "candidates={}, unclaimed={}, "
+                    + "interceptTicks={}, routeEnd={}",
                 interceptorId,
-                chosen.selection
-                    .targetLock()
-                    .rootTrackId(),
-                chosen.claims,
-                chosen.claims + 1,
+                targetId,
+                chosen.exact(),
+                chosen.claims(),
+                chosen.claims() + 1,
                 options.size(),
                 unclaimed,
-                chosen.solution
+                chosen.solution()
                     .interceptGameTime()
                     - burnoutTime,
-                chosen.solution
-                    .perfectInterceptPosition()
+                chosen.solution()
+                    .nominalRoute()
+                    .end()
             );
         }
 
         return Optional.of(
             new AntiAirTargetSelectionResult(
-                chosen.selection,
-                chosen.solution,
-                chosen.mode,
-                chosen.claims,
+                chosen.selection(),
+                chosen.solution(),
+                AntiAirLaunchMode.TRACKED_INTERCEPT,
+                chosen.claims(),
                 options.size(),
                 unclaimed
             )
@@ -402,7 +415,7 @@ public final class AntiAirTargetClaimRegistry {
     private record Option(
         AntiAirTargetSelection selection,
         AntiAirInterceptSolution solution,
-        AntiAirLaunchMode mode,
+        boolean exact,
         int claims
     ) {
     }

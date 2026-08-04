@@ -10,54 +10,112 @@ public final class PhalanxTargetSelector {
     private PhalanxTargetSelector() {
     }
 
+    /**
+     * Chooses a target for rotation and spin-up.
+     *
+     * Tracking has no distance or altitude limit. Firing range is checked
+     * separately by {@link #withinFiringCylinder(Vec3, PhalanxTargetSnapshot)}.
+     */
     public static Optional<PhalanxTargetSnapshot> select(
         final Vec3 centre,
         final Vec3 muzzle,
         final List<PhalanxTargetSnapshot> candidates
     ) {
         return candidates.stream()
-            .filter(target ->
-                valid(
-                    centre,
-                    muzzle,
-                    target
-                )
+            .filter(
+                PhalanxTargetSelector::trackable
             )
             .min(
                 Comparator
+                    /*
+                     * Prefer missiles whose predicted impact is inside the
+                     * defended 400-block cylinder.
+                     */
                     .comparingInt(
-                        PhalanxTargetSelector::kindPriority
+                        (PhalanxTargetSnapshot target) ->
+                            horizontal(
+                                centre,
+                                target.predictedImpact()
+                            )
+                                    <= PhalanxConstants
+                                        .HORIZONTAL_ENGAGEMENT_RADIUS_BLOCKS
+                                ? 0
+                                : 1
                     )
                     .thenComparingDouble(
                         PhalanxTargetSnapshot::ticksToImpact
                     )
-                    /*
-                     * Prefer threats currently closest in the horizontal
-                     * engagement cylinder. Do not use three-dimensional
-                     * distance here.
-                     */
+                    .thenComparingInt(
+                        PhalanxTargetSelector::kindPriority
+                    )
                     .thenComparingDouble(target ->
                         horizontal(
                             muzzle,
                             target.position()
                         )
                     )
-                    /*
-                     * Predicted impact remains a priority signal, but is no
-                     * longer a validity requirement. A missile passing through
-                     * the defended cylinder may be engaged regardless of where
-                     * its eventual target is.
-                     */
-                    .thenComparingDouble(target ->
-                        horizontal(
-                            centre,
-                            target.predictedImpact()
-                        )
-                    )
                     .thenComparing(target ->
-                        target.targetId().toString()
+                        target.targetId()
+                            .toString()
                     )
             );
+    }
+
+    public static boolean trackable(
+        final PhalanxTargetSnapshot target
+    ) {
+        return target != null
+            && target.position() != null
+            && target.velocity() != null
+            && target.predictedImpact() != null
+            && target.position().isFinite()
+            && target.velocity().isFinite()
+            && target.predictedImpact().isFinite()
+            && Double.isFinite(target.ticksToImpact());
+    }
+
+    /**
+     * The firing range is a vertical cylinder: only X/Z distance is tested.
+     */
+    public static boolean withinFiringCylinder(
+        final Vec3 muzzle,
+        final PhalanxTargetSnapshot target
+    ) {
+        return trackable(target)
+            && horizontal(
+                muzzle,
+                target.position()
+            )
+                <= PhalanxConstants
+                    .HORIZONTAL_ENGAGEMENT_RADIUS_BLOCKS;
+    }
+
+    /**
+     * Compatibility alias for older callers.
+     */
+    public static boolean valid(
+        final Vec3 centre,
+        final Vec3 muzzle,
+        final PhalanxTargetSnapshot target
+    ) {
+        return withinFiringCylinder(
+            muzzle,
+            target
+        );
+    }
+
+    public static double horizontal(
+        final Vec3 first,
+        final Vec3 second
+    ) {
+        if (first == null || second == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        return Math.hypot(
+            first.x - second.x,
+            first.z - second.z
+        );
     }
 
     private static int kindPriority(
@@ -68,76 +126,13 @@ public final class PhalanxTargetSelector {
             case CLUSTER_SUBMUNITION -> 1;
 
             case TERMINAL_WARHEAD, DIRECT_WARHEAD ->
-                target.payloadType().orElse(null)
+                target.payloadType()
+                        .orElse(null)
                     == WarheadPayloadType.NUCLEAR
                         ? 2
                         : 3;
 
             case MK_I_FALLBACK -> 4;
         };
-    }
-
-    public static boolean valid(
-        final Vec3 centre,
-        final Vec3 muzzle,
-        final PhalanxTargetSnapshot target
-    ) {
-        if (target == null
-            || !target.position().isFinite()
-            || !target.velocity().isFinite()
-            || !target.predictedImpact().isFinite()) {
-            return false;
-        }
-
-        /*
-         * Range is an X/Z cylinder, not a three-dimensional sphere.
-         *
-         * A missile at X/Z distance 100 remains in range whether it is
-         * 20 blocks high or 1,000 blocks high.
-         */
-        double horizontalDistance =
-            horizontal(
-                muzzle,
-                target.position()
-            );
-
-        if (!Double.isFinite(horizontalDistance)
-            || horizontalDistance
-                > PhalanxConstants
-                    .HORIZONTAL_ENGAGEMENT_RADIUS_BLOCKS) {
-            return false;
-        }
-
-        /*
-         * Vertical distance has no separate limit. Only the physical gun
-         * elevation arc applies.
-         */
-        double vertical =
-            target.position().y - muzzle.y;
-
-        double elevation =
-            Math.toDegrees(
-                Math.atan2(
-                    vertical,
-                    horizontalDistance
-                )
-            );
-
-        return elevation
-                >= PhalanxConstants
-                    .MIN_ELEVATION_DEGREES
-            && elevation
-                <= PhalanxConstants
-                    .MAX_ELEVATION_DEGREES;
-    }
-
-    public static double horizontal(
-        final Vec3 first,
-        final Vec3 second
-    ) {
-        return Math.hypot(
-            first.x - second.x,
-            first.z - second.z
-        );
     }
 }

@@ -1,3 +1,205 @@
 package com.andye.warmod.radar.display.client;
-import com.andye.warmod.radar.display.RadarDisplayConstants; import net.minecraft.world.phys.Vec3;
-public final class RadarDisplayMapTransform { private final Vec3 radarCentre; private final int width,height; public RadarDisplayMapTransform(Vec3 radarCentre,int width,int height){this.radarCentre=radarCentre;this.width=width;this.height=height;} public Point map(Vec3 world){return map(world.x,world.z);} public Point map(double worldX,double worldZ){return new Point(width*.5+(worldX-radarCentre.x)/RadarDisplayConstants.WORLD_BLOCKS_PER_PANEL,height*.5-(worldZ-radarCentre.z)/RadarDisplayConstants.WORLD_BLOCKS_PER_PANEL);} public Point centre(){return new Point(width*.5,height*.5);} public double worldRadiusToLocal(double worldRadius){return worldRadius/RadarDisplayConstants.WORLD_BLOCKS_PER_PANEL;} public Segment clip(Point start,Point end){double dx=end.x-start.x,dy=end.y-start.y;double low=0,high=1;double[] p={-dx,dx,-dy,dy};double[] q={start.x,width-start.x,start.y,height-start.y};for(int i=0;i<4;i++){if(Math.abs(p[i])<1E-9){if(q[i]<0)return null;}else{double r=q[i]/p[i];if(p[i]<0)low=Math.max(low,r);else high=Math.min(high,r);}}return low>high?null:new Segment(new Point(start.x+dx*low,start.y+dy*low),new Point(start.x+dx*high,start.y+dy*high));} public record Point(double x,double y){} public record Segment(Point start,Point end){} }
+
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
+
+public final class RadarDisplayMapTransform {
+    private final Vec3 radarCentre;
+
+    private final int width;
+    private final int height;
+
+    private final double horizontalRadius;
+    private final double verticalRadius;
+
+    private final double scaleX;
+    private final double scaleY;
+
+    public RadarDisplayMapTransform(
+        final Vec3 radarCentre,
+        final int width,
+        final int height,
+        final double horizontalRadius,
+        final double verticalRadius
+    ) {
+        this.radarCentre =
+            radarCentre;
+
+        this.width =
+            Math.max(
+                1,
+                width
+            );
+
+        this.height =
+            Math.max(
+                1,
+                height
+            );
+
+        this.horizontalRadius =
+            Math.max(
+                1.0,
+                horizontalRadius
+            );
+
+        this.verticalRadius =
+            Math.max(
+                1.0,
+                verticalRadius
+            );
+
+        scaleX =
+            this.width
+                / (
+                    this.horizontalRadius
+                        * 2.0
+                );
+
+        scaleY =
+            this.height
+                / (
+                    this.verticalRadius
+                        * 2.0
+                );
+    }
+
+    public Point map(
+        final Vec3 world
+    ) {
+        return map(
+            world.x,
+            world.z
+        );
+    }
+
+    public Point map(
+        final double worldX,
+        final double worldZ
+    ) {
+        return new Point(
+            width * 0.5
+                + (
+                    worldX
+                        - radarCentre.x
+                ) * scaleX,
+            height * 0.5
+                - (
+                    worldZ
+                        - radarCentre.z
+                ) * scaleY
+        );
+    }
+
+    public Point centre() {
+        return new Point(
+            width * 0.5,
+            height * 0.5
+        );
+    }
+
+    /**
+     * Uniform local scale for a world-space circle.
+     */
+    public double worldRadiusToLocal(
+        final double worldRadius
+    ) {
+        return worldRadius
+            * Math.min(
+                scaleX,
+                scaleY
+            );
+    }
+
+    public @Nullable Segment clip(
+        final Point start,
+        final Point end
+    ) {
+        double deltaX =
+            end.x() - start.x();
+
+        double deltaY =
+            end.y() - start.y();
+
+        double lower =
+            0.0;
+
+        double upper =
+            1.0;
+
+        double[] p = {
+            -deltaX,
+            deltaX,
+            -deltaY,
+            deltaY
+        };
+
+        double[] q = {
+            start.x(),
+            width - start.x(),
+            start.y(),
+            height - start.y()
+        };
+
+        for (int index = 0; index < 4; index++) {
+            if (
+                Math.abs(p[index])
+                    < 1.0E-9
+            ) {
+                if (q[index] < 0.0) {
+                    return null;
+                }
+
+                continue;
+            }
+
+            double ratio =
+                q[index] / p[index];
+
+            if (p[index] < 0.0) {
+                lower =
+                    Math.max(
+                        lower,
+                        ratio
+                    );
+            } else {
+                upper =
+                    Math.min(
+                        upper,
+                        ratio
+                    );
+            }
+
+            if (lower > upper) {
+                return null;
+            }
+        }
+
+        return new Segment(
+            new Point(
+                start.x()
+                    + deltaX * lower,
+                start.y()
+                    + deltaY * lower
+            ),
+            new Point(
+                start.x()
+                    + deltaX * upper,
+                start.y()
+                    + deltaY * upper
+            )
+        );
+    }
+
+    public record Point(
+        double x,
+        double y
+    ) {
+    }
+
+    public record Segment(
+        Point start,
+        Point end
+    ) {
+    }
+}
