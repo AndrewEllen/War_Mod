@@ -69,15 +69,9 @@ public final class ClientRadarDisplayState {
             return null;
         }
 
-        double serverNow =
-            entry.snapshot().serverGameTime()
-            + clientTime
-            - entry.receivedClientTime();
-
-        return new View(
-            entry.snapshot(),
-            serverNow
-        );
+        double age = Math.max(0.0, clientTime - entry.receivedClientTime());
+        double serverNow = entry.snapshot().serverGameTime() + age;
+        return new View(entry.snapshot(), serverNow, age > 60.0);
     }
 
     public void clearAll() {
@@ -94,7 +88,8 @@ public final class ClientRadarDisplayState {
 
     public record View(
         RadarDisplaySnapshot snapshot,
-        double serverNow
+        double serverNow,
+        boolean stale
     ) {
     }
 

@@ -1,5 +1,6 @@
 package com.andye.warmod.radar.client.gui;
 
+import com.andye.warmod.client.gui.WarModUiText;
 import com.andye.warmod.radar.client.ClientRadarImpact;
 import com.andye.warmod.radar.client.ClientRadarNetworking;
 import com.andye.warmod.radar.client.ClientRadarState;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -21,262 +23,107 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 
 public final class RadarScreen extends Screen {
+    private static final int HEADER_HEIGHT = 24, FOOTER_HEIGHT = 22, SIDEBAR_PADDING = 10, STATION_CONTENT_HEIGHT = 322;
     private final RadarMapWidget map = new RadarMapWidget();
     private final ClientRadarState state = ClientRadarState.INSTANCE;
     private final ClientRadarStationState station = ClientRadarStationState.INSTANCE;
     private final RadarScreenMode mode;
-    private int sidebarScroll;
-    private boolean initializedMap;
-    private boolean closing;
-    private boolean redstoneModeDirty;
-    private EditBox radiusField;
-    private EditBox fireRadiusField;
-    private Button redstoneModeButton;
+    private int globalSidebarScroll, stationSidebarScroll;
+    private boolean initializedMap, closing, redstoneModeDirty;
+    private EditBox radiusField, fireRadiusField;
+    private Button warningMinusButton, warningPlusButton, fireMinusButton, firePlusButton, redstoneModeButton, applySettingsButton;
     private RadarRedstoneMode pendingRedstoneMode = RadarRedstoneMode.ANALOG_DISTANCE;
-
-    public RadarScreen() { this(RadarScreenMode.GLOBAL); }
-    public RadarScreen(RadarScreenMode mode) {
-        super(Component.literal(mode == RadarScreenMode.STATION ? "Radar Station" : "Missile Radar"));
-        this.mode = mode;
+    private record StationSidebarLayout(int left, int top, int width, int height, int contentX, int contentWidth, int scroll) {
+        int y(final int contentY) { return top + contentY - scroll; }
+        int bottom() { return top + height; }
+        boolean fullyContains(final int widgetY, final int widgetHeight) { return widgetY >= top && widgetY + widgetHeight <= bottom(); }
     }
-
+    public RadarScreen() { this(RadarScreenMode.GLOBAL); }
+    public RadarScreen(final RadarScreenMode mode) { super(Component.literal(mode == RadarScreenMode.STATION ? "Radar Station" : "Missile Radar")); this.mode = mode; }
     @Override public boolean isPauseScreen() { return false; }
     @Override public boolean isInGameUi() { return true; }
-
-    @Override
-    public void tick() {
+    @Override public void tick() {
         double now = state.clock().now(0);
         if (mode == RadarScreenMode.STATION) {
             station.prune(minecraft.level == null ? 0.0 : minecraft.level.getGameTime());
-            if (!redstoneModeDirty && redstoneModeButton != null && pendingRedstoneMode != station.redstoneMode()) {
-                pendingRedstoneMode = station.redstoneMode();
-                redstoneModeButton.setMessage(redstoneModeButtonText());
-            }
+            if (!redstoneModeDirty && redstoneModeButton != null && pendingRedstoneMode != station.redstoneMode()) { pendingRedstoneMode = station.redstoneMode(); redstoneModeButton.setMessage(redstoneModeButtonText()); }
             return;
         }
         state.pruneImpacts(now);
         ClientRadarTrack selected = state.selected();
-        if (state.followSelectedTrack() && selected != null) {
-            Vec3 position = selected.position(now);
-            map.transform().center(position.x, position.z);
-        }
+        if (state.followSelectedTrack() && selected != null) { Vec3 position = selected.position(now); map.transform().center(position.x, position.z); }
     }
-
-    @Override
-    protected void init() {
+    @Override protected void init() {
+        super.init();
         if (!initializedMap) {
-            if (mode == RadarScreenMode.STATION && station.centre() != null)
-                map.transform().center(station.centre().getX() + .5, station.centre().getZ() + .5);
-            else {
-                centerPlayer();
-                fitAll();
-            }
+            if (mode == RadarScreenMode.STATION && station.centre() != null) map.transform().center(station.centre().getX() + 0.5, station.centre().getZ() + 0.5);
+            else { centerPlayer(); fitAll(); }
             initializedMap = true;
         }
         if (mode != RadarScreenMode.STATION) return;
-        int left = mapWidth() + 12;
-        int controlWidth = Math.max(100, sidebarWidth() - 24);
-        radiusField = new EditBox(font, left, 134, controlWidth, 18, Component.literal("Warning radius"));
-        radiusField.setValue(Integer.toString((int)station.warningRadius()));
-        radiusField.setMaxLength(4);
-        addRenderableWidget(radiusField);
-        addRenderableWidget(Button.builder(Component.literal("-16"), button -> adjust(radiusField, -16))
-            .bounds(left, 156, (controlWidth - 6) / 2, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("+16"), button -> adjust(radiusField, 16))
-            .bounds(left + (controlWidth + 6) / 2, 156, (controlWidth - 6) / 2, 20).build());
-        fireRadiusField = new EditBox(font, left, 196, controlWidth, 18, Component.literal("Fire radius"));
-        fireRadiusField.setValue(Integer.toString((int)station.fireRadius()));
-        fireRadiusField.setMaxLength(4);
-        addRenderableWidget(fireRadiusField);
-        addRenderableWidget(Button.builder(Component.literal("-16"), button -> adjust(fireRadiusField, -16))
-            .bounds(left, 218, (controlWidth - 6) / 2, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("+16"), button -> adjust(fireRadiusField, 16))
-            .bounds(left + (controlWidth + 6) / 2, 218, (controlWidth - 6) / 2, 20).build());
-        pendingRedstoneMode = station.redstoneMode();
-        redstoneModeDirty = false;
-        redstoneModeButton = addRenderableWidget(Button.builder(redstoneModeButtonText(), button -> toggleRedstoneMode())
-            .bounds(left, 264, controlWidth, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("Apply settings"), button -> applySettings())
-            .bounds(left, 290, controlWidth, 20).build());
+        StationSidebarLayout layout = stationLayout(); int controlWidth = layout.contentWidth(), halfWidth = (controlWidth - 6) / 2;
+        radiusField = addRenderableWidget(new EditBox(font, layout.contentX(), layout.y(88), controlWidth, 18, Component.literal("Warning radius")));
+        radiusField.setValue(Integer.toString((int) station.warningRadius())); radiusField.setMaxLength(4);
+        warningMinusButton = addRenderableWidget(Button.builder(Component.literal("-16"), button -> adjust(radiusField, -16)).bounds(layout.contentX(), layout.y(110), halfWidth, 20).build());
+        warningPlusButton = addRenderableWidget(Button.builder(Component.literal("+16"), button -> adjust(radiusField, 16)).bounds(layout.contentX() + halfWidth + 6, layout.y(110), halfWidth, 20).build());
+        fireRadiusField = addRenderableWidget(new EditBox(font, layout.contentX(), layout.y(154), controlWidth, 18, Component.literal("Fire radius")));
+        fireRadiusField.setValue(Integer.toString((int) station.fireRadius())); fireRadiusField.setMaxLength(4);
+        fireMinusButton = addRenderableWidget(Button.builder(Component.literal("-16"), button -> adjust(fireRadiusField, -16)).bounds(layout.contentX(), layout.y(176), halfWidth, 20).build());
+        firePlusButton = addRenderableWidget(Button.builder(Component.literal("+16"), button -> adjust(fireRadiusField, 16)).bounds(layout.contentX() + halfWidth + 6, layout.y(176), halfWidth, 20).build());
+        pendingRedstoneMode = station.redstoneMode(); redstoneModeDirty = false;
+        redstoneModeButton = addRenderableWidget(Button.builder(redstoneModeButtonText(), button -> toggleRedstoneMode()).bounds(layout.contentX(), layout.y(220), controlWidth, 20).build());
+        applySettingsButton = addRenderableWidget(Button.builder(Component.literal("Apply settings"), button -> applySettings()).bounds(layout.contentX(), layout.y(246), controlWidth, 20).build());
+        positionStationWidgets();
     }
-
-    private void adjust(EditBox field, int delta) {
-        try { field.setValue(Integer.toString(Integer.parseInt(field.getValue()) + delta)); }
-        catch (NumberFormatException ignored) { }
+    private StationSidebarLayout stationLayout() {
+        int mapWidth = mapWidth(), panelHeight = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT), panelWidth = Math.max(1, width - mapWidth);
+        stationSidebarScroll = Math.max(0, Math.min(Math.max(0, STATION_CONTENT_HEIGHT - panelHeight), stationSidebarScroll));
+        return new StationSidebarLayout(mapWidth, HEADER_HEIGHT, panelWidth, panelHeight, mapWidth + SIDEBAR_PADDING, Math.max(80, panelWidth - SIDEBAR_PADDING * 2), stationSidebarScroll);
     }
-
-    private void toggleRedstoneMode() {
-        pendingRedstoneMode = pendingRedstoneMode == RadarRedstoneMode.ANALOG_DISTANCE
-            ? RadarRedstoneMode.INTERCEPT_TRIGGER_ONLY : RadarRedstoneMode.ANALOG_DISTANCE;
-        redstoneModeDirty = true;
-        redstoneModeButton.setMessage(redstoneModeButtonText());
+    private void positionStationWidgets() {
+        if (mode != RadarScreenMode.STATION || radiusField == null) return;
+        StationSidebarLayout layout = stationLayout();
+        positionStationWidget(radiusField, layout.y(88), 18, layout); positionStationWidget(warningMinusButton, layout.y(110), 20, layout); positionStationWidget(warningPlusButton, layout.y(110), 20, layout);
+        positionStationWidget(fireRadiusField, layout.y(154), 18, layout); positionStationWidget(fireMinusButton, layout.y(176), 20, layout); positionStationWidget(firePlusButton, layout.y(176), 20, layout);
+        positionStationWidget(redstoneModeButton, layout.y(220), 20, layout); positionStationWidget(applySettingsButton, layout.y(246), 20, layout);
     }
-
-    private Component redstoneModeButtonText() {
-        return Component.literal("Only output redstone inside fire radius: "
-            + (pendingRedstoneMode == RadarRedstoneMode.INTERCEPT_TRIGGER_ONLY ? "ON" : "OFF"));
-    }
-
-    private void applySettings() {
-        try {
-            ClientRadarStationNetworking.configure(Double.parseDouble(radiusField.getValue()),
-                Double.parseDouble(fireRadiusField.getValue()), pendingRedstoneMode);
-            redstoneModeDirty = false;
-        } catch (NumberFormatException ignored) { }
-    }
-
-    @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partial) {
-        int top = 24;
-        int bottom = 22;
-        int mapWidth = mapWidth();
-        int mapHeight = Math.max(1, height - top - bottom);
-        int side = mapWidth;
+    private static void positionStationWidget(final AbstractWidget widget, final int y, final int widgetHeight, final StationSidebarLayout layout) { widget.setY(y); widget.visible = layout.fullyContains(y, widgetHeight); widget.active = widget.visible; }
+    private void adjust(final EditBox field, final int delta) { try { field.setValue(Integer.toString(Integer.parseInt(field.getValue()) + delta)); } catch (NumberFormatException ignored) { } }
+    private void toggleRedstoneMode() { pendingRedstoneMode = pendingRedstoneMode == RadarRedstoneMode.ANALOG_DISTANCE ? RadarRedstoneMode.INTERCEPT_TRIGGER_ONLY : RadarRedstoneMode.ANALOG_DISTANCE; redstoneModeDirty = true; redstoneModeButton.setMessage(redstoneModeButtonText()); }
+    private Component redstoneModeButtonText() { return Component.literal(pendingRedstoneMode == RadarRedstoneMode.ANALOG_DISTANCE ? "Output: Analogue 1-15" : "Output: Trigger 0/15"); }
+    private void applySettings() { try { ClientRadarStationNetworking.configure(Double.parseDouble(radiusField.getValue()), Double.parseDouble(fireRadiusField.getValue()), pendingRedstoneMode); redstoneModeDirty = false; } catch (NumberFormatException ignored) { } }
+    @Override public void extractRenderState(final GuiGraphicsExtractor graphics, final int mouseX, final int mouseY, final float partial) {
+        int mapWidth = mapWidth(), mapHeight = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT);
         graphics.fill(0, 0, width, height, 0xff070b0d);
-        if (mode == RadarScreenMode.STATION) {
-            double now = minecraft.level == null ? 0.0 : minecraft.level.getGameTime() + partial;
-            RadarMapRenderer.renderGrid(graphics, map.transform(), 0, top, mapWidth, mapHeight);
-            graphics.enableScissor(0, top, mapWidth, top + mapHeight);
-            RadarSweepRenderer.render(graphics, station, map.transform(), now, 0, top, mapWidth, mapHeight);
-            graphics.disableScissor();
-            graphics.fill(side, top, width, top + mapHeight, 0xff0d1519);
-            int x = side + 12;
-            graphics.text(font, Component.literal("RADAR STATION"), x, top + 10, 0xffffc45a);
-            graphics.text(font, Component.literal(station.radarId() == null ? "offline" : station.radarId().toString().substring(0, 8)),
-                x, top + 25, 0xffc5d5dc);
-            graphics.text(font, Component.literal("DETECTION RANGE"), x, top + 46, 0xff7f969d);
-            graphics.text(font, Component.literal((int)station.detectionRange() + " blocks"), x, top + 59, 0xffffffff);
-            graphics.text(font, Component.literal("WARNING RADIUS"), x, top + 78, 0xff7f969d);
-            graphics.text(font, Component.literal((int)station.warningRadius() + " blocks"), x, top + 91, 0xffffffff);
-            graphics.text(font, Component.literal("FIRE RADIUS"), x, top + 140, 0xff7f969d);
-            graphics.text(font, Component.literal((int)station.fireRadius() + " blocks"), x, top + 153, 0xffd7f7ff);
-            graphics.text(font, Component.literal("REDSTONE MODE"), x, top + 224, 0xff7f969d);
-            graphics.text(font, Component.literal(station.redstoneMode() == RadarRedstoneMode.ANALOG_DISTANCE
-                ? "Analogue distance" : "Interceptor trigger only"), x, top + 237, 0xffffffff);
-            graphics.text(font, Component.literal("Analogue mode: Outputs 1-15 as threats approach"), x, top + 292, 0xffa9bdc5);
-            graphics.text(font, Component.literal("Trigger mode: Outputs only 0 or 15"), x, top + 305, 0xffa9bdc5);
-            int signalColour = station.redstoneSignal() == 15 ? 0xff50e7ff
-                : station.redstoneSignal() > 0 ? 0xffffc45a : 0xff8fd7a6;
-            graphics.text(font, Component.literal("REDSTONE SIGNAL  " + station.redstoneSignal() + " / 15"), x,
-                top + 330, signalColour);
-            graphics.text(font, Component.literal("PRIMARY THREAT  " + (station.primaryThreatId() == null ? "CLEAR"
-                : station.primaryThreatId().toString().substring(0, 8))), x, top + 344,
-                station.primaryThreatId() == null ? 0xff8fd7a6 : 0xffff8b62);
-            graphics.text(font, Component.literal("PRIMARY DISTANCE  "
-                + (Double.isFinite(station.primaryThreatDistance()) ? (int)station.primaryThreatDistance() + " blocks" : "--")),
-                x, top + 358, 0xffc5d5dc);
-            graphics.text(font, Component.literal("SWEEP  " + String.format(Locale.ROOT, "%.1f s", station.sweepPeriod() / 20.0)
-                + "   CONTACTS " + station.contacts() + "   THREATS " + station.threats()), x, top + 372, 0xffc5d5dc);
-        } else {
-            double now = state.clock().now(partial);
-            RadarMapRenderer.render(graphics, state, map.transform(), now, 0, top, mapWidth, mapHeight);
-            RadarSidebar.render(graphics, font, state, now, side, top, width - side, mapHeight, sidebarScroll);
-        }
+        if (mode == RadarScreenMode.STATION) renderStation(graphics, mapWidth, mapHeight, partial);
+        else { double now = state.clock().now(partial); RadarMapRenderer.render(graphics, state, map.transform(), now, 0, HEADER_HEIGHT, mapWidth, mapHeight); RadarSidebar.render(graphics, font, state, now, mapWidth, HEADER_HEIGHT, width - mapWidth, mapHeight, globalSidebarScroll); }
         super.extractRenderState(graphics, mouseX, mouseY, partial);
-        graphics.fill(0, 0, width, top, 0xff11191d);
-        graphics.text(font, Component.literal(mode == RadarScreenMode.STATION ? "RADAR STATION SWEEP" : "MISSILE RADAR"), 8, 8,
-            0xffffc45a);
-        String status = (mode == RadarScreenMode.STATION ? (station.dimension() == null ? "unknown" : station.dimension().toString())
-            : state.dimensionId() == null ? "unknown" : state.dimensionId().toString()) + "   Scale: "
-            + String.format(Locale.ROOT, "%.2f blocks/px", map.transform().blocksPerPixel()) + "   Mode: "
-            + (mode == RadarScreenMode.STATION ? "Station Sweep" : "Strategic Grid");
-        graphics.text(font, Component.literal(status), 150, 8, 0xffc5d5dc);
-        graphics.fill(0, height - bottom, width, height, 0xff11191d);
-        graphics.text(font, Component.literal("Drag: Pan   Wheel: Zoom   "
-            + (mode == RadarScreenMode.GLOBAL ? "Click: Select   F: Follow   Home: Fit All   R: Centre Player   " : "")
-            + "Esc: Close"), 8, height - 15, 0xffa9bdc5);
-        if (mode == RadarScreenMode.GLOBAL) {
-            ClientRadarTrack hovered = nearest(mouseX, mouseY, 12);
-            if (hovered != null) RadarTooltip.render(graphics, font, hovered, mouseX, mouseY);
-        }
+        graphics.fill(0, 0, width, HEADER_HEIGHT, 0xff11191d);
+        String heading = mode == RadarScreenMode.STATION ? "RADAR STATION SWEEP" : "MISSILE RADAR"; graphics.text(font, Component.literal(heading), 8, 8, 0xffffc45a);
+        String status = (mode == RadarScreenMode.STATION ? station.dimension() == null ? "unknown" : station.dimension().toString() : state.dimensionId() == null ? "unknown" : state.dimensionId().toString()) + "   Scale: " + String.format(Locale.ROOT, "%.2f blocks/px", map.transform().blocksPerPixel()) + "   Mode: " + (mode == RadarScreenMode.STATION ? "Station Sweep" : "Strategic Grid");
+        int statusX = 8 + font.width(heading) + 18; graphics.text(font, Component.literal(WarModUiText.ellipsize(font, status, Math.max(0, width - statusX - 8))), statusX, 8, 0xffc5d5dc);
+        graphics.fill(0, height - FOOTER_HEIGHT, width, height, 0xff11191d); String footer = mode == RadarScreenMode.GLOBAL ? "Drag: Pan  Wheel: Zoom  Click: Select  F: Follow  Home: Fit  R: Centre  Esc: Close" : "Drag: Pan  Wheel: Zoom  Sidebar wheel: Scroll  Esc: Close";
+        graphics.text(font, Component.literal(WarModUiText.ellipsize(font, footer, Math.max(0, width - 16))), 8, height - 15, 0xffa9bdc5);
+        if (mode == RadarScreenMode.GLOBAL) { ClientRadarTrack hovered = nearest(mouseX, mouseY, 12); if (hovered != null) RadarTooltip.render(graphics, font, hovered, mouseX, mouseY); }
     }
-
-    @Override
-    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        int mapWidth = mapWidth();
-        if (map.contains(event.x(), event.y(), 0, 24, mapWidth, height - 46) && event.button() == 0) {
-            if (mode == RadarScreenMode.GLOBAL) {
-                ClientRadarTrack hit = nearest(event.x(), event.y(), 12);
-                if (hit != null) { state.select(hit.id()); return true; }
-            }
-            map.beginDrag();
-            return true;
-        }
-        return super.mouseClicked(event, doubleClick);
+    private void renderStation(final GuiGraphicsExtractor graphics, final int mapWidth, final int mapHeight, final float partial) {
+        double now = minecraft.level == null ? 0.0 : minecraft.level.getGameTime() + partial; RadarMapRenderer.renderGrid(graphics, map.transform(), 0, HEADER_HEIGHT, mapWidth, mapHeight); graphics.enableScissor(0, HEADER_HEIGHT, mapWidth, HEADER_HEIGHT + mapHeight); RadarSweepRenderer.render(graphics, station, map.transform(), now, 0, HEADER_HEIGHT, mapWidth, mapHeight); graphics.disableScissor();
+        StationSidebarLayout layout = stationLayout(); graphics.fill(layout.left(), layout.top(), layout.left() + layout.width(), layout.bottom(), 0xff0d1519); graphics.enableScissor(layout.left(), layout.top(), layout.left() + layout.width(), layout.bottom()); int x = layout.contentX(), w = layout.contentWidth();
+        stationText(graphics, "RADAR STATION", x, layout.y(8), 0xffffc45a, w); stationText(graphics, station.radarId() == null ? "Offline" : station.radarId().toString().substring(0, 8), x, layout.y(22), 0xffc5d5dc, w);
+        stationText(graphics, "Range " + (int) station.detectionRange() + " | Sweep " + String.format(Locale.ROOT, "%.1fs", station.sweepPeriod() / 20.0), x, layout.y(42), 0xffffffff, w); stationText(graphics, "Contacts " + station.contacts() + " | Threats " + station.threats(), x, layout.y(56), station.threats() > 0 ? 0xffff8b62 : 0xff8fd7a6, w);
+        stationText(graphics, "WARNING RADIUS", x, layout.y(76), 0xff7f969d, w); stationText(graphics, "Current: " + (int) station.warningRadius() + " blocks", x, layout.y(132), 0xffc5d5dc, w); stationText(graphics, "FIRE RADIUS", x, layout.y(142), 0xff7f969d, w); stationText(graphics, "Current: " + (int) station.fireRadius() + " blocks", x, layout.y(198), 0xffd7f7ff, w);
+        stationText(graphics, "REDSTONE OUTPUT", x, layout.y(208), 0xff7f969d, w); int colour = station.redstoneSignal() == 15 ? 0xff50e7ff : station.redstoneSignal() > 0 ? 0xffffc45a : 0xff8fd7a6; stationText(graphics, "Signal: " + station.redstoneSignal() + " / 15", x, layout.y(278), colour, w); stationText(graphics, "Primary: " + (station.primaryThreatId() == null ? "CLEAR" : station.primaryThreatId().toString().substring(0, 8)), x, layout.y(292), station.primaryThreatId() == null ? 0xff8fd7a6 : 0xffff8b62, w); stationText(graphics, "Distance: " + (Double.isFinite(station.primaryThreatDistance()) ? (int) station.primaryThreatDistance() + " blocks" : "--"), x, layout.y(306), 0xffc5d5dc, w); graphics.disableScissor();
     }
-
-    @Override public boolean mouseReleased(MouseButtonEvent event) {
-        map.endDrag();
-        return super.mouseReleased(event);
-    }
-    @Override public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
-        if (map.dragging()) { map.transform().panPixels(deltaX, deltaY); state.disableFollow(); return true; }
-        return super.mouseDragged(event, deltaX, deltaY);
-    }
-    @Override public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        int mapWidth = mapWidth();
-        if (map.contains(mouseX, mouseY, 0, 24, mapWidth, height - 46)) {
-            map.transform().zoomAt(verticalAmount, mouseX, mouseY, 0, 24, mapWidth, height - 46);
-            state.disableFollow();
-            return true;
-        }
-        sidebarScroll = Math.max(0, sidebarScroll - (int)(verticalAmount * 18));
-        return true;
-    }
-    @Override public boolean keyPressed(KeyEvent event) {
-        if (mode == RadarScreenMode.GLOBAL) {
-            if (event.key() == 70) { state.toggleFollow(); return true; }
-            if (event.key() == 268) { fitAll(); return true; }
-            if (event.key() == 82) { centerPlayer(); return true; }
-        }
-        return super.keyPressed(event);
-    }
-    @Override public void removed() {
-        if (!closing) {
-            closing = true;
-            if (mode == RadarScreenMode.STATION) ClientRadarStationNetworking.close();
-            else ClientRadarNetworking.close();
-        }
-    }
-
-    private int sidebarWidth() { return Math.min(300, Math.max(220, (int)Math.round(width * .28))); }
+    private void stationText(final GuiGraphicsExtractor graphics, final String value, final int x, final int y, final int colour, final int maximumWidth) { graphics.text(font, Component.literal(WarModUiText.ellipsize(font, value, maximumWidth)), x, y, colour); }
+    @Override public boolean mouseClicked(final MouseButtonEvent event, final boolean doubleClick) { int mapWidth = mapWidth(); if (map.contains(event.x(), event.y(), 0, HEADER_HEIGHT, mapWidth, Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT)) && event.button() == 0) { if (mode == RadarScreenMode.GLOBAL) { ClientRadarTrack hit = nearest(event.x(), event.y(), 12); if (hit != null) { state.select(hit.id()); return true; } } map.beginDrag(); return true; } return super.mouseClicked(event, doubleClick); }
+    @Override public boolean mouseReleased(final MouseButtonEvent event) { map.endDrag(); return super.mouseReleased(event); }
+    @Override public boolean mouseDragged(final MouseButtonEvent event, final double deltaX, final double deltaY) { if (map.dragging()) { map.transform().panPixels(deltaX, deltaY); state.disableFollow(); return true; } return super.mouseDragged(event, deltaX, deltaY); }
+    @Override public boolean mouseScrolled(final double mouseX, final double mouseY, final double horizontalAmount, final double verticalAmount) { int mapWidth = mapWidth(), mapHeight = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT); if (map.contains(mouseX, mouseY, 0, HEADER_HEIGHT, mapWidth, mapHeight)) { map.transform().zoomAt(verticalAmount, mouseX, mouseY, 0, HEADER_HEIGHT, mapWidth, mapHeight); state.disableFollow(); return true; } if (mode == RadarScreenMode.STATION) { StationSidebarLayout layout = stationLayout(); stationSidebarScroll = Math.max(0, Math.min(Math.max(0, STATION_CONTENT_HEIGHT - layout.height()), stationSidebarScroll - (int) (verticalAmount * 18))); positionStationWidgets(); return true; } globalSidebarScroll = Math.max(0, Math.min(Math.max(0, RadarSidebar.contentHeight(state) - mapHeight), globalSidebarScroll - (int) (verticalAmount * 18))); return true; }
+    @Override public boolean keyPressed(final KeyEvent event) { if (mode == RadarScreenMode.GLOBAL) { if (event.key() == 70) { state.toggleFollow(); return true; } if (event.key() == 268) { fitAll(); return true; } if (event.key() == 82) { centerPlayer(); return true; } } return super.keyPressed(event); }
+    @Override public void removed() { if (!closing) { closing = true; if (mode == RadarScreenMode.STATION) ClientRadarStationNetworking.close(); else ClientRadarNetworking.close(); } }
+    private int sidebarWidth() { int preferred = (int) Math.round(width * 0.30); int maximum = Math.max(180, width - 120); return Math.min(maximum, Math.min(280, Math.max(196, preferred))); }
     private int mapWidth() { return Math.max(1, width - sidebarWidth()); }
-    private void centerPlayer() {
-        if (minecraft.player != null) {
-            Vec3 position = minecraft.player.position();
-            map.transform().center(position.x, position.z);
-        }
-    }
-    private void fitAll() {
-        if (mode != RadarScreenMode.GLOBAL) return;
-        int mapWidth = mapWidth();
-        int mapHeight = Math.max(1, height - 46);
-        List<Vec3> points = new ArrayList<>();
-        if (minecraft.player != null) points.add(minecraft.player.position());
-        for (ClientRadarTrack track : state.tracks()) {
-            points.add(track.launch()); points.add(track.target()); points.add(track.position(state.clock().now(0)));
-        }
-        for (ClientRadarImpact impact : state.impacts()) points.add(impact.snapshot().impactPosition());
-        if (points.isEmpty()) return;
-        map.transform().fit(points.stream().mapToDouble(point -> point.x).min().orElse(0.0),
-            points.stream().mapToDouble(point -> point.z).min().orElse(0.0),
-            points.stream().mapToDouble(point -> point.x).max().orElse(0.0),
-            points.stream().mapToDouble(point -> point.z).max().orElse(0.0), mapWidth, mapHeight);
-    }
-    private ClientRadarTrack nearest(double mouseX, double mouseY, double radius) {
-        if (mode != RadarScreenMode.GLOBAL) return null;
-        int mapWidth = mapWidth();
-        int mapHeight = height - 46;
-        ClientRadarTrack best = null;
-        double bestDistance = radius * radius;
-        double now = state.clock().now(0);
-        for (ClientRadarTrack track : state.tracks()) {
-            Vec3 position = track.position(now);
-            double dx = map.transform().screenX(position.x, 0, mapWidth) - mouseX;
-            double dy = map.transform().screenY(position.z, 24, mapHeight) - mouseY;
-            double distance = dx * dx + dy * dy;
-            if (distance < bestDistance) { bestDistance = distance; best = track; }
-        }
-        return best;
-    }
+    private void centerPlayer() { if (minecraft.player != null) { Vec3 position = minecraft.player.position(); map.transform().center(position.x, position.z); } }
+    private void fitAll() { if (mode != RadarScreenMode.GLOBAL) return; int mapWidth = mapWidth(), mapHeight = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT); List<Vec3> points = new ArrayList<>(); if (minecraft.player != null) points.add(minecraft.player.position()); for (ClientRadarTrack track : state.tracks()) { points.add(track.launch()); points.add(track.target()); points.add(track.position(state.clock().now(0))); } for (ClientRadarImpact impact : state.impacts()) points.add(impact.snapshot().impactPosition()); if (points.isEmpty()) return; map.transform().fit(points.stream().mapToDouble(point -> point.x).min().orElse(0), points.stream().mapToDouble(point -> point.z).min().orElse(0), points.stream().mapToDouble(point -> point.x).max().orElse(0), points.stream().mapToDouble(point -> point.z).max().orElse(0), mapWidth, mapHeight); }
+    private ClientRadarTrack nearest(final double mouseX, final double mouseY, final double radius) { if (mode != RadarScreenMode.GLOBAL) return null; int mapWidth = mapWidth(), mapHeight = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT); ClientRadarTrack best = null; double bestDistance = radius * radius, now = state.clock().now(0); for (ClientRadarTrack track : state.tracks()) { Vec3 position = track.position(now); double dx = map.transform().screenX(position.x, 0, mapWidth) - mouseX, dy = map.transform().screenY(position.z, HEADER_HEIGHT, mapHeight) - mouseY, distance = dx * dx + dy * dy; if (distance < bestDistance) { bestDistance = distance; best = track; } } return best; }
 }

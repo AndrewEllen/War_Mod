@@ -38,16 +38,14 @@ public final class IcbmPendingCommandLaunchManager {
 		IcbmLaunchService.PreparedCommandLaunch prepared = IcbmLaunchService.prepareCommandLaunch(
 			level, player, target, requestedLaunch, payloadType).orElse(null);
 		if (prepared == null) return false;
-		Set<ChunkPos> tickets = IcbmChunkTicketRegistry.window(IcbmChunkTicketRegistry.chunk(prepared.launchPosition()), 1);
-		IcbmChunkTicketRegistry.addWindow(tickets, IcbmChunkTicketRegistry.chunk(target), 2);
+		Set<ChunkPos> tickets = IcbmChunkTicketRegistry.window(IcbmChunkTicketRegistry.chunk(prepared.launchPosition()), IcbmConstants.CARRIER_CHUNK_RADIUS);
 		IcbmChunkTicketRegistry.acquireAll(level, tickets);
 		IcbmPendingCommandLaunch request = new IcbmPendingCommandLaunch(prepared.requestId(), player.getUUID(),
 			level.dimension(), target, requestedLaunch, prepared.launchPosition(), payloadType, level.getGameTime(),
 			prepared.visualSeed(), tickets);
 		PENDING.computeIfAbsent(level, ignored -> new LinkedHashMap<>()).put(request.requestId(), request);
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
-			"ICBM command launch {} queued: launchChunk={}, targetChunk={}", request.requestId(),
-			IcbmChunkTicketRegistry.chunk(request.launchPosition()), IcbmChunkTicketRegistry.chunk(request.target()));
+			"ICBM command launch {} queued: launchChunk={}", request.requestId(), IcbmChunkTicketRegistry.chunk(request.launchPosition()));
 		return true;
 	}
 
@@ -65,7 +63,7 @@ public final class IcbmPendingCommandLaunchManager {
 			}
 			if (now < request.creationGameTime()) { fail(level, request, player, "server game time rolled back"); iterator.remove(); continue; }
 			if (now - request.creationGameTime() >= TIMEOUT_TICKS) {
-				fail(level, request, player, "launch or target area did not load in time"); iterator.remove(); continue;
+				fail(level, request, player, "launch area did not load in time"); iterator.remove(); continue;
 			}
 			if (!IcbmLaunchService.pendingRequestStillValid(level, request)) {
 				fail(level, request, player, "request became invalid"); iterator.remove(); continue;
@@ -95,8 +93,8 @@ public final class IcbmPendingCommandLaunchManager {
 		final @Nullable ServerPlayer player, final String reason) {
 		IcbmChunkTicketRegistry.releaseAll(level, request.temporaryTickets());
 		if (player != null) {
-			String message = reason.equals("launch or target area did not load in time")
-				? "ICBM launch failed: launch or target area did not load in time"
+			String message = reason.equals("launch area did not load in time")
+				? "ICBM launch failed: launch area did not load in time"
 				: "ICBM launch failed: " + reason;
 			player.sendSystemMessage(Component.literal(message));
 		}

@@ -158,7 +158,7 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
 
         if (!display.valid()) {
             player.sendSystemMessage(Component.literal(
-                "Display must form a filled square from 1x1 to 10x10"
+                "Display must form a filled rectangle from 1x1 to 10x10"
             ));
 
             return InteractionResult.SUCCESS_SERVER;
@@ -189,12 +189,14 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
         } else {
             player.sendSystemMessage(Component.literal(
                 "Radar display "
-                    + display.width()+"x"+display.height()
+                    + display.width()
                     + "x"
-                    + display.width()+"x"+display.height()
-                    + " | Range "
-                    + RadarDisplayConstants.horizontalRadius(display.width())
-                    + " | Station "
+                    + display.height()
+                    + " | Range ±"
+                    + (int) RadarDisplayConstants.horizontalRadius(display.width())
+                    + " X / ±"
+                    + (int) RadarDisplayConstants.verticalRadius(display.height())
+                    + " Z | Station "
                     + station
             ));
         }

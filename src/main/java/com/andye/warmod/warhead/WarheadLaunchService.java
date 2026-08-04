@@ -4,6 +4,7 @@ import com.andye.warmod.WarMod;
 import com.andye.warmod.entity.IncomingWarheadEntity;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.icbm.IcbmConstants;
+import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
@@ -13,8 +14,10 @@ import java.util.ArrayList;
 import java.util.Optional;
 import java.util.SplittableRandom;
 import java.util.UUID;
+import java.util.Set;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.attribute.EnvironmentAttributes;
@@ -22,6 +25,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 public final class WarheadLaunchService {
+	private enum SpawnContext { DIRECT, CARRIER }
 	private WarheadLaunchService() { }
 	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer owner, final Vec3 intendedTarget) {
 		return launch(level, owner, intendedTarget, WarheadPayloadType.CONVENTIONAL);
@@ -36,7 +40,7 @@ public final class WarheadLaunchService {
 		if (start == null) return Optional.empty();
 		Optional<LaunchResult> result = spawn(level, owner, id, start, intendedTarget,
 			clamp((int)Math.ceil(start.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK)),
-			seed, payloadType, id, 0, 1);
+			seed, payloadType, id, 0, 1, SpawnContext.DIRECT);
 		result.ifPresent(value -> RadarTrackingService.registerDirectWarhead(level, owner, value));
 		return result;
 	}
@@ -46,7 +50,7 @@ public final class WarheadLaunchService {
 		UUID id = UUID.randomUUID();
 		long seed = deriveSeed(id, parentVisualSeed, payloadType);
 		int ticks = clampTerminal((int)Math.ceil(separationPosition.distanceTo(intendedTarget) / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
-		return spawn(level, owner, id, separationPosition, intendedTarget, ticks, seed, payloadType, radarRootTrackId, 0, 1);
+		return spawn(level, owner, id, separationPosition, intendedTarget, ticks, seed, payloadType, radarRootTrackId, 0, 1, SpawnContext.CARRIER);
 	}
 	public static List<LaunchResult> launchClusterFromCarrier(final ServerLevel level, final @Nullable ServerPlayer owner,
 		final Vec3 separationPosition, final Vec3 intendedTarget, final long parentVisualSeed,
@@ -58,16 +62,18 @@ public final class WarheadLaunchService {
 			Vec3 start=separationPosition.add(Math.cos(angle)*.28,0,Math.sin(angle)*.28);UUID id=UUID.randomUUID();
 			long seed=deriveSeed(id,parentVisualSeed+index*0x9E3779B97F4A7C15L,payloadType);
 			int ticks=clampTerminal((int)Math.ceil(start.distanceTo(target)/WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK));
-			spawn(level,owner,id,start,target,ticks,seed,payloadType,radarRootTrackId,index,4).ifPresent(results::add);
+			spawn(level,owner,id,start,target,ticks,seed,payloadType,radarRootTrackId,index,4,SpawnContext.CARRIER).ifPresent(results::add);
 		}
 		if(results.size()!=4){for(LaunchResult result:results)IncomingWarheadRegistry.getByWarheadId(level,result.warheadId()).ifPresent(e->e.discard());return List.of();}
 		return List.copyOf(results);
 	}
 	private static Optional<LaunchResult> spawn(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
 		final Vec3 start, final Vec3 target, final int ticks, final long seed, final WarheadPayloadType payloadType,
-		final UUID radarRootTrackId, final int clusterIndex, final int clusterCount) {
+		final UUID radarRootTrackId, final int clusterIndex, final int clusterCount, final SpawnContext context) {
 		Objects.requireNonNull(level); Objects.requireNonNull(start); Objects.requireNonNull(target); Objects.requireNonNull(payloadType);
-		if (!start.isFinite() || !target.isFinite() || !loaded(level, start) || !loaded(level, target)) return Optional.empty();
+		if (!start.isFinite() || !target.isFinite()) return Optional.empty();
+		if (context == SpawnContext.DIRECT) { if (!loaded(level, start) || !loaded(level, target)) return Optional.empty(); }
+		else { Set<ChunkPos> initialWindow = IcbmChunkTicketRegistry.window(IcbmChunkTicketRegistry.chunk(start), IcbmConstants.TERMINAL_STREAM_RADIUS); if (!IcbmChunkTicketRegistry.allLoaded(level, initialWindow)) { if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.warn("Warhead {} carrier handoff window not ready at {}", id, start); return Optional.empty(); } }
 		long gameTime = level.getGameTime();
 		IncomingWarheadEntity entity = new IncomingWarheadEntity(ModEntityTypes.INCOMING_WARHEAD, level, id,
 			owner == null ? null : owner.getUUID(), start, target, gameTime, ticks, seed, payloadType, radarRootTrackId, clusterIndex, clusterCount);

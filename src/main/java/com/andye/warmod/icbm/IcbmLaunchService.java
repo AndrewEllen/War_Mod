@@ -41,7 +41,7 @@ public final class IcbmLaunchService {
 	public static Optional<LaunchResult> launchFromCommand(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType) {
 		PreparedCommandLaunch prepared = prepareCommandLaunch(level, player, target, requestedLaunch, payloadType).orElse(null);
-		if (prepared == null || !targetChunkLoaded(level, target) || !targetChunkLoaded(level, prepared.launchPosition()))
+		if (prepared == null || !targetChunkLoaded(level, prepared.launchPosition()))
 			return Optional.empty();
 		IcbmPendingCommandLaunch request = new IcbmPendingCommandLaunch(prepared.requestId(), player.getUUID(),
 			level.dimension(), target, requestedLaunch, prepared.launchPosition(), payloadType, level.getGameTime(),
@@ -61,25 +61,20 @@ public final class IcbmLaunchService {
 			? virtualLaunchPosition(level, player, target, cloudHeight(level, target), seed, false)
 			: requestedLaunch;
 		if (!validRouteCoordinate(level, launch)) return Optional.empty();
-		double horizontalDistance = launch.subtract(target).horizontalDistance();
-		if (!Double.isFinite(horizontalDistance) || horizontalDistance < 1.0
-			|| horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
+		if (!IcbmRouteRules.strategicRangeValid(launch, target)) return Optional.empty();
 		return Optional.of(new PreparedCommandLaunch(requestId, launch, seed));
 	}
 
 	public static boolean pendingRequestStillValid(final ServerLevel level, final IcbmPendingCommandLaunch request) {
 		if (request == null || request.payloadType() == null || !level.dimension().equals(request.dimension())
 			|| !validTargetCoordinate(level, request.target()) || !validRouteCoordinate(level, request.launchPosition())) return false;
-		double horizontalDistance = request.launchPosition().subtract(request.target()).horizontalDistance();
-		return Double.isFinite(horizontalDistance) && horizontalDistance >= 1.0
-			&& horizontalDistance <= IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS;
+		return IcbmRouteRules.strategicRangeValid(request.launchPosition(), request.target());
 	}
 
 	public static Optional<LaunchResult> completePendingCommandLaunch(final ServerLevel level, final ServerPlayer player,
 		final IcbmPendingCommandLaunch request) {
 		if (player == null || player.level() != level || !player.getUUID().equals(request.playerId())
-			|| !pendingRequestStillValid(level, request) || !targetChunkLoaded(level, request.target())
-			|| !targetChunkLoaded(level, request.launchPosition())) return Optional.empty();
+			|| !pendingRequestStillValid(level, request) || !targetChunkLoaded(level, request.launchPosition())) return Optional.empty();
 		IcbmFlightPlan plan = createFlightPlan(level, player, request.target(), request.launchPosition(),
 			request.payloadType(), request.requestId(), request.visualSeed(), false).orElse(null);
 		return acceptPlan(level, plan);
@@ -108,9 +103,7 @@ public final class IcbmLaunchService {
 		if (level == null || launchPosition == null || intendedTarget == null || payloadType == null
 			|| collisionContext == null || !validRouteCoordinate(level, launchPosition)
 			|| !validTargetCoordinate(level, intendedTarget)) return Optional.empty();
-		double horizontalDistance = launchPosition.subtract(intendedTarget).horizontalDistance();
-		if (!Double.isFinite(horizontalDistance) || horizontalDistance < 1.0
-			|| horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
+		if (!IcbmRouteRules.strategicRangeValid(launchPosition, intendedTarget)) return Optional.empty();
 		UUID missileId = UUID.randomUUID();
 		long seed = mix(missileId.getMostSignificantBits() ^ Long.rotateLeft(missileId.getLeastSignificantBits(), 17)
 			^ payloadType.ordinal());
@@ -126,7 +119,7 @@ public final class IcbmLaunchService {
 		double cloudHeight = cloudHeight(level, launch);
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
 		double horizontalDistance = horizontal.length();
-		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
+		if (!IcbmRouteRules.strategicRangeValid(launch, target)) return Optional.empty();
 		horizontal = horizontal.scale(1.0 / horizontalDistance);
 		double buildTop = level.dimensionType().minY() + level.dimensionType().height();
 		double ceiling = Math.min(2048.0, Math.max(buildTop + 768.0,
@@ -164,7 +157,7 @@ public final class IcbmLaunchService {
 		if (!validRouteCoordinate(level, launch)) return Optional.empty();
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
 		double horizontalDistance = horizontal.length();
-		if (horizontalDistance < 1.0 || horizontalDistance > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS) return Optional.empty();
+		if (!IcbmRouteRules.strategicRangeValid(launch, target)) return Optional.empty();
 		horizontal = horizontal.scale(1.0 / horizontalDistance);
 
 		double dimensionBuildTop = level.dimensionType().minY() + level.dimensionType().height();
@@ -249,7 +242,7 @@ public final class IcbmLaunchService {
 	public static Optional<IcbmFlightPlan> retargetFromBurnout(final ServerLevel level,
 		final IcbmFlightPlan original, final Vec3 resolvedTarget) {
 		if (!validBoostGeometry(original) || !validTargetCoordinate(level, resolvedTarget)
-			|| original.launchPosition().distanceTo(resolvedTarget) > IcbmConstants.MAXIMUM_STRATEGIC_RANGE_BLOCKS)
+			|| !IcbmRouteRules.strategicRangeValid(original.launchPosition(), resolvedTarget))
 			return Optional.empty();
 		Vec3 horizontal = new Vec3(resolvedTarget.x - original.burnoutPosition().x, 0.0,
 			resolvedTarget.z - original.burnoutPosition().z);
@@ -298,8 +291,9 @@ public final class IcbmLaunchService {
 		return level.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(position.x), SectionPos.blockToSectionCoord(position.z));
 	}
 
+	private static boolean validCarrierSpeed(final IcbmFlightPlan plan) { if (plan == null) return false; double peakSpeed = IcbmTrajectory.estimatedPeakCoastSpeed(plan); boolean valid = Double.isFinite(peakSpeed) && peakSpeed <= IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK + 0.001; if (!valid && SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.error("Rejected ICBM {}: estimated peak speed {} exceeds {}", plan.missileId(), peakSpeed, IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK); return valid; }
 	private static Optional<LaunchResult> acceptPlan(final ServerLevel level, final @Nullable IcbmFlightPlan plan) {
-		if (plan == null || !IcbmFlightControllerManager.add(level, plan)) return Optional.empty();
+		if (!validCarrierSpeed(plan) || !IcbmFlightControllerManager.add(level, plan)) return Optional.empty();
 		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
 		double apex = calculateApexY(plan.burnoutPosition(), IcbmTrajectory.coastInitialVelocity(plan), plan.coastTicks());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
@@ -310,7 +304,7 @@ public final class IcbmLaunchService {
 
 	private static Optional<LaunchResult> acceptPlan(final ServerLevel level, final @Nullable IcbmFlightPlan plan,
 		final MissileSiloCollisionContext collisionContext, final IcbmGuidanceProfile guidance) {
-		if (plan == null || !IcbmFlightControllerManager.add(level, plan, collisionContext, guidance)) return Optional.empty();
+		if (!validCarrierSpeed(plan) || !IcbmFlightControllerManager.add(level, plan, collisionContext, guidance)) return Optional.empty();
 		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
 			"ICBM {} silo launch accepted: launch={}, burnout={}, separation={}", plan.missileId(),

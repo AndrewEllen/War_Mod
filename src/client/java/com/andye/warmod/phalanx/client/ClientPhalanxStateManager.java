@@ -11,7 +11,7 @@ import org.jspecify.annotations.Nullable;
 public final class ClientPhalanxStateManager {
     public static final ClientPhalanxStateManager INSTANCE = new ClientPhalanxStateManager();
     private static final double INTERPOLATION_TICKS = 2.0;
-    private static final double EXPIRY_TICKS = 100.0;
+    private static final double EXPIRY_TICKS = 160.0;
     private static final double BARREL_DEGREES_PER_TICK = 72.0;
     private final Map<UUID, Entry> states = new HashMap<>();
     private ClientPhalanxStateManager() { }
