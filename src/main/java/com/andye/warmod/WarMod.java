@@ -34,6 +34,7 @@ import com.andye.warmod.silo.MissileSiloChunkTicketType;
 import com.andye.warmod.silo.MissileSiloManager;
 import com.andye.warmod.silo.network.SiloNetworking;
 import com.andye.warmod.warhead.IncomingWarheadRegistry;
+import com.andye.warmod.warhead.WarheadExplosionWorkManager;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -66,8 +67,8 @@ public final class WarMod implements ModInitializer {
         RadarStationChunkTicketType.register();
         PhalanxChunkTicketType.register();
         IcbmChunkTicketType.register();
-        com.andye.warmod.warhead.WarheadImpactChunkLeaseManager
-            .registerLifecycle();
+        com.andye.warmod.warhead.WarheadImpactChunkLeaseManager.registerLifecycle();
+        WarheadExplosionWorkManager.registerLifecycle();
         IcbmFlightControllerManager.register();
         AntiAirFlightControllerManager.register();
         PhalanxManager.registerLifecycle();
@@ -86,9 +87,7 @@ public final class WarMod implements ModInitializer {
             RadarTrackingService.tick(level);
             RadarSubscriptionManager.tick(level);
         });
-        ServerLifecycleEvents.SERVER_STOPPING.register(
-            RadarSubscriptionManager::stop
-        );
+        ServerLifecycleEvents.SERVER_STOPPING.register(RadarSubscriptionManager::stop);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             RadarTrackingService.clearAll();
             IncomingWarheadRegistry.clearAll();

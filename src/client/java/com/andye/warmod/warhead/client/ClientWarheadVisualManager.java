@@ -6,10 +6,13 @@ import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SplittableRandom;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
@@ -25,6 +28,7 @@ public final class ClientWarheadVisualManager {
 
 	private final Map<UUID, WarheadVisualState> activeWarheads = new LinkedHashMap<>();
 	private final Map<UUID, ImpactVisualState> activeImpacts = new LinkedHashMap<>();
+	private final Set<UUID> volumetricImpacts = new HashSet<>();
 	private ClientLevel activeLevel;
 
 	private ClientWarheadVisualManager() {
@@ -41,8 +45,11 @@ public final class ClientWarheadVisualManager {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
 		this.activeWarheads.remove(payload.warheadId());
 		this.activeImpacts.remove(payload.warheadId());
-		this.removeOldestIfAtCapacity(this.activeImpacts, WarheadConstants.MAX_ACTIVE_CLIENT_IMPACTS);
-		this.activeImpacts.put(payload.warheadId(), ImpactVisualState.fromPayload(payload));
+		this.volumetricImpacts.remove(payload.warheadId());
+		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload);
+		this.assignVolumetricSlot(payload.warheadId(), incoming);
+		this.removeOldestImpactIfAtCapacity(WarheadConstants.MAX_ACTIVE_CLIENT_IMPACTS);
+		this.activeImpacts.put(payload.warheadId(), incoming);
 	}
 
 	public synchronized void acceptTimingCorrection(final ClientboundWarheadTimingCorrectionPayload payload) {
@@ -68,7 +75,11 @@ public final class ClientWarheadVisualManager {
 		}
 		Iterator<Map.Entry<UUID, ImpactVisualState>> impactIterator = this.activeImpacts.entrySet().iterator();
 		while (impactIterator.hasNext()) {
-			if (impactIterator.next().getValue().isExpired(gameTime, 0.0)) impactIterator.remove();
+			Map.Entry<UUID, ImpactVisualState> entry = impactIterator.next();
+			if (entry.getValue().isExpired(gameTime, 0.0)) {
+				this.volumetricImpacts.remove(entry.getKey());
+				impactIterator.remove();
+			}
 		}
 
 		int remainingTerrainBudget = TOTAL_TERRAIN_BUILD_BUDGET;
@@ -95,6 +106,7 @@ public final class ClientWarheadVisualManager {
 	public synchronized void clear() {
 		this.activeWarheads.clear();
 		this.activeImpacts.clear();
+		this.volumetricImpacts.clear();
 		TerrainSurfaceCache.INSTANCE.clear();
 		ClientDebrisBatchManager.INSTANCE.clear();
 		this.activeLevel = null;
@@ -109,6 +121,7 @@ public final class ClientWarheadVisualManager {
 		if (level == null) {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
+			this.volumetricImpacts.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = null;
@@ -117,11 +130,57 @@ public final class ClientWarheadVisualManager {
 		if (this.activeLevel != level) {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
+			this.volumetricImpacts.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = level;
 		}
 		return true;
+	}
+
+	/**
+	 * Keeps all impact states for their pressure shells and terrain fronts, but
+	 * limits the expensive fire/smoke field when those fields occupy the same
+	 * volume. The newest impact receives the slot and the oldest overlapping
+	 * volumetric is demoted to shockwave-only rendering.
+	 */
+	private void assignVolumetricSlot(final UUID incomingId, final ImpactVisualState incoming) {
+		int maximum = incoming.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR ? 1 : 2;
+		double radius = incoming.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR ? 48.0 : 14.0;
+		if (incoming.effectProfile().name().startsWith("ANTI_AIR")) {
+			maximum = 4;
+			radius = 5.0;
+		}
+
+		double radiusSquared = radius * radius;
+		ArrayList<UUID> overlapping = new ArrayList<>();
+		for (Map.Entry<UUID, ImpactVisualState> entry : this.activeImpacts.entrySet()) {
+			if (!this.volumetricImpacts.contains(entry.getKey())) continue;
+			ImpactVisualState existing = entry.getValue();
+			if (existing.payloadType() != incoming.payloadType()
+				|| existing.effectProfile() != incoming.effectProfile()) continue;
+			if (existing.impactPosition().distanceToSqr(incoming.impactPosition()) <= radiusSquared) {
+				overlapping.add(entry.getKey());
+			}
+		}
+		for (int index = 0; index <= overlapping.size() - maximum; index++) {
+			this.volumetricImpacts.remove(overlapping.get(index));
+		}
+		this.volumetricImpacts.add(incomingId);
+	}
+
+	public synchronized boolean shouldRenderVolumetrics(final UUID impactId) {
+		return impactId != null && this.volumetricImpacts.contains(impactId);
+	}
+
+	private void removeOldestImpactIfAtCapacity(final int capacity) {
+		while (this.activeImpacts.size() >= capacity) {
+			Iterator<UUID> iterator = this.activeImpacts.keySet().iterator();
+			if (!iterator.hasNext()) return;
+			UUID removed = iterator.next();
+			iterator.remove();
+			this.volumetricImpacts.remove(removed);
+		}
 	}
 
 	private <T> void removeOldestIfAtCapacity(final Map<UUID, T> states, final int capacity) {

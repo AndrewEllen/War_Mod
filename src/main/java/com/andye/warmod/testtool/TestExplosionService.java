@@ -2,7 +2,9 @@ package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadExplosionWorkManager;
 import java.util.List;
+import java.util.UUID;
 import net.minecraft.core.particles.ExplosionParticleInfo;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -26,6 +28,21 @@ public final class TestExplosionService {
 	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,
 		final @Nullable ServerPlayer source, final Vec3 position) {
 		return createExplosion(level, source, position, WarheadConstants.EXPLOSION_STRENGTH);
+	}
+
+
+	/** Uses the prepared staged path for full-size strategic warheads. */
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,
+		final @Nullable ServerPlayer source, final UUID warheadId, final Vec3 position,
+		final float strength, final long seed) {
+		if (level == null || warheadId == null || position == null) throw new NullPointerException();
+		if (!position.isFinite() || !Float.isFinite(strength) || strength <= 0.0F) {
+			throw new IllegalArgumentException("Invalid explosion arguments");
+		}
+		if (strength >= WarheadConstants.EXPLOSION_STRENGTH) {
+			return WarheadExplosionWorkManager.detonate(level, source, warheadId, position, strength, seed);
+		}
+		return createExplosion(level, source, position, strength);
 	}
 
 	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,

@@ -80,7 +80,7 @@ public final class WarheadImpactService {
 				: payloadType == WarheadPayloadType.NUCLEAR ? WarheadEffectProfile.NUCLEAR : WarheadEffectProfile.CONVENTIONAL
 		), pos);
 		List<com.andye.warmod.testtool.WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks =
-			TestExplosionService.createExplosion(level, owner, pos, profile.explosionStrength());
+			TestExplosionService.createExplosion(level, owner, id, pos, profile.explosionStrength(), seed);
 		spawnDebris(level, id, pos, seed, destroyedBlocks, profile);
 		AcousticEngine.playSound(level, pos, AcousticSounds.WARHEAD_IMPACT_THUD_ID, SoundSource.BLOCKS, 0.72F, 1.0F);
 		AcousticEngine.playSound(level, pos,

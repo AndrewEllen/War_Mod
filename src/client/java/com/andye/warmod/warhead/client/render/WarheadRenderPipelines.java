@@ -5,13 +5,13 @@ import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.platform.CompareOp;
 import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
 
 /** Minecraft 26.2 render pipelines for each visual layer. */
@@ -21,11 +21,17 @@ public final class WarheadRenderPipelines {
 		"textures/effect/smoke_lobe.png"
 	);
 	private static final RenderPipeline CONDENSATION_PIPELINE = condensation();
-	private static final RenderPipeline PRESSURE_PIPELINE = translucent("pipeline/war_mod_pressure_shell");
-	private static final RenderPipeline SHOCKWAVE_PIPELINE = translucent("pipeline/war_mod_shockwave_ribbons");
-	private static final RenderPipeline GROUND_DUST_PIPELINE = translucent("pipeline/war_mod_ground_dust");
-	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke");
-	private static final RenderPipeline COOL_FIRE_PIPELINE = translucent("pipeline/war_mod_cooling_fire");
+	private static final RenderPipeline PRESSURE_PIPELINE = translucent("pipeline/war_mod_pressure_shell", false);
+	private static final RenderPipeline SHOCKWAVE_PIPELINE = translucent("pipeline/war_mod_shockwave_ribbons", false);
+	private static final RenderPipeline GROUND_DUST_PIPELINE = translucent("pipeline/war_mod_ground_dust", false);
+	/*
+	 * Smoke is sorted back-to-front and now writes depth after its alpha cutout.
+	 * This prevents water and the sky/translucent-world pass from being drawn
+	 * through an already opaque part of the cloud, and enables early depth
+	 * rejection for hidden overlapping cloud billboards.
+	 */
+	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke", true);
+	private static final RenderPipeline COOL_FIRE_PIPELINE = translucent("pipeline/war_mod_cooling_fire", false);
 	private static final RenderPipeline GROUND_RIPPLE_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
 			.withLocation("pipeline/war_mod_ground_ripple")
@@ -74,10 +80,16 @@ public final class WarheadRenderPipelines {
 	public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;
 	public static final RenderType FIREBALL = FIREBALL_COOL;
 
-	private WarheadRenderPipelines() { }
+	private WarheadRenderPipelines() {
+	}
 
-	private static RenderType createClamped(final String name, final RenderPipeline pipeline, final Identifier texture,
-		final boolean useLightmap, final boolean sortOnUpload) {
+	private static RenderType createClamped(
+		final String name,
+		final RenderPipeline pipeline,
+		final Identifier texture,
+		final boolean useLightmap,
+		final boolean sortOnUpload
+	) {
 		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline)
 			.withTexture("Sampler0", texture, () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
 			.setOutline(RenderSetup.OutlineProperty.NONE);
@@ -85,6 +97,7 @@ public final class WarheadRenderPipelines {
 		if (sortOnUpload) builder.sortOnUpload();
 		return RenderType.create(name, builder.createRenderSetup());
 	}
+
 	private static RenderPipeline condensation() {
 		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
 			.withLocation("pipeline/war_mod_condensation")
@@ -97,17 +110,28 @@ public final class WarheadRenderPipelines {
 			.build());
 	}
 
-	private static RenderPipeline translucent(final String location) {
+	private static RenderPipeline translucent(final String location, final boolean writeDepth) {
 		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
-			.withLocation(location).withShaderDefine("ALPHA_CUTOUT", 0.02F).withShaderDefine("NO_OVERLAY")
+			.withLocation(location)
+			.withShaderDefine("ALPHA_CUTOUT", 0.02F)
+			.withShaderDefine("NO_OVERLAY")
 			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
-			.withCull(false).build());
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, writeDepth))
+			.withCull(false)
+			.build());
 	}
 
-	private static RenderType create(final String name, final RenderPipeline pipeline, final Identifier texture,
-		final boolean useLightmap, final boolean useOverlay, final boolean sortOnUpload) {
-		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline).withTexture("Sampler0", texture).setOutline(RenderSetup.OutlineProperty.NONE);
+	private static RenderType create(
+		final String name,
+		final RenderPipeline pipeline,
+		final Identifier texture,
+		final boolean useLightmap,
+		final boolean useOverlay,
+		final boolean sortOnUpload
+	) {
+		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline)
+			.withTexture("Sampler0", texture)
+			.setOutline(RenderSetup.OutlineProperty.NONE);
 		if (useLightmap) builder.useLightmap();
 		if (useOverlay) builder.useOverlay();
 		if (sortOnUpload) builder.sortOnUpload();

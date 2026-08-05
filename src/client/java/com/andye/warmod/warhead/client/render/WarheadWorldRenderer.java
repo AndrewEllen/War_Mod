@@ -109,6 +109,7 @@ public final class WarheadWorldRenderer {
 				state.visualSeed(),
 				state.payloadType(),
 				state.effectProfile(),
+				ClientWarheadVisualManager.INSTANCE.shouldRenderVolumetrics(state.warheadId()),
 				state.profile(),
 				lod,
 				state.terrainShockfrontField().snapshotSpokes(),
@@ -215,27 +216,29 @@ public final class WarheadWorldRenderer {
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
 			(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(),
 				impact.gameTime(), impact.lod(), (float) impact.profile().shockwaveParticleDensityScale(), frame.cameraOrientation()));
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-			(pose, buffer) -> {
-				BlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-					impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation());
-				ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, impact.ageTicks(), impact.visualScale(),
-					impact.profile(), impact.visualSeed(), impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation());
-			});
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
-			(pose, buffer) -> {
-				ImpactFireballRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-					impact.fireballLobes(), impact.lod(), frame.cameraOrientation());
-				ProceduralImpactParticleRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(),
-					impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation());
-			});
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
-			(pose, buffer) -> {
-				ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-					impact.fireballLobes(), impact.lod(), frame.cameraOrientation());
-				ProceduralImpactParticleRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(),
-					impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation());
-			});
+		if (impact.renderVolumetrics()) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
+				(pose, buffer) -> {
+					BlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+						impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation());
+					ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, impact.ageTicks(), impact.visualScale(),
+						impact.profile(), impact.visualSeed(), impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation());
+				});
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
+				(pose, buffer) -> {
+					ImpactFireballRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+						impact.fireballLobes(), impact.lod(), frame.cameraOrientation());
+					ProceduralImpactParticleRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(),
+						impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation());
+				});
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
+				(pose, buffer) -> {
+					ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+						impact.fireballLobes(), impact.lod(), frame.cameraOrientation());
+					ProceduralImpactParticleRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(),
+						impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation());
+				});
+		}
 		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
 				(pose, buffer) -> NuclearFlashRenderer.render(pose, buffer, impact.ageTicks(), frame.cameraOrientation()));
@@ -372,7 +375,8 @@ public final class WarheadWorldRenderer {
 	}
 
 	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, long visualSeed,
-		WarheadPayloadType payloadType, WarheadEffectProfile effectProfile, WarheadClientVisualProfile profile,
+		WarheadPayloadType payloadType, WarheadEffectProfile effectProfile, boolean renderVolumetrics,
+		WarheadClientVisualProfile profile,
 		WarheadMesh.Lod lod, List<TerrainShockfrontSpoke> shockfrontSpokes, List<TerrainShockfrontNode> dustNodes,
 		List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) {
 	}
