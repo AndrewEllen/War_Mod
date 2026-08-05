@@ -2,14 +2,17 @@ package com.andye.warmod.block;
 
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.block.entity.RadarDisplayPanelBlockEntity;
+import com.andye.warmod.item.component.LinkedRadarStation;
 import com.andye.warmod.radar.display.RadarDisplayConstants;
 import com.andye.warmod.radar.display.RadarDisplayManager;
 import com.andye.warmod.radar.display.RadarDisplayStructure;
+import com.andye.warmod.radar.station.network.RadarStationNetworking;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -32,19 +35,11 @@ import org.jspecify.annotations.Nullable;
 public final class RadarDisplayPanelBlock extends BaseEntityBlock {
     public static final MapCodec<RadarDisplayPanelBlock> CODEC =
         simpleCodec(RadarDisplayPanelBlock::new);
+    public static final Property<Direction> FACING = HorizontalDirectionalBlock.FACING;
 
-    public static final Property<Direction> FACING =
-        HorizontalDirectionalBlock.FACING;
-
-    public RadarDisplayPanelBlock(
-        final BlockBehaviour.Properties properties
-    ) {
+    public RadarDisplayPanelBlock(final BlockBehaviour.Properties properties) {
         super(properties);
-
-        registerDefaultState(
-            stateDefinition.any()
-                .setValue(FACING, Direction.NORTH)
-        );
+        registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH));
     }
 
     @Override
@@ -68,16 +63,12 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
     }
 
     @Override
-    public <T extends BlockEntity> @Nullable BlockEntityTicker<T>
-        getTicker(
-            final Level level,
-            final BlockState state,
-            final BlockEntityType<T> type
-        ) {
-        if (level.isClientSide()) {
-            return null;
-        }
-
+    public <T extends BlockEntity> @Nullable BlockEntityTicker<T> getTicker(
+        final Level level,
+        final BlockState state,
+        final BlockEntityType<T> type
+    ) {
+        if (level.isClientSide()) return null;
         return createTickerHelper(
             type,
             ModBlockEntities.RADAR_DISPLAY_PANEL,
@@ -86,16 +77,11 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
     }
 
     @Override
-    public BlockState getStateForPlacement(
-        final BlockPlaceContext context
-    ) {
+    public BlockState getStateForPlacement(final BlockPlaceContext context) {
         Player player = context.getPlayer();
-
         return defaultBlockState().setValue(
             FACING,
-            player == null
-                ? Direction.NORTH
-                : player.getDirection().getOpposite()
+            player == null ? Direction.NORTH : player.getDirection().getOpposite()
         );
     }
 
@@ -107,14 +93,7 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
         final @Nullable LivingEntity placer,
         final ItemStack stack
     ) {
-        super.setPlacedBy(
-            level,
-            position,
-            state,
-            placer,
-            stack
-        );
-
+        super.setPlacedBy(level, position, state, placer, stack);
         if (level instanceof ServerLevel server) {
             RadarDisplayManager.rebuild(server, position);
         }
@@ -127,13 +106,7 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
         final BlockPos position,
         final boolean movedByPiston
     ) {
-        super.affectNeighborsAfterRemoval(
-            state,
-            level,
-            position,
-            movedByPiston
-        );
-
+        super.affectNeighborsAfterRemoval(state, level, position, movedByPiston);
         RadarDisplayManager.rebuildNeighbours(
             level,
             position,
@@ -149,18 +122,16 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
         final Player player,
         final BlockHitResult hit
     ) {
-        if (level.isClientSide()) {
-            return InteractionResult.SUCCESS;
+        if (level.isClientSide()) return InteractionResult.SUCCESS;
+        if (!(player instanceof ServerPlayer serverPlayer)) {
+            return InteractionResult.FAIL;
         }
 
-        RadarDisplayStructure display =
-            RadarDisplayStructure.resolve(level, position);
-
+        RadarDisplayStructure display = RadarDisplayStructure.resolve(level, position);
         if (!display.valid()) {
             player.sendSystemMessage(Component.literal(
                 "Display must form a filled rectangle from 1x1 to 10x10"
             ));
-
             return InteractionResult.SUCCESS_SERVER;
         }
 
@@ -170,37 +141,34 @@ public final class RadarDisplayPanelBlock extends BaseEntityBlock {
                     ? found
                     : null;
 
-        String station =
-            controller == null || controller.link() == null
-                ? "OFFLINE"
-                : controller.link()
-                    .radarId()
-                    .toString()
-                    .substring(0, 8);
-
         if (player.isShiftKeyDown()) {
+            String station = controller == null || controller.link() == null
+                ? "OFFLINE"
+                : controller.link().radarId().toString().substring(0, 8);
             player.sendSystemMessage(Component.literal(
-                "Controller "
-                    + display.controller()
-                    + " | Facing "
-                    + display.facing()
-                    + " | Valid"
-            ));
-        } else {
-            player.sendSystemMessage(Component.literal(
-                "Radar display "
-                    + display.width()
-                    + "x"
-                    + display.height()
+                "Radar display " + display.width() + "x" + display.height()
                     + " | Range ±"
-                    + (int) RadarDisplayConstants.horizontalRadius(display.width())
+                    + (int)RadarDisplayConstants.horizontalRadius(display.width())
                     + " X / ±"
-                    + (int) RadarDisplayConstants.verticalRadius(display.height())
-                    + " Z | Station "
-                    + station
+                    + (int)RadarDisplayConstants.verticalRadius(display.height())
+                    + " Z | Station " + station
             ));
+            return InteractionResult.SUCCESS_SERVER;
         }
 
+        if (controller == null || controller.link() == null) {
+            player.sendSystemMessage(Component.literal(
+                "Radar display is not linked to a station"
+            ));
+            return InteractionResult.FAIL;
+        }
+
+        var link = controller.link();
+        RadarStationNetworking.openMap(serverPlayer, new LinkedRadarStation(
+            link.dimension(),
+            link.centre(),
+            link.radarId()
+        ));
         return InteractionResult.SUCCESS_SERVER;
     }
 }

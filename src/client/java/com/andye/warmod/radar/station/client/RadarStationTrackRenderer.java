@@ -1,20 +1,15 @@
 package com.andye.warmod.radar.station.client;
 
-import com.andye.warmod.radar.RadarTerminalPlanSnapshot;
 import com.andye.warmod.radar.client.ClientRadarTrack;
 import com.andye.warmod.radar.client.gui.RadarMapTransform;
 import com.andye.warmod.radar.client.gui.RadarPolylineRenderer;
 import com.andye.warmod.warhead.WarheadPayloadType;
-import com.andye.warmod.warhead.WarheadTrajectory;
-import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 public final class RadarStationTrackRenderer {
-    private static final int TERMINAL_ROUTE_SAMPLES = 48;
-
     private RadarStationTrackRenderer() {
     }
 
@@ -30,45 +25,28 @@ public final class RadarStationTrackRenderer {
         final int sweepPeriod
     ) {
         var observation = blip.observation();
-        ClientRadarTrack track = new ClientRadarTrack(
-            observation.trackSnapshot()
-        );
+        ClientRadarTrack track = blip.track();
         double alpha = Mth.clamp(blip.alpha(now, sweepPeriod), 0.0, 1.0);
         int base = observation.threatensWarningZone()
             ? 0xFF3F32
-            : observation.trackSnapshot()
-                    .strategicPayloadType()
-                    .orElse(null) == WarheadPayloadType.NUCLEAR
+            : observation.trackSnapshot().strategicPayloadType().orElse(null)
+                    == WarheadPayloadType.NUCLEAR
                 ? 0xFF663D
                 : 0xFFB43B;
         int completed = ((int)(255 * alpha) << 24) | base;
         int projected = ((int)(120 * alpha) << 24) | base;
 
         /*
-         * The dish only receives a contact when its beam crosses that target.
-         * Rendering the position and route progress from the frozen observation
-         * time made every contact jump once per sweep. Continue evaluating the
-         * known deterministic trajectory at the current client game time while
-         * the observation fades.
+         * A rotating-search radar is sample-and-hold: the sweep itself moves
+         * continuously, but a contact remains at the last observed position
+         * until the beam crosses it again. Do not extrapolate it every frame.
          */
-        double renderTime = Math.max(
-            now,
-            observation.observedRouteTime()
-        );
-
         if (!track.carrierRoute().isEmpty()) {
-            double duration = track.carrierDuration();
-            double current = observation.trackSnapshot()
-                    .terminalPlans()
-                    .isEmpty()
-                ? Mth.clamp(track.carrierElapsed(renderTime), 0.0, duration)
-                : duration;
-
             drawRoute(
                 graphics,
                 track.carrierRoute(),
-                duration,
-                current,
+                track.carrierDuration(),
+                blip.carrierProgress(),
                 transform,
                 left,
                 top,
@@ -79,23 +57,12 @@ public final class RadarStationTrackRenderer {
             );
         }
 
-        List<RadarTerminalPlanSnapshot> terminals =
-            observation.trackSnapshot().terminalPlans();
-
-        for (RadarTerminalPlanSnapshot terminal : terminals) {
-            double duration = terminal.flightTicks();
-            double current = Mth.clamp(
-                renderTime - terminal.launchGameTime(),
-                0.0,
-                duration
-            );
-            List<Vec3> route = sampleTerminal(terminal);
-
+        for (ClientRadarBlip.TerminalRender terminal : blip.terminals()) {
             drawRoute(
                 graphics,
-                route,
-                duration,
-                current,
+                terminal.route(),
+                terminal.plan().flightTicks(),
+                terminal.progress(),
                 transform,
                 left,
                 top,
@@ -104,16 +71,10 @@ public final class RadarStationTrackRenderer {
                 completed,
                 projected
             );
-
             marker(
                 graphics,
                 transform,
-                WarheadTrajectory.position(
-                    terminal.startPosition(),
-                    terminal.targetPosition(),
-                    current,
-                    terminal.flightTicks()
-                ),
+                terminal.observedPosition(),
                 left,
                 top,
                 width,
@@ -124,7 +85,7 @@ public final class RadarStationTrackRenderer {
             marker(
                 graphics,
                 transform,
-                terminal.targetPosition(),
+                terminal.plan().targetPosition(),
                 left,
                 top,
                 width,
@@ -146,11 +107,11 @@ public final class RadarStationTrackRenderer {
             false
         );
 
-        if (terminals.isEmpty()) {
+        if (blip.terminals().isEmpty()) {
             marker(
                 graphics,
                 transform,
-                track.position(renderTime),
+                observation.observedPosition(),
                 left,
                 top,
                 width,
@@ -200,7 +161,6 @@ public final class RadarStationTrackRenderer {
             2,
             false
         );
-
         if (current < duration) {
             RadarPolylineRenderer.drawRouteRange(
                 graphics,
@@ -220,26 +180,6 @@ public final class RadarStationTrackRenderer {
         }
     }
 
-    private static List<Vec3> sampleTerminal(
-        final RadarTerminalPlanSnapshot terminal
-    ) {
-        List<Vec3> points = new ArrayList<>(TERMINAL_ROUTE_SAMPLES + 1);
-
-        for (int index = 0; index <= TERMINAL_ROUTE_SAMPLES; index++) {
-            double elapsed = terminal.flightTicks()
-                * index
-                / (double)TERMINAL_ROUTE_SAMPLES;
-            points.add(WarheadTrajectory.position(
-                terminal.startPosition(),
-                terminal.targetPosition(),
-                elapsed,
-                terminal.flightTicks()
-            ));
-        }
-
-        return List.copyOf(points);
-    }
-
     private static void marker(
         final GuiGraphicsExtractor graphics,
         final RadarMapTransform transform,
@@ -253,33 +193,14 @@ public final class RadarStationTrackRenderer {
     ) {
         int x = (int)Math.round(transform.screenX(position.x, left, width));
         int y = (int)Math.round(transform.screenY(position.z, top, height));
-
         if (cross) {
             RadarPolylineRenderer.drawSegment(
-                graphics,
-                x - 4,
-                y,
-                x + 4,
-                y,
-                left,
-                top,
-                width,
-                height,
-                color,
-                1
+                graphics, x - 4, y, x + 4, y,
+                left, top, width, height, color, 1
             );
             RadarPolylineRenderer.drawSegment(
-                graphics,
-                x,
-                y - 4,
-                x,
-                y + 4,
-                left,
-                top,
-                width,
-                height,
-                color,
-                1
+                graphics, x, y - 4, x, y + 4,
+                left, top, width, height, color, 1
             );
         } else {
             graphics.fill(x - 2, y - 2, x + 3, y + 3, color);

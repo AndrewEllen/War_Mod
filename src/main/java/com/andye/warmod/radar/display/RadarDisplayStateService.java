@@ -24,262 +24,82 @@ public final class RadarDisplayStateService {
         final ServerLevel level,
         final RadarDisplayPanelBlockEntity display
     ) {
-        UUID displayId =
-            display.displayId();
-
+        UUID displayId = display.displayId();
         if (displayId == null) {
-            displayId =
-                UUID.nameUUIDFromBytes(
-                    (
-                        level.dimension()
-                            .identifier()
-                        + ":"
-                        + display.getBlockPos()
-                    ).getBytes(
-                        StandardCharsets.UTF_8
-                    )
-                );
+            displayId = UUID.nameUUIDFromBytes((
+                level.dimension().identifier() + ":" + display.getBlockPos()
+            ).getBytes(StandardCharsets.UTF_8));
         }
 
-        Direction facing =
-            display.getBlockState()
-                .getValue(
-                    RadarDisplayPanelBlock.FACING
-                );
+        Direction facing = display.getBlockState().getValue(RadarDisplayPanelBlock.FACING);
+        int width = display.width();
+        int height = display.height();
+        double offlineHorizontalRadius = display.horizontalRadius();
+        double offlineVerticalRadius = display.verticalRadius();
 
-        int width =
-            display.width();
-
-        int height =
-            display.height();
-
-        double offlineHorizontalRadius =
-            display.horizontalRadius();
-
-        double offlineVerticalRadius =
-            display.verticalRadius();
-
-        if (
-            !display.valid()
-            || !display.controllerPanel()
-        ) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                false,
-                RadarDisplayOfflineReason
-                    .INVALID_STRUCTURE
-            );
+        if (!display.valid() || !display.controllerPanel()) {
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, false,
+                RadarDisplayOfflineReason.INVALID_STRUCTURE);
         }
 
-        RadarDisplayLink link =
-            display.link();
-
+        RadarDisplayLink link = display.link();
         if (link == null) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                true,
-                RadarDisplayOfflineReason.UNLINKED
-            );
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, true,
+                RadarDisplayOfflineReason.UNLINKED);
+        }
+        if (!link.dimension().equals(level.dimension())) {
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, true,
+                RadarDisplayOfflineReason.WRONG_DIMENSION);
         }
 
-        if (
-            !link.dimension()
-                .equals(
-                    level.dimension()
-                )
-        ) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                true,
-                RadarDisplayOfflineReason
-                    .WRONG_DIMENSION
-            );
+        double allowedDistanceSquared = RadarDisplayConstants.LINK_DISTANCE_BLOCKS
+            * RadarDisplayConstants.LINK_DISTANCE_BLOCKS;
+        if (Vec3.atCenterOf(display.controller()).distanceToSqr(
+            Vec3.atCenterOf(link.centre())) > allowedDistanceSquared) {
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, true,
+                RadarDisplayOfflineReason.OUT_OF_LINK_RANGE);
         }
 
-        double allowedDistanceSquared =
-            RadarDisplayConstants
-                .LINK_DISTANCE_BLOCKS
-                * RadarDisplayConstants
-                    .LINK_DISTANCE_BLOCKS;
-
-        if (
-            Vec3.atCenterOf(
-                display.controller()
-            ).distanceToSqr(
-                Vec3.atCenterOf(
-                    link.centre()
-                )
-            ) > allowedDistanceSquared
-        ) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                true,
-                RadarDisplayOfflineReason
-                    .OUT_OF_LINK_RANGE
-            );
+        if (!(level.getBlockEntity(link.centre()) instanceof RadarStationBlockEntity station)) {
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, true,
+                RadarDisplayOfflineReason.STATION_MISSING);
         }
-
-        if (
-            !(level.getBlockEntity(
-                link.centre()
-            ) instanceof RadarStationBlockEntity station)
-        ) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                true,
-                RadarDisplayOfflineReason
-                    .STATION_MISSING
-            );
+        if (!station.radarId().equals(link.radarId())) {
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, true,
+                RadarDisplayOfflineReason.STATION_REPLACED);
         }
-
-        if (
-            !station.radarId()
-                .equals(
-                    link.radarId()
-                )
-        ) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                true,
-                RadarDisplayOfflineReason
-                    .STATION_REPLACED
-            );
-        }
-
-        if (
-            !RadarStationStructure.complete(
-                level,
-                station.getBlockPos(),
-                station.facing()
-            )
-        ) {
-            return offline(
-                level,
-                displayId,
-                display.controller(),
-                facing,
-                width,
-                height,
-                offlineHorizontalRadius,
-                offlineVerticalRadius,
-                true,
-                RadarDisplayOfflineReason
-                    .STATION_STRUCTURE_INVALID
-            );
+        if (!RadarStationStructure.complete(
+            level, station.getBlockPos(), station.facing())) {
+            return offline(level, displayId, display.controller(), facing, width, height,
+                offlineHorizontalRadius, offlineVerticalRadius, true,
+                RadarDisplayOfflineReason.STATION_STRUCTURE_INVALID);
         }
 
         /*
-         * The physical display mirrors the complete linked Radar Station
-         * coverage. Panel count controls resolution/aspect ratio, not a tiny
-         * fixed 1000-block-per-panel viewport.
-         *
-         * The shortest display dimension contains the full 8192-block station
-         * radius. A wider or taller display shows additional area while
-         * retaining uniform X/Z scale, so circles stay circular.
+         * Every panel represents a fixed world area. A 1x1 display therefore
+         * shows a useful close view, while additional panels reveal additional
+         * terrain at the same scale. On a 5x5 wall the 500-block fire circle is
+         * approximately the size of the centre panel rather than a few pixels.
          */
-        double worldBlocksPerPanel =
-            RadarStationConstants
-                .DETECTION_RANGE_BLOCKS
-                * 2.0
-                / Math.max(
-                    1,
-                    Math.min(
-                        width,
-                        height
-                    )
-                );
+        double horizontalRadius = RadarDisplayConstants.horizontalRadius(width);
+        double verticalRadius = RadarDisplayConstants.verticalRadius(height);
 
-        double horizontalRadius =
-            Math.max(
-                1,
-                width
-            )
-                * worldBlocksPerPanel
-                * 0.5;
-
-        double verticalRadius =
-            Math.max(
-                1,
-                height
-            )
-                * worldBlocksPerPanel
-                * 0.5;
-
-        List<RadarStationObservation> observations =
-            new ArrayList<>();
-
-        /*
-         * Do not discard linked-station observations using the old small
-         * display viewport. Rendering performs tile and screen clipping.
-         */
-        for (
-            RadarStationObservation observation
-                : station.observations()
-        ) {
-            if (observation.trackSnapshot().phase()
-                == RadarTrackPhase.IMPACT) {
-                continue;
-            }
-
-            observations.add(
-                observation
-            );
-
-            if (
-                observations.size()
-                    >= RadarDisplayConstants
-                        .MAX_OBSERVED_TRACKS
-            ) {
-                break;
-            }
+        List<RadarStationObservation> observations = new ArrayList<>();
+        for (RadarStationObservation observation : station.observations()) {
+            if (observation.trackSnapshot().phase() == RadarTrackPhase.IMPACT) continue;
+            observations.add(observation);
+            if (observations.size() >= RadarDisplayConstants.MAX_OBSERVED_TRACKS) break;
         }
 
         return new RadarDisplaySnapshot(
             displayId,
-            level.dimension()
-                .identifier(),
+            level.dimension().identifier(),
             display.controller(),
             facing,
             width,
@@ -293,8 +113,7 @@ public final class RadarDisplayStateService {
             station.getBlockPos(),
             level.getGameTime(),
             station.phaseOffset(),
-            RadarStationConstants
-                .SWEEP_PERIOD_TICKS,
+            RadarStationConstants.SWEEP_PERIOD_TICKS,
             station.warningRadius(),
             station.fireRadius(),
             station.redstoneSignal(),
@@ -316,26 +135,13 @@ public final class RadarDisplayStateService {
     ) {
         return new RadarDisplaySnapshot(
             displayId,
-            level.dimension()
-                .identifier(),
+            level.dimension().identifier(),
             controller,
             facing,
-            Math.max(
-                0,
-                width
-            ),
-            Math.max(
-                0,
-                height
-            ),
-            Math.max(
-                0.0,
-                horizontalRadius
-            ),
-            Math.max(
-                0.0,
-                verticalRadius
-            ),
+            Math.max(0, width),
+            Math.max(0, height),
+            Math.max(0.0, horizontalRadius),
+            Math.max(0.0, verticalRadius),
             structureValid,
             false,
             reason,
@@ -343,8 +149,7 @@ public final class RadarDisplayStateService {
             null,
             level.getGameTime(),
             0L,
-            RadarStationConstants
-                .SWEEP_PERIOD_TICKS,
+            RadarStationConstants.SWEEP_PERIOD_TICKS,
             0.0,
             0.0,
             0,

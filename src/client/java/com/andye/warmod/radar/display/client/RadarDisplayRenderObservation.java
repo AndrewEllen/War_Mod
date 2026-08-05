@@ -47,15 +47,11 @@ public record RadarDisplayRenderObservation(
         }
 
         /*
-         * Observations arrive only as the sweep crosses a contact. Continue
-         * evaluating the deterministic route at the current synchronized server
-         * time so contacts and completed route segments move smoothly between
-         * observations instead of jumping once per sweep.
+         * Search-radar contacts are sample-and-hold. The sweep animates every
+         * frame, but route completion and the contact marker remain frozen at
+         * the observation time until the beam crosses the target again.
          */
-        double renderTime = Math.max(
-            serverNow,
-            observation.observedRouteTime()
-        );
+        double renderTime = observation.observedRouteTime();
         List<RadarDisplayRouteSection> routes = new ArrayList<>();
 
         if (!track.carrierRoute().isEmpty()) {
@@ -123,7 +119,7 @@ public record RadarDisplayRenderObservation(
         return new RadarDisplayRenderObservation(
             routes,
             track.launch(),
-            track.position(renderTime),
+            observation.observedPosition(),
             observation.predictedImpactPosition(),
             (float)Mth.clamp(alpha, 0.0, 1.0),
             rgb

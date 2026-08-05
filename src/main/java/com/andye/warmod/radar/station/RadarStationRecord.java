@@ -6,17 +6,32 @@ import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 
-public record RadarStationRecord(UUID radarId, BlockPos centre, UUID ownerId, String ownerName, double warningRadius,
-    double fireRadius, long phaseOffset, RadarRedstoneMode redstoneMode) {
-    public static final Codec<RadarStationRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-        UUIDUtil.CODEC.fieldOf("radar_id").forGetter(RadarStationRecord::radarId),
-        BlockPos.CODEC.fieldOf("centre").forGetter(RadarStationRecord::centre),
-        UUIDUtil.CODEC.fieldOf("owner_id").forGetter(RadarStationRecord::ownerId),
-        Codec.STRING.fieldOf("owner_name").forGetter(RadarStationRecord::ownerName),
-        Codec.DOUBLE.fieldOf("warning_radius").forGetter(RadarStationRecord::warningRadius),
-        Codec.DOUBLE.optionalFieldOf("fire_radius", 500.0).forGetter(RadarStationRecord::fireRadius),
-        Codec.LONG.fieldOf("phase_offset").forGetter(RadarStationRecord::phaseOffset),
-        RadarRedstoneMode.CODEC.optionalFieldOf("redstone_mode", RadarRedstoneMode.ANALOG_DISTANCE)
-            .forGetter(RadarStationRecord::redstoneMode)
-    ).apply(instance, RadarStationRecord::new));
+public record RadarStationRecord(
+    UUID radarId,
+    BlockPos centre,
+    UUID ownerId,
+    String ownerName,
+    double warningRadius,
+    double fireRadius,
+    long phaseOffset,
+    RadarRedstoneMode redstoneMode,
+    boolean dynamicChunkLoading
+) {
+    public static final Codec<RadarStationRecord> CODEC = RecordCodecBuilder.create(
+        instance -> instance.group(
+            UUIDUtil.CODEC.fieldOf("radar_id").forGetter(RadarStationRecord::radarId),
+            BlockPos.CODEC.fieldOf("centre").forGetter(RadarStationRecord::centre),
+            UUIDUtil.CODEC.fieldOf("owner_id").forGetter(RadarStationRecord::ownerId),
+            Codec.STRING.fieldOf("owner_name").forGetter(RadarStationRecord::ownerName),
+            Codec.DOUBLE.fieldOf("warning_radius").forGetter(RadarStationRecord::warningRadius),
+            Codec.DOUBLE.optionalFieldOf("fire_radius", 500.0).forGetter(RadarStationRecord::fireRadius),
+            Codec.LONG.fieldOf("phase_offset").forGetter(RadarStationRecord::phaseOffset),
+            RadarRedstoneMode.CODEC.optionalFieldOf(
+                "redstone_mode",
+                RadarRedstoneMode.ANALOG_DISTANCE
+            ).forGetter(RadarStationRecord::redstoneMode),
+            Codec.BOOL.optionalFieldOf("dynamic_chunk_loading", true)
+                .forGetter(RadarStationRecord::dynamicChunkLoading)
+        ).apply(instance, RadarStationRecord::new)
+    );
 }
