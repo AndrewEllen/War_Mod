@@ -18,6 +18,7 @@ import com.andye.warmod.phalanx.client.gui.PhalanxScreen;
 import com.andye.warmod.radar.display.client.RadarDisplayBlockEntityRenderer;
 import com.andye.warmod.radar.station.client.ClientRadarStationNetworking;
 import com.andye.warmod.radar.display.client.ClientRadarDisplayNetworking;
+import com.andye.warmod.testtool.client.ClientMasterExplosiveNetworking;
 import net.minecraft.client.gui.screens.MenuScreens;
 import com.andye.warmod.rocket.client.RocketProjectileRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderers;
@@ -45,6 +46,7 @@ public final class WarModClient implements ClientModInitializer {
 		ClientRadarNetworking.register();
 		ClientRadarStationNetworking.register();
         ClientRadarDisplayNetworking.register();
+		ClientMasterExplosiveNetworking.register();
 		RadarKeyBindings.register();
 		ClientIcbmAudioManager.register();
 		AntiAirEngineAudioManager.register();
@@ -66,5 +68,3 @@ public final class WarModClient implements ClientModInitializer {
 		WarMod.LOGGER.info("War Mod client initialized.");
 	}
 }
-
-

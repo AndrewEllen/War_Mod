@@ -47,6 +47,7 @@ public final class ClientDebrisBatchManager {
 				new Vec3(entry.velocityX(), entry.velocityY(), entry.velocityZ()),
 				new Vec3(entry.spinX(), entry.spinY(), entry.spinZ()),
 				entry.scale(),
+				entry.clusterSize(),
 				entry.lifetime()
 			));
 		}
@@ -94,7 +95,7 @@ public final class ClientDebrisBatchManager {
 					: (float) Math.max(0.0, 1.0 - (age - fadeStart) / Math.max(1.0, piece.lifetime - fadeStart));
 				result.add(new RenderSample(
 					batchEntry.getKey(), index, piece.state, position, currentVelocity, piece.spin,
-					(float) age, piece.scale * fade, onGround
+					(float) age, piece.scale * fade, piece.clusterSize, onGround
 				));
 			}
 		}
@@ -129,7 +130,7 @@ public final class ClientDebrisBatchManager {
 		return new Vec3(initialVelocity.x * f, vertical, initialVelocity.z * f);
 	}
 
-	private record Piece(BlockState state, Vec3 offset, Vec3 velocity, Vec3 spin, float scale, int lifetime) {
+	private record Piece(BlockState state, Vec3 offset, Vec3 velocity, Vec3 spin, float scale, int clusterSize, int lifetime) {
 	}
 
 	private record Batch(Vec3 origin, long spawnGameTime, List<Piece> pieces) {
@@ -141,6 +142,6 @@ public final class ClientDebrisBatchManager {
 	}
 
 	public record RenderSample(UUID batchId, int pieceIndex, BlockState state, Vec3 position, Vec3 velocity,
-		Vec3 spin, float age, float scale, boolean onGround) {
+		Vec3 spin, float age, float scale, int clusterSize, boolean onGround) {
 	}
 }

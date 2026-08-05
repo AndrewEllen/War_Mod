@@ -1,68 +1,86 @@
 package com.andye.warmod.warhead;
 
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
 import java.util.SplittableRandom;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.EntityTypeTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.EntityBasedExplosionDamageCalculator;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
-import net.minecraft.world.level.ServerExplosion;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.gameevent.GameEvent;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Custom staged explosion engine for strategic warheads.
+ * Smooth, staged strategic crater engine.
  *
- * <p>This intentionally does not call Minecraft's large vanilla explosion
- * implementation. Crater geometry is produced by an evenly distributed
- * Fibonacci sphere, resistance is evaluated against a War Mod profile, and
- * world edits are applied in a measured server-tick budget. The guaranteed
- * core is exposed as virtual air immediately, allowing later missiles in the
- * same salvo to continue into the crater before queued block callbacks finish.</p>
+ * <p>Stage 3 used thousands of destructive rays. It was considerably faster
+ * than vanilla, but those rays left visible straight channels and each block
+ * callback could create loot and experience. Stage 4 instead applies compact
+ * precomputed vertical column spans describing a noisy ellipsoid. Shape
+ * templates are generated on daemon worker threads because they contain no
+ * world data; all chunk reads and block writes remain on the server thread.</p>
  *
- * <p>All world reads and writes remain on the server thread. The expensive work
- * is incremental rather than off-thread, avoiding unsafe access to mutable
- * chunks while still eliminating the impact-tick freeze.</p>
+ * <p>Ordinary terrain is replaced directly with air using suppressed-drop
+ * update flags. This intentionally produces no item stacks or XP orbs. TNT is
+ * still given its explosion callback so chain reactions continue to work.</p>
  */
 public final class WarheadExplosionWorkManager {
-	private static final long CALCULATION_BUDGET_NANOS = 7_500_000L;
-	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 8_500_000L;
-	private static final int MAX_CALCULATION_STEPS_PER_TICK = 180_000;
-	private static final int MAX_BLOCK_CALLBACKS_PER_TICK = 8_000;
-	private static final int MAX_DEBRIS_CANDIDATES = 1_024;
-	private static final int MAX_RESOLVED_DESCENT_BLOCKS = 512;
+	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 20_000_000L;
+	private static final int MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 80_000;
+	private static final int APPLICATION_SLICE = 256;
+	private static final int TIME_CHECK_INTERVAL = 32;
+	private static final int MAX_RESOLVED_DESCENT_BLOCKS = 768;
+	private static final int MAX_DEBRIS_SAMPLE = 384;
 	private static final long FINISHED_WORK_EXPIRY_TICKS = 40L;
-	private static final double GOLDEN_ANGLE = Math.PI * (3.0 - Math.sqrt(5.0));
+	private static final int FAST_REMOVE_FLAGS = Block.UPDATE_CLIENTS
+		| Block.UPDATE_KNOWN_SHAPE
+		| Block.UPDATE_SUPPRESS_DROPS;
 	private static final Map<ServerLevel, LevelWork> LEVELS = new WeakHashMap<>();
-	private static final Map<Integer, DirectionSet> DIRECTION_CACHE = new HashMap<>();
+	private static final Map<WarheadYield, CompletableFuture<ShapeTemplate>> TEMPLATES = new EnumMap<>(WarheadYield.class);
+	private static final ExecutorService SHAPE_EXECUTOR = Executors.newFixedThreadPool(
+		Math.max(1, Math.min(2, Runtime.getRuntime().availableProcessors() / 4)),
+		runnable -> {
+			Thread thread = new Thread(runnable, "war-mod-crater-shape");
+			thread.setDaemon(true);
+			return thread;
+		}
+	);
 	private static boolean registered;
 
 	private WarheadExplosionWorkManager() {
@@ -70,30 +88,24 @@ public final class WarheadExplosionWorkManager {
 
 	public static synchronized void registerLifecycle() {
 		if (registered) return;
+		for (WarheadYield yield : WarheadYield.values()) templateFuture(yield);
 		ServerTickEvents.END_LEVEL_TICK.register(WarheadExplosionWorkManager::tickLevel);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> clear());
 		registered = true;
 	}
 
-	/**
-	 * Resolves a requested impact through already planned crater volumes.
-	 *
-	 * <p>This is what makes repeated strikes cumulative. A later warhead aimed at
-	 * a block already guaranteed to be destroyed is moved down to the next real
-	 * solid block instead of detonating forever at the obsolete target height.</p>
-	 */
 	public static synchronized Vec3 resolveDetonationCenter(
 		final ServerLevel level,
 		final Vec3 requested,
-		final WarheadPayloadType payloadType
+		final WarheadYield yield
 	) {
-		if (level == null || requested == null) throw new NullPointerException();
+		if (level == null || requested == null || yield == null) throw new NullPointerException();
 		if (!requested.isFinite()) throw new IllegalArgumentException("requested impact must be finite");
 		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		cursor.set(Mth.floor(requested.x), Mth.floor(requested.y), Mth.floor(requested.z));
-		int minimumY = level.dimensionType().minY();
 		int startY = cursor.getY();
+		int minimumY = level.dimensionType().minY();
 		int maximumDescent = Math.min(MAX_RESOLVED_DESCENT_BLOCKS, Math.max(0, startY - minimumY));
 
 		for (int descent = 0; descent <= maximumDescent; descent++) {
@@ -102,19 +114,23 @@ public final class WarheadExplosionWorkManager {
 			if (!level.isInWorldBounds(cursor)) continue;
 			if (!level.getChunkSource().hasChunk(
 				SectionPos.blockToSectionCoord(cursor.getX()),
-				SectionPos.blockToSectionCoord(cursor.getZ()))) {
-				break;
-			}
-			long packed = cursor.asLong();
-			if (levelWork.isVirtualAir(packed, cursor, null)) continue;
+				SectionPos.blockToSectionCoord(cursor.getZ()))) break;
+			if (levelWork.isVirtualAir(cursor)) continue;
 			BlockState state = level.getBlockState(cursor);
 			FluidState fluid = level.getFluidState(cursor);
 			if (!state.isAir() || !fluid.isEmpty()) {
-				if (descent == 0) return requested;
-				return new Vec3(requested.x, y + 0.98, requested.z);
+				return descent == 0 ? requested : new Vec3(requested.x, y + 0.98, requested.z);
 			}
 		}
 		return requested;
+	}
+
+	public static Vec3 resolveDetonationCenter(
+		final ServerLevel level,
+		final Vec3 requested,
+		final WarheadPayloadType payloadType
+	) {
+		return resolveDetonationCenter(level, requested, WarheadYield.defaultFor(payloadType));
 	}
 
 	public static synchronized List<WarheadExplosionDropContext.DestroyedBlock> detonate(
@@ -122,35 +138,49 @@ public final class WarheadExplosionWorkManager {
 		final @Nullable ServerPlayer source,
 		final UUID warheadId,
 		final Vec3 position,
-		final WarheadPayloadType payloadType,
+		final WarheadYield yield,
 		final long seed
 	) {
-		if (level == null || warheadId == null || position == null || payloadType == null) {
-			throw new NullPointerException();
-		}
+		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid staged explosion position");
-
-		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(payloadType);
+		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(yield);
 		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
 		ExplosionWork existing = levelWork.byWarhead.get(warheadId);
 		if (existing != null && !existing.finished) return List.of();
 
-		ExplosionWork work = new ExplosionWork(warheadId, position, profile, seed, level.getGameTime());
+		ExplosionWork work = new ExplosionWork(
+			warheadId,
+			position,
+			profile,
+			seed,
+			templateFuture(yield),
+			level.getGameTime()
+		);
 		levelWork.works.add(work);
 		levelWork.byWarhead.put(warheadId, work);
-		levelWork.addVoidVolume(work.coreVolume);
+		levelWork.addVoidVolume(work.voidVolume);
 		applyImmediateEntityEffects(level, source, position, profile.entityBlastRadius());
 		work.explosionContext = new FastExplosion(level, source, position, profile.entityBlastRadius());
-		return work.sampleInitialDebris(level, levelWork);
+		return work.sampleInitialDebris(level);
 	}
 
-	/** Compatibility bridge for callers compiled against Stage 2. */
 	public static List<WarheadExplosionDropContext.DestroyedBlock> detonate(
 		final ServerLevel level,
 		final @Nullable ServerPlayer source,
 		final UUID warheadId,
 		final Vec3 position,
-		final float strength,
+		final WarheadPayloadType payloadType,
+		final long seed
+	) {
+		return detonate(level, source, warheadId, position, WarheadYield.defaultFor(payloadType), seed);
+	}
+
+	public static List<WarheadExplosionDropContext.DestroyedBlock> detonate(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final float legacyStrength,
 		final long seed
 	) {
 		return detonate(
@@ -158,57 +188,47 @@ public final class WarheadExplosionWorkManager {
 			source,
 			warheadId,
 			position,
-			StrategicExplosionProfiles.fromLegacyStrength(strength).payloadType(),
+			StrategicExplosionProfiles.fromLegacyStrength(legacyStrength).yield(),
 			seed
 		);
+	}
+
+	private static synchronized CompletableFuture<ShapeTemplate> templateFuture(final WarheadYield yield) {
+		return TEMPLATES.computeIfAbsent(yield, key -> CompletableFuture.supplyAsync(
+			() -> ShapeTemplate.create(StrategicExplosionProfiles.get(key)),
+			SHAPE_EXECUTOR
+		));
 	}
 
 	private static synchronized void tickLevel(final ServerLevel level) {
 		LevelWork levelWork = LEVELS.get(level);
 		if (levelWork == null) return;
 		long now = level.getGameTime();
-		long calculationDeadline = System.nanoTime() + CALCULATION_BUDGET_NANOS;
-		int remainingSteps = MAX_CALCULATION_STEPS_PER_TICK;
+		long deadline = System.nanoTime() + BLOCK_APPLICATION_BUDGET_NANOS;
+		int remaining = MAX_BLOCK_CHANGES_PER_LEVEL_TICK;
 
-		while (remainingSteps > 0 && System.nanoTime() < calculationDeadline) {
-			ExplosionWork work = levelWork.nextCalculationWork();
-			if (work == null) break;
-			int slice = Math.min(8_192, remainingSteps);
-			int used = work.advance(level, levelWork, slice);
-			remainingSteps -= Math.max(1, used);
-			if (used == 0 && !work.calculationComplete) break;
-		}
-
-		long applicationDeadline = System.nanoTime() + BLOCK_APPLICATION_BUDGET_NANOS;
-		int remainingBlocks = MAX_BLOCK_CALLBACKS_PER_TICK;
-		while (remainingBlocks > 0 && System.nanoTime() < applicationDeadline) {
+		while (remaining > 0 && System.nanoTime() < deadline) {
 			ExplosionWork work = levelWork.nextApplicationWork();
 			if (work == null) break;
-			int slice = Math.min(512, remainingBlocks);
-			int applied = work.apply(level, levelWork, slice);
-			remainingBlocks -= Math.max(1, applied);
-			if (applied == 0 && !work.finished) break;
+			int changed = work.apply(level, levelWork, Math.min(APPLICATION_SLICE, remaining), deadline);
+			remaining -= Math.max(1, changed);
+			if (changed == 0 && !work.finished && !work.templateReady()) break;
 		}
 
 		Iterator<ExplosionWork> iterator = levelWork.works.iterator();
 		while (iterator.hasNext()) {
 			ExplosionWork work = iterator.next();
 			if (!work.finished || now - work.finishedAt <= FINISHED_WORK_EXPIRY_TICKS) continue;
-			levelWork.removeVoidVolume(work.coreVolume);
+			levelWork.removeVoidVolume(work.voidVolume);
 			levelWork.byWarhead.remove(work.warheadId);
 			iterator.remove();
 		}
-		levelWork.normaliseCursors();
+		levelWork.normaliseCursor();
 		if (levelWork.works.isEmpty()) LEVELS.remove(level);
 	}
 
 	private static synchronized void clear() {
 		LEVELS.clear();
-		DIRECTION_CACHE.clear();
-	}
-
-	private static DirectionSet directions(final int count) {
-		return DIRECTION_CACHE.computeIfAbsent(count, DirectionSet::new);
 	}
 
 	private static void applyImmediateEntityEffects(
@@ -221,18 +241,24 @@ public final class WarheadExplosionWorkManager {
 		level.gameEvent(source, GameEvent.EXPLODE, center);
 		float doubleRadius = radius * 2.0F;
 		if (doubleRadius < 1.0E-5F) return;
-
-		int minX = Mth.floor(center.x - doubleRadius - 1.0);
-		int maxX = Mth.floor(center.x + doubleRadius + 1.0);
-		int minY = Mth.floor(center.y - doubleRadius - 1.0);
-		int maxY = Mth.floor(center.y + doubleRadius + 1.0);
-		int minZ = Mth.floor(center.z - doubleRadius - 1.0);
-		int maxZ = Mth.floor(center.z + doubleRadius + 1.0);
+		AABB bounds = new AABB(
+			center.x - doubleRadius - 1.0,
+			center.y - doubleRadius - 1.0,
+			center.z - doubleRadius - 1.0,
+			center.x + doubleRadius + 1.0,
+			center.y + doubleRadius + 1.0,
+			center.z + doubleRadius + 1.0
+		);
 		ExplosionDamageCalculator calculator = source == null
 			? new ExplosionDamageCalculator()
 			: new EntityBasedExplosionDamageCalculator(source);
 
-		for (Entity entity : level.getEntities(source, new AABB(minX, minY, minZ, maxX, maxY, maxZ))) {
+		for (Entity entity : level.getEntities(source, bounds)) {
+			/* Existing loose items and XP are vapourised instead of becoming a second lag source. */
+			if (entity instanceof ExperienceOrb || entity instanceof ItemEntity) {
+				entity.discard();
+				continue;
+			}
 			if (entity.ignoreExplosion(explosion)) continue;
 			double normalizedDistance = Math.sqrt(entity.distanceToSqr(center)) / doubleRadius;
 			if (normalizedDistance > 1.0) continue;
@@ -242,9 +268,15 @@ public final class WarheadExplosionWorkManager {
 			Vec3 direction = difference.normalize();
 			boolean damage = calculator.shouldDamageEntity(explosion, entity);
 			float knockbackMultiplier = calculator.getKnockbackMultiplier(entity);
+			/*
+			 * Vanilla samples many visibility rays for every entity. Strategic
+			 * yields can cover hundreds of blocks, making that cost dominate the
+			 * impact tick. Use a smooth blast-volume exposure approximation; the
+			 * terrain crater itself remains resistance-aware.
+			 */
 			float exposure = !damage && knockbackMultiplier == 0.0F
 				? 0.0F
-				: ServerExplosion.getSeenPercent(center, entity);
+				: Mth.clamp((float) (1.0 - normalizedDistance * 0.32), 0.55F, 1.0F);
 			if (damage) {
 				entity.hurtServer(level, explosion.getDamageSource(),
 					calculator.getEntityDamageAmount(explosion, entity, exposure));
@@ -274,7 +306,7 @@ public final class WarheadExplosionWorkManager {
 	}
 
 	private static double unit(final long value) {
-		return (value >>> 11) * 0x1.0p-53;
+		return (mix(value) >>> 11) * 0x1.0p-53;
 	}
 
 	private static final class LevelWork {
@@ -282,7 +314,6 @@ public final class WarheadExplosionWorkManager {
 		private final Map<UUID, ExplosionWork> byWarhead = new HashMap<>();
 		private final LongOpenHashSet pendingBlocks = new LongOpenHashSet();
 		private final Map<Long, List<VoidVolume>> volumesByChunk = new HashMap<>();
-		private int calculationCursor;
 		private int applicationCursor;
 
 		private void addVoidVolume(final VoidVolume volume) {
@@ -305,16 +336,11 @@ public final class WarheadExplosionWorkManager {
 			}
 		}
 
-		private boolean isVirtualAir(
-			final long packed,
-			final BlockPos position,
-			final @Nullable ExplosionWork ignoredOwner
-		) {
-			if (pendingBlocks.contains(packed)) return true;
+		private boolean isVirtualAir(final BlockPos position) {
+			if (pendingBlocks.contains(position.asLong())) return true;
 			List<VoidVolume> volumes = volumesByChunk.get(chunkKey(position.getX() >> 4, position.getZ() >> 4));
 			if (volumes == null) return false;
 			for (VoidVolume volume : volumes) {
-				if (volume.owner == ignoredOwner) continue;
 				if (volume.contains(position.getX() + 0.5, position.getY() + 0.5, position.getZ() + 0.5)) return true;
 			}
 			return false;
@@ -328,34 +354,18 @@ public final class WarheadExplosionWorkManager {
 			pendingBlocks.remove(packed);
 		}
 
-		private ExplosionWork nextCalculationWork() {
-			if (works.isEmpty()) return null;
-			for (int checked = 0; checked < works.size(); checked++) {
-				if (calculationCursor >= works.size()) calculationCursor = 0;
-				ExplosionWork work = works.get(calculationCursor++);
-				if (!work.calculationComplete) return work;
-			}
-			return null;
-		}
-
 		private ExplosionWork nextApplicationWork() {
 			if (works.isEmpty()) return null;
 			for (int checked = 0; checked < works.size(); checked++) {
 				if (applicationCursor >= works.size()) applicationCursor = 0;
 				ExplosionWork work = works.get(applicationCursor++);
-				if (work.calculationComplete && !work.finished) return work;
+				if (!work.finished) return work;
 			}
 			return null;
 		}
 
-		private void normaliseCursors() {
-			if (works.isEmpty()) {
-				calculationCursor = 0;
-				applicationCursor = 0;
-			} else {
-				calculationCursor %= works.size();
-				applicationCursor %= works.size();
-			}
+		private void normaliseCursor() {
+			applicationCursor = works.isEmpty() ? 0 : applicationCursor % works.size();
 		}
 	}
 
@@ -364,40 +374,21 @@ public final class WarheadExplosionWorkManager {
 		private final Vec3 center;
 		private final StrategicExplosionProfile profile;
 		private final long seed;
-		private final VoidVolume coreVolume;
-		private final DirectionSet directionSet;
-		private final LongOpenHashSet ownedBlocks = new LongOpenHashSet();
-		private final LongArrayList[] applicationBuckets;
-		private final PriorityQueue<RankedPosition> debrisCandidates = new PriorityQueue<>(
-			MAX_DEBRIS_CANDIDATES + 1,
-			Comparator.comparingLong(RankedPosition::rank).reversed()
-		);
+		private final CompletableFuture<ShapeTemplate> templateFuture;
+		private final VoidVolume voidVolume;
 		private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-		private final int coreMinimumX;
-		private final int coreMaximumX;
-		private final int coreMinimumY;
-		private final int coreMaximumY;
-		private final int coreMinimumZ;
-		private final int coreMaximumZ;
-		private int coreX;
-		private int coreY;
-		private int coreZ;
-		private boolean coreComplete;
-		private int rayIndex;
-		private boolean rayActive;
-		private double rayX;
-		private double rayY;
-		private double rayZ;
-		private double rayDistance;
-		private double rayMaximumDistance;
-		private double activeDirectionX;
-		private double activeDirectionY;
-		private double activeDirectionZ;
-		private float rayEnergy;
-		private long lastRayBlock = Long.MIN_VALUE;
-		private boolean calculationComplete;
-		private int applyBucket;
-		private int applyIndex;
+		private ShapeTemplate template;
+		private int columnIndex;
+		private int currentY = Integer.MIN_VALUE;
+		private int currentWorldX;
+		private int currentWorldZ;
+		private Column currentColumn;
+		private boolean aftermathStarted;
+		private int aftermathX;
+		private int aftermathZ;
+		private int aftermathStep;
+		private int rotation;
+		private boolean mirror;
 		private boolean finished;
 		private long finishedAt;
 		private FastExplosion explosionContext;
@@ -407,293 +398,250 @@ public final class WarheadExplosionWorkManager {
 			final Vec3 center,
 			final StrategicExplosionProfile profile,
 			final long seed,
+			final CompletableFuture<ShapeTemplate> templateFuture,
 			final long gameTime
 		) {
 			this.warheadId = warheadId;
 			this.center = center;
 			this.profile = profile;
 			this.seed = seed;
-			this.directionSet = directions(profile.rayCount());
-			this.coreVolume = new VoidVolume(this, center, profile);
-			int bucketCount = Math.max(8, (int) Math.ceil(profile.maximumRadius() / 2.0) + 2);
-			this.applicationBuckets = new LongArrayList[bucketCount];
-			for (int index = 0; index < bucketCount; index++) applicationBuckets[index] = new LongArrayList();
-			this.coreMinimumX = Mth.floor(center.x - profile.coreHorizontalRadius());
-			this.coreMaximumX = Mth.floor(center.x + profile.coreHorizontalRadius());
-			this.coreMinimumY = Mth.floor(center.y - profile.coreDownwardRadius());
-			this.coreMaximumY = Mth.floor(center.y + profile.coreUpwardRadius());
-			this.coreMinimumZ = Mth.floor(center.z - profile.coreHorizontalRadius());
-			this.coreMaximumZ = Mth.floor(center.z + profile.coreHorizontalRadius());
-			this.coreX = coreMinimumX;
-			this.coreY = coreMinimumY;
-			this.coreZ = coreMinimumZ;
+			this.templateFuture = templateFuture;
+			this.voidVolume = new VoidVolume(center, profile);
+			this.rotation = (int) (mix(seed ^ 0x524F544154494F4EL) & 3L);
+			this.mirror = (mix(seed ^ 0x4D4952524F525F34L) & 1L) != 0L;
+			this.aftermathStep = profile.yield().nuclear() ? 2 : 1;
+			int radius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
+			this.aftermathX = -radius;
+			this.aftermathZ = -radius;
 		}
 
-		private int advance(final ServerLevel level, final LevelWork levelWork, final int budget) {
-			int used = 0;
-			while (used < budget && !calculationComplete) {
-				if (!coreComplete) {
-					advanceCore(level, levelWork);
-					used++;
-					continue;
-				}
-				if (!rayActive) {
-					if (rayIndex >= directionSet.count()) {
-						calculationComplete = true;
-						break;
-					}
-					beginRay();
-				}
-				advanceRay(level, levelWork);
-				used++;
-			}
-			return used;
+		private boolean templateReady() {
+			return template != null || templateFuture.isDone();
 		}
 
-		private void advanceCore(final ServerLevel level, final LevelWork levelWork) {
-			cursor.set(coreX, coreY, coreZ);
-			if (level.isInWorldBounds(cursor) && coreVolume.contains(coreX + 0.5, coreY + 0.5, coreZ + 0.5)) {
-				if (level.getChunkSource().hasChunk(
-					SectionPos.blockToSectionCoord(coreX),
-					SectionPos.blockToSectionCoord(coreZ))) {
-					long packed = cursor.asLong();
-					BlockState state = level.getBlockState(cursor);
-					FluidState fluid = level.getFluidState(cursor);
-					if ((!state.isAir() || !fluid.isEmpty()) && !levelWork.pendingBlocks.contains(packed)) {
-						addAffected(levelWork, packed, cursor);
-					}
-				}
-			}
-			coreZ++;
-			if (coreZ > coreMaximumZ) {
-				coreZ = coreMinimumZ;
-				coreX++;
-				if (coreX > coreMaximumX) {
-					coreX = coreMinimumX;
-					coreY++;
-					if (coreY > coreMaximumY) coreComplete = true;
-				}
-			}
-		}
-
-		private void beginRay() {
-			double baseX = directionSet.x[rayIndex];
-			double baseY = directionSet.y[rayIndex];
-			double baseZ = directionSet.z[rayIndex];
-			double rotation = unit(mix(seed ^ 0x5241595F524F544CL)) * Math.PI * 2.0;
-			double cos = Math.cos(rotation);
-			double sin = Math.sin(rotation);
-			activeDirectionX = baseX * cos - baseZ * sin;
-			activeDirectionY = baseY;
-			activeDirectionZ = baseX * sin + baseZ * cos;
-			rayX = center.x;
-			rayY = center.y;
-			rayZ = center.z;
-			rayDistance = 0.0;
-			rayMaximumDistance = ellipsoidRadius(
-				activeDirectionX,
-				activeDirectionY,
-				activeDirectionZ,
-				profile
-			);
-			double random = unit(mix(seed ^ (long) rayIndex * 0x9E3779B97F4A7C15L));
-			rayEnergy = profile.initialEnergy() * (float) (0.88 + random * 0.24);
-			rayActive = true;
-			lastRayBlock = Long.MIN_VALUE;
-		}
-
-		private void advanceRay(final ServerLevel level, final LevelWork levelWork) {
-			int blockX = Mth.floor(rayX);
-			int blockY = Mth.floor(rayY);
-			int blockZ = Mth.floor(rayZ);
-			cursor.set(blockX, blockY, blockZ);
-			if (!level.isInWorldBounds(cursor)) {
-				finishRay();
-				return;
-			}
-			if (!level.getChunkSource().hasChunk(
-				SectionPos.blockToSectionCoord(blockX),
-				SectionPos.blockToSectionCoord(blockZ))) {
-				finishRay();
-				return;
-			}
-
-			long packed = cursor.asLong();
-			if (packed != lastRayBlock) {
-				lastRayBlock = packed;
-				if (!levelWork.isVirtualAir(packed, cursor, this)) {
-					BlockState state = level.getBlockState(cursor);
-					FluidState fluid = level.getFluidState(cursor);
-					if (!state.isAir() || !fluid.isEmpty()) {
-						float resistance = Math.max(
-							state.getBlock().getExplosionResistance(),
-							fluid.getExplosionResistance()
-						);
-						float resistanceCost = Math.min(
-							profile.maximumResistanceCost(),
-							resistance * profile.resistanceScale()
-						);
-						rayEnergy -= resistanceCost;
-						if (rayEnergy > 0.0F) addAffected(levelWork, packed, cursor);
-					}
-				}
-			}
-
-			double step = profile.rayStep();
-			rayX += activeDirectionX * step;
-			rayY += activeDirectionY * step;
-			rayZ += activeDirectionZ * step;
-			rayDistance += step;
-			rayEnergy -= profile.airEnergyLossPerBlock() * (float) step;
-			if (rayEnergy <= 0.0F || rayDistance >= rayMaximumDistance) finishRay();
-		}
-
-		private void finishRay() {
-			rayActive = false;
-			rayIndex++;
-		}
-
-		private void addAffected(final LevelWork levelWork, final long packed, final BlockPos position) {
-			if (!levelWork.claim(packed)) return;
-			ownedBlocks.add(packed);
-			double normalized = normalizedEllipsoidDistance(
-				position.getX() + 0.5,
-				position.getY() + 0.5,
-				position.getZ() + 0.5,
-				center,
-				profile
-			);
-			int bucket = Math.min(applicationBuckets.length - 1,
-				Math.max(0, (int) Math.floor(normalized * (applicationBuckets.length - 1))));
-			applicationBuckets[bucket].add(packed);
-			long rank = mix(packed ^ seed ^ 0x444542524953L);
-			RankedPosition candidate = new RankedPosition(rank, packed);
-			if (debrisCandidates.size() < MAX_DEBRIS_CANDIDATES) {
-				debrisCandidates.add(candidate);
-			} else if (rank < debrisCandidates.peek().rank()) {
-				debrisCandidates.poll();
-				debrisCandidates.add(candidate);
-			}
-		}
-
-		private List<WarheadExplosionDropContext.DestroyedBlock> sampleInitialDebris(
+		private int apply(
 			final ServerLevel level,
-			final LevelWork levelWork
+			final LevelWork levelWork,
+			final int budget,
+			final long deadline
 		) {
-			int target = profile.payloadType() == WarheadPayloadType.NUCLEAR ? 640 : 320;
+			if (template == null) {
+				if (!templateFuture.isDone()) return 0;
+				template = templateFuture.join();
+			}
+			int changed = 0;
+			int visited = 0;
+			while (changed < budget && System.nanoTime() < deadline && !finished) {
+				if (columnIndex < template.columns.length) {
+					if (currentColumn == null) {
+						currentColumn = template.columns[columnIndex];
+						setCurrentWorldColumn(currentColumn.dx, currentColumn.dz);
+						int top = currentColumn.topY;
+						if (level.getChunkSource().hasChunk(currentWorldX >> 4, currentWorldZ >> 4)) {
+							int surfaceOffset = level.getHeight(Heightmap.Types.MOTION_BLOCKING, currentWorldX, currentWorldZ)
+								- 1 - Mth.floor(center.y);
+							top = Math.min(top, Math.max(currentColumn.bottomY, surfaceOffset));
+						}
+						currentY = top;
+					}
+					if (currentY < currentColumn.bottomY) {
+						columnIndex++;
+						currentColumn = null;
+						continue;
+					}
+					cursor.set(
+						currentWorldX,
+						Mth.floor(center.y) + currentY,
+						currentWorldZ
+					);
+					int yOffset = currentY--;
+					visited++;
+					if (destroyAt(level, levelWork, cursor, currentColumn.radial, yOffset)) changed++;
+				} else {
+					if (!aftermathStarted) aftermathStarted = true;
+					if (!advanceAftermath(level)) {
+						finished = true;
+						finishedAt = level.getGameTime();
+					}
+					visited++;
+				}
+				if ((visited & (TIME_CHECK_INTERVAL - 1)) == 0 && System.nanoTime() >= deadline) break;
+			}
+			return changed;
+		}
+
+		private boolean destroyAt(
+			final ServerLevel level,
+			final LevelWork levelWork,
+			final BlockPos position,
+			final double radial,
+			final int yOffset
+		) {
+			if (!level.isInWorldBounds(position)) return false;
+			if (!level.getChunkSource().hasChunk(
+				SectionPos.blockToSectionCoord(position.getX()),
+				SectionPos.blockToSectionCoord(position.getZ()))) return false;
+			long packed = position.asLong();
+			if (!levelWork.claim(packed)) return false;
+			try {
+				BlockState state = level.getBlockState(position);
+				FluidState fluid = level.getFluidState(position);
+				if (state.isAir() && fluid.isEmpty()) return false;
+				float destroySpeed = state.getDestroySpeed(level, position);
+				if (destroySpeed < 0.0F) return false;
+				double verticalRadius = yOffset < 0 ? profile.downwardRadius() : profile.upwardRadius();
+				double vertical = Math.abs(yOffset) / Math.max(1.0, verticalRadius);
+				double normalized = Math.sqrt(Math.min(1.0, radial * radial + vertical * vertical));
+				float resistance = Math.max(
+					state.getBlock().getExplosionResistance(),
+					fluid.getExplosionResistance()
+				);
+				float threshold = profile.maximumDestroyResistance()
+					* (float) Math.max(0.08, 1.0 - normalized * profile.edgeResistanceScale());
+				if (normalized > profile.guaranteedVoidScale() && resistance > threshold) return false;
+
+				if (state.is(Blocks.TNT)) {
+					FastExplosion explosion = explosionContext == null
+						? new FastExplosion(level, null, center, profile.entityBlastRadius())
+						: explosionContext;
+					state.onExplosionHit(level, position, explosion, (stack, dropPosition) -> { });
+					return true;
+				}
+				return level.setBlock(position, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+			} finally {
+				levelWork.release(packed);
+			}
+		}
+
+		private boolean advanceAftermath(final ServerLevel level) {
+			int radius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
+			while (aftermathX <= radius) {
+				int dx = aftermathX;
+				int dz = aftermathZ;
+				aftermathZ += aftermathStep;
+				if (aftermathZ > radius) {
+					aftermathZ = -radius;
+					aftermathX += aftermathStep;
+				}
+				double distance = Math.sqrt(dx * dx + dz * dz);
+				if (distance < profile.horizontalRadius() * 0.72 || distance > radius) return true;
+				double chance = profile.aftermathDensity()
+					* (1.0 - (distance - profile.horizontalRadius() * 0.72)
+					/ Math.max(1.0, radius - profile.horizontalRadius() * 0.72));
+				long hash = seed ^ ((long) dx << 32) ^ (dz & 0xFFFFFFFFL) ^ 0x41465445524D4154L;
+				if (unit(hash) > chance) return true;
+				int x = Mth.floor(center.x) + dx;
+				int z = Mth.floor(center.z) + dz;
+				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return true;
+				int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+				cursor.set(x, groundY, z);
+				if (!level.isInWorldBounds(cursor)) return true;
+				BlockState surface = level.getBlockState(cursor);
+				if (surface.is(Blocks.GRASS_BLOCK) || surface.is(Blocks.DIRT)
+					|| surface.is(Blocks.PODZOL) || surface.is(Blocks.MYCELIUM)) {
+					level.setBlock(cursor, Blocks.COARSE_DIRT.defaultBlockState(), FAST_REMOVE_FLAGS);
+				} else if (surface.is(Blocks.SAND) || surface.is(Blocks.RED_SAND)) {
+					level.setBlock(cursor, Blocks.GRAVEL.defaultBlockState(), FAST_REMOVE_FLAGS);
+				} else if (surface.is(Blocks.SNOW) || surface.is(Blocks.SNOW_BLOCK)) {
+					level.setBlock(cursor, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				}
+				/* Remove foliage above the surviving surface, leaving stripped silhouettes. */
+				for (int up = 1; up <= 12; up++) {
+					cursor.set(x, groundY + up, z);
+					if (!level.isInWorldBounds(cursor)) break;
+					BlockState state = level.getBlockState(cursor);
+					if (state.is(BlockTags.LEAVES) || state.is(BlockTags.FLOWERS)) {
+						level.setBlock(cursor, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+					}
+				}
+				if (profile.yield().nuclear() && unit(hash ^ 0x464952455F504F53L) < 0.025) {
+					cursor.set(x, groundY + 1, z);
+					if (level.isInWorldBounds(cursor) && level.getBlockState(cursor).isAir()) {
+						level.setBlock(cursor, Blocks.FIRE.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+					}
+				}
+				return true;
+			}
+			return false;
+		}
+
+		private void setCurrentWorldColumn(final int x, final int z) {
+			int tx = mirror ? -x : x;
+			int transformedX;
+			int transformedZ;
+			switch (rotation) {
+				case 1 -> { transformedX = -z; transformedZ = tx; }
+				case 2 -> { transformedX = -tx; transformedZ = -z; }
+				case 3 -> { transformedX = z; transformedZ = -tx; }
+				default -> { transformedX = tx; transformedZ = z; }
+			}
+			currentWorldX = Mth.floor(center.x) + transformedX;
+			currentWorldZ = Mth.floor(center.z) + transformedZ;
+		}
+
+		private List<WarheadExplosionDropContext.DestroyedBlock> sampleInitialDebris(final ServerLevel level) {
+			int target = Math.min(MAX_DEBRIS_SAMPLE, profile.yield().maximumDebris());
 			ArrayList<WarheadExplosionDropContext.DestroyedBlock> result = new ArrayList<>(target);
 			LongOpenHashSet sampled = new LongOpenHashSet();
-			SplittableRandom random = new SplittableRandom(seed ^ 0x4445425249535F33L);
-			int attempts = target * 8;
+			SplittableRandom random = new SplittableRandom(seed ^ 0x4445425249535F34L);
+			int attempts = target * 4;
 			for (int attempt = 0; attempt < attempts && result.size() < target; attempt++) {
 				double angle = random.nextDouble(0.0, Math.PI * 2.0);
-				double radial = Math.sqrt(random.nextDouble()) * profile.coreHorizontalRadius();
-				double verticalRadius = random.nextBoolean()
-					? profile.coreUpwardRadius()
-					: profile.coreDownwardRadius();
-				double yOffset = random.nextDouble(-verticalRadius, verticalRadius);
-				cursor.set(
-					Mth.floor(center.x + Math.cos(angle) * radial),
-					Mth.floor(center.y + yOffset),
-					Mth.floor(center.z + Math.sin(angle) * radial)
-				);
+				double radius = Math.sqrt(random.nextDouble()) * profile.horizontalRadius();
+				int x = Mth.floor(center.x + Math.cos(angle) * radius);
+				int z = Mth.floor(center.z + Math.sin(angle) * radius);
+				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
+				int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
+				int y = Math.max(level.dimensionType().minY(), surfaceY - random.nextInt(0, Math.max(2, (int) profile.downwardRadius() / 3)));
+				cursor.set(x, y, z);
 				if (!level.isInWorldBounds(cursor)) continue;
 				long packed = cursor.asLong();
 				if (!sampled.add(packed)) continue;
 				BlockState state = level.getBlockState(cursor);
-				if (state.isAir()) continue;
-				result.add(new WarheadExplosionDropContext.DestroyedBlock(BlockPos.of(packed), state));
+				if (!state.isAir()) result.add(new WarheadExplosionDropContext.DestroyedBlock(BlockPos.of(packed), state));
 			}
 			return List.copyOf(result);
 		}
+	}
 
-		private int apply(final ServerLevel level, final LevelWork levelWork, final int budget) {
-			int applied = 0;
-			FastExplosion explosion = explosionContext;
-			if (explosion == null) {
-				explosion = new FastExplosion(level, null, center, profile.entityBlastRadius());
-				explosionContext = explosion;
-			}
-			while (applied < budget && applyBucket < applicationBuckets.length) {
-				LongArrayList bucket = applicationBuckets[applyBucket];
-				if (applyIndex >= bucket.size()) {
-					applyBucket++;
-					applyIndex = 0;
-					continue;
+	private static final class ShapeTemplate {
+		private final Column[] columns;
+
+		private ShapeTemplate(final Column[] columns) {
+			this.columns = columns;
+		}
+
+		private static ShapeTemplate create(final StrategicExplosionProfile profile) {
+			int radius = Mth.ceil(profile.horizontalRadius());
+			ArrayList<Column> columns = new ArrayList<>((radius * 2 + 1) * (radius * 2 + 1));
+			for (int x = -radius; x <= radius; x++) {
+				for (int z = -radius; z <= radius; z++) {
+					double radial = Math.sqrt((x * x + z * z)
+						/ (profile.horizontalRadius() * profile.horizontalRadius()));
+					if (radial > 1.0) continue;
+					double angle = Math.atan2(z, x);
+					double broadNoise = Math.sin(angle * 5.0 + profile.yield().ordinal() * 1.7) * 0.48
+						+ Math.sin(angle * 11.0 - radial * 8.0) * 0.22
+						+ (unit(((long) x << 32) ^ (z & 0xFFFFFFFFL) ^ profile.yield().ordinal()) - 0.5) * 0.30;
+					double roughScale = 1.0 + broadNoise * profile.boundaryRoughness();
+					double adjusted = radial / roughScale;
+					if (adjusted > 1.0) continue;
+					double verticalFactor = Math.sqrt(Math.max(0.0, 1.0 - adjusted * adjusted));
+					int bottom = -Math.max(1, (int) Math.floor(profile.downwardRadius() * verticalFactor));
+					int top = Math.max(1, (int) Math.floor(profile.upwardRadius() * verticalFactor));
+					columns.add(new Column(x, z, bottom, top, adjusted));
 				}
-				long packed = bucket.getLong(applyIndex++);
-				BlockPos position = BlockPos.of(packed);
-				BlockState state = level.getBlockState(position);
-				if (!state.isAir()) {
-					state.onExplosionHit(level, position, explosion, (stack, dropPosition) -> { });
-				}
-				levelWork.release(packed);
-				ownedBlocks.remove(packed);
-				applied++;
 			}
-			if (applyBucket >= applicationBuckets.length) {
-				finished = true;
-				finishedAt = level.getGameTime();
-			}
-			return applied;
+			Column[] array = columns.toArray(Column[]::new);
+			Arrays.sort(array, Comparator.comparingDouble(column -> column.radial));
+			return new ShapeTemplate(array);
 		}
 	}
 
-	private static double ellipsoidRadius(
-		final double dx,
-		final double dy,
-		final double dz,
-		final StrategicExplosionProfile profile
-	) {
-		double verticalRadius = dy < 0.0 ? profile.downwardRadius() : profile.upwardRadius();
-		double inverseSquared = (dx * dx + dz * dz)
-			/ (profile.horizontalRadius() * profile.horizontalRadius())
-			+ (dy * dy) / (verticalRadius * verticalRadius);
-		return inverseSquared <= 1.0E-12 ? profile.maximumRadius() : 1.0 / Math.sqrt(inverseSquared);
-	}
-
-	private static double normalizedEllipsoidDistance(
-		final double x,
-		final double y,
-		final double z,
-		final Vec3 center,
-		final StrategicExplosionProfile profile
-	) {
-		double dx = x - center.x;
-		double dy = y - center.y;
-		double dz = z - center.z;
-		double verticalRadius = dy < 0.0 ? profile.downwardRadius() : profile.upwardRadius();
-		return Math.min(1.0, Math.sqrt(
-			(dx * dx + dz * dz) / (profile.horizontalRadius() * profile.horizontalRadius())
-				+ (dy * dy) / (verticalRadius * verticalRadius)
-		));
-	}
-
-	private static final class DirectionSet {
-		private final double[] x;
-		private final double[] y;
-		private final double[] z;
-		private DirectionSet(final int count) {
-			x = new double[count];
-			y = new double[count];
-			z = new double[count];
-			for (int index = 0; index < count; index++) {
-				double vertical = 1.0 - 2.0 * (index + 0.5) / count;
-				double horizontal = Math.sqrt(Math.max(0.0, 1.0 - vertical * vertical));
-				double angle = GOLDEN_ANGLE * index;
-				x[index] = Math.cos(angle) * horizontal;
-				y[index] = vertical;
-				z[index] = Math.sin(angle) * horizontal;
-			}
-		}
-
-		private int count() {
-			return x.length;
-		}
+	private record Column(int dx, int dz, int bottomY, int topY, double radial) {
 	}
 
 	private static final class VoidVolume {
-		private final ExplosionWork owner;
 		private final Vec3 center;
 		private final double horizontalRadius;
 		private final double upwardRadius;
@@ -703,16 +651,11 @@ public final class WarheadExplosionWorkManager {
 		private final int minimumChunkZ;
 		private final int maximumChunkZ;
 
-		private VoidVolume(
-			final ExplosionWork owner,
-			final Vec3 center,
-			final StrategicExplosionProfile profile
-		) {
-			this.owner = owner;
+		private VoidVolume(final Vec3 center, final StrategicExplosionProfile profile) {
 			this.center = center;
-			this.horizontalRadius = profile.coreHorizontalRadius();
-			this.upwardRadius = profile.coreUpwardRadius();
-			this.downwardRadius = profile.coreDownwardRadius();
+			this.horizontalRadius = profile.guaranteedHorizontalRadius();
+			this.upwardRadius = profile.guaranteedUpwardRadius();
+			this.downwardRadius = profile.guaranteedDownwardRadius();
 			this.minimumChunkX = Mth.floor(center.x - horizontalRadius) >> 4;
 			this.maximumChunkX = Mth.floor(center.x + horizontalRadius) >> 4;
 			this.minimumChunkZ = Mth.floor(center.z - horizontalRadius) >> 4;
@@ -723,13 +666,10 @@ public final class WarheadExplosionWorkManager {
 			double dx = x - center.x;
 			double dy = y - center.y;
 			double dz = z - center.z;
-			double vertical = dy < 0.0 ? downwardRadius : upwardRadius;
+			double verticalRadius = dy < 0.0 ? downwardRadius : upwardRadius;
 			return (dx * dx + dz * dz) / (horizontalRadius * horizontalRadius)
-				+ (dy * dy) / (vertical * vertical) <= 1.0;
+				+ (dy * dy) / (verticalRadius * verticalRadius) <= 1.0;
 		}
-	}
-
-	private record RankedPosition(long rank, long packedPosition) {
 	}
 
 	private static final class FastExplosion implements Explosion {
@@ -751,44 +691,13 @@ public final class WarheadExplosionWorkManager {
 			return damageSource;
 		}
 
-		@Override
-		public ServerLevel level() {
-			return level;
-		}
-
-		@Override
-		public BlockInteraction getBlockInteraction() {
-			return BlockInteraction.DESTROY;
-		}
-
-		@Override
-		public @Nullable LivingEntity getIndirectSourceEntity() {
-			return Explosion.getIndirectSourceEntity(source);
-		}
-
-		@Override
-		public @Nullable Entity getDirectSourceEntity() {
-			return source;
-		}
-
-		@Override
-		public float radius() {
-			return radius;
-		}
-
-		@Override
-		public Vec3 center() {
-			return center;
-		}
-
-		@Override
-		public boolean canTriggerBlocks() {
-			return false;
-		}
-
-		@Override
-		public boolean shouldAffectBlocklikeEntities() {
-			return true;
-		}
+		@Override public ServerLevel level() { return level; }
+		@Override public BlockInteraction getBlockInteraction() { return BlockInteraction.DESTROY; }
+		@Override public @Nullable LivingEntity getIndirectSourceEntity() { return Explosion.getIndirectSourceEntity(source); }
+		@Override public @Nullable Entity getDirectSourceEntity() { return source; }
+		@Override public float radius() { return radius; }
+		@Override public Vec3 center() { return center; }
+		@Override public boolean canTriggerBlocks() { return false; }
+		@Override public boolean shouldAffectBlocklikeEntities() { return true; }
 	}
 }

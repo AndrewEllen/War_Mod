@@ -2,6 +2,7 @@ package com.andye.warmod.warhead.client;
 
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.WarheadYieldScaling;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
@@ -88,9 +89,10 @@ public final class ClientWarheadVisualManager {
 		for (ImpactVisualState state : this.activeImpacts.values()) {
 			if (remainingTerrainBudget <= 0) break;
 			double age = state.ageTicks(gameTime, 0.0);
+			float radiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
 			double requiredDistance = Math.min(
 				TerrainShockfrontField.MAX_HORIZONTAL_RANGE,
-				WarheadVisualMath.groundShockwaveDistance(age) + TERRAIN_LOOKAHEAD_BLOCKS
+				WarheadVisualMath.groundShockwaveDistance(age) * radiusScale + TERRAIN_LOOKAHEAD_BLOCKS
 			);
 			int built = state.terrainShockfrontField().buildToDistance(
 				client.level,
@@ -146,7 +148,9 @@ public final class ClientWarheadVisualManager {
 	 */
 	private void assignVolumetricSlot(final UUID incomingId, final ImpactVisualState incoming) {
 		int maximum = incoming.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR ? 1 : 2;
-		double radius = incoming.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR ? 48.0 : 14.0;
+		float radiusScale = WarheadYieldScaling.radiusScale(incoming.payloadType(), incoming.visualScale());
+		double radius = (incoming.payloadType() == com.andye.warmod.warhead.WarheadPayloadType.NUCLEAR
+			? 48.0 : 14.0) * radiusScale;
 		if (incoming.effectProfile().name().startsWith("ANTI_AIR")) {
 			maximum = 4;
 			radius = 5.0;

@@ -54,7 +54,7 @@ public final class ProceduralImpactParticleRenderer {
 			* profile.particleScale() * (nuclear ? 105.0 : 80.0);
 		double weight = Math.max(1.0, logicalLivingParticles / Math.max(1, samples));
 		float densityRadiusScale = (float) Mth.clamp(Math.cbrt(weight), 1.0, 3.6);
-		float geometryScale = nuclear ? 1.0F : Mth.clamp(visualScale, 0.55F, 1.45F);
+		float geometryScale = nuclear ? Mth.clamp(visualScale / 3.0F, 0.58F, 1.55F) : Mth.clamp(visualScale, 0.55F, 1.65F);
 		Basis basis = Basis.from(camera);
 
 		for (int index = 0; index < samples; index++) {
@@ -79,11 +79,11 @@ public final class ProceduralImpactParticleRenderer {
 
 			float baseRadius = (float) ((1.15 + unit(value, 9) * 2.7) * geometryScale);
 			float radius = baseRadius * densityRadiusScale * (float) (0.82 + progress * 0.72);
-			double baseAlpha = lobe.opacity() * 0.035 * Math.pow(1.0 - progress, 0.42) * fade;
+			double baseAlpha = lobe.opacity() * 0.018 * Math.pow(1.0 - progress, 0.42) * fade;
 			float alpha = opticalAlpha(baseAlpha, weight);
 			if (alpha <= 0.003F) continue;
 			float rotation = (float) (unit(value, 10) * Mth.TWO_PI + particleAge * (unit(value, 11) - 0.5) * 0.008);
-			billboard(pose, buffer, center, radius, rotation, lobe.red(), lobe.green(), lobe.blue(), alpha,
+			billboard(pose, buffer, center, radius, rotation, Math.min(148, lobe.red()), Math.min(154, lobe.green()), Math.min(164, lobe.blue()), alpha,
 				0xA000A0, basis, 0.0F, 1.0F, 0.0F, 1.0F);
 		}
 	}
@@ -103,7 +103,7 @@ public final class ProceduralImpactParticleRenderer {
 		double logicalParticles = (nuclear ? 22_000.0 : 11_500.0) * profile.particleScale() * intensity;
 		double weight = Math.max(1.0, logicalParticles / Math.max(1, samples));
 		float densityRadiusScale = (float) Mth.clamp(Math.sqrt(weight), 1.0, 3.2);
-		float geometryScale = nuclear ? 1.0F : Mth.clamp(visualScale, 0.45F, 1.5F);
+		float geometryScale = nuclear ? Mth.clamp(visualScale / 3.0F, 0.58F, 1.55F) : Mth.clamp(visualScale, 0.45F, 1.70F);
 		Basis basis = Basis.from(camera);
 
 		for (int index = 0; index < samples; index++) {
@@ -135,12 +135,12 @@ public final class ProceduralImpactParticleRenderer {
 			float baseSize = (float) ((0.85 + unit(value, 8) * 2.15) * geometryScale);
 			float radius = baseSize * densityRadiusScale * (float) (0.75 + progress * 0.72);
 			double particleFade = Math.pow(1.0 - progress, hotPass ? 0.34 : 0.72);
-			float alpha = opticalAlpha((hotPass ? 0.12 : 0.085) * particleFade * intensity, weight);
+			float alpha = opticalAlpha((hotPass ? 0.036 : 0.030) * particleFade * intensity, weight);
 			if (alpha <= 0.003F) continue;
 
-			int red = hotPass ? 255 : Mth.lerpInt((float) progress, 224, 76);
-			int green = hotPass ? Mth.lerpInt((float) progress, 248, 126) : Mth.lerpInt((float) progress, 132, 72);
-			int blue = hotPass ? Mth.lerpInt((float) progress, 190, 42) : Mth.lerpInt((float) progress, 52, 30);
+			int red = hotPass ? 255 : Mth.lerpInt((float) progress, 208, 72);
+			int green = hotPass ? Mth.lerpInt((float) progress, 188, 108) : Mth.lerpInt((float) progress, 116, 64);
+			int blue = hotPass ? Mth.lerpInt((float) progress, 48, 18) : Mth.lerpInt((float) progress, 42, 28);
 			int frame = Math.floorMod((int) Math.floor(particleAge / (nuclear ? 3.6 : 2.6) + unit(value, 9) * FireballAtlas.FRAME_COUNT), FireballAtlas.FRAME_COUNT);
 			float u0 = frame / (float) FireballAtlas.FRAME_COUNT + 0.5F / FireballAtlas.ATLAS_WIDTH;
 			float u1 = (frame + 1) / (float) FireballAtlas.FRAME_COUNT - 0.5F / FireballAtlas.ATLAS_WIDTH;
@@ -154,24 +154,24 @@ public final class ProceduralImpactParticleRenderer {
 
 	private static int fireSamples(final WarheadMesh.Lod lod, final boolean nuclear) {
 		return switch (lod) {
-			case NEAR -> nuclear ? 6_144 : 4_096;
-			case MEDIUM -> nuclear ? 3_072 : 2_048;
-			case FAR -> nuclear ? 1_024 : 640;
+			case NEAR -> nuclear ? 1_536 : 1_024;
+			case MEDIUM -> nuclear ? 768 : 512;
+			case FAR -> nuclear ? 256 : 160;
 		};
 	}
 
 	private static int smokeSamples(final WarheadMesh.Lod lod, final boolean nuclear) {
 		return switch (lod) {
-			case NEAR -> nuclear ? 8_192 : 4_096;
-			case MEDIUM -> nuclear ? 4_096 : 2_048;
-			case FAR -> nuclear ? 1_280 : 640;
+			case NEAR -> nuclear ? 2_048 : 1_024;
+			case MEDIUM -> nuclear ? 1_024 : 512;
+			case FAR -> nuclear ? 320 : 160;
 		};
 	}
 
 	private static float opticalAlpha(final double perParticleAlpha, final double representedParticles) {
 		double base = Mth.clamp(perParticleAlpha, 0.0, 0.95);
 		double result = 1.0 - Math.pow(1.0 - base, Math.max(1.0, representedParticles));
-		return (float) Mth.clamp(result, 0.0, 0.96);
+		return (float) Mth.clamp(result, 0.0, 0.84);
 	}
 
 	private static void billboard(final PoseStack.Pose pose, final VertexConsumer buffer, final Vec3 center,

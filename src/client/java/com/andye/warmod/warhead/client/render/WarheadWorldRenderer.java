@@ -4,6 +4,7 @@ import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadEffectProfile;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.WarheadYieldScaling;
 import com.andye.warmod.warhead.client.ClientDebrisBatchManager;
 import com.andye.warmod.warhead.client.ClientWarheadVisualManager;
 import com.andye.warmod.warhead.client.ImpactVisualState;
@@ -32,6 +33,13 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 public final class WarheadWorldRenderer {
+	private static final int[][] CLUSTER_TWO_OFFSETS = {
+		{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {-1, 0, 0}
+	};
+	private static final int[][] CLUSTER_THREE_OFFSETS = {
+		{0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1},
+		{0, 1, 0}, {1, 1, 0}, {0, 1, 1}, {-1, 1, 0}, {0, 2, 0}
+	};
 	private static final double NEAR_DISTANCE = 192.0;
 	private static final double MEDIUM_DISTANCE = 640.0;
 	private static final double MAX_DISTANCE = 1536.0;
@@ -92,7 +100,8 @@ public final class WarheadWorldRenderer {
 			double distance = cameraPosition.distanceTo(state.impactPosition());
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			WarheadMesh.Lod lod = lod(distance);
-			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age);
+			float yieldRadiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
+			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age) * yieldRadiusScale;
 			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
 			List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile())
 				? state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime)
@@ -188,15 +197,19 @@ public final class WarheadWorldRenderer {
 	private static void renderImpact(final LevelRenderContext context, final PoseStack poseStack,
 		final RenderFrame frame, final ImpactFrame impact) {
 		Vec3 relative = impact.position().subtract(frame.cameraPosition());
-		float thicknessScale = (float) impact.profile().shockwaveThicknessScale();
-		float alphaScale = (float) impact.profile().shockwaveAlphaScale();
-		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks());
+		float yieldRadiusScale = WarheadYieldScaling.radiusScale(impact.payloadType(), impact.visualScale());
+		float yieldThicknessScale = (float) Math.sqrt(yieldRadiusScale);
+		float thicknessScale = (float) impact.profile().shockwaveThicknessScale() * yieldThicknessScale;
+		float alphaScale = (float) impact.profile().shockwaveAlphaScale()
+			* Mth.clamp(yieldThicknessScale, 0.72F, 1.28F);
+		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks()) * yieldRadiusScale;
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
 			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer,
-				WarheadVisualMath.airShockwaveRadius(impact.ageTicks()), impact.ageTicks(), thicknessScale, alphaScale, impact.lod()));
+				WarheadVisualMath.airShockwaveRadius(impact.ageTicks()) * yieldRadiusScale, impact.ageTicks(),
+				thicknessScale, alphaScale, impact.lod()));
 		if (groundEffects(impact.effectProfile())) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(),
@@ -215,29 +228,29 @@ public final class WarheadWorldRenderer {
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
 			(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(),
-				impact.gameTime(), impact.lod(), (float) impact.profile().shockwaveParticleDensityScale(), frame.cameraOrientation()));
+				impact.gameTime(), impact.lod(),
+				(float) impact.profile().shockwaveParticleDensityScale() * yieldThicknessScale,
+				frame.cameraOrientation()));
 		if (impact.renderVolumetrics()) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE_CORE,
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, impact.ageTicks(),
+					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-				(pose, buffer) -> {
-					BlastCloudRenderer.render(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-						impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation());
-					ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, impact.ageTicks(), impact.visualScale(),
-						impact.profile(), impact.visualSeed(), impact.blastCloudLobes(), impact.lod(), frame.cameraOrientation());
-				});
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, impact.ageTicks(),
+					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.blastCloudLobes(),
+					impact.lod(), frame.cameraOrientation()));
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_COOL,
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, impact.ageTicks(),
+					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), false));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
-				(pose, buffer) -> {
-					ImpactFireballRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-						impact.fireballLobes(), impact.lod(), frame.cameraOrientation());
-					ProceduralImpactParticleRenderer.renderCooling(pose, buffer, impact.ageTicks(), impact.visualScale(),
-						impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation());
-				});
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderCooling(pose, buffer, impact.ageTicks(),
+					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_HOT,
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, impact.ageTicks(),
+					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), true));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
-				(pose, buffer) -> {
-					ImpactFireballRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-						impact.fireballLobes(), impact.lod(), frame.cameraOrientation());
-					ProceduralImpactParticleRenderer.renderHot(pose, buffer, impact.ageTicks(), impact.visualScale(),
-						impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation());
-				});
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderHot(pose, buffer, impact.ageTicks(),
+					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
 		}
 		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
@@ -264,8 +277,22 @@ public final class WarheadWorldRenderer {
 				(float) sample.spin().x * sample.age(),
 				(float) sample.spin().y * sample.age(),
 				(float) sample.spin().z * sample.age()));
-			poseStack.translate(-0.5, -0.5, -0.5);
-			context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
+			int clusterSize = distanceSquared > 192.0 * 192.0 || sample.pieceIndex() >= 64
+				? 1 : sample.clusterSize();
+			int[][] offsets = clusterSize >= 3 ? CLUSTER_THREE_OFFSETS
+				: clusterSize == 2 ? CLUSTER_TWO_OFFSETS : null;
+			if (offsets == null) {
+				poseStack.translate(-0.5, -0.5, -0.5);
+				context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
+			} else {
+				for (int[] offset : offsets) {
+					poseStack.pushPose();
+					poseStack.translate(offset[0] * 0.82, offset[1] * 0.82, offset[2] * 0.82);
+					poseStack.translate(-0.5, -0.5, -0.5);
+					context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
+					poseStack.popPose();
+				}
+			}
 			poseStack.popPose();
 		}
 	}

@@ -12,72 +12,55 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
 
 public final class ModCreativeModeTabs {
-    public static final ResourceKey<CreativeModeTab> WAR_MOD_KEY =
-        ResourceKey.create(
-            Registries.CREATIVE_MODE_TAB,
-            Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
-        );
-
-    private static final int ENTRY_COUNT = 27;
+    public static final ResourceKey<CreativeModeTab> WAR_MOD_KEY = ResourceKey.create(
+        Registries.CREATIVE_MODE_TAB,
+        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
+    );
+    private static final int ENTRY_COUNT = 28;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
     }
 
     public static void register() {
-        if (registered) {
-            return;
-        }
-
-        CreativeModeTab tab = CreativeModeTab.builder(
-            CreativeModeTab.Row.TOP,
-            0
-        ).title(
-            Component.translatable("itemGroup.war_mod.war_mod")
-        ).icon(
-            () -> new ItemStack(ModItems.NUCLEAR_ICBM)
-        ).displayItems((parameters, output) -> {
-            output.accept(ModItems.MISSILE_SILO);
-            output.accept(ModItems.GUIDANCE_TIER_1);
-            output.accept(ModItems.GUIDANCE_TIER_2);
-            output.accept(ModItems.GUIDANCE_TIER_3);
-            output.accept(ModItems.RADAR_STATION);
-            output.accept(ModItems.RADAR_DISPLAY_PANEL);
-            output.accept(ModItems.PHALANX_TURRET);
-            output.accept(ModItems.ITEM_PIPE);
-            output.accept(ModItems.PIPE_WRENCH);
-            output.accept(ModItems.CONVENTIONAL_ICBM);
-            output.accept(ModItems.CONVENTIONAL_CLUSTER_ICBM);
-            output.accept(ModItems.NUCLEAR_ICBM);
-            output.accept(ModItems.NUCLEAR_CLUSTER_ICBM);
-            output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
-            output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
-            output.accept(ModItems.ROCKET_LAUNCHER);
-            output.accept(ModItems.HE_ROCKET);
-            output.accept(ModItems.ANTI_AIR_GUN_AMMO);
-            output.accept(ModItems.TARGET_DESIGNATOR);
-            output.accept(ModItems.REMOTE_LAUNCH_DESIGNATOR);
-            output.accept(ModItems.RADAR);
-            output.accept(ModItems.RADAR_LINKING_TOOL);
-            output.accept(ModItems.ACOUSTIC_TEST_STICK);
-            output.accept(ModItems.ICBM_TEST_STICK);
-            output.accept(ModItems.NUCLEAR_TEST_STICK);
-            output.accept(ModItems.NUCLEAR_ICBM_TEST_STICK);
-            output.accept(ModItems.ANTI_AIR_TEST_STICK);
-        }).build();
-
-        Registry.register(
-            BuiltInRegistries.CREATIVE_MODE_TAB,
-            WAR_MOD_KEY,
-            tab
-        );
+        if (registered) return;
+        CreativeModeTab tab = CreativeModeTab.builder(CreativeModeTab.Row.TOP, 0)
+            .title(Component.translatable("itemGroup.war_mod.war_mod"))
+            .icon(() -> new ItemStack(ModItems.NUCLEAR_ICBM))
+            .displayItems((parameters, output) -> {
+                output.accept(ModItems.MISSILE_SILO);
+                output.accept(ModItems.GUIDANCE_TIER_1);
+                output.accept(ModItems.GUIDANCE_TIER_2);
+                output.accept(ModItems.GUIDANCE_TIER_3);
+                output.accept(ModItems.RADAR_STATION);
+                output.accept(ModItems.RADAR_DISPLAY_PANEL);
+                output.accept(ModItems.PHALANX_TURRET);
+                output.accept(ModItems.ITEM_PIPE);
+                output.accept(ModItems.PIPE_WRENCH);
+                output.accept(ModItems.CONVENTIONAL_ICBM);
+                output.accept(ModItems.CONVENTIONAL_CLUSTER_ICBM);
+                output.accept(ModItems.NUCLEAR_ICBM);
+                output.accept(ModItems.NUCLEAR_CLUSTER_ICBM);
+                output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
+                output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
+                output.accept(ModItems.ROCKET_LAUNCHER);
+                output.accept(ModItems.HE_ROCKET);
+                output.accept(ModItems.ANTI_AIR_GUN_AMMO);
+                output.accept(ModItems.TARGET_DESIGNATOR);
+                output.accept(ModItems.REMOTE_LAUNCH_DESIGNATOR);
+                output.accept(ModItems.RADAR);
+                output.accept(ModItems.RADAR_LINKING_TOOL);
+                output.accept(ModItems.MASTER_EXPLOSIVE_TEST_STICK);
+                output.accept(ModItems.ACOUSTIC_TEST_STICK);
+                output.accept(ModItems.ICBM_TEST_STICK);
+                output.accept(ModItems.NUCLEAR_TEST_STICK);
+                output.accept(ModItems.NUCLEAR_ICBM_TEST_STICK);
+                output.accept(ModItems.ANTI_AIR_TEST_STICK);
+            }).build();
+        Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, WAR_MOD_KEY, tab);
         registered = true;
-
         if (SharedConstants.IS_RUNNING_IN_IDE) {
-            WarMod.LOGGER.info(
-                "War Mod creative tab registered with {} entries",
-                ENTRY_COUNT
-            );
+            WarMod.LOGGER.info("War Mod creative tab registered with {} entries", ENTRY_COUNT);
         }
     }
 }

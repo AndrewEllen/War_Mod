@@ -33,8 +33,10 @@ import com.andye.warmod.radar.station.network.RadarStationNetworking;
 import com.andye.warmod.silo.MissileSiloChunkTicketType;
 import com.andye.warmod.silo.MissileSiloManager;
 import com.andye.warmod.silo.network.SiloNetworking;
+import com.andye.warmod.testtool.network.MasterExplosiveNetworking;
 import com.andye.warmod.warhead.IncomingWarheadRegistry;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
+import com.andye.warmod.warhead.WarheadYieldRegistry;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -57,6 +59,7 @@ public final class WarMod implements ModInitializer {
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
         SiloNetworking.register();
+        MasterExplosiveNetworking.register();
         RadarStationNetworking.register();
         RadarDisplayNetworking.register();
         ModDataComponents.register();
@@ -69,6 +72,7 @@ public final class WarMod implements ModInitializer {
         IcbmChunkTicketType.register();
         com.andye.warmod.warhead.WarheadImpactChunkLeaseManager.registerLifecycle();
         WarheadExplosionWorkManager.registerLifecycle();
+        WarheadYieldRegistry.registerLifecycle();
         IcbmFlightControllerManager.register();
         AntiAirFlightControllerManager.register();
         PhalanxManager.registerLifecycle();

@@ -45,5 +45,6 @@
   "container.war_mod.phalanx": "Phalanx Anti-Air Turret",
   "block.war_mod.item_pipe": "Item Pipe",
   "item.war_mod.item_pipe": "Item Pipe",
-  "item.war_mod.pipe_wrench": "Pipe Wrench"
+  "item.war_mod.pipe_wrench": "Pipe Wrench",
+  "item.war_mod.master_explosive_test_stick": "Master Explosive Test Stick"
 }

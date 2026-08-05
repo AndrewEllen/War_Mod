@@ -54,9 +54,9 @@ public record ClientboundWarheadDebrisPayload(
 	}
 
 	public boolean isWellFormed() {
-		if (this.impactId == null || !Double.isFinite(this.originX) || !Double.isFinite(this.originY)
-			|| !Double.isFinite(this.originZ) || this.entries.size() > MAX_ENTRIES) return false;
-		for (Entry entry : this.entries) if (entry == null || !entry.isWellFormed()) return false;
+		if (impactId == null || !Double.isFinite(originX) || !Double.isFinite(originY)
+			|| !Double.isFinite(originZ) || entries.size() > MAX_ENTRIES) return false;
+		for (Entry entry : entries) if (entry == null || !entry.isWellFormed()) return false;
 		return true;
 	}
 
@@ -77,15 +77,17 @@ public record ClientboundWarheadDebrisPayload(
 		float spinY,
 		float spinZ,
 		float scale,
+		int clusterSize,
 		int lifetime
 	) {
 		private void write(final RegistryFriendlyByteBuf buffer) {
-			buffer.writeVarInt(this.blockStateId);
-			buffer.writeFloat(this.offsetX); buffer.writeFloat(this.offsetY); buffer.writeFloat(this.offsetZ);
-			buffer.writeFloat(this.velocityX); buffer.writeFloat(this.velocityY); buffer.writeFloat(this.velocityZ);
-			buffer.writeFloat(this.spinX); buffer.writeFloat(this.spinY); buffer.writeFloat(this.spinZ);
-			buffer.writeFloat(this.scale);
-			buffer.writeVarInt(this.lifetime);
+			buffer.writeVarInt(blockStateId);
+			buffer.writeFloat(offsetX); buffer.writeFloat(offsetY); buffer.writeFloat(offsetZ);
+			buffer.writeFloat(velocityX); buffer.writeFloat(velocityY); buffer.writeFloat(velocityZ);
+			buffer.writeFloat(spinX); buffer.writeFloat(spinY); buffer.writeFloat(spinZ);
+			buffer.writeFloat(scale);
+			buffer.writeVarInt(clusterSize);
+			buffer.writeVarInt(lifetime);
 		}
 
 		private static Entry read(final RegistryFriendlyByteBuf buffer) {
@@ -94,16 +96,17 @@ public record ClientboundWarheadDebrisPayload(
 				buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
 				buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
 				buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
-				buffer.readFloat(), buffer.readVarInt()
+				buffer.readFloat(), buffer.readVarInt(), buffer.readVarInt()
 			);
 		}
 
 		private boolean isWellFormed() {
-			return this.blockStateId >= 0 && finite(this.offsetX) && finite(this.offsetY) && finite(this.offsetZ)
-				&& finite(this.velocityX) && finite(this.velocityY) && finite(this.velocityZ)
-				&& finite(this.spinX) && finite(this.spinY) && finite(this.spinZ)
-				&& finite(this.scale) && this.scale > 0.05F && this.scale <= 4.0F
-				&& this.lifetime >= 1 && this.lifetime <= 400;
+			return blockStateId >= 0 && finite(offsetX) && finite(offsetY) && finite(offsetZ)
+				&& finite(velocityX) && finite(velocityY) && finite(velocityZ)
+				&& finite(spinX) && finite(spinY) && finite(spinZ)
+				&& finite(scale) && scale > 0.05F && scale <= 4.0F
+				&& clusterSize >= 1 && clusterSize <= 3
+				&& lifetime >= 1 && lifetime <= 400;
 		}
 
 		private static boolean finite(final float value) {

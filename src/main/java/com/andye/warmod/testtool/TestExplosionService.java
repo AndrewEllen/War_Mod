@@ -4,6 +4,7 @@ import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadYield;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.core.particles.ExplosionParticleInfo;
@@ -26,27 +27,47 @@ public final class TestExplosionService {
 	private TestExplosionService() {
 	}
 
-	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,
-		final @Nullable ServerPlayer source, final Vec3 position) {
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final Vec3 position
+	) {
 		return createExplosion(level, source, position, WarheadConstants.EXPLOSION_STRENGTH);
 	}
 
-
-	/** Uses the custom staged path for full-size strategic warheads. */
-	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,
-		final @Nullable ServerPlayer source, final UUID warheadId, final Vec3 position,
-		final WarheadPayloadType payloadType, final long seed) {
-		if (level == null || warheadId == null || position == null || payloadType == null) {
-			throw new NullPointerException();
-		}
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadYield yield,
+		final long seed
+	) {
+		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid explosion arguments");
-		return WarheadExplosionWorkManager.detonate(level, source, warheadId, position, payloadType, seed);
+		return WarheadExplosionWorkManager.detonate(level, source, warheadId, position, yield, seed);
+	}
+
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadPayloadType payloadType,
+		final long seed
+	) {
+		return createExplosion(level, source, warheadId, position, WarheadYield.defaultFor(payloadType), seed);
 	}
 
 	/** Compatibility bridge retained for older call sites. */
-	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,
-		final @Nullable ServerPlayer source, final UUID warheadId, final Vec3 position,
-		final float strength, final long seed) {
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final float strength,
+		final long seed
+	) {
 		if (level == null || warheadId == null || position == null) throw new NullPointerException();
 		if (!position.isFinite() || !Float.isFinite(strength) || strength <= 0.0F) {
 			throw new IllegalArgumentException("Invalid explosion arguments");
@@ -57,8 +78,16 @@ public final class TestExplosionService {
 		return createExplosion(level, source, position, strength);
 	}
 
-	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(final ServerLevel level,
-		final @Nullable ServerPlayer source, final Vec3 position, final float strength) {
+	/**
+	 * Small anti-air and utility explosions still use vanilla. Strategic and
+	 * configurable test yields use the custom no-drop engine above.
+	 */
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final Vec3 position,
+		final float strength
+	) {
 		if (level == null || position == null) throw new NullPointerException();
 		if (!position.isFinite() || !Float.isFinite(strength) || strength <= 0.0F) {
 			throw new IllegalArgumentException("Invalid explosion arguments");

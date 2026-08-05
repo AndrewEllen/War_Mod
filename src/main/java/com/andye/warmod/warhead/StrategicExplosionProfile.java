@@ -1,57 +1,58 @@
 package com.andye.warmod.warhead;
 
 /**
- * Geometry and resistance model for War Mod's strategic crater engine.
+ * Parameters for the Stage 4 column/SDF crater engine.
  *
- * <p>The radii describe an asymmetric ellipsoid around the impact point. The
- * calculation is independent from Minecraft's vanilla explosion-strength
- * value, allowing nuclear craters to grow without running the vanilla
- * 16x16x16 boundary-ray algorithm at extreme strengths.</p>
+ * <p>Terrain destruction is represented as a noisy asymmetric ellipsoid made
+ * from vertical column spans. This removes the visible spokes produced by
+ * sparse explosion rays while keeping the amount of work predictable.</p>
  */
 public record StrategicExplosionProfile(
-	WarheadPayloadType payloadType,
+	WarheadYield yield,
 	double horizontalRadius,
 	double upwardRadius,
 	double downwardRadius,
-	int rayCount,
-	double rayStep,
-	float initialEnergy,
-	float airEnergyLossPerBlock,
-	float resistanceScale,
-	float maximumResistanceCost,
-	double guaranteedCoreScale,
-	float entityBlastRadius
+	double guaranteedVoidScale,
+	double boundaryRoughness,
+	float maximumDestroyResistance,
+	float edgeResistanceScale,
+	float entityBlastRadius,
+	double aftermathRadiusScale,
+	double aftermathDensity
 ) {
 	public StrategicExplosionProfile {
-		if (payloadType == null
-			|| !Double.isFinite(horizontalRadius) || horizontalRadius <= 0.0
-			|| !Double.isFinite(upwardRadius) || upwardRadius <= 0.0
-			|| !Double.isFinite(downwardRadius) || downwardRadius <= 0.0
-			|| rayCount < 128
-			|| !Double.isFinite(rayStep) || rayStep <= 0.05
-			|| !Float.isFinite(initialEnergy) || initialEnergy <= 0.0F
-			|| !Float.isFinite(airEnergyLossPerBlock) || airEnergyLossPerBlock <= 0.0F
-			|| !Float.isFinite(resistanceScale) || resistanceScale < 0.0F
-			|| !Float.isFinite(maximumResistanceCost) || maximumResistanceCost <= 0.0F
-			|| !Double.isFinite(guaranteedCoreScale) || guaranteedCoreScale <= 0.0 || guaranteedCoreScale > 1.0
-			|| !Float.isFinite(entityBlastRadius) || entityBlastRadius <= 0.0F) {
+		if (yield == null
+			|| !Double.isFinite(horizontalRadius) || horizontalRadius <= 1.0
+			|| !Double.isFinite(upwardRadius) || upwardRadius <= 1.0
+			|| !Double.isFinite(downwardRadius) || downwardRadius <= 1.0
+			|| !Double.isFinite(guaranteedVoidScale) || guaranteedVoidScale <= 0.05 || guaranteedVoidScale > 1.0
+			|| !Double.isFinite(boundaryRoughness) || boundaryRoughness < 0.0 || boundaryRoughness > 0.35
+			|| !Float.isFinite(maximumDestroyResistance) || maximumDestroyResistance <= 0.0F
+			|| !Float.isFinite(edgeResistanceScale) || edgeResistanceScale < 0.0F
+			|| !Float.isFinite(entityBlastRadius) || entityBlastRadius <= 0.0F
+			|| !Double.isFinite(aftermathRadiusScale) || aftermathRadiusScale < 1.0
+			|| !Double.isFinite(aftermathDensity) || aftermathDensity < 0.0 || aftermathDensity > 1.0) {
 			throw new IllegalArgumentException("Invalid strategic explosion profile");
 		}
+	}
+
+	public WarheadPayloadType payloadType() {
+		return yield.payloadType();
 	}
 
 	public double maximumRadius() {
 		return Math.max(horizontalRadius, Math.max(upwardRadius, downwardRadius));
 	}
 
-	public double coreHorizontalRadius() {
-		return Math.max(2.0, horizontalRadius * guaranteedCoreScale);
+	public double guaranteedHorizontalRadius() {
+		return Math.max(2.0, horizontalRadius * guaranteedVoidScale);
 	}
 
-	public double coreUpwardRadius() {
-		return Math.max(1.5, upwardRadius * guaranteedCoreScale);
+	public double guaranteedUpwardRadius() {
+		return Math.max(1.5, upwardRadius * guaranteedVoidScale);
 	}
 
-	public double coreDownwardRadius() {
-		return Math.max(2.0, downwardRadius * guaranteedCoreScale);
+	public double guaranteedDownwardRadius() {
+		return Math.max(2.0, downwardRadius * guaranteedVoidScale);
 	}
 }

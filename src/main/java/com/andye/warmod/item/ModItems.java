@@ -18,6 +18,7 @@ public final class ModItems {
     public static final ResourceKey<Item> ICBM_TEST_STICK_KEY = key("icbm_test_stick");
     public static final ResourceKey<Item> NUCLEAR_TEST_STICK_KEY = key("nuclear_test_stick");
     public static final ResourceKey<Item> NUCLEAR_ICBM_TEST_STICK_KEY = key("nuclear_icbm_test_stick");
+    public static final ResourceKey<Item> MASTER_EXPLOSIVE_TEST_STICK_KEY = key("master_explosive_test_stick");
     public static final ResourceKey<Item> RADAR_KEY = key("radar");
     public static final ResourceKey<Item> MISSILE_SILO_KEY = key("missile_silo");
     public static final ResourceKey<Item> CONVENTIONAL_ICBM_KEY = key("conventional_icbm");
@@ -46,6 +47,7 @@ public final class ModItems {
     public static final Item ICBM_TEST_STICK = new IcbmTestStickItem(properties(ICBM_TEST_STICK_KEY, 1));
     public static final Item NUCLEAR_TEST_STICK = new NuclearTestStickItem(properties(NUCLEAR_TEST_STICK_KEY, 1));
     public static final Item NUCLEAR_ICBM_TEST_STICK = new NuclearIcbmTestStickItem(properties(NUCLEAR_ICBM_TEST_STICK_KEY, 1));
+    public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
     public static final Item RADAR = new RadarItem(properties(RADAR_KEY, 1));
     public static final Item MISSILE_SILO = new MissileSiloBlockItem(properties(MISSILE_SILO_KEY, 1));
     public static final Item CONVENTIONAL_ICBM = new ConventionalIcbmItem(properties(CONVENTIONAL_ICBM_KEY, 16));
@@ -82,14 +84,12 @@ public final class ModItems {
     }
 
     public static void register() {
-        if (registered) {
-            return;
-        }
-
+        if (registered) return;
         register(ACOUSTIC_TEST_STICK_KEY, ACOUSTIC_TEST_STICK);
         register(ICBM_TEST_STICK_KEY, ICBM_TEST_STICK);
         register(NUCLEAR_TEST_STICK_KEY, NUCLEAR_TEST_STICK);
         register(NUCLEAR_ICBM_TEST_STICK_KEY, NUCLEAR_ICBM_TEST_STICK);
+        register(MASTER_EXPLOSIVE_TEST_STICK_KEY, MASTER_EXPLOSIVE_TEST_STICK);
         register(RADAR_KEY, RADAR);
         register(MISSILE_SILO_KEY, MISSILE_SILO);
         register(CONVENTIONAL_ICBM_KEY, CONVENTIONAL_ICBM);
@@ -124,10 +124,7 @@ public final class ModItems {
         };
     }
 
-    private static void register(
-        final ResourceKey<Item> key,
-        final Item item
-    ) {
+    private static void register(final ResourceKey<Item> key, final Item item) {
         Registry.register(BuiltInRegistries.ITEM, key, item);
     }
 
@@ -138,10 +135,7 @@ public final class ModItems {
         );
     }
 
-    private static Item.Properties properties(
-        final ResourceKey<Item> key,
-        final int size
-    ) {
+    private static Item.Properties properties(final ResourceKey<Item> key, final int size) {
         return new Item.Properties().setId(key).stacksTo(size);
     }
 }
