@@ -25,12 +25,12 @@ public final class WarheadRenderPipelines {
 	private static final RenderPipeline SHOCKWAVE_PIPELINE = translucent("pipeline/war_mod_shockwave_ribbons", false);
 	private static final RenderPipeline GROUND_DUST_PIPELINE = translucent("pipeline/war_mod_ground_dust", false);
 	/*
-	 * Smoke is sorted back-to-front and now writes depth after its alpha cutout.
-	 * This prevents water and the sky/translucent-world pass from being drawn
-	 * through an already opaque part of the cloud, and enables early depth
-	 * rejection for hidden overlapping cloud billboards.
+	 * Smoke keeps depth writing for dense cloud cores, but uses a materially
+	 * higher alpha cutout than the other translucent effects. Faint billboard
+	 * edges therefore no longer punch holes through water while opaque smoke
+	 * still rejects hidden overdraw behind it.
 	 */
-	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke", true);
+	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke", true, 0.10F);
 	private static final RenderPipeline COOL_FIRE_PIPELINE = translucent("pipeline/war_mod_cooling_fire", false);
 	private static final RenderPipeline GROUND_RIPPLE_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
@@ -111,9 +111,17 @@ public final class WarheadRenderPipelines {
 	}
 
 	private static RenderPipeline translucent(final String location, final boolean writeDepth) {
+		return translucent(location, writeDepth, 0.02F);
+	}
+
+	private static RenderPipeline translucent(
+		final String location,
+		final boolean writeDepth,
+		final float alphaCutout
+	) {
 		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
 			.withLocation(location)
-			.withShaderDefine("ALPHA_CUTOUT", 0.02F)
+			.withShaderDefine("ALPHA_CUTOUT", alphaCutout)
 			.withShaderDefine("NO_OVERLAY")
 			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
 			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, writeDepth))
