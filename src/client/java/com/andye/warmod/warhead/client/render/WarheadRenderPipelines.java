@@ -28,6 +28,8 @@ public final class WarheadRenderPipelines {
 	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke", false, 0.02F);
 	/* Only dense macro-voxel cores write depth to reject hidden overlapping clouds. */
 	private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke_core", true, 0.18F);
+	/* Surface voxels are opaque-looking but do not write depth, preserving water behind the cloud. */
+	private static final RenderPipeline VOXEL_SMOKE_PIPELINE = translucent("pipeline/war_mod_voxel_smoke", false, 0.08F);
 	private static final RenderPipeline COOL_FIRE_PIPELINE = translucent("pipeline/war_mod_cooling_fire", false);
 	private static final RenderPipeline GROUND_RIPPLE_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
@@ -71,12 +73,13 @@ public final class WarheadRenderPipelines {
 	public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
 	public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
 	public static final RenderType HEAVY_SMOKE_CORE = create("war_mod_heavy_smoke_core", HEAVY_SMOKE_CORE_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
+	public static final RenderType VOXEL_SMOKE = create("war_mod_voxel_smoke", VOXEL_SMOKE_PIPELINE, texture("voxel_cloud.png"), true, false, false);
 	public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, true);
 	public static final RenderType FIREBALL_HOT = createClamped("war_mod_fireball_hot", HOT_FIRE_PIPELINE, texture("fireball_sheet.png"), false, true);
 	public static final RenderType VOXEL_FIRE_COOL = createClamped("war_mod_voxel_fire_cool", COOL_FIRE_PIPELINE,
-		Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), true, true);
+		texture("voxel_cloud.png"), true, false);
 	public static final RenderType VOXEL_FIRE_HOT = createClamped("war_mod_voxel_fire_hot", HOT_FIRE_PIPELINE,
-		Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
+		texture("voxel_cloud.png"), false, false);
 	public static final RenderType NUCLEAR_FLASH = createClamped("war_mod_nuclear_flash", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
 	public static final RenderType REENTRY_PLASMA = createClamped("war_mod_reentry_plasma", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
 	public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;

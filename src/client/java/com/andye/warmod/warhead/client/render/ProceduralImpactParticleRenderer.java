@@ -50,10 +50,10 @@ public final class ProceduralImpactParticleRenderer {
 			0.0, 1.0), 0.72);
 		if (fade <= 0.001) return;
 
-		double logicalLivingParticles = (nuclear ? 12_000.0 : 3_800.0)
-			* profile.particleScale() * (nuclear ? 105.0 : 80.0);
+		double logicalLivingParticles = (nuclear ? 5_200.0 : 2_200.0)
+			* profile.particleScale() * (nuclear ? 36.0 : 28.0);
 		double weight = Math.max(1.0, logicalLivingParticles / Math.max(1, samples));
-		float densityRadiusScale = (float) Mth.clamp(Math.cbrt(weight), 1.0, 3.6);
+		float densityRadiusScale = (float) Mth.clamp(Math.cbrt(weight), 1.0, 2.25);
 		float geometryScale = nuclear ? Mth.clamp(visualScale / 3.0F, 0.58F, 1.55F) : Mth.clamp(visualScale, 0.55F, 1.65F);
 		Basis basis = Basis.from(camera);
 
@@ -77,9 +77,9 @@ public final class ProceduralImpactParticleRenderer {
 			double drift = particleAge * (0.003 + unit(value, 8) * 0.012);
 			Vec3 center = lobeCenter.add(x + Math.cos(driftAngle) * drift, y, z + Math.sin(driftAngle) * drift);
 
-			float baseRadius = (float) ((1.15 + unit(value, 9) * 2.7) * geometryScale);
+			float baseRadius = (float) ((0.58 + unit(value, 9) * 1.42) * geometryScale);
 			float radius = baseRadius * densityRadiusScale * (float) (0.82 + progress * 0.72);
-			double baseAlpha = lobe.opacity() * 0.018 * Math.pow(1.0 - progress, 0.42) * fade;
+			double baseAlpha = lobe.opacity() * 0.011 * Math.pow(1.0 - progress, 0.42) * fade;
 			float alpha = opticalAlpha(baseAlpha, weight);
 			if (alpha <= 0.003F) continue;
 			float rotation = (float) (unit(value, 10) * Mth.TWO_PI + particleAge * (unit(value, 11) - 0.5) * 0.008);
@@ -100,9 +100,9 @@ public final class ProceduralImpactParticleRenderer {
 			: smooth(cooling / 0.30) * Math.pow(1.0 - cooling, 0.52);
 		if (intensity <= 0.002) return;
 
-		double logicalParticles = (nuclear ? 22_000.0 : 11_500.0) * profile.particleScale() * intensity;
+		double logicalParticles = (nuclear ? 8_000.0 : 4_600.0) * profile.particleScale() * intensity;
 		double weight = Math.max(1.0, logicalParticles / Math.max(1, samples));
-		float densityRadiusScale = (float) Mth.clamp(Math.sqrt(weight), 1.0, 3.2);
+		float densityRadiusScale = (float) Mth.clamp(Math.sqrt(weight), 1.0, 2.15);
 		float geometryScale = nuclear ? Mth.clamp(visualScale / 3.0F, 0.58F, 1.55F) : Mth.clamp(visualScale, 0.45F, 1.70F);
 		Basis basis = Basis.from(camera);
 
@@ -132,10 +132,10 @@ public final class ProceduralImpactParticleRenderer {
 				dz * distance * geometryScale + Math.sin(azimuth + (float) (Math.PI * 0.5)) * turbulence
 			);
 
-			float baseSize = (float) ((0.85 + unit(value, 8) * 2.15) * geometryScale);
+			float baseSize = (float) ((0.48 + unit(value, 8) * 1.34) * geometryScale);
 			float radius = baseSize * densityRadiusScale * (float) (0.75 + progress * 0.72);
 			double particleFade = Math.pow(1.0 - progress, hotPass ? 0.34 : 0.72);
-			float alpha = opticalAlpha((hotPass ? 0.036 : 0.030) * particleFade * intensity, weight);
+			float alpha = opticalAlpha((hotPass ? 0.024 : 0.019) * particleFade * intensity, weight);
 			if (alpha <= 0.003F) continue;
 
 			int red = hotPass ? 255 : Mth.lerpInt((float) progress, 208, 72);
@@ -154,24 +154,24 @@ public final class ProceduralImpactParticleRenderer {
 
 	private static int fireSamples(final WarheadMesh.Lod lod, final boolean nuclear) {
 		return switch (lod) {
-			case NEAR -> nuclear ? 1_536 : 1_024;
-			case MEDIUM -> nuclear ? 768 : 512;
-			case FAR -> nuclear ? 256 : 160;
+			case NEAR -> nuclear ? 960 : 640;
+			case MEDIUM -> nuclear ? 480 : 320;
+			case FAR -> nuclear ? 160 : 104;
 		};
 	}
 
 	private static int smokeSamples(final WarheadMesh.Lod lod, final boolean nuclear) {
 		return switch (lod) {
-			case NEAR -> nuclear ? 2_048 : 1_024;
-			case MEDIUM -> nuclear ? 1_024 : 512;
-			case FAR -> nuclear ? 320 : 160;
+			case NEAR -> nuclear ? 1_120 : 640;
+			case MEDIUM -> nuclear ? 560 : 320;
+			case FAR -> nuclear ? 176 : 104;
 		};
 	}
 
 	private static float opticalAlpha(final double perParticleAlpha, final double representedParticles) {
 		double base = Mth.clamp(perParticleAlpha, 0.0, 0.95);
 		double result = 1.0 - Math.pow(1.0 - base, Math.max(1.0, representedParticles));
-		return (float) Mth.clamp(result, 0.0, 0.84);
+		return (float) Mth.clamp(result, 0.0, 0.68);
 	}
 
 	private static void billboard(final PoseStack.Pose pose, final VertexConsumer buffer, final Vec3 center,

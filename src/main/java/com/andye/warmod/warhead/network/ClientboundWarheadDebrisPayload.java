@@ -105,7 +105,7 @@ public record ClientboundWarheadDebrisPayload(
 				&& finite(velocityX) && finite(velocityY) && finite(velocityZ)
 				&& finite(spinX) && finite(spinY) && finite(spinZ)
 				&& finite(scale) && scale > 0.05F && scale <= 4.0F
-				&& clusterSize >= 1 && clusterSize <= 3
+				&& clusterSize >= 1 && clusterSize <= 5
 				&& lifetime >= 1 && lifetime <= 400;
 		}
 

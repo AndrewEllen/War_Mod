@@ -196,13 +196,13 @@ public final class WarheadImpactService {
 			Vec3 outward = radial.normalize();
 			Vec3 sideways = new Vec3(-outward.z, 0.0, outward.x);
 			double normalized = Math.min(1.0, Math.sqrt(radial.lengthSqr()) / craterProfile.horizontalRadius());
-			double horizontal = (large ? random.nextDouble(0.20, 0.62) : random.nextDouble(0.28, 0.82))
+			double horizontal = (large ? random.nextDouble(0.32, 0.88) : random.nextDouble(0.30, 0.86))
 				* yield.debrisVelocityScale();
-			double vertical = (large ? random.nextDouble(0.42, 1.05) : random.nextDouble(0.38, 0.96))
+			double vertical = (large ? random.nextDouble(0.72, 1.52) : random.nextDouble(0.42, 1.08))
 				+ (1.0 - normalized) * (yield.nuclear() ? 0.38 : 0.18);
 			Vec3 velocity = outward.scale(horizontal)
 				.add(sideways.scale(random.nextDouble(-0.12, 0.12)))
-				.add(0.0, Math.min(yield.nuclear() ? 2.1 : 1.35, vertical * yield.debrisVelocityScale()), 0.0);
+				.add(0.0, Math.min(yield.nuclear() ? 3.05 : 1.90, vertical * yield.debrisVelocityScale()), 0.0);
 			double spinLimit = large ? 0.075 : 0.24;
 			Vec3 spin = new Vec3(
 				random.nextDouble(-spinLimit, spinLimit),
@@ -213,18 +213,18 @@ public final class WarheadImpactService {
 			int clusterSize;
 			float scale;
 			if (large && yield.nuclear()) {
-				clusterSize = index < Math.min(32, largeCount) ? random.nextInt(2, 4) : random.nextInt(1, 3);
-				scale = (float) random.nextDouble(0.82, 1.42);
+				clusterSize = index < Math.min(24, largeCount) ? random.nextInt(3, 6) : random.nextInt(2, 5);
+				scale = (float) random.nextDouble(1.05, 1.92);
 			} else if (large) {
-				clusterSize = random.nextDouble() < 0.32 ? 2 : 1;
-				scale = (float) random.nextDouble(0.72, 1.18);
+				clusterSize = random.nextDouble() < 0.52 ? random.nextInt(2, 5) : 1;
+				scale = (float) random.nextDouble(0.86, 1.48);
 			} else {
 				clusterSize = 1;
 				scale = (float) random.nextDouble(0.25, 0.66);
 			}
 			int lifetime = large
-				? random.nextInt(yield.nuclear() ? 95 : 70, yield.nuclear() ? 190 : 135)
-				: random.nextInt(50, 115);
+				? random.nextInt(yield.nuclear() ? 145 : 100, yield.nuclear() ? 285 : 205)
+				: random.nextInt(65, 145);
 			Vec3 offset = spawn.subtract(center);
 			entries.add(new ClientboundWarheadDebrisPayload.Entry(
 				Block.BLOCK_STATE_REGISTRY.getId(originalState),

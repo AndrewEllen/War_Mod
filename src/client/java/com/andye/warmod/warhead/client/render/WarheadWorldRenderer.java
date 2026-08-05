@@ -15,6 +15,7 @@ import com.andye.warmod.warhead.client.WarheadVisualState;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
@@ -39,6 +40,16 @@ public final class WarheadWorldRenderer {
 	private static final int[][] CLUSTER_THREE_OFFSETS = {
 		{0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1},
 		{0, 1, 0}, {1, 1, 0}, {0, 1, 1}, {-1, 1, 0}, {0, 2, 0}
+	};
+	private static final int[][] CLUSTER_FOUR_OFFSETS = {
+		{0,0,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
+		{0,1,0},{1,1,0},{-1,1,0},{0,1,1},{0,1,-1},{1,1,1},{-1,1,-1},{0,2,0},{1,2,0},{0,2,1}
+	};
+	private static final int[][] CLUSTER_FIVE_OFFSETS = {
+		{0,0,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
+		{2,0,0},{-2,0,0},{0,0,2},{0,0,-2},{0,1,0},{1,1,0},{-1,1,0},{0,1,1},{0,1,-1},
+		{1,1,1},{-1,1,1},{1,1,-1},{-1,1,-1},{2,1,0},{-2,1,0},{0,1,2},{0,1,-2},
+		{0,2,0},{1,2,0},{-1,2,0},{0,2,1},{0,2,-1},{1,2,1},{-1,2,-1},{0,3,0}
 	};
 	private static final double NEAR_DISTANCE = 192.0;
 	private static final double MEDIUM_DISTANCE = 640.0;
@@ -101,7 +112,7 @@ public final class WarheadWorldRenderer {
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			WarheadMesh.Lod lod = lod(distance);
 			float yieldRadiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
-			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age) * yieldRadiusScale;
+			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age, yieldRadiusScale);
 			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
 			List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile())
 				? state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime)
@@ -112,6 +123,7 @@ public final class WarheadWorldRenderer {
 				}
 			}
 			impacts.add(new ImpactFrame(
+				state.warheadId(),
 				state.impactPosition(),
 				age,
 				state.visualScale(),
@@ -202,27 +214,30 @@ public final class WarheadWorldRenderer {
 		float thicknessScale = (float) impact.profile().shockwaveThicknessScale() * yieldThicknessScale;
 		float alphaScale = (float) impact.profile().shockwaveAlphaScale()
 			* Mth.clamp(yieldThicknessScale, 0.72F, 1.28F);
-		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks()) * yieldRadiusScale;
+		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks(), yieldRadiusScale);
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
 		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
 			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer,
-				WarheadVisualMath.airShockwaveRadius(impact.ageTicks()) * yieldRadiusScale, impact.ageTicks(),
-				thicknessScale, alphaScale, impact.lod()));
+				WarheadVisualMath.airShockwaveRadius(impact.ageTicks(), yieldRadiusScale), impact.ageTicks(),
+				thicknessScale, alphaScale, yieldRadiusScale, impact.lod()));
 		if (groundEffects(impact.effectProfile())) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(),
 					impact.position(), groundDistance, frontierSpokeCount(impact.lod()),
-					groundFrontierWidth(impact.ageTicks(), thicknessScale),
-					groundFrontierAlpha(impact.ageTicks(), alphaScale), 208, 226, 244));
+					groundFrontierWidth(impact.ageTicks(), thicknessScale, yieldRadiusScale),
+					groundFrontierAlpha(impact.ageTicks(), alphaScale, yieldRadiusScale), 208, 226, 244));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(),
 					impact.position(), Math.max(0.0, groundDistance - 3.0 * thicknessScale),
-					frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), thicknessScale),
-					dustAlpha(impact.ageTicks(), alphaScale), 130, 119, 108));
+					frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), thicknessScale, yieldRadiusScale),
+					dustAlpha(impact.ageTicks(), alphaScale, yieldRadiusScale), 130, 119, 108));
 		}
 		poseStack.popPose();
+
+		CloudCluster cloud = cloudCluster(frame.impacts(), impact);
+		boolean renderMergedCloud = impact.renderVolumetrics() && cloud.leaderId().equals(impact.id());
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
@@ -231,28 +246,29 @@ public final class WarheadWorldRenderer {
 				impact.gameTime(), impact.lod(),
 				(float) impact.profile().shockwaveParticleDensityScale() * yieldThicknessScale,
 				frame.cameraOrientation()));
-		if (impact.renderVolumetrics()) {
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE_CORE,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, impact.ageTicks(),
-					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod()));
+		if (renderMergedCloud) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_SMOKE,
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), cloud.sources()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, impact.ageTicks(),
-					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.blastCloudLobes(),
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.blastCloudLobes(),
 					impact.lod(), frame.cameraOrientation()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_COOL,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, impact.ageTicks(),
-					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), false));
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), false, cloud.sources()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderCooling(pose, buffer, impact.ageTicks(),
-					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderCooling(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), frame.cameraOrientation()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_HOT,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, impact.ageTicks(),
-					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), true));
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), true, cloud.sources()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderHot(pose, buffer, impact.ageTicks(),
-					impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderHot(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), frame.cameraOrientation()));
 		}
-		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
+		if (impact.payloadType() == WarheadPayloadType.NUCLEAR
+			&& (renderMergedCloud || cloud.sources().size() == 1)) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
 				(pose, buffer) -> NuclearFlashRenderer.render(pose, buffer, impact.ageTicks(), frame.cameraOrientation()));
 		}
@@ -277,9 +293,11 @@ public final class WarheadWorldRenderer {
 				(float) sample.spin().x * sample.age(),
 				(float) sample.spin().y * sample.age(),
 				(float) sample.spin().z * sample.age()));
-			int clusterSize = distanceSquared > 192.0 * 192.0 || sample.pieceIndex() >= 64
+			int clusterSize = distanceSquared > 256.0 * 256.0 || sample.pieceIndex() >= 96
 				? 1 : sample.clusterSize();
-			int[][] offsets = clusterSize >= 3 ? CLUSTER_THREE_OFFSETS
+			int[][] offsets = clusterSize >= 5 ? CLUSTER_FIVE_OFFSETS
+				: clusterSize == 4 ? CLUSTER_FOUR_OFFSETS
+				: clusterSize == 3 ? CLUSTER_THREE_OFFSETS
 				: clusterSize == 2 ? CLUSTER_TWO_OFFSETS : null;
 			if (offsets == null) {
 				poseStack.translate(-0.5, -0.5, -0.5);
@@ -346,6 +364,64 @@ public final class WarheadWorldRenderer {
 			.setNormal(pose, normal.x, normal.y, normal.z);
 	}
 
+
+	private static CloudCluster cloudCluster(final List<ImpactFrame> impacts, final ImpactFrame anchor) {
+		float anchorRadiusScale = WarheadYieldScaling.radiusScale(anchor.payloadType(), anchor.visualScale());
+		double mergeRadius = (anchor.payloadType() == WarheadPayloadType.NUCLEAR ? 82.0 : 24.0)
+			* Math.max(0.55, anchorRadiusScale);
+		double maximumAgeDelta = anchor.payloadType() == WarheadPayloadType.NUCLEAR ? 180.0 : 72.0;
+		ArrayList<ImpactFrame> members = new ArrayList<>();
+		ImpactFrame leader = null;
+		for (ImpactFrame candidate : impacts) {
+			if (candidate.payloadType() != anchor.payloadType()
+				|| candidate.effectProfile() != anchor.effectProfile()) continue;
+			float candidateScale = WarheadYieldScaling.radiusScale(candidate.payloadType(), candidate.visualScale());
+			double candidateMerge = Math.max(mergeRadius,
+				(anchor.payloadType() == WarheadPayloadType.NUCLEAR ? 82.0 : 24.0) * candidateScale);
+			if (Math.abs(candidate.ageTicks() - anchor.ageTicks()) > maximumAgeDelta
+				|| candidate.position().distanceToSqr(anchor.position()) > candidateMerge * candidateMerge) continue;
+			members.add(candidate);
+			if (candidate.renderVolumetrics()
+				&& (leader == null || candidate.ageTicks() > leader.ageTicks())) leader = candidate;
+		}
+		if (members.isEmpty()) members.add(anchor);
+		if (leader == null) leader = anchor;
+
+		double volume = 0.0;
+		double maximumScale = 0.01;
+		long mergedSeed = 0x434C4F55445F4D35L;
+		ArrayList<VoxelImpactCloudRenderer.CloudSource> sources = new ArrayList<>(members.size());
+		for (ImpactFrame member : members) {
+			double scale = Math.max(0.05, member.visualScale());
+			volume += scale * scale * scale;
+			maximumScale = Math.max(maximumScale, scale);
+			mergedSeed ^= mixCloudSeed(member.visualSeed());
+			sources.add(new VoxelImpactCloudRenderer.CloudSource(
+				member.position().subtract(leader.position()),
+				member.ageTicks(),
+				member.visualScale(),
+				member.visualSeed()
+			));
+		}
+		float mergedScale = (float) Math.min(maximumScale * 1.90, Math.cbrt(volume));
+		return new CloudCluster(
+			leader.id(),
+			leader.ageTicks(),
+			mergedScale,
+			mergedSeed,
+			leader.profile(),
+			List.copyOf(sources)
+		);
+	}
+
+	private static long mixCloudSeed(long value) {
+		value ^= value >>> 30;
+		value *= 0xBF58476D1CE4E5B9L;
+		value ^= value >>> 27;
+		value *= 0x94D049BB133111EBL;
+		return value ^ value >>> 31;
+	}
+
 	private static boolean groundEffects(final WarheadEffectProfile effect) {
 		return effect != WarheadEffectProfile.ANTI_AIR_INTERCEPTION
 			&& effect != WarheadEffectProfile.ANTI_AIR_SAFE_SELF_DESTRUCT;
@@ -381,31 +457,35 @@ public final class WarheadWorldRenderer {
 		return new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), direction.normalize());
 	}
 
-	private static float groundFrontierWidth(final double age, final float scale) {
-		return (float) WarheadVisualMath.airShockwaveThickness(age, scale);
+	private static float groundFrontierWidth(final double age, final float scale, final float radiusScale) {
+		return (float) WarheadVisualMath.airShockwaveThickness(age, scale, radiusScale);
 	}
 
-	private static float groundFrontierAlpha(final double age, final float scale) {
-		return Mth.clamp((float) (WarheadVisualMath.groundShockwaveAlpha(age) * 0.74 * scale), 0.0F, 1.0F);
+	private static float groundFrontierAlpha(final double age, final float scale, final float radiusScale) {
+		return Mth.clamp((float) (WarheadVisualMath.groundShockwaveAlpha(age, radiusScale) * 0.74 * scale), 0.0F, 1.0F);
 	}
 
-	private static float dustWidth(final double age, final float scale) {
-		return (float) (WarheadVisualMath.airShockwaveThickness(age, scale) * 2.3);
+	private static float dustWidth(final double age, final float scale, final float radiusScale) {
+		return (float) (WarheadVisualMath.airShockwaveThickness(age, scale, radiusScale) * 2.3);
 	}
 
-	private static float dustAlpha(final double age, final float scale) {
-		return Mth.clamp((float) (WarheadVisualMath.groundShockwaveAlpha(age) * 0.58 * scale), 0.0F, 1.0F);
+	private static float dustAlpha(final double age, final float scale, final float radiusScale) {
+		return Mth.clamp((float) (WarheadVisualMath.groundShockwaveAlpha(age, radiusScale) * 0.58 * scale), 0.0F, 1.0F);
 	}
 
 	private record WarheadFrame(Vec3 position, Vec3 velocity, float progress, float elapsedTicks,
 		float remainingTicks, int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) {
 	}
 
-	private record ImpactFrame(Vec3 position, double ageTicks, float visualScale, long visualSeed,
+	private record ImpactFrame(UUID id, Vec3 position, double ageTicks, float visualScale, long visualSeed,
 		WarheadPayloadType payloadType, WarheadEffectProfile effectProfile, boolean renderVolumetrics,
 		WarheadClientVisualProfile profile,
 		WarheadMesh.Lod lod, List<TerrainShockfrontSpoke> shockfrontSpokes, List<TerrainShockfrontNode> dustNodes,
 		List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) {
+	}
+
+	private record CloudCluster(UUID leaderId, double ageTicks, float visualScale, long visualSeed,
+		WarheadClientVisualProfile profile, List<VoxelImpactCloudRenderer.CloudSource> sources) {
 	}
 
 	private record DebrisFrame(ClientDebrisBatchManager.RenderSample sample, MovingBlockRenderState movingBlock, int trailColour) {

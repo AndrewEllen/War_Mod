@@ -1,6 +1,9 @@
 package com.andye.warmod.warhead.client;
 
+import com.andye.warmod.acoustics.client.ExplosionShakeManager;
 import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadEffectProfile;
+import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.WarheadYieldScaling;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
@@ -30,6 +33,7 @@ public final class ClientWarheadVisualManager {
 	private final Map<UUID, WarheadVisualState> activeWarheads = new LinkedHashMap<>();
 	private final Map<UUID, ImpactVisualState> activeImpacts = new LinkedHashMap<>();
 	private final Set<UUID> volumetricImpacts = new HashSet<>();
+	private final Set<UUID> deliveredVisualShake = new HashSet<>();
 	private ClientLevel activeLevel;
 
 	private ClientWarheadVisualManager() {
@@ -47,6 +51,7 @@ public final class ClientWarheadVisualManager {
 		this.activeWarheads.remove(payload.warheadId());
 		this.activeImpacts.remove(payload.warheadId());
 		this.volumetricImpacts.remove(payload.warheadId());
+		this.deliveredVisualShake.remove(payload.warheadId());
 		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload);
 		this.assignVolumetricSlot(payload.warheadId(), incoming);
 		this.removeOldestImpactIfAtCapacity(WarheadConstants.MAX_ACTIVE_CLIENT_IMPACTS);
@@ -79,9 +84,12 @@ public final class ClientWarheadVisualManager {
 			Map.Entry<UUID, ImpactVisualState> entry = impactIterator.next();
 			if (entry.getValue().isExpired(gameTime, 0.0)) {
 				this.volumetricImpacts.remove(entry.getKey());
+				this.deliveredVisualShake.remove(entry.getKey());
 				impactIterator.remove();
 			}
 		}
+
+		this.deliverSupplementalImpactShake(client, gameTime);
 
 		int remainingTerrainBudget = TOTAL_TERRAIN_BUILD_BUDGET;
 		int impactCount = Math.max(1, this.activeImpacts.size());
@@ -92,7 +100,7 @@ public final class ClientWarheadVisualManager {
 			float radiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
 			double requiredDistance = Math.min(
 				TerrainShockfrontField.MAX_HORIZONTAL_RANGE,
-				WarheadVisualMath.groundShockwaveDistance(age) * radiusScale + TERRAIN_LOOKAHEAD_BLOCKS
+				WarheadVisualMath.groundShockwaveDistance(age, radiusScale) + TERRAIN_LOOKAHEAD_BLOCKS
 			);
 			int built = state.terrainShockfrontField().buildToDistance(
 				client.level,
@@ -109,6 +117,7 @@ public final class ClientWarheadVisualManager {
 		this.activeWarheads.clear();
 		this.activeImpacts.clear();
 		this.volumetricImpacts.clear();
+		this.deliveredVisualShake.clear();
 		TerrainSurfaceCache.INSTANCE.clear();
 		ClientDebrisBatchManager.INSTANCE.clear();
 		this.activeLevel = null;
@@ -124,6 +133,7 @@ public final class ClientWarheadVisualManager {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
 			this.volumetricImpacts.clear();
+			this.deliveredVisualShake.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = null;
@@ -133,11 +143,37 @@ public final class ClientWarheadVisualManager {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
 			this.volumetricImpacts.clear();
+			this.deliveredVisualShake.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = level;
 		}
 		return true;
+	}
+
+
+	private void deliverSupplementalImpactShake(final Minecraft client, final long gameTime) {
+		if (client.player == null) return;
+		Vec3 listener = client.player.position();
+		for (Map.Entry<UUID, ImpactVisualState> entry : this.activeImpacts.entrySet()) {
+			UUID id = entry.getKey();
+			if (this.deliveredVisualShake.contains(id)) continue;
+			ImpactVisualState state = entry.getValue();
+			boolean needsSupplement = state.payloadType() == WarheadPayloadType.NUCLEAR
+				|| state.effectProfile() == WarheadEffectProfile.TACTICAL_HE;
+			if (!needsSupplement) continue;
+			double distance = listener.distanceTo(state.impactPosition());
+			double arrivalTick = distance / WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
+			if (state.ageTicks(gameTime, 0.0) + 1.0E-4 < arrivalTick) continue;
+			float radiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
+			ExplosionShakeManager.INSTANCE.addVisualImpact(
+				state.visualSeed(),
+				distance,
+				radiusScale,
+				state.payloadType() == WarheadPayloadType.NUCLEAR
+			);
+			this.deliveredVisualShake.add(id);
+		}
 	}
 
 	/**
@@ -184,6 +220,7 @@ public final class ClientWarheadVisualManager {
 			UUID removed = iterator.next();
 			iterator.remove();
 			this.volumetricImpacts.remove(removed);
+			this.deliveredVisualShake.remove(removed);
 		}
 	}
 

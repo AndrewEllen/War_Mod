@@ -66,7 +66,9 @@ public final class WarheadExplosionWorkManager {
 	private static final int APPLICATION_SLICE = 256;
 	private static final int TIME_CHECK_INTERVAL = 32;
 	private static final int MAX_RESOLVED_DESCENT_BLOCKS = 768;
-	private static final int MAX_DEBRIS_SAMPLE = 384;
+	private static final int MAX_DEBRIS_SAMPLE = 512;
+	private static final int IMMEDIATE_SUPPORT_SCAN_HEIGHT = 12;
+	private static final int STRUCTURAL_SCAN_HEIGHT = 56;
 	private static final long FINISHED_WORK_EXPIRY_TICKS = 40L;
 	private static final int FAST_REMOVE_FLAGS = Block.UPDATE_CLIENTS
 		| Block.UPDATE_KNOWN_SHAPE
@@ -380,6 +382,7 @@ public final class WarheadExplosionWorkManager {
 		private ShapeTemplate template;
 		private int columnIndex;
 		private int currentY = Integer.MIN_VALUE;
+		private int currentTopY = Integer.MIN_VALUE;
 		private int currentWorldX;
 		private int currentWorldZ;
 		private Column currentColumn;
@@ -387,6 +390,9 @@ public final class WarheadExplosionWorkManager {
 		private int aftermathX;
 		private int aftermathZ;
 		private int aftermathStep;
+		private int structuralX;
+		private int structuralZ;
+		private int structuralStep;
 		private int rotation;
 		private boolean mirror;
 		private boolean finished;
@@ -410,9 +416,13 @@ public final class WarheadExplosionWorkManager {
 			this.rotation = (int) (mix(seed ^ 0x524F544154494F4EL) & 3L);
 			this.mirror = (mix(seed ^ 0x4D4952524F525F34L) & 1L) != 0L;
 			this.aftermathStep = profile.yield().nuclear() ? 2 : 1;
+			this.structuralStep = profile.horizontalRadius() >= 96.0 ? 2 : 1;
 			int radius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
 			this.aftermathX = -radius;
 			this.aftermathZ = -radius;
+			int structuralRadius = Mth.ceil(profile.horizontalRadius() * 1.08);
+			this.structuralX = -structuralRadius;
+			this.structuralZ = -structuralRadius;
 		}
 
 		private boolean templateReady() {
@@ -442,6 +452,7 @@ public final class WarheadExplosionWorkManager {
 								- 1 - Mth.floor(center.y);
 							top = Math.min(top, Math.max(currentColumn.bottomY, surfaceOffset));
 						}
+						currentTopY = top;
 						currentY = top;
 					}
 					if (currentY < currentColumn.bottomY) {
@@ -455,11 +466,16 @@ public final class WarheadExplosionWorkManager {
 						currentWorldZ
 					);
 					int yOffset = currentY--;
+					boolean topOfColumn = yOffset == currentTopY;
 					visited++;
-					if (destroyAt(level, levelWork, cursor, currentColumn.radial, yOffset)) changed++;
+					if (destroyAt(level, levelWork, cursor, currentColumn.radial, yOffset, topOfColumn)) changed++;
 				} else {
 					if (!aftermathStarted) aftermathStarted = true;
-					if (!advanceAftermath(level)) {
+					if (advanceAftermath(level)) {
+						visited++;
+						continue;
+					}
+					if (!advanceStructuralCleanup(level)) {
 						finished = true;
 						finishedAt = level.getGameTime();
 					}
@@ -475,7 +491,8 @@ public final class WarheadExplosionWorkManager {
 			final LevelWork levelWork,
 			final BlockPos position,
 			final double radial,
-			final int yOffset
+			final int yOffset,
+			final boolean topOfColumn
 		) {
 			if (!level.isInWorldBounds(position)) return false;
 			if (!level.getChunkSource().hasChunk(
@@ -507,10 +524,93 @@ public final class WarheadExplosionWorkManager {
 					state.onExplosionHit(level, position, explosion, (stack, dropPosition) -> { });
 					return true;
 				}
-				return level.setBlock(position, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				boolean changed = level.setBlock(position, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				if (changed && topOfColumn) removeUnsupportedAbove(level, position);
+				return changed;
 			} finally {
 				levelWork.release(packed);
 			}
+		}
+
+
+		private void removeUnsupportedAbove(final ServerLevel level, final BlockPos removedSupport) {
+			BlockPos.MutableBlockPos above = new BlockPos.MutableBlockPos();
+			for (int offset = 1; offset <= IMMEDIATE_SUPPORT_SCAN_HEIGHT; offset++) {
+				above.set(removedSupport.getX(), removedSupport.getY() + offset, removedSupport.getZ());
+				if (!level.isInWorldBounds(above)) break;
+				BlockState state = level.getBlockState(above);
+				if (state.isAir()) continue;
+				if (state.is(BlockTags.LEAVES)) {
+					level.setBlock(above, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+					continue;
+				}
+				if (isFragileSurface(state) || !state.canSurvive(level, above)) {
+					level.setBlock(above, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				}
+			}
+		}
+
+		private boolean advanceStructuralCleanup(final ServerLevel level) {
+			int radius = Mth.ceil(profile.horizontalRadius() * 1.08);
+			while (structuralX <= radius) {
+				int dx = structuralX;
+				int dz = structuralZ;
+				structuralZ += structuralStep;
+				if (structuralZ > radius) {
+					structuralZ = -radius;
+					structuralX += structuralStep;
+				}
+				if ((double) dx * dx + (double) dz * dz > (double) radius * radius) return true;
+				int x = Mth.floor(center.x) + dx;
+				int z = Mth.floor(center.z) + dz;
+				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return true;
+
+				int craterFloor = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+				int originalBandStart = Mth.floor(center.y) - 10;
+				int scanStart = Math.max(level.dimensionType().minY(), Math.min(craterFloor + 1, originalBandStart));
+				int scanEnd = Math.min(
+					level.dimensionType().minY() + level.dimensionType().height() - 1,
+					Math.max(craterFloor + STRUCTURAL_SCAN_HEIGHT, Mth.floor(center.y + profile.upwardRadius() + 36.0))
+				);
+				cleanupColumn(level, x, z, scanStart, scanEnd);
+				return true;
+			}
+			return false;
+		}
+
+		private void cleanupColumn(
+			final ServerLevel level,
+			final int x,
+			final int z,
+			final int minimumY,
+			final int maximumY
+		) {
+			BlockPos.MutableBlockPos scan = new BlockPos.MutableBlockPos();
+			for (int y = minimumY; y <= maximumY; y++) {
+				scan.set(x, y, z);
+				BlockState state = level.getBlockState(scan);
+				if (state.isAir()) continue;
+				if (state.is(BlockTags.LEAVES)) {
+					level.setBlock(scan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+					continue;
+				}
+				if (isFragileSurface(state) || !state.canSurvive(level, scan)) {
+					level.setBlock(scan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				}
+			}
+		}
+
+		private static boolean isFragileSurface(final BlockState state) {
+			return state.is(BlockTags.FLOWERS)
+				|| state.is(Blocks.SHORT_GRASS)
+				|| state.is(Blocks.TALL_GRASS)
+				|| state.is(Blocks.FERN)
+				|| state.is(Blocks.LARGE_FERN)
+				|| state.is(Blocks.DEAD_BUSH)
+				|| state.is(Blocks.SNOW)
+				|| state.is(Blocks.VINE)
+				|| state.is(Blocks.BROWN_MUSHROOM)
+				|| state.is(Blocks.RED_MUSHROOM);
 		}
 
 		private boolean advanceAftermath(final ServerLevel level) {
@@ -592,7 +692,9 @@ public final class WarheadExplosionWorkManager {
 				int z = Mth.floor(center.z + Math.sin(angle) * radius);
 				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
 				int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
-				int y = Math.max(level.dimensionType().minY(), surfaceY - random.nextInt(0, Math.max(2, (int) profile.downwardRadius() / 3)));
+				int y = result.size() < Math.max(8, target / 3)
+					? surfaceY
+					: Math.max(level.dimensionType().minY(), surfaceY - random.nextInt(0, Math.max(2, (int) profile.downwardRadius() / 3)));
 				cursor.set(x, y, z);
 				if (!level.isInWorldBounds(cursor)) continue;
 				long packed = cursor.asLong();

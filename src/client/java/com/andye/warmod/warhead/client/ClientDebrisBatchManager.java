@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -82,7 +83,25 @@ public final class ClientDebrisBatchManager {
 				if (!position.isFinite() || viewer.distanceToSqr(position) > maximumDistanceSquared) continue;
 				boolean onGround = false;
 				Vec3 currentVelocity = velocityAt(piece.velocity, age);
-				TerrainSurfaceCache.SurfaceSample surface = piece.scale >= 0.55F && age > 8.0 && currentVelocity.y < 0.0
+				if (piece.scale >= 0.70F && age > 1.0) {
+					Vec3 previous = batch.origin.add(displacement(piece.velocity, Math.max(0.0, age - 1.0))).add(piece.offset);
+					Vec3 delta = position.subtract(previous);
+					int steps = Math.max(1, Math.min(6, (int) Math.ceil(delta.length() / 0.72)));
+					for (int step = 1; step <= steps; step++) {
+						Vec3 samplePosition = previous.lerp(position, step / (double) steps);
+						BlockPos blockPosition = BlockPos.containing(samplePosition);
+						if (!level.hasChunkAt(blockPosition)) continue;
+						BlockState collisionState = level.getBlockState(blockPosition);
+						if (!collisionState.isAir()
+							&& !collisionState.getCollisionShape(level, blockPosition).isEmpty()) {
+							position = previous.lerp(position, Math.max(0, step - 1) / (double) steps);
+							currentVelocity = Vec3.ZERO;
+							onGround = true;
+							break;
+						}
+					}
+				}
+				TerrainSurfaceCache.SurfaceSample surface = !onGround && piece.scale >= 0.55F && age > 8.0 && currentVelocity.y < 0.0
 					? TerrainSurfaceCache.INSTANCE.sample(level, position.x, position.z) : null;
 				if (surface != null && position.y <= surface.position().y + 0.05) {
 					double settle = Math.max(0.0, age - piece.lifetime * 0.42);
