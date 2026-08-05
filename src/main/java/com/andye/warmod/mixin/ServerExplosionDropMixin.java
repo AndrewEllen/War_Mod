@@ -21,11 +21,13 @@ public abstract class ServerExplosionDropMixin {
 			target = "Lnet/minecraft/world/level/block/state/BlockState;onExplosionHit(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/Explosion;Ljava/util/function/BiConsumer;)V"
 		)
 	)
-	private void warMod$suppressTestWarheadDrops(final BlockState state, final ServerLevel level,
+	private void warMod$captureWarheadBlocks(final BlockState state, final ServerLevel level,
 		final BlockPos position, final Explosion explosion, final BiConsumer<ItemStack, BlockPos> dropConsumer) {
-		BiConsumer<ItemStack, BlockPos> scopedConsumer = WarheadExplosionDropContext.isActive()
-			? (stack, dropPosition) -> { }
-			: dropConsumer;
+		boolean active = WarheadExplosionDropContext.isActive();
+		BiConsumer<ItemStack, BlockPos> scopedConsumer = active ? (stack, dropPosition) -> { } : dropConsumer;
 		state.onExplosionHit(level, position, explosion, scopedConsumer);
+		if (active && !level.getBlockState(position).equals(state)) {
+			WarheadExplosionDropContext.recordDestroyed(position, state);
+		}
 	}
 }
