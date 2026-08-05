@@ -23,7 +23,7 @@ public enum PipeConnectionMode implements StringRepresentable {
         return switch (this) {
             case NONE -> "No connection";
             case PIPE -> "Pipe connection";
-            case INPUT -> "Input from inventory";
+            case INPUT -> "Extract from inventory";
             case OUTPUT -> "Output to inventory";
         };
     }

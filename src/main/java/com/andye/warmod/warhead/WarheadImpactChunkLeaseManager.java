@@ -107,6 +107,22 @@ public final class WarheadImpactChunkLeaseManager {
         extend(level, effectId, chunks, ticks);
     }
 
+    /**
+     * Returns true only after the complete leased area is loaded at simulation
+     * level. The ICBM controller uses this as a hard terminal-separation gate.
+     */
+    public static synchronized boolean ready(
+        final ServerLevel level,
+        final UUID id
+    ) {
+        Map<UUID, Lease> leases = LEASES.get(level);
+        Lease lease = leases == null ? null : leases.get(id);
+
+        return lease != null
+            && !lease.chunks().isEmpty()
+            && IcbmChunkTicketRegistry.allLoaded(level, lease.chunks());
+    }
+
     public static synchronized void release(
         final ServerLevel level,
         final UUID id

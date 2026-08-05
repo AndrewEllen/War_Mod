@@ -27,47 +27,48 @@ public record RadarDisplayRenderObservation(
         final double serverNow,
         final int sweepPeriod
     ) {
-        ClientRadarTrack track =
-            new ClientRadarTrack(observation.trackSnapshot());
+        ClientRadarTrack track = new ClientRadarTrack(
+            observation.trackSnapshot()
+        );
 
         double age = Math.max(
             0.0,
             serverNow - observation.observationGameTime()
         );
-
         double alpha;
 
         if (age >= sweepPeriod * 2.0) {
             alpha = 0.0;
         } else {
-            double unit = Math.min(
-                1.0,
-                age / sweepPeriod
-            );
-
+            double unit = Math.min(1.0, age / sweepPeriod);
             alpha = unit < 0.5
                 ? 1.0 - unit * 1.1
                 : 0.45 - (unit - 0.5) * 0.65;
         }
 
-        List<RadarDisplayRouteSection> routes =
-            new ArrayList<>();
+        /*
+         * Observations arrive only as the sweep crosses a contact. Continue
+         * evaluating the deterministic route at the current synchronized server
+         * time so contacts and completed route segments move smoothly between
+         * observations instead of jumping once per sweep.
+         */
+        double renderTime = Math.max(
+            serverNow,
+            observation.observedRouteTime()
+        );
+        List<RadarDisplayRouteSection> routes = new ArrayList<>();
 
         if (!track.carrierRoute().isEmpty()) {
             double duration = track.carrierDuration();
-
-            double current =
-                observation.trackSnapshot()
+            double current = observation.trackSnapshot()
                     .terminalPlans()
                     .isEmpty()
-                    ? Mth.clamp(
-                        track.carrierElapsed(
-                            observation.observedRouteTime()
-                        ),
-                        0.0,
-                        duration
-                    )
-                    : duration;
+                ? Mth.clamp(
+                    track.carrierElapsed(renderTime),
+                    0.0,
+                    duration
+                )
+                : duration;
 
             routes.add(new RadarDisplayRouteSection(
                 track.carrierRoute(),
@@ -79,23 +80,17 @@ public record RadarDisplayRenderObservation(
             ));
         }
 
-        // Render every cluster terminal child rather than only the first.
-        for (var terminal
-            : observation.trackSnapshot().terminalPlans()) {
+        for (var terminal : observation.trackSnapshot().terminalPlans()) {
             double duration = terminal.flightTicks();
             double current = Mth.clamp(
-                observation.observedRouteTime()
-                    - terminal.launchGameTime(),
+                renderTime - terminal.launchGameTime(),
                 0.0,
                 duration
             );
-
             List<Vec3> points = new ArrayList<>(49);
 
             for (int index = 0; index <= 48; index++) {
-                double elapsed =
-                    duration * index / 48.0;
-
+                double elapsed = duration * index / 48.0;
                 points.add(WarheadTrajectory.position(
                     terminal.startPosition(),
                     terminal.targetPosition(),
@@ -106,11 +101,7 @@ public record RadarDisplayRenderObservation(
 
             routes.add(new RadarDisplayRouteSection(
                 points,
-                completedSegments(
-                    points.size(),
-                    current,
-                    duration
-                )
+                completedSegments(points.size(), current, duration)
             ));
         }
 
@@ -132,9 +123,9 @@ public record RadarDisplayRenderObservation(
         return new RadarDisplayRenderObservation(
             routes,
             track.launch(),
-            observation.observedPosition(),
+            track.position(renderTime),
             observation.predictedImpactPosition(),
-            (float)Math.max(0.0, Math.min(1.0, alpha)),
+            (float)Mth.clamp(alpha, 0.0, 1.0),
             rgb
         );
     }
@@ -154,8 +145,6 @@ public record RadarDisplayRenderObservation(
             1.0
         );
 
-        return (int)Math.floor(
-            fraction * (pointCount - 1)
-        );
+        return (int)Math.floor(fraction * (pointCount - 1));
     }
 }

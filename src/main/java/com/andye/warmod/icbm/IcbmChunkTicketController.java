@@ -11,13 +11,17 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 
 public final class IcbmChunkTicketController {
+    private static final long APPROACH_LEASE_REFRESH_TICKS = 200L;
+
     private final UUID missileId;
     private final Set<ChunkPos> held = new HashSet<>();
 
     private IcbmFlightPlan plan;
     private Set<ChunkPos> separationWindow = Set.of();
     private long separationReleaseElapsed = Long.MAX_VALUE;
+    private long nextApproachLeaseRefreshElapsed;
     private boolean finalApproachLeaseHeld;
+    private boolean finalApproachLeaseDirty;
     private boolean released;
 
     public IcbmChunkTicketController(final IcbmFlightPlan plan) {
@@ -40,10 +44,13 @@ public final class IcbmChunkTicketController {
         rebuildSeparationWindow();
 
         if (approachChanged) {
-            /* Re-arm on the next update. The lease manager merges safely if a
-             * previous route had already been acquired for this missile ID.
+            /*
+             * Guidance can move the intended target after launch. Replace the
+             * old approach lease on the next server tick rather than merging
+             * the obsolete target area into the new one.
              */
-            finalApproachLeaseHeld = false;
+            finalApproachLeaseDirty = true;
+            nextApproachLeaseRefreshElapsed = 0L;
         }
     }
 
@@ -52,7 +59,12 @@ public final class IcbmChunkTicketController {
             return;
         }
 
-        preArmFinalApproach(level, elapsed);
+        /*
+         * The target is known from launch. Begin generating and simulation-
+         * loading the complete defensive approach area immediately instead of
+         * waiting until ten seconds before separation.
+         */
+        maintainFinalApproachLease(level, elapsed);
 
         HashSet<ChunkPos> wanted = new HashSet<>();
         long boostEnd = (long)plan.ignitionTicks() + plan.boostTicks();
@@ -76,9 +88,17 @@ public final class IcbmChunkTicketController {
         replace(level, wanted);
     }
 
+    /**
+     * Terminal separation is blocked until both the handoff area and the full
+     * 7x7 impact square plus 500-block, three-chunk-wide incoming corridor are
+     * loaded at entity-ticking simulation level.
+     */
     public boolean separationReady(final ServerLevel level) {
-        return !separationWindow.isEmpty()
-            && IcbmChunkTicketRegistry.allLoaded(level, separationWindow);
+        return finalApproachLeaseHeld
+            && !finalApproachLeaseDirty
+            && !separationWindow.isEmpty()
+            && IcbmChunkTicketRegistry.allLoaded(level, separationWindow)
+            && WarheadImpactChunkLeaseManager.ready(level, missileId);
     }
 
     public void markSeparated(final long elapsed) {
@@ -92,23 +112,31 @@ public final class IcbmChunkTicketController {
         }
 
         replace(level, Set.of());
+        WarheadImpactChunkLeaseManager.release(level, missileId);
+        finalApproachLeaseHeld = false;
+        finalApproachLeaseDirty = false;
         released = true;
 
         if (SharedConstants.IS_RUNNING_IN_IDE) {
             WarMod.LOGGER.info(
-                "ICBM {} released carrier tickets",
+                "ICBM {} released carrier and final-approach tickets",
                 missileId
             );
         }
     }
 
-    private void preArmFinalApproach(
+    private void maintainFinalApproachLease(
         final ServerLevel level,
         final long elapsed
     ) {
+        if (finalApproachLeaseDirty && finalApproachLeaseHeld) {
+            WarheadImpactChunkLeaseManager.release(level, missileId);
+            finalApproachLeaseHeld = false;
+            finalApproachLeaseDirty = false;
+        }
+
         if (finalApproachLeaseHeld
-            || elapsed < plan.separationTick()
-                - IcbmConstants.FINAL_APPROACH_TICKET_LEAD_TICKS) {
+            && elapsed < nextApproachLeaseRefreshElapsed) {
             return;
         }
 
@@ -132,6 +160,9 @@ public final class IcbmChunkTicketController {
             leaseTicks
         );
         finalApproachLeaseHeld = true;
+        finalApproachLeaseDirty = false;
+        nextApproachLeaseRefreshElapsed = elapsed
+            + APPROACH_LEASE_REFRESH_TICKS;
     }
 
     private void rebuildSeparationWindow() {
