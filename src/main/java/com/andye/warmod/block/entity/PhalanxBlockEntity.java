@@ -7,9 +7,11 @@ import com.andye.warmod.phalanx.PhalanxBulletManager;
 import com.andye.warmod.phalanx.PhalanxConstants;
 import com.andye.warmod.phalanx.PhalanxGunStatus;
 import com.andye.warmod.phalanx.PhalanxLeadSolver;
+import com.andye.warmod.phalanx.PhalanxTargetClaimRegistry;
 import com.andye.warmod.phalanx.PhalanxTargetSelector;
 import com.andye.warmod.phalanx.PhalanxTargetService;
 import com.andye.warmod.phalanx.PhalanxTargetSnapshot;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
@@ -35,15 +37,10 @@ public final class PhalanxBlockEntity
     extends BlockEntity
     implements WorldlyContainer {
 
-    private static final int[] SLOTS = {
-        0,
-        1
-    };
+    private static final int[] SLOTS = createSlots();
 
-    private final ItemStack[] ammo = {
-        ItemStack.EMPTY,
-        ItemStack.EMPTY
-    };
+    private final ItemStack[] ammo =
+        new ItemStack[PhalanxConstants.AMMO_SLOT_COUNT];
 
     private UUID turretId =
         UUID.randomUUID();
@@ -96,6 +93,8 @@ public final class PhalanxBlockEntity
             position,
             state
         );
+
+        Arrays.fill(ammo, ItemStack.EMPTY);
 
         if (
             state.hasProperty(
@@ -163,8 +162,13 @@ public final class PhalanxBlockEntity
     }
 
     public int rounds() {
-        return ammo[0].getCount()
-            + ammo[1].getCount();
+        int total = 0;
+
+        for (ItemStack stack : ammo) {
+            total += stack.getCount();
+        }
+
+        return total;
     }
 
     public PhalanxGunStatus status() {
@@ -232,6 +236,11 @@ public final class PhalanxBlockEntity
             currentTarget =
                 null;
 
+            PhalanxTargetClaimRegistry.release(
+                level,
+                turretId
+            );
+
             cool();
 
             broadcastStateIfNeeded(
@@ -248,6 +257,11 @@ public final class PhalanxBlockEntity
 
             currentTarget =
                 null;
+
+            PhalanxTargetClaimRegistry.release(
+                level,
+                turretId
+            );
 
             cool();
 
@@ -277,16 +291,14 @@ public final class PhalanxBlockEntity
             );
 
         PhalanxTargetSnapshot target =
-            retainedTarget(candidates);
-
-        if (target == null) {
-            target =
-                PhalanxTargetSelector.select(
-                    centre,
-                    pivot,
-                    candidates
-                ).orElse(null);
-        }
+            PhalanxTargetSelector.select(
+                level,
+                turretId,
+                currentTarget,
+                centre,
+                pivot,
+                candidates
+            ).orElse(null);
 
         if (target == null) {
             status =
@@ -294,6 +306,11 @@ public final class PhalanxBlockEntity
 
             currentTarget =
                 null;
+
+            PhalanxTargetClaimRegistry.release(
+                level,
+                turretId
+            );
 
             cool();
 
@@ -307,6 +324,13 @@ public final class PhalanxBlockEntity
 
         currentTarget =
             target.targetId();
+
+        PhalanxTargetClaimRegistry.claim(
+            level,
+            turretId,
+            currentTarget,
+            level.getGameTime()
+        );
 
         boolean insideFiringCylinder =
             PhalanxTargetSelector
@@ -610,25 +634,6 @@ public final class PhalanxBlockEntity
         );
     }
 
-    private @Nullable PhalanxTargetSnapshot retainedTarget(
-        final List<PhalanxTargetSnapshot> candidates
-    ) {
-        if (currentTarget == null) {
-            return null;
-        }
-
-        return candidates.stream()
-            .filter(candidate ->
-                candidate.targetId()
-                    .equals(currentTarget)
-            )
-            .filter(
-                PhalanxTargetSelector::trackable
-            )
-            .findFirst()
-            .orElse(null);
-    }
-
     private static @Nullable Vec3 directTrackingDirection(
         final Vec3 origin,
         final Vec3 target
@@ -879,7 +884,7 @@ public final class PhalanxBlockEntity
 
     @Override
     public int getContainerSize() {
-        return 2;
+        return ammo.length;
     }
 
     @Override
@@ -1002,12 +1007,7 @@ public final class PhalanxBlockEntity
 
     @Override
     public void clearContent() {
-        ammo[0] =
-            ItemStack.EMPTY;
-
-        ammo[1] =
-            ItemStack.EMPTY;
-
+        Arrays.fill(ammo, ItemStack.EMPTY);
         sync();
     }
 
@@ -1093,17 +1093,13 @@ public final class PhalanxBlockEntity
             shotSequence
         );
 
-        output.store(
-            "ammo_0",
-            ItemStack.CODEC,
-            ammo[0]
-        );
-
-        output.store(
-            "ammo_1",
-            ItemStack.CODEC,
-            ammo[1]
-        );
+        for (int index = 0; index < ammo.length; index++) {
+            output.store(
+                "ammo_" + index,
+                ItemStack.CODEC,
+                ammo[index]
+            );
+        }
     }
 
     @Override
@@ -1181,21 +1177,38 @@ public final class PhalanxBlockEntity
                 0L
             );
 
-        ammo[0] =
-            input.read(
-                "ammo_0",
-                ItemStack.CODEC
-            ).orElse(
-                ItemStack.EMPTY
-            );
+        for (int index = 0; index < ammo.length; index++) {
+            ammo[index] =
+                input.read(
+                    "ammo_" + index,
+                    ItemStack.CODEC
+                ).orElse(
+                    ItemStack.EMPTY
+                );
+        }
+    }
 
-        ammo[1] =
-            input.read(
-                "ammo_1",
-                ItemStack.CODEC
-            ).orElse(
-                ItemStack.EMPTY
+    private static int[] createSlots() {
+        int[] slots =
+            new int[PhalanxConstants.AMMO_SLOT_COUNT];
+
+        for (int index = 0; index < slots.length; index++) {
+            slots[index] = index;
+        }
+
+        return slots;
+    }
+
+    @Override
+    public void setRemoved() {
+        if (level instanceof ServerLevel server) {
+            PhalanxTargetClaimRegistry.release(
+                server,
+                turretId
             );
+        }
+
+        super.setRemoved();
     }
 
     @Override

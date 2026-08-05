@@ -20,45 +20,10 @@ public final class RadarDisplayPrimitiveBuilder {
         final double depth,
         final int argb
     ) {
-        vertex(
-            pose,
-            buffer,
-            plane,
-            minimumX,
-            minimumY,
-            depth,
-            argb
-        );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
-            maximumX,
-            minimumY,
-            depth,
-            argb
-        );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
-            maximumX,
-            maximumY,
-            depth,
-            argb
-        );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
-            minimumX,
-            maximumY,
-            depth,
-            argb
-        );
+        vertex(pose, buffer, plane, minimumX, minimumY, depth, argb);
+        vertex(pose, buffer, plane, maximumX, minimumY, depth, argb);
+        vertex(pose, buffer, plane, maximumX, maximumY, depth, argb);
+        vertex(pose, buffer, plane, minimumX, maximumY, depth, argb);
     }
 
     public static void line(
@@ -78,53 +43,95 @@ public final class RadarDisplayPrimitiveBuilder {
         double length = Math.hypot(deltaX, deltaY);
 
         if (!Double.isFinite(length)
-            || length < 1.0E-7) {
+            || length < 1.0E-7
+            || !Double.isFinite(width)
+            || width <= 0.0) {
             return;
         }
 
-        double perpendicularX =
-            -deltaY / length * width * 0.5;
+        double perpendicularX = -deltaY / length * width * 0.5;
+        double perpendicularY = deltaX / length * width * 0.5;
 
-        double perpendicularY =
-            deltaX / length * width * 0.5;
-
-        vertex(
-            pose,
-            buffer,
-            plane,
+        Point startLeft = new Point(
             startX + perpendicularX,
-            startY + perpendicularY,
-            depth,
-            argb
+            startY + perpendicularY
         );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
+        Point startRight = new Point(
             startX - perpendicularX,
-            startY - perpendicularY,
-            depth,
-            argb
+            startY - perpendicularY
         );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
+        Point endRight = new Point(
             endX - perpendicularX,
-            endY - perpendicularY,
-            depth,
-            argb
+            endY - perpendicularY
+        );
+        Point endLeft = new Point(
+            endX + perpendicularX,
+            endY + perpendicularY
         );
 
-        vertex(
+        double backDepth = depth;
+        double frontDepth = depth + 0.006;
+
+        quad(
             pose,
             buffer,
             plane,
-            endX + perpendicularX,
-            endY + perpendicularY,
-            depth,
+            startLeft,
+            startRight,
+            endRight,
+            endLeft,
+            frontDepth,
+            argb
+        );
+        quad(
+            pose,
+            buffer,
+            plane,
+            endLeft,
+            endRight,
+            startRight,
+            startLeft,
+            backDepth,
+            argb
+        );
+        side(
+            pose,
+            buffer,
+            plane,
+            startLeft,
+            endLeft,
+            backDepth,
+            frontDepth,
+            argb
+        );
+        side(
+            pose,
+            buffer,
+            plane,
+            endRight,
+            startRight,
+            backDepth,
+            frontDepth,
+            argb
+        );
+        side(
+            pose,
+            buffer,
+            plane,
+            startRight,
+            startLeft,
+            backDepth,
+            frontDepth,
+            argb
+        );
+        side(
+            pose,
+            buffer,
+            plane,
+            endLeft,
+            endRight,
+            backDepth,
+            frontDepth,
             argb
         );
     }
@@ -140,8 +147,7 @@ public final class RadarDisplayPrimitiveBuilder {
         final double depth,
         final int argb
     ) {
-        RadarDisplayMapTransform.Segment segment =
-            transform.clip(start, end);
+        RadarDisplayMapTransform.Segment segment = transform.clip(start, end);
 
         if (segment == null) {
             return;
@@ -174,37 +180,23 @@ public final class RadarDisplayPrimitiveBuilder {
         final double projectedWidth,
         final double depth
     ) {
-        for (int index = 0;
-            index + 1 < points.size();
-            index++) {
-            boolean completed =
-                index < completedSegments;
+        for (int index = 0; index + 1 < points.size(); index++) {
+            boolean completed = index < completedSegments;
 
-            // Projected route uses alternating segments.
             if (!completed && (index & 1) != 0) {
                 continue;
             }
-
-            RadarDisplayMapTransform.Point start =
-                transform.map(points.get(index));
-
-            RadarDisplayMapTransform.Point end =
-                transform.map(points.get(index + 1));
 
             clippedLine(
                 pose,
                 buffer,
                 plane,
                 transform,
-                start,
-                end,
-                completed
-                    ? completedWidth
-                    : projectedWidth,
+                transform.map(points.get(index)),
+                transform.map(points.get(index + 1)),
+                completed ? completedWidth : projectedWidth,
                 depth,
-                completed
-                    ? completedColour
-                    : projectedColour
+                completed ? completedColour : projectedColour
             );
         }
     }
@@ -221,22 +213,15 @@ public final class RadarDisplayPrimitiveBuilder {
         final double depth,
         final int argb
     ) {
-        if (!Double.isFinite(radius)
-            || radius <= 0.0) {
+        if (!Double.isFinite(radius) || radius <= 0.0) {
             return;
         }
 
-        int count = Math.max(
-            24,
-            Math.min(256, segments)
-        );
+        int count = Math.max(24, Math.min(256, segments));
 
         for (int index = 0; index < count; index++) {
-            double first =
-                Math.PI * 2.0 * index / count;
-
-            double second =
-                Math.PI * 2.0 * (index + 1) / count;
+            double first = Math.PI * 2.0 * index / count;
+            double second = Math.PI * 2.0 * (index + 1) / count;
 
             line(
                 pose,
@@ -263,45 +248,10 @@ public final class RadarDisplayPrimitiveBuilder {
         final double depth,
         final int argb
     ) {
-        vertex(
-            pose,
-            buffer,
-            plane,
-            centreX,
-            centreY + radius,
-            depth,
-            argb
-        );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
-            centreX + radius,
-            centreY,
-            depth,
-            argb
-        );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
-            centreX,
-            centreY - radius,
-            depth,
-            argb
-        );
-
-        vertex(
-            pose,
-            buffer,
-            plane,
-            centreX - radius,
-            centreY,
-            depth,
-            argb
-        );
+        vertex(pose, buffer, plane, centreX, centreY + radius, depth, argb);
+        vertex(pose, buffer, plane, centreX + radius, centreY, depth, argb);
+        vertex(pose, buffer, plane, centreX, centreY - radius, depth, argb);
+        vertex(pose, buffer, plane, centreX - radius, centreY, depth, argb);
     }
 
     public static void cross(
@@ -327,7 +277,6 @@ public final class RadarDisplayPrimitiveBuilder {
             depth,
             argb
         );
-
         line(
             pose,
             buffer,
@@ -342,9 +291,165 @@ public final class RadarDisplayPrimitiveBuilder {
         );
     }
 
-    public static void globalLineForTile(final PoseStack.Pose pose, final VertexConsumer buffer, final RadarDisplayPlaneTransform plane, final RadarDisplayMapTransform.Point start, final RadarDisplayMapTransform.Point end, final int tileX, final int tileY, final double width, final double depth, final int colour) { RadarDisplayTileClip.Segment segment=RadarDisplayTileClip.line(start,end,tileX,tileY); if(segment!=null) line(pose,buffer,plane,segment.start().x(),segment.start().y(),segment.end().x(),segment.end().y(),width,depth,colour); }
-    public static void globalMarkerForTile(final PoseStack.Pose pose, final VertexConsumer buffer, final RadarDisplayPlaneTransform plane, final RadarDisplayMapTransform.Point point, final int tileX, final int tileY, final double radius, final double depth, final int colour, final boolean crossMarker) { if(!RadarDisplayTileClip.contains(point,tileX,tileY))return;RadarDisplayTileClip.Point local=RadarDisplayTileClip.local(point,tileX,tileY);if(crossMarker)cross(pose,buffer,plane,local.x(),local.y(),radius,radius*.36,depth,colour);else diamond(pose,buffer,plane,local.x(),local.y(),radius,depth,colour); }
-    public static void globalRingForTile(final PoseStack.Pose pose, final VertexConsumer buffer, final RadarDisplayPlaneTransform plane, final double centreX, final double centreY, final double radius, final int segments, final int tileX, final int tileY, final double lineWidth, final double depth, final int colour) { int count=Math.max(64,segments);for(int index=0;index<count;index++){double first=Math.PI*2*index/count,second=Math.PI*2*(index+1)/count;globalLineForTile(pose,buffer,plane,new RadarDisplayMapTransform.Point(centreX+Math.cos(first)*radius,centreY+Math.sin(first)*radius),new RadarDisplayMapTransform.Point(centreX+Math.cos(second)*radius,centreY+Math.sin(second)*radius),tileX,tileY,lineWidth,depth,colour);} }
+    public static void globalLineForTile(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final RadarDisplayMapTransform.Point start,
+        final RadarDisplayMapTransform.Point end,
+        final int tileX,
+        final int tileY,
+        final double width,
+        final double depth,
+        final int colour
+    ) {
+        RadarDisplayTileClip.Segment segment = RadarDisplayTileClip.line(
+            start,
+            end,
+            tileX,
+            tileY
+        );
+
+        if (segment == null) {
+            return;
+        }
+
+        line(
+            pose,
+            buffer,
+            plane,
+            segment.start().x(),
+            segment.start().y(),
+            segment.end().x(),
+            segment.end().y(),
+            width,
+            depth,
+            colour
+        );
+    }
+
+    public static void globalMarkerForTile(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final RadarDisplayMapTransform.Point point,
+        final int tileX,
+        final int tileY,
+        final double radius,
+        final double depth,
+        final int colour,
+        final boolean crossMarker
+    ) {
+        if (!RadarDisplayTileClip.contains(point, tileX, tileY)) {
+            return;
+        }
+
+        RadarDisplayTileClip.Point local = RadarDisplayTileClip.local(
+            point,
+            tileX,
+            tileY
+        );
+
+        if (crossMarker) {
+            cross(
+                pose,
+                buffer,
+                plane,
+                local.x(),
+                local.y(),
+                radius,
+                radius * 0.36,
+                depth,
+                colour
+            );
+        } else {
+            diamond(
+                pose,
+                buffer,
+                plane,
+                local.x(),
+                local.y(),
+                radius,
+                depth,
+                colour
+            );
+        }
+    }
+
+    public static void globalRingForTile(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final double centreX,
+        final double centreY,
+        final double radius,
+        final int segments,
+        final int tileX,
+        final int tileY,
+        final double lineWidth,
+        final double depth,
+        final int colour
+    ) {
+        int count = Math.max(96, Math.min(256, segments));
+
+        for (int index = 0; index < count; index++) {
+            double first = Math.PI * 2.0 * index / count;
+            double second = Math.PI * 2.0 * (index + 1) / count;
+
+            globalLineForTile(
+                pose,
+                buffer,
+                plane,
+                new RadarDisplayMapTransform.Point(
+                    centreX + Math.cos(first) * radius,
+                    centreY + Math.sin(first) * radius
+                ),
+                new RadarDisplayMapTransform.Point(
+                    centreX + Math.cos(second) * radius,
+                    centreY + Math.sin(second) * radius
+                ),
+                tileX,
+                tileY,
+                lineWidth,
+                depth,
+                colour
+            );
+        }
+    }
+
+    private static void quad(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final Point first,
+        final Point second,
+        final Point third,
+        final Point fourth,
+        final double depth,
+        final int argb
+    ) {
+        vertex(pose, buffer, plane, first.x(), first.y(), depth, argb);
+        vertex(pose, buffer, plane, second.x(), second.y(), depth, argb);
+        vertex(pose, buffer, plane, third.x(), third.y(), depth, argb);
+        vertex(pose, buffer, plane, fourth.x(), fourth.y(), depth, argb);
+    }
+
+    private static void side(
+        final PoseStack.Pose pose,
+        final VertexConsumer buffer,
+        final RadarDisplayPlaneTransform plane,
+        final Point first,
+        final Point second,
+        final double backDepth,
+        final double frontDepth,
+        final int argb
+    ) {
+        vertex(pose, buffer, plane, first.x(), first.y(), backDepth, argb);
+        vertex(pose, buffer, plane, second.x(), second.y(), backDepth, argb);
+        vertex(pose, buffer, plane, second.x(), second.y(), frontDepth, argb);
+        vertex(pose, buffer, plane, first.x(), first.y(), frontDepth, argb);
+    }
+
     private static void vertex(
         final PoseStack.Pose pose,
         final VertexConsumer buffer,
@@ -362,22 +467,31 @@ public final class RadarDisplayPrimitiveBuilder {
         int green = argb >>> 8 & 0xFF;
         int blue = argb & 0xFF;
 
-        buffer
-            .addVertex(
-                pose,
-                (float)point.x,
-                (float)point.y,
-                (float)point.z
-            )
-            .setColor(red, green, blue, alpha)
-            .setUv(0.5F, 0.5F)
-            .setOverlay(0)
-            .setLight(0xF000F0)
-            .setNormal(
-                pose,
-                (float)normal.x,
-                (float)normal.y,
-                (float)normal.z
-            );
+        buffer.addVertex(
+            pose,
+            (float)point.x,
+            (float)point.y,
+            (float)point.z
+        ).setColor(
+            red,
+            green,
+            blue,
+            alpha
+        ).setUv(
+            0.5F,
+            0.5F
+        ).setOverlay(
+            0
+        ).setLight(
+            0xF000F0
+        ).setNormal(
+            pose,
+            (float)normal.x,
+            (float)normal.y,
+            (float)normal.z
+        );
+    }
+
+    private record Point(double x, double y) {
     }
 }

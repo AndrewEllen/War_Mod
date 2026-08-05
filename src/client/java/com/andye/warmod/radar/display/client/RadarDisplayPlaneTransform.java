@@ -10,7 +10,7 @@ public final class RadarDisplayPlaneTransform {
      * oblique angles and at distance. This remains visually flush while being
      * safely in front of the static block model.
      */
-    private static final double FRONT_OFFSET = 0.535;
+    private static final double FRONT_OFFSET = 0.565;
 
     private final Vec3 origin;
     private final Vec3 right;

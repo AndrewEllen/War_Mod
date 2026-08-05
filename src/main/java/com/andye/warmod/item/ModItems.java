@@ -1,16 +1,16 @@
 package com.andye.warmod.item;
 
+import com.andye.warmod.antiair.AntiAirMissileVariant;
 import com.andye.warmod.block.MissileSiloBlockItem;
 import com.andye.warmod.block.MissileSiloGuidanceSupportItem;
-import com.andye.warmod.block.RadarStationBlockItem;
 import com.andye.warmod.block.PhalanxTurretBlockItem;
-import net.minecraft.world.item.BlockItem;
-import com.andye.warmod.antiair.AntiAirMissileVariant;
+import com.andye.warmod.block.RadarStationBlockItem;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 
 public final class ModItems {
@@ -39,6 +39,8 @@ public final class ModItems {
     public static final ResourceKey<Item> ANTI_AIR_GUN_AMMO_KEY = key("anti_air_gun_ammo");
     public static final ResourceKey<Item> RADAR_DISPLAY_PANEL_KEY = key("radar_display_panel");
     public static final ResourceKey<Item> RADAR_LINKING_TOOL_KEY = key("radar_linking_tool");
+    public static final ResourceKey<Item> ITEM_PIPE_KEY = key("item_pipe");
+    public static final ResourceKey<Item> PIPE_WRENCH_KEY = key("pipe_wrench");
 
     public static final Item ACOUSTIC_TEST_STICK = new AcousticTestStickItem(properties(ACOUSTIC_TEST_STICK_KEY, 1));
     public static final Item ICBM_TEST_STICK = new IcbmTestStickItem(properties(ICBM_TEST_STICK_KEY, 1));
@@ -63,14 +65,27 @@ public final class ModItems {
     public static final Item RADAR_STATION = new RadarStationBlockItem(properties(RADAR_STATION_KEY, 1));
     public static final Item PHALANX_TURRET = new PhalanxTurretBlockItem(properties(PHALANX_TURRET_KEY, 1));
     public static final Item ANTI_AIR_GUN_AMMO = new Item(properties(ANTI_AIR_GUN_AMMO_KEY, 64));
-    public static final Item RADAR_DISPLAY_PANEL = new BlockItem(com.andye.warmod.block.ModBlocks.RADAR_DISPLAY_PANEL, properties(RADAR_DISPLAY_PANEL_KEY, 64));
+    public static final Item RADAR_DISPLAY_PANEL = new BlockItem(
+        com.andye.warmod.block.ModBlocks.RADAR_DISPLAY_PANEL,
+        properties(RADAR_DISPLAY_PANEL_KEY, 64)
+    );
     public static final Item RADAR_LINKING_TOOL = new RadarLinkingToolItem(properties(RADAR_LINKING_TOOL_KEY, 1));
+    public static final Item ITEM_PIPE = new BlockItem(
+        com.andye.warmod.block.ModBlocks.ITEM_PIPE,
+        properties(ITEM_PIPE_KEY, 64)
+    );
+    public static final Item PIPE_WRENCH = new PipeWrenchItem(properties(PIPE_WRENCH_KEY, 1));
+
     private static boolean registered;
 
-    private ModItems() { }
+    private ModItems() {
+    }
 
     public static void register() {
-        if (registered) return;
+        if (registered) {
+            return;
+        }
+
         register(ACOUSTIC_TEST_STICK_KEY, ACOUSTIC_TEST_STICK);
         register(ICBM_TEST_STICK_KEY, ICBM_TEST_STICK);
         register(NUCLEAR_TEST_STICK_KEY, NUCLEAR_TEST_STICK);
@@ -96,6 +111,8 @@ public final class ModItems {
         register(ANTI_AIR_GUN_AMMO_KEY, ANTI_AIR_GUN_AMMO);
         register(RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         register(RADAR_LINKING_TOOL_KEY, RADAR_LINKING_TOOL);
+        register(ITEM_PIPE_KEY, ITEM_PIPE);
+        register(PIPE_WRENCH_KEY, PIPE_WRENCH);
         registered = true;
     }
 
@@ -107,16 +124,24 @@ public final class ModItems {
         };
     }
 
-    private static void register(final ResourceKey<Item> key, final Item item) {
+    private static void register(
+        final ResourceKey<Item> key,
+        final Item item
+    ) {
         Registry.register(BuiltInRegistries.ITEM, key, item);
     }
 
     private static ResourceKey<Item> key(final String path) {
-        return ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath("war_mod", path));
+        return ResourceKey.create(
+            Registries.ITEM,
+            Identifier.fromNamespaceAndPath("war_mod", path)
+        );
     }
 
-    private static Item.Properties properties(final ResourceKey<Item> key, final int size) {
+    private static Item.Properties properties(
+        final ResourceKey<Item> key,
+        final int size
+    ) {
         return new Item.Properties().setId(key).stacksTo(size);
     }
 }
-

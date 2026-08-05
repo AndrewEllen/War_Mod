@@ -2,6 +2,7 @@ package com.andye.warmod.menu;
 
 import com.andye.warmod.block.entity.PhalanxBlockEntity;
 import com.andye.warmod.item.ModItems;
+import com.andye.warmod.phalanx.PhalanxConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -12,6 +13,9 @@ import net.minecraft.world.item.ItemStack;
 import org.jspecify.annotations.Nullable;
 
 public final class PhalanxMenu extends AbstractContainerMenu {
+    private static final int TURRET_SLOT_COUNT =
+        PhalanxConstants.AMMO_SLOT_COUNT;
+
     private final BlockPos centre;
     private final @Nullable PhalanxBlockEntity turret;
 
@@ -23,11 +27,10 @@ public final class PhalanxMenu extends AbstractContainerMenu {
         this(
             id,
             inventory,
-            inventory.player.level()
-                .getBlockEntity(data.centre())
-                instanceof PhalanxBlockEntity phalanx
-                    ? phalanx
-                    : null,
+            inventory.player.level().getBlockEntity(data.centre())
+                    instanceof PhalanxBlockEntity phalanx
+                ? phalanx
+                : null,
             data.centre()
         );
     }
@@ -37,12 +40,7 @@ public final class PhalanxMenu extends AbstractContainerMenu {
         final Inventory inventory,
         final PhalanxBlockEntity phalanx
     ) {
-        this(
-            id,
-            inventory,
-            phalanx,
-            phalanx.getBlockPos()
-        );
+        this(id, inventory, phalanx, phalanx.getBlockPos());
     }
 
     private PhalanxMenu(
@@ -51,80 +49,43 @@ public final class PhalanxMenu extends AbstractContainerMenu {
         final @Nullable PhalanxBlockEntity phalanx,
         final BlockPos centre
     ) {
-        super(
-            ModMenus.PHALANX,
-            id
-        );
+        super(ModMenus.PHALANX, id);
 
-        this.centre =
-            centre;
+        this.centre = centre;
+        turret = phalanx;
 
-        turret =
-            phalanx;
+        var container = phalanx == null
+            ? new SimpleContainer(TURRET_SLOT_COUNT)
+            : phalanx;
 
-        var container =
-            phalanx == null
-                ? new SimpleContainer(2)
-                : phalanx;
+        checkContainerSize(container, TURRET_SLOT_COUNT);
 
-        checkContainerSize(
-            container,
-            2
-        );
+        for (int slot = 0; slot < TURRET_SLOT_COUNT; slot++) {
+            int column = slot % 4;
+            int row = slot / 4;
 
-        addSlot(
-            new Slot(
+            addSlot(new Slot(
                 container,
-                0,
-                44,
-                46
+                slot,
+                44 + column * 24,
+                44 + row * 22
             ) {
                 @Override
-                public boolean mayPlace(
-                    final ItemStack stack
-                ) {
-                    return stack.is(
-                        ModItems.ANTI_AIR_GUN_AMMO
-                    );
+                public boolean mayPlace(final ItemStack stack) {
+                    return stack.is(ModItems.ANTI_AIR_GUN_AMMO);
                 }
-            }
-        );
+            });
+        }
 
-        addSlot(
-            new Slot(
-                container,
-                1,
-                116,
-                46
-            ) {
-                @Override
-                public boolean mayPlace(
-                    final ItemStack stack
-                ) {
-                    return stack.is(
-                        ModItems.ANTI_AIR_GUN_AMMO
-                    );
-                }
-            }
-        );
-
-        addStandardInventorySlots(
-            inventory,
-            10,
-            134
-        );
+        addStandardInventorySlots(inventory, 10, 166);
     }
 
     @Override
-    public boolean stillValid(
-        final Player player
-    ) {
+    public boolean stillValid(final Player player) {
         return turret != null
-            && player.level()
-                == turret.getLevel()
+            && player.level() == turret.getLevel()
             && player.distanceToSqr(
-                net.minecraft.world.phys.Vec3
-                    .atCenterOf(centre)
+                net.minecraft.world.phys.Vec3.atCenterOf(centre)
             ) <= 64.0;
     }
 
@@ -133,43 +94,32 @@ public final class PhalanxMenu extends AbstractContainerMenu {
         final Player player,
         final int index
     ) {
-        Slot slot =
-            getSlot(index);
+        Slot slot = getSlot(index);
 
         if (!slot.hasItem()) {
             return ItemStack.EMPTY;
         }
 
-        ItemStack stack =
-            slot.getItem();
+        ItemStack stack = slot.getItem();
+        ItemStack copy = stack.copy();
+        int playerEnd = TURRET_SLOT_COUNT + 36;
 
-        ItemStack copy =
-            stack.copy();
-
-        if (index < 2) {
-            if (
-                !moveItemStackTo(
-                    stack,
-                    2,
-                    38,
-                    true
-                )
-            ) {
+        if (index < TURRET_SLOT_COUNT) {
+            if (!moveItemStackTo(
+                stack,
+                TURRET_SLOT_COUNT,
+                playerEnd,
+                true
+            )) {
                 return ItemStack.EMPTY;
             }
-        } else if (
-            stack.is(
-                ModItems.ANTI_AIR_GUN_AMMO
-            )
-        ) {
-            if (
-                !moveItemStackTo(
-                    stack,
-                    0,
-                    2,
-                    false
-                )
-            ) {
+        } else if (stack.is(ModItems.ANTI_AIR_GUN_AMMO)) {
+            if (!moveItemStackTo(
+                stack,
+                0,
+                TURRET_SLOT_COUNT,
+                false
+            )) {
                 return ItemStack.EMPTY;
             }
         } else {
@@ -177,9 +127,7 @@ public final class PhalanxMenu extends AbstractContainerMenu {
         }
 
         if (stack.isEmpty()) {
-            slot.setByPlayer(
-                ItemStack.EMPTY
-            );
+            slot.setByPlayer(ItemStack.EMPTY);
         } else {
             slot.setChanged();
         }

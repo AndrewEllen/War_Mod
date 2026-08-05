@@ -1,0 +1,168 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "war_mod:block/item_pipe_core"
+      }
+    },
+    {
+      "when": {
+        "down": "pipe"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "down": "input"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_input",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "down": "output"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_output",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "up": "pipe"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm",
+        "x": 90
+      }
+    },
+    {
+      "when": {
+        "up": "input"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_input",
+        "x": 90
+      }
+    },
+    {
+      "when": {
+        "up": "output"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_output",
+        "x": 90
+      }
+    },
+    {
+      "when": {
+        "north": "pipe"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm"
+      }
+    },
+    {
+      "when": {
+        "north": "input"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_input"
+      }
+    },
+    {
+      "when": {
+        "north": "output"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_output"
+      }
+    },
+    {
+      "when": {
+        "south": "pipe"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "south": "input"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_input",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "south": "output"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_output",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "west": "pipe"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "west": "input"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_input",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "west": "output"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_output",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "east": "pipe"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "east": "input"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_input",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "east": "output"
+      },
+      "apply": {
+        "model": "war_mod:block/item_pipe_arm_output",
+        "y": 90
+      }
+    }
+  ]
+}

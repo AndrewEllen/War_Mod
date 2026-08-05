@@ -4,6 +4,7 @@ import com.andye.warmod.block.RadarDisplayPanelBlock;
 import com.andye.warmod.block.RadarStationStructure;
 import com.andye.warmod.block.entity.RadarDisplayPanelBlockEntity;
 import com.andye.warmod.block.entity.RadarStationBlockEntity;
+import com.andye.warmod.radar.RadarTrackPhase;
 import com.andye.warmod.radar.station.RadarStationConstants;
 import com.andye.warmod.radar.station.RadarStationObservation;
 import java.nio.charset.StandardCharsets;
@@ -257,6 +258,11 @@ public final class RadarDisplayStateService {
             RadarStationObservation observation
                 : station.observations()
         ) {
+            if (observation.trackSnapshot().phase()
+                == RadarTrackPhase.IMPACT) {
+                continue;
+            }
+
             observations.add(
                 observation
             );
