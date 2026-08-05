@@ -26,6 +26,7 @@ public final class PhalanxManager {
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             ACTIVE.clear();
             PhalanxChunkTicketManager.clear();
+            PhalanxTargetClaimRegistry.clearAll();
         });
 
         registered = true;
@@ -52,8 +53,6 @@ public final class PhalanxManager {
         PhalanxBlockEntity existingById = map.get(turret.turretId());
 
         if (existingById != null) {
-            // Permit a block-entity instance replacement at the same controller,
-            // for example after a chunk reload.
             if (existingById.getBlockPos().equals(turret.getBlockPos())) {
                 if (!PhalanxChunkTicketManager.register(
                     level,
@@ -116,6 +115,7 @@ public final class PhalanxManager {
         final ServerLevel level,
         final PhalanxBlockEntity turret
     ) {
+        PhalanxTargetClaimRegistry.release(level, turret.turretId());
         PhalanxChunkTicketManager.unregister(level, turret.turretId());
 
         Map<UUID, PhalanxBlockEntity> map = ACTIVE.get(level);

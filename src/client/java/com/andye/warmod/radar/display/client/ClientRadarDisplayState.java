@@ -15,6 +15,7 @@ public final class ClientRadarDisplayState {
     public static final ClientRadarDisplayState INSTANCE =
         new ClientRadarDisplayState();
 
+    private static final double STALE_TICKS = 60.0;
     private static final double EXPIRY_TICKS = 120.0;
 
     private final Map<Key, Entry> states = new HashMap<>();
@@ -22,28 +23,18 @@ public final class ClientRadarDisplayState {
     private ClientRadarDisplayState() {
     }
 
-    public void update(
-        final ClientboundRadarDisplayStatePayload payload
-    ) {
+    public void update(final ClientboundRadarDisplayStatePayload payload) {
         RadarDisplaySnapshot snapshot = payload.snapshot();
-
         double clientTime = currentClientTime();
-
         Key key = new Key(
             snapshot.dimension(),
             snapshot.controller().immutable(),
             snapshot.displayId()
         );
-
-        states.put(
-            key,
-            new Entry(snapshot, clientTime)
-        );
+        states.put(key, new Entry(snapshot, clientTime));
     }
 
-    public void clear(
-        final ClientboundRadarDisplayClearPayload payload
-    ) {
+    public void clear(final ClientboundRadarDisplayClearPayload payload) {
         states.remove(new Key(
             payload.dimension(),
             payload.controller().immutable(),
@@ -57,21 +48,25 @@ public final class ClientRadarDisplayState {
         final UUID displayId,
         final double clientTime
     ) {
-        Key key = new Key(
-            dimension,
-            controller,
-            displayId
-        );
-
+        Key key = new Key(dimension, controller, displayId);
         Entry entry = states.get(key);
 
         if (entry == null) {
             return null;
         }
 
-        double age = Math.max(0.0, clientTime - entry.receivedClientTime());
+        double age = Math.max(
+            0.0,
+            clientTime - entry.receivedClientTime()
+        );
+
+        if (age > EXPIRY_TICKS) {
+            states.remove(key);
+            return null;
+        }
+
         double serverNow = entry.snapshot().serverGameTime() + age;
-        return new View(entry.snapshot(), serverNow, age > 60.0);
+        return new View(entry.snapshot(), serverNow, age > STALE_TICKS);
     }
 
     public void clearAll() {

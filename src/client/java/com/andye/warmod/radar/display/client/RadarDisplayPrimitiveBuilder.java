@@ -26,6 +26,12 @@ public final class RadarDisplayPrimitiveBuilder {
         vertex(pose, buffer, plane, minimumX, maximumY, depth, argb);
     }
 
+    /**
+     * Emits one flat quad. The previous implementation extruded every line into
+     * a six-faced translucent prism; upload sorting could then interleave the
+     * prism faces with rings, markers and the sweep line, causing angle-dependent
+     * squares and missing arc sections.
+     */
     public static void line(
         final PoseStack.Pose pose,
         final VertexConsumer buffer,
@@ -52,86 +58,40 @@ public final class RadarDisplayPrimitiveBuilder {
         double perpendicularX = -deltaY / length * width * 0.5;
         double perpendicularY = deltaX / length * width * 0.5;
 
-        Point startLeft = new Point(
+        vertex(
+            pose,
+            buffer,
+            plane,
             startX + perpendicularX,
-            startY + perpendicularY
+            startY + perpendicularY,
+            depth,
+            argb
         );
-        Point startRight = new Point(
+        vertex(
+            pose,
+            buffer,
+            plane,
             startX - perpendicularX,
-            startY - perpendicularY
+            startY - perpendicularY,
+            depth,
+            argb
         );
-        Point endRight = new Point(
+        vertex(
+            pose,
+            buffer,
+            plane,
             endX - perpendicularX,
-            endY - perpendicularY
+            endY - perpendicularY,
+            depth,
+            argb
         );
-        Point endLeft = new Point(
+        vertex(
+            pose,
+            buffer,
+            plane,
             endX + perpendicularX,
-            endY + perpendicularY
-        );
-
-        double backDepth = depth;
-        double frontDepth = depth + 0.006;
-
-        quad(
-            pose,
-            buffer,
-            plane,
-            startLeft,
-            startRight,
-            endRight,
-            endLeft,
-            frontDepth,
-            argb
-        );
-        quad(
-            pose,
-            buffer,
-            plane,
-            endLeft,
-            endRight,
-            startRight,
-            startLeft,
-            backDepth,
-            argb
-        );
-        side(
-            pose,
-            buffer,
-            plane,
-            startLeft,
-            endLeft,
-            backDepth,
-            frontDepth,
-            argb
-        );
-        side(
-            pose,
-            buffer,
-            plane,
-            endRight,
-            startRight,
-            backDepth,
-            frontDepth,
-            argb
-        );
-        side(
-            pose,
-            buffer,
-            plane,
-            startRight,
-            startLeft,
-            backDepth,
-            frontDepth,
-            argb
-        );
-        side(
-            pose,
-            buffer,
-            plane,
-            endLeft,
-            endRight,
-            backDepth,
-            frontDepth,
+            endY + perpendicularY,
+            depth,
             argb
         );
     }
@@ -417,39 +377,6 @@ public final class RadarDisplayPrimitiveBuilder {
         }
     }
 
-    private static void quad(
-        final PoseStack.Pose pose,
-        final VertexConsumer buffer,
-        final RadarDisplayPlaneTransform plane,
-        final Point first,
-        final Point second,
-        final Point third,
-        final Point fourth,
-        final double depth,
-        final int argb
-    ) {
-        vertex(pose, buffer, plane, first.x(), first.y(), depth, argb);
-        vertex(pose, buffer, plane, second.x(), second.y(), depth, argb);
-        vertex(pose, buffer, plane, third.x(), third.y(), depth, argb);
-        vertex(pose, buffer, plane, fourth.x(), fourth.y(), depth, argb);
-    }
-
-    private static void side(
-        final PoseStack.Pose pose,
-        final VertexConsumer buffer,
-        final RadarDisplayPlaneTransform plane,
-        final Point first,
-        final Point second,
-        final double backDepth,
-        final double frontDepth,
-        final int argb
-    ) {
-        vertex(pose, buffer, plane, first.x(), first.y(), backDepth, argb);
-        vertex(pose, buffer, plane, second.x(), second.y(), backDepth, argb);
-        vertex(pose, buffer, plane, second.x(), second.y(), frontDepth, argb);
-        vertex(pose, buffer, plane, first.x(), first.y(), frontDepth, argb);
-    }
-
     private static void vertex(
         final PoseStack.Pose pose,
         final VertexConsumer buffer,
@@ -490,8 +417,5 @@ public final class RadarDisplayPrimitiveBuilder {
             (float)normal.y,
             (float)normal.z
         );
-    }
-
-    private record Point(double x, double y) {
     }
 }

@@ -27,6 +27,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -45,6 +46,10 @@ public final class ItemPipeBlock extends BaseEntityBlock {
 
     private static final Map<Direction, EnumProperty<PipeConnectionMode>> PROPERTIES =
         createProperties();
+
+    private static final double ARM_MIN = 5.0 / 16.0;
+    private static final double ARM_MAX = 11.0 / 16.0;
+    private static final double HIT_EPSILON = 0.035;
 
     private static final VoxelShape CORE =
         Block.box(5.0, 5.0, 5.0, 11.0, 11.0, 11.0);
@@ -105,8 +110,21 @@ public final class ItemPipeBlock extends BaseEntityBlock {
         BlockPos position = context.getClickedPos();
 
         for (Direction direction : Direction.values()) {
-            if (level.getBlockState(position.relative(direction))
-                .is(ModBlocks.ITEM_PIPE)) {
+            BlockState neighbour = level.getBlockState(
+                position.relative(direction)
+            );
+
+            if (!neighbour.is(ModBlocks.ITEM_PIPE)) {
+                continue;
+            }
+
+            PipeConnectionMode reciprocal = mode(
+                neighbour,
+                direction.getOpposite()
+            );
+
+            if (reciprocal == PipeConnectionMode.NONE
+                || reciprocal == PipeConnectionMode.PIPE) {
                 state = state.setValue(
                     property(direction),
                     PipeConnectionMode.PIPE
@@ -141,17 +159,28 @@ public final class ItemPipeBlock extends BaseEntityBlock {
                 continue;
             }
 
+            Direction opposite = direction.getOpposite();
+            PipeConnectionMode reciprocal = mode(neighbour, opposite);
+
+            if (reciprocal != PipeConnectionMode.NONE
+                && reciprocal != PipeConnectionMode.PIPE) {
+                updated = updated.setValue(
+                    property(direction),
+                    PipeConnectionMode.NONE
+                );
+                continue;
+            }
+
             updated = updated.setValue(
                 property(direction),
                 PipeConnectionMode.PIPE
             );
 
-            if (mode(neighbour, direction.getOpposite())
-                == PipeConnectionMode.NONE) {
+            if (reciprocal == PipeConnectionMode.NONE) {
                 server.setBlock(
                     neighbourPosition,
                     neighbour.setValue(
-                        property(direction.getOpposite()),
+                        property(opposite),
                         PipeConnectionMode.PIPE
                     ),
                     Block.UPDATE_ALL
@@ -159,7 +188,7 @@ public final class ItemPipeBlock extends BaseEntityBlock {
             }
         }
 
-        if (updated != server.getBlockState(position)) {
+        if (!updated.equals(server.getBlockState(position))) {
             server.setBlock(position, updated, Block.UPDATE_ALL);
         }
     }
@@ -200,14 +229,19 @@ public final class ItemPipeBlock extends BaseEntityBlock {
         final Player player,
         final BlockHitResult hit
     ) {
-        Direction side = hit.getDirection();
-        PipeConnectionMode mode = mode(state, side);
+        Direction side = targetedSide(
+            state,
+            position,
+            hit.getLocation(),
+            hit.getDirection()
+        );
+        PipeConnectionMode connection = mode(state, side);
 
         if (!level.isClientSide()) {
             player.sendSystemMessage(Component.literal(
                 side.getSerializedName().toUpperCase()
                     + ": "
-                    + mode.displayName()
+                    + connection.displayName()
                     + " — use a Pipe Wrench to change it"
             ));
         }
@@ -248,6 +282,40 @@ public final class ItemPipeBlock extends BaseEntityBlock {
         return PROPERTIES.get(direction);
     }
 
+    /**
+     * Resolves the connector arm actually hit, rather than blindly using the
+     * face normal of the small arm's surface.
+     */
+    public static Direction targetedSide(
+        final BlockState state,
+        final BlockPos position,
+        final Vec3 hitLocation,
+        final Direction fallback
+    ) {
+        double x = hitLocation.x - position.getX();
+        double y = hitLocation.y - position.getY();
+        double z = hitLocation.z - position.getZ();
+
+        Direction best = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+
+        for (Direction direction : Direction.values()) {
+            if (mode(state, direction) == PipeConnectionMode.NONE
+                || !insideArm(direction, x, y, z)) {
+                continue;
+            }
+
+            double score = distanceFromOuterEnd(direction, x, y, z);
+
+            if (score < bestScore) {
+                best = direction;
+                bestScore = score;
+            }
+        }
+
+        return best == null ? fallback : best;
+    }
+
     public static PipeConnectionMode nextMode(
         final Level level,
         final BlockPos position,
@@ -267,6 +335,49 @@ public final class ItemPipeBlock extends BaseEntityBlock {
             case NONE, PIPE -> PipeConnectionMode.INPUT;
             case INPUT -> PipeConnectionMode.OUTPUT;
             case OUTPUT -> PipeConnectionMode.NONE;
+        };
+    }
+
+    private static boolean insideArm(
+        final Direction direction,
+        final double x,
+        final double y,
+        final double z
+    ) {
+        return switch (direction) {
+            case WEST -> x <= ARM_MIN + HIT_EPSILON
+                && between(y) && between(z);
+            case EAST -> x >= ARM_MAX - HIT_EPSILON
+                && between(y) && between(z);
+            case DOWN -> y <= ARM_MIN + HIT_EPSILON
+                && between(x) && between(z);
+            case UP -> y >= ARM_MAX - HIT_EPSILON
+                && between(x) && between(z);
+            case NORTH -> z <= ARM_MIN + HIT_EPSILON
+                && between(x) && between(y);
+            case SOUTH -> z >= ARM_MAX - HIT_EPSILON
+                && between(x) && between(y);
+        };
+    }
+
+    private static boolean between(final double value) {
+        return value >= ARM_MIN - HIT_EPSILON
+            && value <= ARM_MAX + HIT_EPSILON;
+    }
+
+    private static double distanceFromOuterEnd(
+        final Direction direction,
+        final double x,
+        final double y,
+        final double z
+    ) {
+        return switch (direction) {
+            case WEST -> Math.abs(x);
+            case EAST -> Math.abs(1.0 - x);
+            case DOWN -> Math.abs(y);
+            case UP -> Math.abs(1.0 - y);
+            case NORTH -> Math.abs(z);
+            case SOUTH -> Math.abs(1.0 - z);
         };
     }
 

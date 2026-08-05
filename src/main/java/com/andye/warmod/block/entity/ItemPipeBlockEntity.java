@@ -7,6 +7,7 @@ import com.andye.warmod.block.PhalanxTurretBlock;
 import com.andye.warmod.logistics.PipeConnectionMode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -48,13 +49,16 @@ public final class ItemPipeBlockEntity extends BlockEntity {
             return;
         }
 
-        pipe.transfer(server, state);
+        pipe.transfer(server);
     }
 
-    private void transfer(
-        final ServerLevel level,
-        final BlockState state
-    ) {
+    private void transfer(final ServerLevel level) {
+        BlockState state = level.getBlockState(worldPosition);
+
+        if (!state.is(ModBlocks.ITEM_PIPE)) {
+            return;
+        }
+
         List<Endpoint> outputs = findOutputs(level);
 
         if (outputs.isEmpty()) {
@@ -68,23 +72,30 @@ public final class ItemPipeBlockEntity extends BlockEntity {
             }
 
             BlockPos sourcePosition = worldPosition.relative(inputSide);
+
+            if (!level.hasChunkAt(sourcePosition)) {
+                continue;
+            }
+
             Container source = containerAt(level, sourcePosition);
 
             if (source == null) {
                 continue;
             }
 
-            transferFrom(
+            if (transferFrom(
                 source,
                 sourcePosition,
                 inputSide.getOpposite(),
                 outputs,
                 level
-            );
+            )) {
+                return;
+            }
         }
     }
 
-    private void transferFrom(
+    private boolean transferFrom(
         final Container source,
         final BlockPos sourcePosition,
         final Direction sourceFace,
@@ -94,6 +105,10 @@ public final class ItemPipeBlockEntity extends BlockEntity {
         int[] slots = slotsFor(source, sourceFace);
 
         for (int slot : slots) {
+            if (!validSlot(source, slot)) {
+                continue;
+            }
+
             ItemStack sourceStack = source.getItem(slot);
 
             if (sourceStack.isEmpty()
@@ -101,15 +116,19 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                 continue;
             }
 
-            int requested = Math.min(
+            int remainingBudget = Math.min(
                 ITEMS_PER_TRANSFER,
                 sourceStack.getCount()
             );
-            ItemStack offered = sourceStack.copyWithCount(requested);
-            int inserted = 0;
+            int moved = 0;
 
             for (Endpoint endpoint : outputs) {
-                if (endpoint.inventoryPosition().equals(sourcePosition)) {
+                if (remainingBudget <= 0) {
+                    break;
+                }
+
+                if (endpoint.inventoryPosition().equals(sourcePosition)
+                    || !level.hasChunkAt(endpoint.inventoryPosition())) {
                     continue;
                 }
 
@@ -118,42 +137,56 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                     endpoint.inventoryPosition()
                 );
 
-                if (destination == null) {
+                if (destination == null || destination == source) {
                     continue;
                 }
 
-                int accepted = insert(
+                ItemStack liveSource = source.getItem(slot);
+
+                if (liveSource.isEmpty()
+                    || !canExtract(source, slot, liveSource, sourceFace)) {
+                    break;
+                }
+
+                int request = Math.min(remainingBudget, liveSource.getCount());
+                ItemStack extracted = source.removeItem(slot, request);
+
+                if (extracted.isEmpty()) {
+                    break;
+                }
+
+                int extractedCount = extracted.getCount();
+                ItemStack remainder = insert(
                     destination,
                     endpoint.inventoryFace(),
-                    offered.copyWithCount(requested - inserted)
+                    extracted
                 );
+                int inserted = extractedCount - remainder.getCount();
 
-                inserted += accepted;
+                if (!remainder.isEmpty()) {
+                    restore(source, slot, remainder);
+                }
 
-                if (inserted >= requested) {
-                    break;
+                /* removeItem/rollback is still an inventory mutation even if
+                 * the destination accepted nothing. Persist the restored slot.
+                 */
+                source.setChanged();
+
+                if (inserted > 0) {
+                    moved += inserted;
+                    remainingBudget -= inserted;
                 }
             }
 
-            if (inserted <= 0) {
-                continue;
+            if (moved > 0) {
+                return true;
             }
-
-            sourceStack.shrink(inserted);
-            source.setItem(
-                slot,
-                sourceStack.isEmpty()
-                    ? ItemStack.EMPTY
-                    : sourceStack
-            );
-            source.setChanged();
-            return;
         }
+
+        return false;
     }
 
-    private List<Endpoint> findOutputs(
-        final ServerLevel level
-    ) {
+    private List<Endpoint> findOutputs(final ServerLevel level) {
         ArrayDeque<Node> queue = new ArrayDeque<>();
         Set<BlockPos> visited = new HashSet<>();
         List<Endpoint> outputs = new ArrayList<>();
@@ -161,8 +194,7 @@ public final class ItemPipeBlockEntity extends BlockEntity {
         queue.addLast(new Node(worldPosition, 0));
         visited.add(worldPosition);
 
-        while (!queue.isEmpty()
-            && visited.size() <= MAX_NETWORK_PIPES) {
+        while (!queue.isEmpty() && visited.size() <= MAX_NETWORK_PIPES) {
             Node node = queue.removeFirst();
             BlockState state = level.getBlockState(node.position());
 
@@ -171,9 +203,10 @@ public final class ItemPipeBlockEntity extends BlockEntity {
             }
 
             for (Direction direction : Direction.values()) {
-                PipeConnectionMode mode = ItemPipeBlock.mode(state, direction);
+                PipeConnectionMode connection =
+                    ItemPipeBlock.mode(state, direction);
 
-                if (mode == PipeConnectionMode.OUTPUT) {
+                if (connection == PipeConnectionMode.OUTPUT) {
                     outputs.add(new Endpoint(
                         node.position().relative(direction),
                         direction.getOpposite(),
@@ -182,7 +215,7 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                     continue;
                 }
 
-                if (mode != PipeConnectionMode.PIPE) {
+                if (connection != PipeConnectionMode.PIPE) {
                     continue;
                 }
 
@@ -209,31 +242,48 @@ public final class ItemPipeBlockEntity extends BlockEntity {
             }
         }
 
+        outputs.sort(
+            Comparator.comparingInt(Endpoint::distance)
+                .thenComparingLong(endpoint ->
+                    endpoint.inventoryPosition().asLong()
+                )
+                .thenComparingInt(endpoint ->
+                    endpoint.inventoryFace().ordinal()
+                )
+        );
+
         return List.copyOf(outputs);
     }
 
-    private static int insert(
+    /**
+     * Inserts the supplied stack and returns the unaccepted remainder.
+     */
+    private static ItemStack insert(
         final Container destination,
         final Direction face,
-        final ItemStack offered
+        final ItemStack supplied
     ) {
-        if (offered.isEmpty()) {
-            return 0;
+        if (supplied.isEmpty()) {
+            return ItemStack.EMPTY;
         }
 
-        int originalCount = offered.getCount();
+        ItemStack remainder = supplied.copy();
         int[] slots = slotsFor(destination, face);
 
         for (int slot : slots) {
-            if (offered.isEmpty()) {
+            if (remainder.isEmpty()) {
                 break;
+            }
+
+            if (!validSlot(destination, slot)) {
+                continue;
             }
 
             ItemStack existing = destination.getItem(slot);
 
             if (existing.isEmpty()
-                || !ItemStack.isSameItemSameComponents(existing, offered)
-                || !canInsert(destination, slot, offered, face)) {
+                || !ItemStack.isSameItemSameComponents(existing, remainder)
+                || !canInsert(destination, slot, remainder, face)) {
                 continue;
             }
 
@@ -242,7 +292,7 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                 existing.getMaxStackSize()
             );
             int amount = Math.min(
-                offered.getCount(),
+                remainder.getCount(),
                 maximum - existing.getCount()
             );
 
@@ -250,41 +300,85 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                 continue;
             }
 
-            existing.grow(amount);
-            destination.setItem(slot, existing);
-            offered.shrink(amount);
+            ItemStack combined = existing.copy();
+            combined.grow(amount);
+            destination.setItem(slot, combined);
+            remainder.shrink(amount);
         }
 
         for (int slot : slots) {
-            if (offered.isEmpty()) {
+            if (remainder.isEmpty()) {
                 break;
             }
 
+            if (!validSlot(destination, slot)) {
+                continue;
+            }
+
             if (!destination.getItem(slot).isEmpty()
-                || !canInsert(destination, slot, offered, face)) {
+                || !canInsert(destination, slot, remainder, face)) {
                 continue;
             }
 
             int maximum = Math.min(
                 destination.getMaxStackSize(),
-                offered.getMaxStackSize()
+                remainder.getMaxStackSize()
             );
-            int amount = Math.min(offered.getCount(), maximum);
+            int amount = Math.min(remainder.getCount(), maximum);
 
-            destination.setItem(
-                slot,
-                offered.copyWithCount(amount)
-            );
-            offered.shrink(amount);
+            destination.setItem(slot, remainder.copyWithCount(amount));
+            remainder.shrink(amount);
         }
 
-        int inserted = originalCount - offered.getCount();
-
-        if (inserted > 0) {
+        if (remainder.getCount() < supplied.getCount()) {
             destination.setChanged();
         }
 
-        return inserted;
+        return remainder.isEmpty() ? ItemStack.EMPTY : remainder;
+    }
+
+    private static void restore(
+        final Container source,
+        final int slot,
+        final ItemStack remainder
+    ) {
+        ItemStack current = source.getItem(slot);
+
+        if (current.isEmpty()) {
+            source.setItem(slot, remainder.copy());
+            return;
+        }
+
+        if (ItemStack.isSameItemSameComponents(current, remainder)) {
+            ItemStack restored = current.copy();
+            restored.grow(remainder.getCount());
+            source.setItem(slot, restored);
+            return;
+        }
+
+        /*
+         * This should be unreachable on the single server thread. Preserve
+         * items rather than deleting them if a non-standard inventory mutates
+         * its slot during extraction.
+         */
+        for (int candidate = 0; candidate < source.getContainerSize(); candidate++) {
+            if (source.getItem(candidate).isEmpty()
+                && source.canPlaceItem(candidate, remainder)) {
+                source.setItem(candidate, remainder.copy());
+                return;
+            }
+        }
+
+        throw new IllegalStateException(
+            "Unable to return rejected item-pipe transfer to source inventory"
+        );
+    }
+
+    private static boolean validSlot(
+        final Container container,
+        final int slot
+    ) {
+        return slot >= 0 && slot < container.getContainerSize();
     }
 
     private static int[] slotsFor(
@@ -344,10 +438,7 @@ public final class ItemPipeBlockEntity extends BlockEntity {
             : null;
     }
 
-    private record Node(
-        BlockPos position,
-        int distance
-    ) {
+    private record Node(BlockPos position, int distance) {
     }
 
     private record Endpoint(

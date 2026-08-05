@@ -8,14 +8,17 @@ import java.util.WeakHashMap;
 import net.minecraft.server.level.ServerLevel;
 
 /**
- * Short-lived cooperative target claims for Phalanx turrets.
+ * Cooperative, sticky target ownership for Phalanx turrets.
  *
- * Claims are advisory rather than exclusive. They spread comparable threats
- * across nearby turrets, while the selector may still put several turrets on
- * one urgent target once other suitable threats already have coverage.
+ * Claims remain advisory: normal target selection balances coverage, while an
+ * imminent local threat may deliberately receive every available turret.
  */
 public final class PhalanxTargetClaimRegistry {
-    private static final long CLAIM_TIMEOUT_TICKS = 12L;
+    /**
+     * Long enough to survive temporary block-tick ordering or chunk activity
+     * gaps, while still clearing abandoned claims without retaining turrets.
+     */
+    private static final long CLAIM_TIMEOUT_TICKS = 100L;
 
     private static final Map<ServerLevel, State> STATES =
         new WeakHashMap<>();
@@ -30,11 +33,7 @@ public final class PhalanxTargetClaimRegistry {
         final long gameTime
     ) {
         cleanup(level, gameTime);
-
-        state(level).byTurret.put(
-            turretId,
-            new Claim(targetId, gameTime)
-        );
+        state(level).byTurret.put(turretId, new Claim(targetId, gameTime));
     }
 
     public static synchronized void release(
@@ -54,6 +53,29 @@ public final class PhalanxTargetClaimRegistry {
         }
     }
 
+    public static synchronized int claimCount(
+        final ServerLevel level,
+        final UUID targetId,
+        final long gameTime
+    ) {
+        cleanup(level, gameTime);
+        State state = STATES.get(level);
+
+        if (state == null) {
+            return 0;
+        }
+
+        int count = 0;
+
+        for (Claim claim : state.byTurret.values()) {
+            if (claim.targetId().equals(targetId)) {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
     public static synchronized int claimCountExcluding(
         final ServerLevel level,
         final UUID targetId,
@@ -61,7 +83,6 @@ public final class PhalanxTargetClaimRegistry {
         final long gameTime
     ) {
         cleanup(level, gameTime);
-
         State state = STATES.get(level);
 
         if (state == null) {
@@ -114,10 +135,7 @@ public final class PhalanxTargetClaimRegistry {
         return STATES.computeIfAbsent(level, ignored -> new State());
     }
 
-    private record Claim(
-        UUID targetId,
-        long refreshedGameTime
-    ) {
+    private record Claim(UUID targetId, long refreshedGameTime) {
     }
 
     private static final class State {
