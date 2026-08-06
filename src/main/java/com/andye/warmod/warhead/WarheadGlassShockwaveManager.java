@@ -25,7 +25,8 @@ import net.minecraft.world.phys.Vec3;
  * never forces unrelated chunks to load.
  */
 public final class WarheadGlassShockwaveManager {
-    private static final double SPEED_BLOCKS_PER_TICK = WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
+    private static final double SPEED_BLOCKS_PER_TICK =
+        WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final Map<ServerLevel, List<Wave>> WAVES = new IdentityHashMap<>();
@@ -54,9 +55,16 @@ public final class WarheadGlassShockwaveManager {
         float visualScale = Mth.clamp(payload.impactVisualScale(), 0.28F, 4.2F);
         double maximumRadius = nuclear
             ? 72.0 + visualScale * 58.0
-            : 10.0 + visualScale * 28.0;
+            : conventionalGlassRadius(visualScale);
         WAVES.computeIfAbsent(level, ignored -> new ArrayList<>()).add(new Wave(
             center, payload.impactGameTime(), payload.visualSeed(), maximumRadius, nuclear));
+    }
+
+    private static double conventionalGlassRadius(final float visualScale) {
+        if (visualScale < 0.49F) return 36.0;
+        if (visualScale < 0.82F) return 64.0;
+        if (visualScale < 1.19F) return 104.0;
+        return 152.0;
     }
 
     private static synchronized void tick(final ServerLevel level) {
@@ -98,16 +106,17 @@ public final class WarheadGlassShockwaveManager {
             int angularSamples = Mth.clamp(
                 (int) Math.ceil(Math.PI * 2.0 * Math.max(2.0, targetRadius) * 1.30),
                 72,
-                Math.max(72, MAX_COLUMNS_PER_WAVE_TICK / radialBands)
-            );
+                Math.max(72, MAX_COLUMNS_PER_WAVE_TICK / radialBands));
 
             LongOpenHashSet columns = new LongOpenHashSet(
                 Math.min(MAX_COLUMNS_PER_WAVE_TICK * 2, angularSamples * radialBands * 2));
             int processedColumns = 0;
-            for (int band = 0; band < radialBands && processedColumns < MAX_COLUMNS_PER_WAVE_TICK; band++) {
+            for (int band = 0; band < radialBands
+                && processedColumns < MAX_COLUMNS_PER_WAVE_TICK; band++) {
                 double bandFraction = (band + 0.5) / radialBands;
                 double radius = innerRadius + (targetRadius - innerRadius) * bandFraction;
-                double phase = unit(seed ^ gameTime * 31L ^ band * 0x9E3779B97F4A7C15L);
+                double phase = unit(seed ^ gameTime * 31L
+                    ^ band * 0x9E3779B97F4A7C15L);
                 for (int sample = 0; sample < angularSamples
                     && processedColumns < MAX_COLUMNS_PER_WAVE_TICK; sample++) {
                     double angle = (sample + phase) / angularSamples * Math.PI * 2.0;
@@ -128,12 +137,12 @@ public final class WarheadGlassShockwaveManager {
             final double radialDistance) {
             if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return;
             int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
-            int belowSurface = nuclear ? 8 : 4;
-            int aboveSurface = nuclear ? 52 : 28;
+            int belowSurface = nuclear ? 8 : 5;
+            int aboveSurface = nuclear ? 52 : 36;
             double normalizedDistance = Mth.clamp(radialDistance / maximumRadius, 0.0, 1.0);
-            double glassChance = normalizedDistance <= 0.62
+            double glassChance = normalizedDistance <= 0.74
                 ? 1.0
-                : Mth.clamp((1.0 - normalizedDistance) / 0.38, 0.0, 1.0);
+                : Mth.clamp((1.0 - normalizedDistance) / 0.26, 0.0, 1.0);
             double scorchLimit = nuclear ? 0.84 : 0.46;
             double scorchIntensity = normalizedDistance >= scorchLimit
                 ? 0.0 : 1.0 - normalizedDistance / scorchLimit;
@@ -147,7 +156,7 @@ public final class WarheadGlassShockwaveManager {
                 if (state.isAir()) continue;
 
                 if (isGlass(state)) {
-                    long hash = seed ^ cursor.asLong() ^ 0x474C4153535F5632L;
+                    long hash = seed ^ cursor.asLong() ^ 0x474C4153535F5634L;
                     if (unit(hash) <= glassChance) {
                         level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
                     }
@@ -157,16 +166,19 @@ public final class WarheadGlassShockwaveManager {
                 if (scorchIntensity > 0.0) {
                     long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
                     if (state.is(BlockTags.LEAVES)) {
-                        double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92, 0.0, 1.0);
+                        double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92,
+                            0.0, 1.0);
                         if (unit(hash) < stripChance) {
                             level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
                         }
                         continue;
                     }
                     if (state.is(BlockTags.LOGS)) {
-                        double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18, 0.0, 0.92);
+                        double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18,
+                            0.0, 0.92);
                         if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
-                            level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(), UPDATE_FLAGS);
+                            level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(),
+                                UPDATE_FLAGS);
                         }
                         continue;
                     }
@@ -200,8 +212,7 @@ public final class WarheadGlassShockwaveManager {
         }
 
         private static boolean isGlass(final BlockState state) {
-            String descriptionId = state.getBlock().getDescriptionId();
-            return descriptionId.contains("glass");
+            return state.getBlock().getDescriptionId().contains("glass");
         }
 
         private static boolean isFragileSurface(final BlockState state) {
