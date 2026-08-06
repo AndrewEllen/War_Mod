@@ -236,8 +236,14 @@ public final class WarheadWorldRenderer {
 		}
 		poseStack.popPose();
 
-		CloudCluster cloud = cloudCluster(frame.impacts(), impact);
-		boolean renderMergedCloud = impact.renderVolumetrics() && cloud.leaderId().equals(impact.id());
+		CloudCluster cloud = impact.payloadType() == WarheadPayloadType.NUCLEAR
+			? cloudCluster(frame.impacts(), impact)
+			: new CloudCluster(impact.id(), impact.ageTicks(), impact.visualScale(), impact.visualSeed(),
+				impact.profile(), List.of(new VoxelImpactCloudRenderer.CloudSource(
+					Vec3.ZERO, impact.ageTicks(), impact.visualScale(), impact.visualSeed())));
+		boolean renderMergedCloud = impact.payloadType() == WarheadPayloadType.NUCLEAR
+			? impact.renderVolumetrics() && cloud.leaderId().equals(impact.id())
+			: impact.renderVolumetrics();
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
@@ -246,27 +252,47 @@ public final class WarheadWorldRenderer {
 				impact.gameTime(), impact.lod(),
 				(float) impact.profile().shockwaveParticleDensityScale() * yieldThicknessScale,
 				frame.cameraOrientation()));
-		if (renderMergedCloud) {
+		if (impact.payloadType() != WarheadPayloadType.NUCLEAR) {
+			/* OpenMiner-style ground-coupled blast: fire, cooling smoke and dust all emerge from the crater. */
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
+				(pose, buffer) -> ConventionalBlastParticleRenderer.renderSurfaceFront(pose, buffer,
+					impact.ageTicks(), groundDistance, impact.visualScale(), impact.visualSeed(),
+					impact.lod(), frame.cameraOrientation()));
+			if (renderMergedCloud) {
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmoke(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
+						impact.lod(), frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderCooling(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
+						impact.lod(), frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderHot(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
+						impact.lod(), frame.cameraOrientation()));
+			}
+		} else if (renderMergedCloud) {
+			/* Nuclear yields alone use one-block voxels, with analytical particles only as edge turbulence. */
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_SMOKE,
 				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
 					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), cloud.sources()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
 				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.blastCloudLobes(),
+					cloud.visualScale() * 0.58F, cloud.profile(), cloud.visualSeed(), impact.blastCloudLobes(),
 					impact.lod(), frame.cameraOrientation()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_COOL,
 				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
 					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), false, cloud.sources()));
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderCooling(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), frame.cameraOrientation()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_HOT,
 				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
 					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), true, cloud.sources()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
 				(pose, buffer) -> ProceduralImpactParticleRenderer.renderHot(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), frame.cameraOrientation()));
+					cloud.visualScale() * 0.52F, cloud.profile(), cloud.visualSeed(), impact.lod(),
+					frame.cameraOrientation()));
 		}
+
 		if (impact.payloadType() == WarheadPayloadType.NUCLEAR
 			&& (renderMergedCloud || cloud.sources().size() == 1)) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
@@ -293,24 +319,9 @@ public final class WarheadWorldRenderer {
 				(float) sample.spin().x * sample.age(),
 				(float) sample.spin().y * sample.age(),
 				(float) sample.spin().z * sample.age()));
-			int clusterSize = distanceSquared > 256.0 * 256.0 || sample.pieceIndex() >= 96
-				? 1 : sample.clusterSize();
-			int[][] offsets = clusterSize >= 5 ? CLUSTER_FIVE_OFFSETS
-				: clusterSize == 4 ? CLUSTER_FOUR_OFFSETS
-				: clusterSize == 3 ? CLUSTER_THREE_OFFSETS
-				: clusterSize == 2 ? CLUSTER_TWO_OFFSETS : null;
-			if (offsets == null) {
-				poseStack.translate(-0.5, -0.5, -0.5);
-				context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
-			} else {
-				for (int[] offset : offsets) {
-					poseStack.pushPose();
-					poseStack.translate(offset[0] * 0.82, offset[1] * 0.82, offset[2] * 0.82);
-					poseStack.translate(-0.5, -0.5, -0.5);
-					context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
-					poseStack.popPose();
-				}
-			}
+			/* Each sample is an actual block from a connected captured fragment. */
+			poseStack.translate(-0.5, -0.5, -0.5);
+			context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
 			poseStack.popPose();
 		}
 	}

@@ -5,18 +5,15 @@ import java.util.Locale;
 import java.util.Optional;
 import net.minecraft.util.StringRepresentable;
 
-/**
- * Gameplay yield presets used by the master explosive test stick and the
- * custom strategic crater engine.
- *
- * <p>Production conventional and nuclear missiles continue to resolve to the
- * conventional and strategic-nuclear defaults unless an explicit test yield
- * has been registered for their radar root track.</p>
- */
+/** Gameplay yield presets used by production warheads and explosive test tools. */
 public enum WarheadYield implements StringRepresentable {
 	HIGH_EXPLOSIVE(
 		"high_explosive", "High Explosive", WarheadPayloadType.CONVENTIONAL,
 		0.34F, 0.46F, 1.12F, 32, 8, 0.52
+	),
+	MEDIUM_EXPLOSIVE(
+		"medium_explosive", "Medium Explosive", WarheadPayloadType.CONVENTIONAL,
+		0.64F, 0.72F, 1.06F, 88, 28, 0.76
 	),
 	CONVENTIONAL(
 		"conventional", "Conventional", WarheadPayloadType.CONVENTIONAL,
@@ -24,19 +21,19 @@ public enum WarheadYield implements StringRepresentable {
 	),
 	HEAVY_CONVENTIONAL(
 		"heavy_conventional", "Heavy Conventional", WarheadPayloadType.CONVENTIONAL,
-		1.48F, 1.32F, 0.96F, 192, 80, 1.14
+		1.38F, 1.28F, 0.96F, 208, 88, 1.16
 	),
 	TACTICAL_NUCLEAR(
 		"tactical_nuclear", "Tactical Nuclear", WarheadPayloadType.NUCLEAR,
-		1.90F, 1.82F, 0.98F, 224, 96, 1.05
+		1.82F, 1.78F, 0.98F, 240, 112, 1.08
 	),
 	STRATEGIC_NUCLEAR(
 		"strategic_nuclear", "Strategic Nuclear", WarheadPayloadType.NUCLEAR,
-		3.00F, 2.40F, 0.96F, 256, 112, 1.10
+		2.70F, 2.28F, 0.96F, 288, 136, 1.14
 	),
 	HEAVY_NUCLEAR(
 		"heavy_nuclear", "Heavy Nuclear", WarheadPayloadType.NUCLEAR,
-		4.25F, 3.10F, 0.91F, 320, 144, 1.18
+		3.55F, 2.86F, 0.91F, 352, 168, 1.22
 	);
 
 	public static final Codec<WarheadYield> CODEC = StringRepresentable.fromEnum(WarheadYield::values);
@@ -72,46 +69,16 @@ public enum WarheadYield implements StringRepresentable {
 		this.debrisVelocityScale = debrisVelocityScale;
 	}
 
-	@Override
-	public String getSerializedName() {
-		return serializedName;
-	}
-
-	public String displayName() {
-		return displayName;
-	}
-
-	public WarheadPayloadType payloadType() {
-		return payloadType;
-	}
-
-	public float visualScale() {
-		return visualScale;
-	}
-
-	public float acousticVolume() {
-		return acousticVolume;
-	}
-
-	public float acousticPitch() {
-		return acousticPitch;
-	}
-
-	public int maximumDebris() {
-		return maximumDebris;
-	}
-
-	public int maximumLargeDebris() {
-		return maximumLargeDebris;
-	}
-
-	public double debrisVelocityScale() {
-		return debrisVelocityScale;
-	}
-
-	public boolean nuclear() {
-		return payloadType == WarheadPayloadType.NUCLEAR;
-	}
+	@Override public String getSerializedName() { return serializedName; }
+	public String displayName() { return displayName; }
+	public WarheadPayloadType payloadType() { return payloadType; }
+	public float visualScale() { return visualScale; }
+	public float acousticVolume() { return acousticVolume; }
+	public float acousticPitch() { return acousticPitch; }
+	public int maximumDebris() { return maximumDebris; }
+	public int maximumLargeDebris() { return maximumLargeDebris; }
+	public double debrisVelocityScale() { return debrisVelocityScale; }
+	public boolean nuclear() { return payloadType == WarheadPayloadType.NUCLEAR; }
 
 	public WarheadEffectProfile effectProfile() {
 		if (this == HIGH_EXPLOSIVE) return WarheadEffectProfile.TACTICAL_HE;

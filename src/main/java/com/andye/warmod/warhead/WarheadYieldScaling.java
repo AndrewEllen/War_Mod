@@ -2,11 +2,9 @@ package com.andye.warmod.warhead;
 
 import net.minecraft.util.Mth;
 
-/** Shared conversion from network visual scale to physical effect radius scale. */
+/** Shared conversion from network visual scale to physical effect range scale. */
 public final class WarheadYieldScaling {
-	private WarheadYieldScaling() {
-	}
-
+	private WarheadYieldScaling() { }
 	public static float radiusScale(final WarheadPayloadType payloadType, final float visualScale) {
 		if (!Float.isFinite(visualScale)) return 1.0F;
 		return payloadType == WarheadPayloadType.NUCLEAR

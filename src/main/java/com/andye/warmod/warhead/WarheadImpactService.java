@@ -9,9 +9,12 @@ import com.andye.warmod.testtool.WarheadExplosionDropContext;
 import com.andye.warmod.warhead.network.ClientboundWarheadDebrisPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.SplittableRandom;
@@ -162,76 +165,90 @@ public final class WarheadImpactService {
 		final WarheadYield yield,
 		final StrategicExplosionProfile craterProfile
 	) {
-		int count = Math.min(yield.maximumDebris(), destroyedBlocks.size());
-		if (count <= 0) return;
+		int blockBudget = Math.min(yield.maximumDebris(), destroyedBlocks.size());
+		if (blockBudget <= 0) return;
 		PriorityQueue<RankedDestroyedBlock> selected = new PriorityQueue<>(
-			count + 1,
+			blockBudget + 1,
 			Comparator.comparingLong(RankedDestroyedBlock::rank).reversed()
 		);
 		for (WarheadExplosionDropContext.DestroyedBlock block : destroyedBlocks) {
+			/* Surface and structure samples rank ahead of deep homogeneous material. */
 			long rank = mix(block.position().asLong() ^ seed ^ 0x444542524953L);
 			RankedDestroyedBlock candidate = new RankedDestroyedBlock(rank, block);
-			if (selected.size() < count) {
-				selected.add(candidate);
-			} else if (rank < selected.peek().rank()) {
-				selected.poll();
-				selected.add(candidate);
-			}
+			if (selected.size() < blockBudget) selected.add(candidate);
+			else if (rank < selected.peek().rank()) { selected.poll(); selected.add(candidate); }
 		}
 		List<RankedDestroyedBlock> ranked = new ArrayList<>(selected);
 		ranked.sort(Comparator.comparingLong(RankedDestroyedBlock::rank));
-		int largeCount = Math.min(yield.maximumLargeDebris(), ranked.size());
-		List<ClientboundWarheadDebrisPayload.Entry> entries = new ArrayList<>(ranked.size());
-		for (int index = 0; index < ranked.size(); index++) {
-			WarheadExplosionDropContext.DestroyedBlock destroyed = ranked.get(index).block();
-			BlockPos blockPosition = destroyed.position();
-			BlockState originalState = destroyed.originalState();
-			SplittableRandom random = new SplittableRandom(mix(seed ^ blockPosition.asLong()));
-			boolean large = index < largeCount;
-			Vec3 spawn = Vec3.atCenterOf(blockPosition);
-			Vec3 radial = new Vec3(spawn.x - center.x, 0.0, spawn.z - center.z);
-			if (radial.lengthSqr() < 1.0E-5) {
-				radial = new Vec3(random.nextDouble(-1.0, 1.0), 0.0, random.nextDouble(-1.0, 1.0));
+		Map<Long, WarheadExplosionDropContext.DestroyedBlock> available = new HashMap<>();
+		for (RankedDestroyedBlock entry : ranked) available.put(entry.block().position().asLong(), entry.block());
+
+		List<ClientboundWarheadDebrisPayload.Entry> entries = new ArrayList<>();
+		int consumedBlocks = 0;
+		for (int rootIndex = 0; rootIndex < ranked.size() && consumedBlocks < blockBudget && entries.size() < 256; rootIndex++) {
+			WarheadExplosionDropContext.DestroyedBlock rankedRoot = ranked.get(rootIndex).block();
+			WarheadExplosionDropContext.DestroyedBlock root = available.remove(rankedRoot.position().asLong());
+			if (root == null) continue;
+			SplittableRandom random = new SplittableRandom(mix(seed ^ root.position().asLong()));
+			boolean large = consumedBlocks < yield.maximumLargeDebris();
+			int desiredParts = large
+				? (yield.nuclear() ? random.nextInt(10, 25) : random.nextInt(5, 15))
+				: (random.nextDouble() < 0.28 ? random.nextInt(2, 6) : 1);
+			desiredParts = Math.min(desiredParts, blockBudget - consumedBlocks);
+
+			BlockPos rootPos = root.position();
+			ArrayDeque<BlockPos> frontier = new ArrayDeque<>();
+			frontier.add(rootPos);
+			List<ClientboundWarheadDebrisPayload.Part> parts = new ArrayList<>(desiredParts);
+			parts.add(new ClientboundWarheadDebrisPayload.Part(
+				Block.BLOCK_STATE_REGISTRY.getId(root.originalState()), (byte) 0, (byte) 0, (byte) 0));
+			consumedBlocks++;
+			while (!frontier.isEmpty() && parts.size() < desiredParts) {
+				BlockPos current = frontier.removeFirst();
+				int[][] neighbours = {
+					{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1},
+					{1,1,0},{-1,1,0},{0,1,1},{0,1,-1}
+				};
+				int phase = random.nextInt(neighbours.length);
+				for (int index = 0; index < neighbours.length && parts.size() < desiredParts; index++) {
+					int[] offset = neighbours[(index + phase) % neighbours.length];
+					BlockPos candidatePos = current.offset(offset[0], offset[1], offset[2]);
+					int dx = candidatePos.getX() - rootPos.getX();
+					int dy = candidatePos.getY() - rootPos.getY();
+					int dz = candidatePos.getZ() - rootPos.getZ();
+					if (Math.abs(dx) > 12 || Math.abs(dy) > 12 || Math.abs(dz) > 12) continue;
+					WarheadExplosionDropContext.DestroyedBlock candidate = available.remove(candidatePos.asLong());
+					if (candidate == null) continue;
+					parts.add(new ClientboundWarheadDebrisPayload.Part(
+						Block.BLOCK_STATE_REGISTRY.getId(candidate.originalState()),
+						(byte) dx, (byte) dy, (byte) dz));
+					frontier.addLast(candidatePos);
+					consumedBlocks++;
+				}
 			}
+
+			Vec3 spawn = Vec3.atCenterOf(rootPos);
+			Vec3 radial = new Vec3(spawn.x - center.x, 0.0, spawn.z - center.z);
+			if (radial.lengthSqr() < 1.0E-5) radial = new Vec3(random.nextDouble(-1.0, 1.0), 0.0, random.nextDouble(-1.0, 1.0));
 			Vec3 outward = radial.normalize();
 			Vec3 sideways = new Vec3(-outward.z, 0.0, outward.x);
-			double normalized = Math.min(1.0, Math.sqrt(radial.lengthSqr()) / craterProfile.horizontalRadius());
-			double horizontal = (large ? random.nextDouble(0.32, 0.88) : random.nextDouble(0.30, 0.86))
-				* yield.debrisVelocityScale();
-			double vertical = (large ? random.nextDouble(0.72, 1.52) : random.nextDouble(0.42, 1.08))
-				+ (1.0 - normalized) * (yield.nuclear() ? 0.38 : 0.18);
+			double normalized = Math.min(1.0, Math.sqrt(radial.lengthSqr()) / Math.max(1.0, craterProfile.horizontalRadius()));
+			double horizontal = random.nextDouble(0.46, large ? 1.24 : 0.98) * yield.debrisVelocityScale();
+			double vertical = random.nextDouble(large ? 1.05 : 0.62, large ? 2.15 : 1.45)
+				+ (1.0 - normalized) * (yield.nuclear() ? 0.88 : 0.42);
 			Vec3 velocity = outward.scale(horizontal)
-				.add(sideways.scale(random.nextDouble(-0.12, 0.12)))
-				.add(0.0, Math.min(yield.nuclear() ? 3.05 : 1.90, vertical * yield.debrisVelocityScale()), 0.0);
-			double spinLimit = large ? 0.075 : 0.24;
-			Vec3 spin = new Vec3(
-				random.nextDouble(-spinLimit, spinLimit),
-				random.nextDouble(-spinLimit, spinLimit),
-				random.nextDouble(-spinLimit, spinLimit)
-			);
-
-			int clusterSize;
-			float scale;
-			if (large && yield.nuclear()) {
-				clusterSize = index < Math.min(24, largeCount) ? random.nextInt(3, 6) : random.nextInt(2, 5);
-				scale = (float) random.nextDouble(1.05, 1.92);
-			} else if (large) {
-				clusterSize = random.nextDouble() < 0.52 ? random.nextInt(2, 5) : 1;
-				scale = (float) random.nextDouble(0.86, 1.48);
-			} else {
-				clusterSize = 1;
-				scale = (float) random.nextDouble(0.25, 0.66);
-			}
-			int lifetime = large
-				? random.nextInt(yield.nuclear() ? 145 : 100, yield.nuclear() ? 285 : 205)
-				: random.nextInt(65, 145);
+				.add(sideways.scale(random.nextDouble(-0.20, 0.20)))
+				.add(0.0, Math.min(yield.nuclear() ? 4.15 : 2.55, vertical * yield.debrisVelocityScale()), 0.0);
+			double spinLimit = parts.size() > 6 ? 0.045 : 0.12;
+			Vec3 spin = new Vec3(random.nextDouble(-spinLimit, spinLimit),
+				random.nextDouble(-spinLimit, spinLimit), random.nextDouble(-spinLimit, spinLimit));
+			int lifetime = random.nextInt(yield.nuclear() ? 160 : 105, yield.nuclear() ? 330 : 235);
 			Vec3 offset = spawn.subtract(center);
 			entries.add(new ClientboundWarheadDebrisPayload.Entry(
-				Block.BLOCK_STATE_REGISTRY.getId(originalState),
 				(float) offset.x, (float) offset.y, (float) offset.z,
 				(float) velocity.x, (float) velocity.y, (float) velocity.z,
 				(float) spin.x, (float) spin.y, (float) spin.z,
-				scale, clusterSize, lifetime
+				1.0F, lifetime, List.copyOf(parts)
 			));
 		}
 		WarheadVisualNetworking.sendDebris(level, new ClientboundWarheadDebrisPayload(

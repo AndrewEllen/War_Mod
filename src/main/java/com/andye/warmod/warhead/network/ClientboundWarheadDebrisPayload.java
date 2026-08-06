@@ -9,7 +9,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
-/** One compact visual-only debris batch for an impact. */
+/** Compact visual-only debris batches preserving real connected block fragments. */
 public record ClientboundWarheadDebrisPayload(
 	UUID impactId,
 	double originX,
@@ -18,7 +18,8 @@ public record ClientboundWarheadDebrisPayload(
 	long spawnGameTime,
 	List<Entry> entries
 ) implements CustomPacketPayload {
-	private static final int MAX_ENTRIES = 1_024;
+	private static final int MAX_ENTRIES = 256;
+	private static final int MAX_PARTS_PER_ENTRY = 24;
 	public static final Type<ClientboundWarheadDebrisPayload> TYPE = new Type<>(
 		Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "warhead_debris")
 	);
@@ -60,13 +61,27 @@ public record ClientboundWarheadDebrisPayload(
 		return true;
 	}
 
-	@Override
-	public Type<? extends CustomPacketPayload> type() {
-		return TYPE;
+	@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+
+	public record Part(int blockStateId, byte offsetX, byte offsetY, byte offsetZ) {
+		private void write(final RegistryFriendlyByteBuf buffer) {
+			buffer.writeVarInt(blockStateId);
+			buffer.writeByte(offsetX);
+			buffer.writeByte(offsetY);
+			buffer.writeByte(offsetZ);
+		}
+
+		private static Part read(final RegistryFriendlyByteBuf buffer) {
+			return new Part(buffer.readVarInt(), buffer.readByte(), buffer.readByte(), buffer.readByte());
+		}
+
+		private boolean isWellFormed() {
+			return blockStateId >= 0 && Math.abs((int) offsetX) <= 12
+				&& Math.abs((int) offsetY) <= 12 && Math.abs((int) offsetZ) <= 12;
+		}
 	}
 
 	public record Entry(
-		int blockStateId,
 		float offsetX,
 		float offsetY,
 		float offsetZ,
@@ -77,40 +92,56 @@ public record ClientboundWarheadDebrisPayload(
 		float spinY,
 		float spinZ,
 		float scale,
-		int clusterSize,
-		int lifetime
+		int lifetime,
+		List<Part> parts
 	) {
+		public Entry {
+			parts = parts == null ? List.of() : List.copyOf(parts.subList(0, Math.min(parts.size(), MAX_PARTS_PER_ENTRY)));
+		}
+
 		private void write(final RegistryFriendlyByteBuf buffer) {
-			buffer.writeVarInt(blockStateId);
 			buffer.writeFloat(offsetX); buffer.writeFloat(offsetY); buffer.writeFloat(offsetZ);
 			buffer.writeFloat(velocityX); buffer.writeFloat(velocityY); buffer.writeFloat(velocityZ);
 			buffer.writeFloat(spinX); buffer.writeFloat(spinY); buffer.writeFloat(spinZ);
 			buffer.writeFloat(scale);
-			buffer.writeVarInt(clusterSize);
 			buffer.writeVarInt(lifetime);
+			buffer.writeVarInt(parts.size());
+			for (Part part : parts) part.write(buffer);
 		}
 
 		private static Entry read(final RegistryFriendlyByteBuf buffer) {
-			return new Entry(
-				buffer.readVarInt(),
-				buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
-				buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
-				buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
-				buffer.readFloat(), buffer.readVarInt(), buffer.readVarInt()
-			);
+			float offsetX = buffer.readFloat();
+			float offsetY = buffer.readFloat();
+			float offsetZ = buffer.readFloat();
+			float velocityX = buffer.readFloat();
+			float velocityY = buffer.readFloat();
+			float velocityZ = buffer.readFloat();
+			float spinX = buffer.readFloat();
+			float spinY = buffer.readFloat();
+			float spinZ = buffer.readFloat();
+			float scale = buffer.readFloat();
+			int lifetime = buffer.readVarInt();
+			int encodedParts = Math.max(0, buffer.readVarInt());
+			List<Part> parts = new ArrayList<>(Math.min(encodedParts, MAX_PARTS_PER_ENTRY));
+			for (int index = 0; index < encodedParts; index++) {
+				Part part = Part.read(buffer);
+				if (index < MAX_PARTS_PER_ENTRY) parts.add(part);
+			}
+			return new Entry(offsetX, offsetY, offsetZ, velocityX, velocityY, velocityZ,
+				spinX, spinY, spinZ, scale, lifetime, List.copyOf(parts));
 		}
 
 		private boolean isWellFormed() {
-			return blockStateId >= 0 && finite(offsetX) && finite(offsetY) && finite(offsetZ)
-				&& finite(velocityX) && finite(velocityY) && finite(velocityZ)
-				&& finite(spinX) && finite(spinY) && finite(spinZ)
-				&& finite(scale) && scale > 0.05F && scale <= 4.0F
-				&& clusterSize >= 1 && clusterSize <= 5
-				&& lifetime >= 1 && lifetime <= 400;
+			if (!finite(offsetX) || !finite(offsetY) || !finite(offsetZ)
+				|| !finite(velocityX) || !finite(velocityY) || !finite(velocityZ)
+				|| !finite(spinX) || !finite(spinY) || !finite(spinZ)
+				|| !finite(scale) || scale < 0.70F || scale > 1.15F
+				|| lifetime < 1 || lifetime > 400 || parts.isEmpty()
+				|| parts.size() > MAX_PARTS_PER_ENTRY) return false;
+			for (Part part : parts) if (part == null || !part.isWellFormed()) return false;
+			return true;
 		}
 
-		private static boolean finite(final float value) {
-			return Float.isFinite(value);
-		}
+		private static boolean finite(final float value) { return Float.isFinite(value); }
 	}
 }

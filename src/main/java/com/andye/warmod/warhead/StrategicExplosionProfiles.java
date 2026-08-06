@@ -4,27 +4,29 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Tuned yield profiles for the custom strategic crater engine. */
+/** Tuned crater and extended surface-damage profiles for each yield. */
 public final class StrategicExplosionProfiles {
 	private static final Map<WarheadYield, StrategicExplosionProfile> PROFILES = new EnumMap<>(WarheadYield.class);
 
 	static {
+		/* Deep excavation has deliberately been reduced from Stage 5. The aftermath radius remains broader. */
 		put(WarheadYield.HIGH_EXPLOSIVE,
-			8.0, 5.5, 5.5, 0.70, 0.10, 40.0F, 0.55F, 12.0F, 1.35, 0.05);
+			6.5, 3.5, 4.0, 0.68, 0.10, 34.0F, 0.58F, 10.0F, 1.55, 0.07);
+		put(WarheadYield.MEDIUM_EXPLOSIVE,
+			10.5, 5.5, 7.0, 0.69, 0.10, 64.0F, 0.55F, 17.0F, 1.60, 0.08);
 		put(WarheadYield.CONVENTIONAL,
-			24.0, 16.0, 18.0, 0.72, 0.095, 145.0F, 0.50F, 28.0F, 1.42, 0.08);
+			17.0, 9.0, 12.0, 0.71, 0.095, 122.0F, 0.51F, 27.0F, 1.65, 0.10);
 		put(WarheadYield.HEAVY_CONVENTIONAL,
-			36.0, 24.0, 28.0, 0.73, 0.09, 230.0F, 0.46F, 44.0F, 1.46, 0.10);
+			24.0, 13.0, 18.0, 0.72, 0.09, 210.0F, 0.47F, 42.0F, 1.72, 0.12);
 		put(WarheadYield.TACTICAL_NUCLEAR,
-			48.0, 34.0, 36.0, 0.76, 0.085, 420.0F, 0.42F, 72.0F, 1.52, 0.12);
+			32.0, 18.0, 24.0, 0.74, 0.085, 390.0F, 0.43F, 72.0F, 2.15, 0.18);
 		put(WarheadYield.STRATEGIC_NUCLEAR,
-			72.0, 54.0, 52.0, 0.78, 0.078, 900.0F, 0.36F, 112.0F, 1.58, 0.15);
+			48.0, 28.0, 36.0, 0.76, 0.078, 820.0F, 0.38F, 116.0F, 2.35, 0.22);
 		put(WarheadYield.HEAVY_NUCLEAR,
-			104.0, 76.0, 74.0, 0.80, 0.070, 1_600.0F, 0.32F, 164.0F, 1.62, 0.18);
+			64.0, 36.0, 48.0, 0.78, 0.072, 1_450.0F, 0.34F, 168.0F, 2.55, 0.26);
 	}
 
-	private StrategicExplosionProfiles() {
-	}
+	private StrategicExplosionProfiles() { }
 
 	private static void put(
 		final WarheadYield yield,
@@ -40,17 +42,9 @@ public final class StrategicExplosionProfiles {
 		final double aftermathDensity
 	) {
 		PROFILES.put(yield, new StrategicExplosionProfile(
-			yield,
-			horizontalRadius,
-			upwardRadius,
-			downwardRadius,
-			guaranteedVoidScale,
-			boundaryRoughness,
-			maximumDestroyResistance,
-			edgeResistanceScale,
-			entityBlastRadius,
-			aftermathRadiusScale,
-			aftermathDensity
+			yield, horizontalRadius, upwardRadius, downwardRadius, guaranteedVoidScale,
+			boundaryRoughness, maximumDestroyResistance, edgeResistanceScale,
+			entityBlastRadius, aftermathRadiusScale, aftermathDensity
 		));
 	}
 
@@ -65,8 +59,10 @@ public final class StrategicExplosionProfiles {
 	public static StrategicExplosionProfile fromLegacyStrength(final float strength) {
 		if (strength >= 220.0F) return get(WarheadYield.HEAVY_NUCLEAR);
 		if (strength >= 100.0F) return get(WarheadYield.STRATEGIC_NUCLEAR);
+		if (strength >= 55.0F) return get(WarheadYield.TACTICAL_NUCLEAR);
 		if (strength >= 28.0F) return get(WarheadYield.HEAVY_CONVENTIONAL);
-		if (strength <= 7.0F) return get(WarheadYield.HIGH_EXPLOSIVE);
-		return get(WarheadYield.CONVENTIONAL);
+		if (strength >= 13.0F) return get(WarheadYield.CONVENTIONAL);
+		if (strength > 7.0F) return get(WarheadYield.MEDIUM_EXPLOSIVE);
+		return get(WarheadYield.HIGH_EXPLOSIVE);
 	}
 }
