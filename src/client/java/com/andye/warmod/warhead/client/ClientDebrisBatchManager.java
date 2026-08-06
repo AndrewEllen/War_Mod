@@ -23,12 +23,13 @@ import org.joml.Vector3f;
 public final class ClientDebrisBatchManager {
     public static final ClientDebrisBatchManager INSTANCE = new ClientDebrisBatchManager();
     private static final int MAX_BATCHES = 64;
-    private static final int MAX_RENDERED_PARTS = 8_192;
-    private static final int TRAIL_SAMPLES = 58;
+    private static final int MAX_RENDERED_PARTS = 12_288;
+    private static final int TRAIL_SAMPLES = 64;
     private static final int MAX_CATCH_UP_STEPS = 6;
     private static final int SETTLED_LIFETIME_TICKS = 40;
+    private static final int MINIMUM_AIRBORNE_TICKS = 9;
     private static final double GRAVITY = -0.052;
-    private static final double AIR_DRAG = 0.991;
+    private static final double AIR_DRAG = 0.992;
     private static final byte CACHE_MISS = -1;
     private static final byte CACHE_EMPTY = 0;
     private static final byte CACHE_SOLID = 1;
@@ -58,9 +59,7 @@ public final class ClientDebrisBatchManager {
             double maximumOffset = 0.5;
             for (ClientboundWarheadDebrisPayload.Part encoded : entry.parts()) {
                 BlockState state = Block.BLOCK_STATE_REGISTRY.byId(encoded.blockStateId());
-                if (state == null || state.isAir()) {
-                    state = Blocks.STONE.defaultBlockState();
-                }
+                if (state == null || state.isAir()) state = Blocks.STONE.defaultBlockState();
                 Vec3 offset = new Vec3(encoded.offsetX(), encoded.offsetY(), encoded.offsetZ());
                 maximumOffset = Math.max(maximumOffset, offset.length() + 0.87);
                 parts.add(new Part(state, offset));
@@ -69,28 +68,33 @@ public final class ClientDebrisBatchManager {
 
             double mass = Math.max(1.0, parts.size()) * Math.max(0.35,
                 entry.scale() * entry.scale() * entry.scale());
-            double massDamping = 1.0 / Math.pow(Math.max(1.0, mass / 7.0), 0.38);
+            double massDamping = 1.0 / Math.pow(Math.max(1.0, mass / 7.0), 0.34);
             Vec3 encodedVelocity = new Vec3(entry.velocityX(), entry.velocityY(),
                 entry.velocityZ());
             double horizontalLength = Math.sqrt(encodedVelocity.x * encodedVelocity.x
                 + encodedVelocity.z * encodedVelocity.z);
-            double maximumHorizontal = 0.82 + 2.35 / Math.sqrt(Math.max(1.0, mass));
+            double maximumHorizontal = 1.02 + 2.55 / Math.sqrt(Math.max(1.0, mass));
             double horizontalScale = horizontalLength > maximumHorizontal
                 ? maximumHorizontal / horizontalLength : 1.0;
-            double maximumVertical = 0.56 + 1.42 / Math.sqrt(Math.max(1.0, mass));
+            double maximumVertical = 0.72 + 1.55 / Math.sqrt(Math.max(1.0, mass));
             Vec3 velocity = new Vec3(
-                encodedVelocity.x * massDamping * horizontalScale,
-                Mth.clamp(encodedVelocity.y * massDamping, 0.10, maximumVertical),
-                encodedVelocity.z * massDamping * horizontalScale);
+                encodedVelocity.x * massDamping * horizontalScale * 1.14,
+                Mth.clamp(encodedVelocity.y * massDamping * 1.12, 0.18, maximumVertical),
+                encodedVelocity.z * massDamping * horizontalScale * 1.14);
             Vec3 angularVelocity = new Vec3(entry.spinX(), entry.spinY(), entry.spinZ())
                 .scale(Math.min(0.72, 2.2 / Math.sqrt(mass)));
             float visualScale = Mth.clamp(entry.scale()
-                * (1.28F + (float) Math.sqrt(parts.size()) * 0.095F), 1.18F, 2.55F);
-            int lifetime = Math.max(120, entry.lifetime());
+                * (1.36F + (float) Math.sqrt(parts.size()) * 0.11F), 1.30F, 2.85F);
+            int lifetime = Math.max(160, entry.lifetime());
+            int collisionGrace = MINIMUM_AIRBORNE_TICKS
+                + Math.min(8, Math.round(visualScale * 2.0F));
+            /* Collision uses physical block extent, not the enlarged display scale. */
+            double collisionExtent = Math.max(0.34,
+                maximumOffset * Mth.clamp(entry.scale(), 0.46F, 1.10F));
             pieces.add(new Piece(
                 new Vec3(entry.offsetX(), entry.offsetY(), entry.offsetZ()),
                 velocity, angularVelocity, visualScale, lifetime, List.copyOf(parts),
-                mass, Math.max(0.44, maximumOffset * visualScale)));
+                mass, collisionExtent, collisionGrace));
         }
         batches.put(payload.impactId(), new Batch(
             new Vec3(payload.originX(), payload.originY(), payload.originZ()),
@@ -98,11 +102,6 @@ public final class ClientDebrisBatchManager {
             List.copyOf(pieces)));
     }
 
-    /**
-     * Simulation is driven by the extraction snapshot, where camera visibility
-     * is known. The tick hook only expires old batches, preventing hidden debris
-     * from consuming collision time every client tick.
-     */
     public synchronized void tick(final ClientLevel level, final long gameTime) {
         if (level == null) {
             clear();
@@ -164,9 +163,7 @@ public final class ClientDebrisBatchManager {
     public synchronized int activeFragmentCount() {
         int count = 0;
         for (Batch batch : batches.values()) {
-            for (Piece piece : batch.pieces) {
-                if (!piece.terminal) count++;
-            }
+            for (Piece piece : batch.pieces) if (!piece.terminal) count++;
         }
         return count;
     }
@@ -190,20 +187,19 @@ public final class ClientDebrisBatchManager {
         Vec3 delta = origin.subtract(viewer);
         double distance = delta.length();
         if (!Double.isFinite(distance) || distance > maximumDistance + 192.0) return false;
-        if (distance < 196.0) return true;
-        Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F)
-            .rotate(cameraOrientation);
+        if (distance < 256.0) return true;
+        Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F).rotate(cameraOrientation);
         if (forward.lengthSquared() < 1.0E-6F) return true;
         forward.normalize();
         double facing = (delta.x * forward.x + delta.y * forward.y
             + delta.z * forward.z) / Math.max(1.0E-6, distance);
-        return facing > -0.26;
+        return facing > -0.34;
     }
 
     private static boolean collides(final ClientLevel level, final Vec3 position,
         final double extent, final Long2ByteOpenHashMap collisionCache) {
         if (solid(level, position, collisionCache)) return true;
-        double sample = Math.max(0.22, Math.min(1.45, extent * 0.72));
+        double sample = Math.max(0.20, Math.min(1.05, extent * 0.68));
         return solid(level, position.add(sample, 0.0, 0.0), collisionCache)
             || solid(level, position.add(-sample, 0.0, 0.0), collisionCache)
             || solid(level, position.add(0.0, sample, 0.0), collisionCache)
@@ -221,8 +217,7 @@ public final class ClientDebrisBatchManager {
         boolean solid = false;
         if (level.hasChunkAt(blockPosition)) {
             BlockState state = level.getBlockState(blockPosition);
-            solid = !state.isAir()
-                && !state.getCollisionShape(level, blockPosition).isEmpty();
+            solid = !state.isAir() && !state.getCollisionShape(level, blockPosition).isEmpty();
         }
         collisionCache.put(packedPosition, solid ? CACHE_SOLID : CACHE_EMPTY);
         return solid;
@@ -237,6 +232,7 @@ public final class ClientDebrisBatchManager {
         private final List<Part> parts;
         private final double mass;
         private final double collisionExtent;
+        private final int collisionGraceTicks;
         private final double[] trailX = new double[TRAIL_SAMPLES];
         private final double[] trailY = new double[TRAIL_SAMPLES];
         private final double[] trailZ = new double[TRAIL_SAMPLES];
@@ -259,7 +255,7 @@ public final class ClientDebrisBatchManager {
         private Piece(final Vec3 offset, final Vec3 velocity,
             final Vec3 angularVelocity, final float scale, final int lifetime,
             final List<Part> parts, final double mass,
-            final double collisionExtent) {
+            final double collisionExtent, final int collisionGraceTicks) {
             this.offset = offset;
             this.velocity = velocity;
             this.angularVelocity = angularVelocity;
@@ -268,6 +264,7 @@ public final class ClientDebrisBatchManager {
             this.parts = parts;
             this.mass = mass;
             this.collisionExtent = collisionExtent;
+            this.collisionGraceTicks = collisionGraceTicks;
             recordTrail(position);
         }
 
@@ -292,27 +289,30 @@ public final class ClientDebrisBatchManager {
             Vec3 accelerated = new Vec3(velocity.x * AIR_DRAG,
                 velocity.y * AIR_DRAG + GRAVITY, velocity.z * AIR_DRAG);
             Vec3 proposed = position.add(accelerated);
-            Vec3 delta = proposed.subtract(previousPosition);
-            int steps = Math.max(1, Math.min(22,
-                (int) Math.ceil(delta.length()
-                    / Math.max(0.18, collisionExtent * 0.26))));
-            Vec3 safe = previousPosition;
-            for (int step = 1; step <= steps; step++) {
-                double fraction = step / (double) steps;
-                Vec3 candidate = previousPosition.lerp(proposed, fraction);
-                if (collides(level, worldOrigin.add(candidate),
-                    collisionExtent, collisionCache)) {
-                    position = safe;
-                    previousPosition = safe;
-                    velocity = Vec3.ZERO;
-                    angularVelocity = Vec3.ZERO;
-                    settled = true;
-                    settledAge = 0;
-                    recordTrail(position);
-                    age++;
-                    return;
+            boolean checkCollision = age >= collisionGraceTicks;
+            if (checkCollision) {
+                Vec3 delta = proposed.subtract(previousPosition);
+                int steps = Math.max(1, Math.min(22,
+                    (int) Math.ceil(delta.length()
+                        / Math.max(0.16, collisionExtent * 0.24))));
+                Vec3 safe = previousPosition;
+                for (int step = 1; step <= steps; step++) {
+                    double fraction = step / (double) steps;
+                    Vec3 candidate = previousPosition.lerp(proposed, fraction);
+                    if (collides(level, worldOrigin.add(candidate),
+                        collisionExtent, collisionCache)) {
+                        position = safe;
+                        previousPosition = safe;
+                        velocity = Vec3.ZERO;
+                        angularVelocity = Vec3.ZERO;
+                        settled = true;
+                        settledAge = 0;
+                        recordTrail(position);
+                        age++;
+                        return;
+                    }
+                    safe = candidate;
                 }
-                safe = candidate;
             }
             position = proposed;
             velocity = accelerated;
@@ -368,9 +368,7 @@ public final class ClientDebrisBatchManager {
             long steps = Math.min(MAX_CATCH_UP_STEPS, target - lastSimulatedGameTime);
             for (long step = 0; step < steps; step++) {
                 collisionCache.clear();
-                for (Piece piece : pieces) {
-                    piece.tick(level, origin.add(piece.offset), collisionCache);
-                }
+                for (Piece piece : pieces) piece.tick(level, origin.add(piece.offset), collisionCache);
                 lastSimulatedGameTime++;
             }
         }
@@ -387,8 +385,7 @@ public final class ClientDebrisBatchManager {
                     piece.lifetime + SETTLED_LIFETIME_TICKS);
                 if (!piece.terminal) anyActive = true;
             }
-            return !anyActive
-                || gameTime - spawnGameTime >= maximumLifetime + 80L;
+            return !anyActive || gameTime - spawnGameTime >= maximumLifetime + 80L;
         }
     }
 

@@ -18,12 +18,6 @@ import net.minecraft.resources.Identifier;
 /** Minecraft 26.2 render pipelines for each visual layer. */
 public final class WarheadRenderPipelines {
     private static final boolean IRIS_SHADER_PACK_ACTIVE = detectActiveIrisShaderPack();
-
-    /*
-     * Use Minecraft's own large-smoke artwork directly. The custom engine still
-     * supplies position, temperature colour, alpha and lifetime, but the visual
-     * language now matches vanilla particles and resource packs can replace it.
-     */
     private static final Identifier PARTICLE_MASK = Identifier.fromNamespaceAndPath(
         "minecraft", "textures/particle/big_smoke_2.png");
     private static final Identifier PLASMA_MASK = Identifier.fromNamespaceAndPath(
@@ -39,24 +33,15 @@ public final class WarheadRenderPipelines {
         ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_shockwave_ribbons", false);
     private static final RenderPipeline GROUND_DUST_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_ground_dust", false);
-
-    /* Dense smoke writes depth so water and rear explosions cannot show through it. */
-    private static final RenderPipeline HEAVY_SMOKE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT : translucent("pipeline/war_mod_heavy_smoke", true, 0.055F);
-    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT : translucent("pipeline/war_mod_heavy_smoke_core", true, 0.095F);
+    /* Smoke uses an opaque cutout pass: texture alpha shapes it, layers do not tint each other. */
+    private static final RenderPipeline HEAVY_SMOKE_PIPELINE = RenderPipelines.ENTITY_CUTOUT;
+    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = RenderPipelines.ENTITY_CUTOUT;
     private static final RenderPipeline COOL_FIRE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
         : emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
     private static final RenderPipeline FIREBALL_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_CUTOUT
         : emissiveTranslucent("pipeline/war_mod_fireball_core", true, 0.065F);
-
-    /*
-     * The crater plasma is a separate opaque/cutout depth-writing material. It
-     * must not use additive blending: additive blending caused the terrain and
-     * particles behind the sphere to remain visible through its centre.
-     */
     private static final RenderPipeline PLASMA_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_CUTOUT
         : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
@@ -66,7 +51,6 @@ public final class WarheadRenderPipelines {
             .withShaderDefine("NO_CARDINAL_LIGHTING")
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
             .withCull(false).build());
-
     private static final RenderPipeline GROUND_RIPPLE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT
         : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
@@ -96,8 +80,8 @@ public final class WarheadRenderPipelines {
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
             .withCull(false).build());
 
-    public static final RenderType PROJECTILE = create("war_mod_projectile", RenderPipelines.ENTITY_CUTOUT,
-        texture("warhead_albedo.png"), true, true, false);
+    public static final RenderType PROJECTILE = create("war_mod_projectile",
+        RenderPipelines.ENTITY_CUTOUT, texture("warhead_albedo.png"), true, true, false);
     public static final RenderType CONE = create("war_mod_cone", CONDENSATION_PIPELINE,
         texture("vapor_noise.png"), false, false, true);
     public static final RenderType VAPOR_BAND = create("war_mod_vapor_band", CONDENSATION_PIPELINE,
@@ -106,8 +90,8 @@ public final class WarheadRenderPipelines {
         texture("pressure_shell.png"), true, false, true);
     public static final RenderType TERRAIN_DEFORMATION = create("war_mod_terrain_deformation",
         TERRAIN_DEFORMATION_PIPELINE, TextureAtlas.LOCATION_BLOCKS, true, false, false);
-    public static final RenderType GROUND_RIPPLE = create("war_mod_ground_ripple", GROUND_RIPPLE_PIPELINE,
-        texture("ground_ripple_noise.png"), true, false, true);
+    public static final RenderType GROUND_RIPPLE = create("war_mod_ground_ripple",
+        GROUND_RIPPLE_PIPELINE, texture("ground_ripple_noise.png"), true, false, true);
     public static final RenderType SHOCKWAVE = create("war_mod_shockwave", SHOCKWAVE_PIPELINE,
         texture("shockwave_strip.png"), true, false, true);
     public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE,
@@ -116,6 +100,8 @@ public final class WarheadRenderPipelines {
         PARTICLE_MASK, true, false, false);
     public static final RenderType HEAVY_SMOKE_CORE = create("war_mod_heavy_smoke_core",
         HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, false, false);
+    public static final RenderType NUCLEAR_SMOKE = create("war_mod_nuclear_smoke",
+        RenderPipelines.ENTITY_CUTOUT, PARTICLE_MASK, true, false, false);
     public static final RenderType FIREBALL_CORE = createClamped("war_mod_fireball_core",
         FIREBALL_CORE_PIPELINE, PARTICLE_MASK, false, false);
     public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool",
@@ -128,10 +114,14 @@ public final class WarheadRenderPipelines {
         HOT_FIRE_PIPELINE, EXPLOSION_MASK, false, false);
     public static final RenderType NUCLEAR_FLASH = createClamped("war_mod_nuclear_flash",
         HOT_FIRE_PIPELINE, EXPLOSION_MASK, false, false);
-    public static final RenderType ICBM_EXHAUST = createClamped("war_mod_icbm_exhaust", HOT_FIRE_PIPELINE,
-        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, false);
-    public static final RenderType REENTRY_PLASMA = createClamped("war_mod_reentry_plasma", HOT_FIRE_PIPELINE,
-        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, false);
+    public static final RenderType ICBM_EXHAUST = createClamped("war_mod_icbm_exhaust",
+        HOT_FIRE_PIPELINE,
+        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"),
+        false, false);
+    public static final RenderType REENTRY_PLASMA = createClamped("war_mod_reentry_plasma",
+        HOT_FIRE_PIPELINE,
+        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"),
+        false, false);
     public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;
     public static final RenderType FIREBALL = FIREBALL_COOL;
 
