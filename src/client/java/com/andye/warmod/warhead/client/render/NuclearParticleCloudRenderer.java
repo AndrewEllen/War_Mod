@@ -28,7 +28,7 @@ public final class NuclearParticleCloudRenderer {
 	public static void renderFire(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final double age, final float visualScale, final WarheadClientVisualProfile profile,
 		final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
-		final List<NuclearCloudSource> sources, final Quaternionf camera) {
+		final List<VoxelImpactCloudRenderer.CloudSource> sources, final Quaternionf camera) {
 		if (!valid(profile, age)) return;
 		field(seed, visualScale, sources).render(pose, buffer, age, lod, camera,
 			hotPass ? Pass.HOT_FIRE : Pass.COOL_FIRE);
@@ -36,7 +36,7 @@ public final class NuclearParticleCloudRenderer {
 
 	public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final double age, final float visualScale, final WarheadClientVisualProfile profile,
-		final long seed, final WarheadMesh.Lod lod, final List<NuclearCloudSource> sources,
+		final long seed, final WarheadMesh.Lod lod, final List<VoxelImpactCloudRenderer.CloudSource> sources,
 		final Quaternionf camera) {
 		if (!valid(profile, age)) return;
 		field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, Pass.SMOKE);
@@ -60,7 +60,7 @@ public final class NuclearParticleCloudRenderer {
 	}
 
 	private static synchronized Field field(final long seed, final float scale,
-		final List<NuclearCloudSource> sources) {
+		final List<VoxelImpactCloudRenderer.CloudSource> sources) {
 		long signature = sourceSignature(sources);
 		long key = seed ^ Long.rotateLeft(signature, 21);
 		Field existing = FIELDS.get(key);
@@ -76,10 +76,10 @@ public final class NuclearParticleCloudRenderer {
 		return created;
 	}
 
-	private static long sourceSignature(final List<NuclearCloudSource> sources) {
+	private static long sourceSignature(final List<VoxelImpactCloudRenderer.CloudSource> sources) {
 		long value = 0x4E55434C45415253L;
 		if (sources == null) return value;
-		for (NuclearCloudSource source : sources) {
+		for (VoxelImpactCloudRenderer.CloudSource source : sources) {
 			value ^= mix(source.seed() ^ Double.doubleToLongBits(source.offset().x)
 				^ Long.rotateLeft(Double.doubleToLongBits(source.offset().y), 17)
 				^ Long.rotateLeft(Double.doubleToLongBits(source.offset().z), 37));
@@ -131,12 +131,12 @@ public final class NuclearParticleCloudRenderer {
 		private int culledLastRender;
 
 		private Field(final long seed, final float visualScale,
-			final List<NuclearCloudSource> sources, final long sourceSignature) {
+			final List<VoxelImpactCloudRenderer.CloudSource> sources, final long sourceSignature) {
 			this.seed = seed;
 			this.scale = Mth.clamp(visualScale, 0.55F, 5.5F);
 			this.sourceSignature = sourceSignature;
-			List<NuclearCloudSource> safe = sources == null || sources.isEmpty()
-				? List.of(new NuclearCloudSource(Vec3.ZERO, 0.0, visualScale, seed)) : sources;
+			List<VoxelImpactCloudRenderer.CloudSource> safe = sources == null || sources.isEmpty()
+				? List.of(new VoxelImpactCloudRenderer.CloudSource(Vec3.ZERO, 0.0, visualScale, seed)) : sources;
 			this.sourceCount = safe.size();
 			this.sourceX = new float[sourceCount];
 			this.sourceY = new float[sourceCount];
@@ -254,7 +254,6 @@ public final class NuclearParticleCloudRenderer {
 		}
 
 		private int reserve() {
-			if (activeCount >= CAPACITY) return -1;
 			for (int scan = 0; scan < CAPACITY; scan++) {
 				int slot = (nextSlot + scan) % CAPACITY;
 				if (!active[slot]) {
@@ -270,8 +269,6 @@ public final class NuclearParticleCloudRenderer {
 			float capHeight = 72.0F + 86.0F * yield;
 			float capRadius = 30.0F + 42.0F * yield;
 			float stemRadius = 5.0F + 6.5F * yield;
-			int returnStart = Math.round(72.0F + 34.0F * yield);
-			int returnEnd = returnStart + Math.round(82.0F + 40.0F * yield);
 			for (int index = 0; index < CAPACITY; index++) {
 				if (!active[index]) continue;
 				int age = particleAge[index] & 0xFFFF;
@@ -332,13 +329,6 @@ public final class NuclearParticleCloudRenderer {
 						}
 					}
 					default -> { }
-				}
-				if (tick >= returnStart && tick <= returnEnd && y[index] < capHeight * 0.58F) {
-					float returnProgress = (tick - returnStart) / (float) Math.max(1, returnEnd - returnStart);
-					float pull = Mth.sin(returnProgress * Mth.PI) * (0.018F + 0.012F * yield);
-					velocityX[index] -= radialX * pull;
-					velocityZ[index] -= radialZ * pull;
-					if (radial < stemRadius * 3.0F) velocityY[index] += pull * 1.55F;
 				}
 				velocityX[index] += turbulence * (0.004F + progress * 0.006F);
 				velocityZ[index] += signed(particleSeed[index], tick & 7) * (0.004F + progress * 0.006F);
