@@ -103,8 +103,6 @@ public final class ClientDebrisBatchManager {
 				Vec3 interpolatedRotation = piece.previousRotation.lerp(piece.rotation, partial);
 				Quaternionf quaternion = new Quaternionf().rotationXYZ((float) interpolatedRotation.x,
 					(float) interpolatedRotation.y, (float) interpolatedRotation.z);
-				float renderedAge = Math.max(0.001F, piece.age + partial);
-				Vec3 effectiveSpin = interpolatedRotation.scale(1.0 / renderedAge);
 				List<Vec3> trail = piece.trail(batch.origin.add(piece.offset));
 				for (int partIndex = 0; partIndex < piece.parts.size() && result.size() < MAX_RENDERED_PARTS; partIndex++) {
 					Part part = piece.parts.get(partIndex);
@@ -112,7 +110,7 @@ public final class ClientDebrisBatchManager {
 						.mul(piece.scale).rotate(quaternion);
 					Vec3 position = worldRoot.add(local.x, local.y, local.z);
 					result.add(new RenderSample(batchEntry.getKey(), pieceIndex, partIndex, part.state, position,
-						piece.velocity, effectiveSpin, renderedAge, piece.scale, piece.settled, trail));
+						piece.velocity, interpolatedRotation, piece.age + partial, piece.scale, piece.settled, trail));
 				}
 			}
 		}
