@@ -56,7 +56,8 @@ public final class IcbmWorldRenderer {
 			logLongRangeOnce(state.flightPlan().missileId(), renderContext.transform());
 			double elapsed = state.elapsed(time, partial);
 			missiles.add(new MissileFrame(position, velocity, IcbmTrajectory.thrustActive(state.flightPlan(), elapsed),
-				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(state.flightPlan().payloadType()), renderContext, light(level, position), state.trail(time, partial)));
+				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(state.flightPlan().payloadType()),
+				renderContext, light(level, position), state.trail(time, partial)));
 		}
 		List<StageFrame> stages = new ArrayList<>();
 		for (SpentIcbmStageState state : snapshot.spentStages()) {
@@ -80,12 +81,19 @@ public final class IcbmWorldRenderer {
 			Vec3 relative = transform.renderedCenter().subtract(current.camera());
 			stack.translate(relative.x, relative.y, relative.z);
 			stack.mulPose(rotation(missile.velocity()));
-			float compression = (float)transform.compression();
+			float compression = (float) transform.compression();
 			stack.scale(compression, compression, compression);
 			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.MISSILE,
-				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.appearance(), missile.renderContext().lod(), missile.light()));
-			if (missile.thrust()) context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST,
-				(pose, buffer) -> IcbmExhaustRenderer.render(pose, buffer, missile.seed(), missile.elapsed(), missile.renderContext().lod()));
+				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.appearance(),
+					missile.renderContext().lod(), missile.light()));
+			if (missile.thrust()) {
+				context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST_CORE,
+					(pose, buffer) -> IcbmExhaustRenderer.renderCore(pose, buffer, missile.seed(),
+						missile.elapsed(), missile.renderContext().lod()));
+				context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST_FRINGE,
+					(pose, buffer) -> IcbmExhaustRenderer.renderFringe(pose, buffer, missile.seed(),
+						missile.elapsed(), missile.renderContext().lod()));
+			}
 			stack.popPose();
 			if (!missile.trail().isEmpty()) {
 				stack.pushPose();
@@ -102,8 +110,8 @@ public final class IcbmWorldRenderer {
 			Vec3 relative = transform.renderedCenter().subtract(current.camera());
 			stack.translate(relative.x, relative.y, relative.z);
 			stack.mulPose(rotation(stage.orientationVelocity()));
-			stack.mulPose(new Quaternionf().rotateY((float)(stage.age() * stage.rollDrift())));
-			float compression = (float)transform.compression();
+			stack.mulPose(new Quaternionf().rotateY((float) (stage.age() * stage.rollDrift())));
+			float compression = (float) transform.compression();
 			stack.scale(compression, compression, compression);
 			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.SPENT_STAGE,
 				(pose, buffer) -> SpentIcbmStageRenderer.render(pose, buffer, stage.renderContext().lod(),
@@ -129,13 +137,14 @@ public final class IcbmWorldRenderer {
 	}
 
 	private static Quaternionf rotation(final Vec3 velocity) {
-		Vector3f direction = new Vector3f((float)velocity.x, (float)velocity.y, (float)velocity.z);
+		Vector3f direction = new Vector3f((float) velocity.x, (float) velocity.y, (float) velocity.z);
 		return direction.lengthSquared() < 1.0E-8F ? new Quaternionf()
 			: new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), direction.normalize());
 	}
 
 	private record MissileFrame(Vec3 position, Vec3 velocity, boolean thrust, double elapsed, long seed,
-		IcbmPayloadAppearance appearance, IcbmLongRangeRenderContext renderContext, int light, List<IcbmTrailSample> trail) { }
+		IcbmPayloadAppearance appearance, IcbmLongRangeRenderContext renderContext, int light,
+		List<IcbmTrailSample> trail) { }
 	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity, float rollDrift, float alpha,
 		IcbmLongRangeRenderContext renderContext, int light) { }
 	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles, List<StageFrame> stages) {
