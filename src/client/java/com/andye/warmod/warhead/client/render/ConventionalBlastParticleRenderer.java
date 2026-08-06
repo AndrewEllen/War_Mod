@@ -13,16 +13,14 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
- * Fixed-capacity, structure-of-arrays conventional explosion field. Fire,
- * smoke, dust and pressure puffs use one soft mask; material and temperature
- * provide colour, lighting and motion. Fake-debris smoke is emitted as stable
- * deterministic streams so it forms readable white parabolic arcs. A compact
- * active-slot list keeps simulation and submission proportional to live
- * particles rather than the fixed maximum capacity.
+ * Packed conventional explosion field shaped around a low, wide crater blast.
+ * The hot body stays close to the impact while independent grey-white tendrils
+ * imitate fast ejecta and real debris trails. Dust remains several blocks thick
+ * around the fire instead of collapsing into a narrow vertical column.
  */
 public final class ConventionalBlastParticleRenderer {
-    private static final int MAX_FIELDS = 12;
-    private static final int CAPACITY = 98_304;
+    private static final int MAX_FIELDS = 8;
+    private static final int CAPACITY = 65_536;
     private static final float HE_FIRE_TOP = 4.75F;
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
     private static final Map<Long, Field> FIELDS = new LinkedHashMap<>();
@@ -122,10 +120,12 @@ public final class ConventionalBlastParticleRenderer {
             spawned += field.spawnedLastTick;
             culled += field.culledLastRender;
         }
-        return new DebugSnapshot(active, spawned, culled, FIELDS.size(), "packed_soa_compact_active_slots");
+        return new DebugSnapshot(active, spawned, culled, FIELDS.size(),
+            "packed_soa_compact_low_plume");
     }
 
-    private static synchronized Field field(final long key, final float visualScale, final boolean nuclearOnly) {
+    private static synchronized Field field(final long key, final float visualScale,
+        final boolean nuclearOnly) {
         Field existing = FIELDS.get(key);
         if (existing != null && existing.nuclearOnly == nuclearOnly) return existing;
         while (FIELDS.size() >= MAX_FIELDS) {
@@ -139,8 +139,8 @@ public final class ConventionalBlastParticleRenderer {
         return created;
     }
 
-    public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick, int culledParticles,
-        int activeFields, String backend) { }
+    public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick,
+        int culledParticles, int activeFields, String backend) { }
 
     private enum Pass {
         FIRE_CORE, FIRE_HOT, FIRE_COOLING, SMOKE_CORE, SMOKE_SOFT, SURFACE_FRONT, RETURN_FRONT
@@ -149,11 +149,12 @@ public final class ConventionalBlastParticleRenderer {
     private static final class Field {
         private static final byte MATERIAL_FIRE = 0;
         private static final byte MATERIAL_SMOKE = 1;
-        private static final byte MATERIAL_FRONT = 2;
-        private static final byte MATERIAL_RETURN = 3;
+        private static final byte MATERIAL_DUST = 2;
+        private static final byte MATERIAL_FRONT = 3;
+        private static final byte MATERIAL_RETURN = 4;
         private static final byte FLAG_CORE = 1;
         private static final byte FLAG_SPOUT = 2;
-        private static final byte FLAG_ARC = 4;
+        private static final byte FLAG_TENDRIL = 4;
         private static final byte FLAG_GROUND = 8;
 
         private final long seed;
@@ -161,6 +162,8 @@ public final class ConventionalBlastParticleRenderer {
         private final boolean nuclearOnly;
         private final float craterRadius;
         private final float craterFloor;
+        private final float maximumFireY;
+        private final float maximumSmokeY;
         private final float[] x = new float[CAPACITY];
         private final float[] y = new float[CAPACITY];
         private final float[] z = new float[CAPACITY];
@@ -179,10 +182,8 @@ public final class ConventionalBlastParticleRenderer {
         private final int[] particleSeed = new int[CAPACITY];
         private final byte[] material = new byte[CAPACITY];
         private final byte[] flags = new byte[CAPACITY];
-        private final boolean[] active = new boolean[CAPACITY];
         private final int[] activeSlots = new int[CAPACITY];
         private final int[] freeSlots = new int[CAPACITY];
-
         private int simulatedTick = -1;
         private int freeCount;
         private int activeCount;
@@ -197,11 +198,12 @@ public final class ConventionalBlastParticleRenderer {
             this.nuclearOnly = nuclearOnly;
             this.craterRadius = 2.0F + 15.0F * this.scale;
             this.craterFloor = -Math.max(1.6F, craterRadius * 0.28F);
+            this.maximumFireY = HE_FIRE_TOP + Math.max(0.0F, this.scale - 1.0F) * 3.0F;
+            this.maximumSmokeY = 6.5F + Math.max(0.0F, this.scale - 0.8F) * 4.0F;
             initialiseSlots();
         }
 
         private void initialiseSlots() {
-            Arrays.fill(active, false);
             for (int index = 0; index < CAPACITY; index++) freeSlots[index] = CAPACITY - 1 - index;
             freeCount = CAPACITY;
             activeCount = 0;
@@ -210,6 +212,7 @@ public final class ConventionalBlastParticleRenderer {
         private void ensureSimulated(final double age) {
             int target = Math.max(0, (int) Math.floor(age));
             if (target < simulatedTick) reset();
+            if (simulatedTick < 0 && target > 80) simulatedTick = target - 24;
             while (simulatedTick < target) {
                 simulatedTick++;
                 spawnedLastTick = 0;
@@ -227,26 +230,29 @@ public final class ConventionalBlastParticleRenderer {
         }
 
         private void emitConventional(final int tick) {
-            float density = 0.82F + (float) Math.pow(scale, 1.35);
-            if (tick <= 7) {
-                int count = Math.min(7_200, Math.round((650.0F + 680.0F * scale) * density));
+            float density = 0.80F + (float) Math.pow(scale, 1.28);
+            if (tick <= 6) {
+                int count = Math.min(5_400, Math.round((520.0F + 620.0F * scale) * density));
                 for (int index = 0; index < count; index++) spawnFireBody(tick, index, true);
             }
-            int feedEnd = Math.round(34.0F + 22.0F * scale);
+            int feedEnd = Math.round(25.0F + 18.0F * scale);
             if (tick <= feedEnd) {
                 float feed = 1.0F - tick / (float) Math.max(1, feedEnd);
-                int body = Math.round((185.0F + 225.0F * scale) * density * (0.34F + 0.66F * feed));
-                int spout = Math.round((82.0F + 104.0F * scale) * density * (0.42F + 0.58F * feed));
-                int smoke = Math.round((110.0F + 150.0F * scale) * density * (0.45F + 0.55F * (1.0F - feed)));
+                int body = Math.round((150.0F + 185.0F * scale) * density
+                    * (0.32F + 0.68F * feed));
+                int spout = Math.round((46.0F + 58.0F * scale) * density
+                    * (0.38F + 0.62F * feed));
+                int smoke = Math.round((125.0F + 165.0F * scale) * density);
+                int dust = Math.round((150.0F + 220.0F * scale) * density);
                 for (int index = 0; index < body; index++) spawnFireBody(tick, index, false);
                 for (int index = 0; index < spout; index++) spawnSpout(tick, index);
                 for (int index = 0; index < smoke; index++) spawnCraterSmoke(tick, index);
+                for (int index = 0; index < dust; index++) spawnDustEnvelope(tick, index);
             }
-            int arcEnd = Math.round(34.0F + 20.0F * scale);
-            if (tick <= arcEnd) emitSmokeArcStreams(tick);
-            int spillEnd = Math.round(48.0F + 34.0F * scale);
+            emitTendrils(tick);
+            int spillEnd = Math.round(58.0F + 38.0F * scale);
             if (tick <= spillEnd) {
-                int spill = Math.round((82.0F + 124.0F * scale) * density);
+                int spill = Math.round((90.0F + 140.0F * scale) * density);
                 for (int index = 0; index < spill; index++) spawnGroundSpill(tick, index);
             }
         }
@@ -256,164 +262,185 @@ public final class ConventionalBlastParticleRenderer {
                 ^ ordinal * 0x9E3779B97F4A7C15L);
             float angle = unit(random, 0) * Mth.TWO_PI;
             float radialFraction = (float) Math.sqrt(unit(random, 1));
-            float radial = radialFraction * craterRadius * (ignition ? 1.08F : 1.01F);
+            float radial = radialFraction * craterRadius * (ignition ? 1.10F : 1.03F);
             float dome = (float) Math.sqrt(Math.max(0.0F, 1.0F - radialFraction * radialFraction));
             float px = Mth.cos(angle) * radial;
             float pz = Mth.sin(angle) * radial;
-            float py = craterFloor + 0.45F + dome * craterRadius * 0.70F + signed(random, 2) * 0.55F;
-            float outward = 0.055F + unit(random, 3) * (0.13F + 0.04F * scale);
-            float up = 0.07F + unit(random, 4) * (0.16F + 0.06F * scale);
-            byte particleFlags = unit(random, 5) < 0.34F ? FLAG_CORE : 0;
+            float py = Math.min(maximumFireY - 0.35F,
+                craterFloor + 0.45F + dome * craterRadius * 0.62F + signed(random, 2) * 0.48F);
+            float outward = 0.07F + unit(random, 3) * (0.18F + 0.05F * scale);
+            float up = 0.08F + unit(random, 4) * (0.14F + 0.05F * scale);
+            byte particleFlags = unit(random, 5) < 0.40F ? FLAG_CORE : 0;
             spawn(MATERIAL_FIRE, particleFlags, px, py, pz,
-                Mth.cos(angle) * outward + signed(random, 6) * 0.018F, up,
-                Mth.sin(angle) * outward + signed(random, 7) * 0.018F,
-                0.82F + unit(random, 8) * 0.23F,
-                (0.18F + unit(random, 9) * 0.34F) * (0.92F + scale * 0.13F),
-                Math.round(66.0F + unit(random, 10) * (62.0F + 26.0F * scale)), (int) random);
+                Mth.cos(angle) * outward + signed(random, 6) * 0.014F, up,
+                Mth.sin(angle) * outward + signed(random, 7) * 0.014F,
+                0.82F + unit(random, 8) * 0.22F,
+                (0.25F + unit(random, 9) * 0.42F) * (0.92F + scale * 0.14F),
+                Math.round(52.0F + unit(random, 10) * (52.0F + 18.0F * scale)), (int) random);
         }
 
         private void spawnSpout(final int tick, final int ordinal) {
             long random = mix(seed ^ 0x53504F55545F5550L ^ ((long) tick << 33)
                 ^ ordinal * 0xD1B54A32D192ED03L);
             float angle = unit(random, 0) * Mth.TWO_PI;
-            float radial = (float) Math.sqrt(unit(random, 1)) * craterRadius * 0.18F;
-            float px = Mth.cos(angle) * radial;
-            float pz = Mth.sin(angle) * radial;
-            float py = craterFloor + 0.8F + unit(random, 2) * craterRadius * 0.28F;
-            float sideways = 0.018F + unit(random, 3) * 0.042F;
-            spawn(MATERIAL_FIRE, (byte) (FLAG_CORE | FLAG_SPOUT), px, py, pz,
-                Mth.cos(angle) * sideways + signed(random, 4) * 0.008F,
-                0.30F + unit(random, 5) * (0.28F + 0.08F * scale),
-                Mth.sin(angle) * sideways + signed(random, 6) * 0.008F,
-                0.91F + unit(random, 7) * 0.14F,
-                (0.18F + unit(random, 8) * 0.32F) * (0.90F + scale * 0.12F),
-                Math.round(82.0F + unit(random, 9) * (56.0F + 26.0F * scale)), (int) random);
+            float radial = (float) Math.sqrt(unit(random, 1)) * craterRadius * 0.15F;
+            float py = Math.min(maximumFireY - 0.5F,
+                craterFloor + 0.8F + unit(random, 2) * craterRadius * 0.24F);
+            spawn(MATERIAL_FIRE, (byte) (FLAG_CORE | FLAG_SPOUT),
+                Mth.cos(angle) * radial, py, Mth.sin(angle) * radial,
+                signed(random, 3) * 0.018F,
+                0.24F + unit(random, 4) * (0.26F + 0.08F * scale),
+                signed(random, 5) * 0.018F,
+                0.92F + unit(random, 6) * 0.12F,
+                (0.24F + unit(random, 7) * 0.38F) * (0.92F + scale * 0.12F),
+                Math.round(58.0F + unit(random, 8) * (50.0F + 18.0F * scale)), (int) random);
         }
 
         private void spawnCraterSmoke(final int tick, final int ordinal) {
             long random = mix(seed ^ 0x435241544552534DL ^ ((long) tick << 31)
                 ^ ordinal * 0x94D049BB133111EBL);
             float angle = unit(random, 0) * Mth.TWO_PI;
-            float radial = (float) Math.sqrt(unit(random, 1)) * craterRadius * 0.72F;
+            float radial = (float) Math.sqrt(unit(random, 1)) * craterRadius * 0.82F;
             float px = Mth.cos(angle) * radial;
             float pz = Mth.sin(angle) * radial;
-            float py = craterFloor + 0.7F + unit(random, 2) * craterRadius * 0.42F;
-            float outward = 0.035F + unit(random, 3) * (0.12F + 0.04F * scale);
-            spawn(MATERIAL_SMOKE, unit(random, 4) < 0.30F ? FLAG_CORE : 0, px, py, pz,
-                Mth.cos(angle) * outward + signed(random, 5) * 0.025F,
-                0.22F + unit(random, 6) * (0.48F + 0.12F * scale),
-                Mth.sin(angle) * outward + signed(random, 7) * 0.025F,
-                0.06F + unit(random, 8) * 0.12F,
-                (0.18F + unit(random, 9) * 0.34F) * (0.92F + scale * 0.11F),
-                Math.round(92.0F + unit(random, 10) * (90.0F + 35.0F * scale)), (int) random);
+            float py = craterFloor + 0.7F + unit(random, 2) * craterRadius * 0.36F;
+            float outward = 0.055F + unit(random, 3) * (0.18F + 0.05F * scale);
+            spawn(MATERIAL_SMOKE, unit(random, 4) < 0.34F ? FLAG_CORE : 0, px, py, pz,
+                Mth.cos(angle) * outward + signed(random, 5) * 0.022F,
+                0.12F + unit(random, 6) * (0.25F + 0.08F * scale),
+                Mth.sin(angle) * outward + signed(random, 7) * 0.022F,
+                0.02F + unit(random, 8) * 0.12F,
+                (0.34F + unit(random, 9) * 0.54F) * (0.92F + scale * 0.12F),
+                Math.round(100.0F + unit(random, 10) * (90.0F + 28.0F * scale)), (int) random);
         }
 
-        private void emitSmokeArcStreams(final int tick) {
-            int streams = Mth.clamp(Math.round(10.0F + 8.0F * scale), 10, 24);
-            int particlesPerStream = Mth.clamp(Math.round(3.0F + 2.0F * scale), 3, 7);
+        private void spawnDustEnvelope(final int tick, final int ordinal) {
+            long random = mix(seed ^ 0x445553545F454E56L ^ ((long) tick << 29)
+                ^ ordinal * 0xDB4F0B9175AE2165L);
+            float angle = unit(random, 0) * Mth.TWO_PI;
+            float radial = craterRadius * (0.44F + unit(random, 1) * 0.72F);
+            float outward = 0.12F + unit(random, 2) * (0.28F + 0.08F * scale);
+            spawn(MATERIAL_DUST, (byte) 0, Mth.cos(angle) * radial,
+                0.10F + unit(random, 3) * 2.8F, Mth.sin(angle) * radial,
+                Mth.cos(angle) * outward + signed(random, 4) * 0.06F,
+                0.06F + unit(random, 5) * 0.20F,
+                Mth.sin(angle) * outward + signed(random, 6) * 0.06F,
+                0.0F, 0.38F + unit(random, 7) * 0.64F,
+                Math.round(82.0F + unit(random, 8) * 84.0F), (int) random);
+        }
+
+        private void emitTendrils(final int tick) {
+            int streams = Mth.clamp(Math.round(12.0F + 9.0F * scale), 12, 28);
             for (int stream = 0; stream < streams; stream++) {
-                for (int particle = 0; particle < particlesPerStream; particle++) {
-                    spawnSmokeArc(tick, stream, particle, streams);
+                long streamSeed = mix(seed ^ 0x54454E4452494C53L
+                    ^ stream * 0xBF58476D1CE4E5B9L);
+                int onset = Math.floorMod((int) streamSeed, 9);
+                int duration = 13 + Math.floorMod((int) (streamSeed >>> 17), 18);
+                if (tick < onset || tick > onset + duration) continue;
+                int particles = 3 + Math.floorMod((int) (streamSeed >>> 33), 5);
+                for (int particle = 0; particle < particles; particle++) {
+                    spawnTendril(tick, stream, particle, streams, streamSeed);
                 }
             }
         }
 
-        private void spawnSmokeArc(final int tick, final int stream, final int particle,
-            final int streamCount) {
-            long streamSeed = mix(seed ^ 0x46414B4544454252L
-                ^ stream * 0xBF58476D1CE4E5B9L);
+        private void spawnTendril(final int tick, final int stream, final int particle,
+            final int streamCount, final long streamSeed) {
             long random = mix(streamSeed ^ ((long) tick << 32)
                 ^ particle * 0x9E3779B97F4A7C15L);
-            float angle = (stream + unit(streamSeed, 0) * 0.62F) / streamCount * Mth.TWO_PI;
-            float sourceRadius = craterRadius * (0.08F + unit(streamSeed, 1) * 0.26F);
-            float speed = 0.24F + unit(streamSeed, 2) * (0.36F + 0.10F * scale);
-            float upward = 0.46F + unit(streamSeed, 3) * (0.44F + 0.18F * scale);
-            float spread = 0.014F + 0.012F * scale;
-            spawn(MATERIAL_SMOKE, FLAG_ARC,
-                Mth.cos(angle) * sourceRadius + signed(random, 0) * craterRadius * 0.035F,
-                craterFloor + 1.2F + unit(streamSeed, 4) * craterRadius * 0.34F
-                    + signed(random, 1) * 0.22F,
-                Mth.sin(angle) * sourceRadius + signed(random, 2) * craterRadius * 0.035F,
+            float baseAngle = (stream + unit(streamSeed, 0) * 0.72F) / streamCount * Mth.TWO_PI;
+            float angle = baseAngle + signed(random, 0) * 0.055F;
+            float sourceRadius = craterRadius * (0.12F + unit(streamSeed, 1) * 0.34F);
+            float speed = 0.40F + unit(streamSeed, 2) * (0.56F + 0.16F * scale);
+            float upward = 0.34F + unit(streamSeed, 3) * (0.48F + 0.14F * scale);
+            float spread = 0.018F + 0.014F * scale;
+            spawn(MATERIAL_SMOKE, FLAG_TENDRIL,
+                Mth.cos(angle) * sourceRadius + signed(random, 1) * craterRadius * 0.025F,
+                craterFloor + 1.0F + unit(streamSeed, 4) * craterRadius * 0.30F,
+                Mth.sin(angle) * sourceRadius + signed(random, 2) * craterRadius * 0.025F,
                 Mth.cos(angle) * speed + signed(random, 3) * spread,
-                upward + signed(random, 4) * spread * 2.0F,
+                upward + signed(random, 4) * spread * 1.8F,
                 Mth.sin(angle) * speed + signed(random, 5) * spread,
-                0.0F,
-                (0.34F + unit(random, 6) * 0.44F) * (0.92F + scale * 0.14F),
-                Math.round(64.0F + unit(streamSeed, 5) * 54.0F + scale * 18.0F), (int) random);
+                0.0F, (0.46F + unit(random, 6) * 0.62F) * (0.94F + scale * 0.14F),
+                Math.round(72.0F + unit(streamSeed, 5) * 66.0F + scale * 18.0F), (int) random);
         }
 
         private void spawnGroundSpill(final int tick, final int ordinal) {
             long random = mix(seed ^ 0x47524F554E445350L ^ ((long) tick << 30)
                 ^ ordinal * 0xDB4F0B9175AE2165L);
             float angle = unit(random, 0) * Mth.TWO_PI;
-            float radial = craterRadius * (0.72F + unit(random, 1) * 0.38F);
-            float outward = 0.08F + unit(random, 2) * (0.16F + 0.05F * scale);
-            spawn(MATERIAL_SMOKE, FLAG_GROUND, Mth.cos(angle) * radial,
-                0.08F + unit(random, 3) * 0.55F, Mth.sin(angle) * radial,
-                Mth.cos(angle) * outward - Mth.sin(angle) * signed(random, 4) * 0.045F,
-                0.015F + unit(random, 5) * 0.075F,
-                Mth.sin(angle) * outward + Mth.cos(angle) * signed(random, 4) * 0.045F,
-                0.0F, 0.16F + unit(random, 6) * 0.28F,
-                Math.round(48.0F + unit(random, 7) * 64.0F), (int) random);
+            float radial = craterRadius * (0.76F + unit(random, 1) * 0.46F);
+            float outward = 0.10F + unit(random, 2) * (0.20F + 0.06F * scale);
+            spawn(MATERIAL_DUST, FLAG_GROUND, Mth.cos(angle) * radial,
+                0.08F + unit(random, 3) * 0.75F, Mth.sin(angle) * radial,
+                Mth.cos(angle) * outward - Mth.sin(angle) * signed(random, 4) * 0.055F,
+                0.015F + unit(random, 5) * 0.065F,
+                Mth.sin(angle) * outward + Mth.cos(angle) * signed(random, 4) * 0.055F,
+                0.0F, 0.30F + unit(random, 6) * 0.52F,
+                Math.round(86.0F + unit(random, 7) * 96.0F), (int) random);
         }
 
-        private void emitSurfaceFront(final double age, final double physicalRadius, final WarheadMesh.Lod lod) {
+        private void emitSurfaceFront(final double age, final double physicalRadius,
+            final WarheadMesh.Lod lod) {
             ensureSimulated(age);
             int tick = Math.max(0, (int) Math.floor(age));
             if (tick == lastSurfaceTick || physicalRadius <= 0.0) return;
             lastSurfaceTick = tick;
             if (age >= WarheadVisualMath.airShockwaveDurationTicks(scale)) return;
-            int base = switch (lod) { case NEAR -> 820; case MEDIUM -> 410; case FAR -> 160; };
-            int count = Math.min(2_600, Math.round(base * (0.78F + (float) Math.pow(scale, 1.18))));
+            int base = switch (lod) { case NEAR -> 620; case MEDIUM -> 310; case FAR -> 120; };
+            int count = Math.min(1_900,
+                Math.round(base * (0.76F + (float) Math.pow(scale, 1.15))));
             for (int index = 0; index < count; index++) {
                 long random = mix(seed ^ 0x46524F4E545F5632L ^ ((long) tick << 32)
                     ^ index * 0x9E3779B97F4A7C15L);
                 float angle = (index + unit(random, 0)) / count * Mth.TWO_PI;
-                float trail = unit(random, 1) * (1.0F + 3.0F * scale);
+                float trail = unit(random, 1) * (1.5F + 4.0F * scale);
                 float radial = (float) Math.max(0.0, physicalRadius - trail);
-                float tangent = signed(random, 2) * 0.08F;
-                float outward = 0.07F + unit(random, 3) * 0.15F;
-                float heat = unit(random, 4) < 0.16F ? 0.54F + unit(random, 5) * 0.28F : 0.0F;
+                float tangent = signed(random, 2) * 0.09F;
+                float outward = 0.08F + unit(random, 3) * 0.16F;
+                float heat = unit(random, 4) < 0.11F ? 0.50F + unit(random, 5) * 0.24F : 0.0F;
                 spawn(MATERIAL_FRONT, (byte) 0, Mth.cos(angle) * radial,
-                    0.05F + unit(random, 6) * (0.30F + 0.38F * scale), Mth.sin(angle) * radial,
+                    0.05F + unit(random, 6) * (0.45F + 0.48F * scale), Mth.sin(angle) * radial,
                     Mth.cos(angle) * outward - Mth.sin(angle) * tangent,
-                    0.025F + unit(random, 7) * 0.12F,
+                    0.025F + unit(random, 7) * 0.10F,
                     Mth.sin(angle) * outward + Mth.cos(angle) * tangent,
-                    heat, (0.10F + unit(random, 8) * 0.22F) * (0.94F + scale * 0.08F),
-                    Math.round(14.0F + unit(random, 9) * 24.0F), (int) random);
+                    heat, (0.22F + unit(random, 8) * 0.42F) * (0.94F + scale * 0.08F),
+                    Math.round(54.0F + unit(random, 9) * 48.0F), (int) random);
             }
         }
 
-        private void emitReturnFront(final double age, final double returnRadius, final WarheadMesh.Lod lod) {
+        private void emitReturnFront(final double age, final double returnRadius,
+            final WarheadMesh.Lod lod) {
             ensureSimulated(age);
             int tick = Math.max(0, (int) Math.floor(age));
             if (tick == lastReturnTick || returnRadius <= 0.0) return;
             lastReturnTick = tick;
-            int base = switch (lod) { case NEAR -> 700; case MEDIUM -> 350; case FAR -> 140; };
-            int count = Math.min(2_100, Math.round(base * (0.74F + (float) Math.sqrt(scale))));
+            int base = switch (lod) { case NEAR -> 540; case MEDIUM -> 270; case FAR -> 105; };
+            int count = Math.min(1_650, Math.round(base * (0.72F + (float) Math.sqrt(scale))));
             for (int index = 0; index < count; index++) {
                 long random = mix(seed ^ 0x52455455524E5632L ^ ((long) tick << 32)
                     ^ index * 0xD1B54A32D192ED03L);
                 float angle = (index + unit(random, 0)) / count * Mth.TWO_PI;
-                float radial = (float) returnRadius + signed(random, 1) * (0.55F + 1.1F * scale);
+                float radial = (float) returnRadius + signed(random, 1) * (0.75F + 1.3F * scale);
                 float inward = 0.13F + unit(random, 2) * (0.18F + 0.07F * scale);
                 spawn(MATERIAL_RETURN, (byte) 0, Mth.cos(angle) * radial,
-                    0.06F + unit(random, 3) * (0.38F + 0.36F * scale), Mth.sin(angle) * radial,
-                    -Mth.cos(angle) * inward, 0.018F + unit(random, 4) * 0.07F,
+                    0.06F + unit(random, 3) * (0.48F + 0.44F * scale), Mth.sin(angle) * radial,
+                    -Mth.cos(angle) * inward, 0.018F + unit(random, 4) * 0.06F,
                     -Mth.sin(angle) * inward, 0.0F,
-                    (0.10F + unit(random, 5) * 0.20F) * (0.94F + 0.08F * scale),
-                    Math.round(18.0F + unit(random, 6) * 30.0F), (int) random);
+                    (0.18F + unit(random, 5) * 0.36F) * (0.94F + 0.08F * scale),
+                    Math.round(52.0F + unit(random, 6) * 54.0F), (int) random);
             }
         }
 
         private void spawn(final byte particleMaterial, final byte particleFlags,
-            final float px, final float py, final float pz, final float vx, final float vy, final float vz,
-            final float heat, final float particleRadius, final int particleLifetime, final int randomSeed) {
+            final float px, final float py, final float pz, final float vx, final float vy,
+            final float vz, final float heat, final float particleRadius,
+            final int particleLifetime, final int randomSeed) {
             int slot = reserve();
             if (slot < 0) return;
-            float initialY = particleMaterial == MATERIAL_FIRE ? Math.min(py, HE_FIRE_TOP) : py;
             x[slot] = previousX[slot] = px;
-            y[slot] = previousY[slot] = initialY;
+            y[slot] = previousY[slot] = particleMaterial == MATERIAL_FIRE
+                ? Math.min(py, maximumFireY) : py;
             z[slot] = previousZ[slot] = pz;
             velocityX[slot] = vx;
             velocityY[slot] = vy;
@@ -421,13 +448,12 @@ public final class ConventionalBlastParticleRenderer {
             temperature[slot] = heat;
             radius[slot] = particleRadius;
             rotation[slot] = unit(randomSeed, 0) * Mth.TWO_PI;
-            rotationVelocity[slot] = signed(randomSeed, 1) * 0.040F;
+            rotationVelocity[slot] = signed(randomSeed, 1) * 0.036F;
             particleAge[slot] = 0;
             lifetime[slot] = (short) Mth.clamp(particleLifetime, 8, Short.MAX_VALUE);
             particleSeed[slot] = randomSeed;
             material[slot] = particleMaterial;
             flags[slot] = particleFlags;
-            active[slot] = true;
             spawnedLastTick++;
         }
 
@@ -442,7 +468,6 @@ public final class ConventionalBlastParticleRenderer {
             int removedSlot = activeSlots[activePosition];
             int lastPosition = --activeCount;
             if (activePosition < lastPosition) activeSlots[activePosition] = activeSlots[lastPosition];
-            active[removedSlot] = false;
             freeSlots[freeCount++] = removedSlot;
         }
 
@@ -464,65 +489,69 @@ public final class ConventionalBlastParticleRenderer {
                     ^ tick * 0x9E3779B9L), 0);
                 switch (material[index]) {
                     case MATERIAL_FIRE -> {
-                        float cooling = (flags[index] & FLAG_CORE) != 0 ? 0.0085F : 0.0125F;
+                        float cooling = (flags[index] & FLAG_CORE) != 0 ? 0.010F : 0.014F;
                         temperature[index] = Math.max(0.0F,
                             temperature[index] - cooling * (0.76F + progress * 0.72F));
                         velocityX[index] += turbulence * 0.004F;
                         velocityZ[index] += signed(particleSeed[index], tick & 7) * 0.004F;
-                        float lift = (flags[index] & FLAG_SPOUT) != 0 ? 0.0015F : 0.0005F;
-                        velocityY[index] = velocityY[index] * 0.942F + lift;
-                        velocityX[index] *= (flags[index] & FLAG_SPOUT) != 0 ? 0.982F : 0.991F;
-                        velocityZ[index] *= (flags[index] & FLAG_SPOUT) != 0 ? 0.982F : 0.991F;
-                        radius[index] *= temperature[index] > 0.22F ? 1.004F : 1.008F;
-                        if (temperature[index] < 0.12F) material[index] = MATERIAL_SMOKE;
+                        float lift = (flags[index] & FLAG_SPOUT) != 0 ? 0.0010F : 0.0002F;
+                        velocityY[index] = velocityY[index] * 0.925F + lift;
+                        velocityX[index] *= 0.988F;
+                        velocityZ[index] *= 0.988F;
+                        radius[index] *= temperature[index] > 0.22F ? 1.003F : 1.006F;
+                        if (temperature[index] < 0.11F) material[index] = MATERIAL_SMOKE;
                     }
                     case MATERIAL_SMOKE -> {
-                        velocityX[index] += turbulence * 0.004F;
-                        velocityZ[index] += signed(particleSeed[index], tick & 7) * 0.004F;
-                        if ((flags[index] & FLAG_ARC) != 0) {
-                            velocityY[index] -= 0.020F;
-                            velocityX[index] *= 0.991F;
-                            velocityZ[index] *= 0.991F;
-                            radius[index] *= 1.0035F;
-                        } else if ((flags[index] & FLAG_GROUND) != 0) {
-                            velocityY[index] += 0.0015F;
-                            velocityX[index] *= 0.972F;
-                            velocityZ[index] *= 0.972F;
-                            radius[index] *= 1.006F;
+                        velocityX[index] += turbulence * 0.0045F;
+                        velocityZ[index] += signed(particleSeed[index], tick & 7) * 0.0045F;
+                        if ((flags[index] & FLAG_TENDRIL) != 0) {
+                            velocityY[index] -= 0.021F;
+                            velocityX[index] *= 0.990F;
+                            velocityZ[index] *= 0.990F;
+                            radius[index] *= 1.004F;
                         } else {
-                            velocityY[index] += 0.0045F;
-                            velocityX[index] *= 0.982F;
-                            velocityZ[index] *= 0.982F;
-                            radius[index] *= 1.006F;
+                            velocityY[index] = velocityY[index] * 0.975F + 0.0025F;
+                            velocityX[index] *= 0.978F;
+                            velocityZ[index] *= 0.978F;
+                            radius[index] *= 1.005F;
                         }
                         temperature[index] = Math.max(0.0F, temperature[index] - 0.004F);
                     }
+                    case MATERIAL_DUST -> {
+                        velocityX[index] += turbulence * 0.003F;
+                        velocityZ[index] += signed(particleSeed[index], tick & 7) * 0.003F;
+                        velocityY[index] = velocityY[index] * 0.965F + 0.0012F;
+                        velocityX[index] *= (flags[index] & FLAG_GROUND) != 0 ? 0.974F : 0.982F;
+                        velocityZ[index] *= (flags[index] & FLAG_GROUND) != 0 ? 0.974F : 0.982F;
+                        radius[index] *= 1.0055F;
+                    }
                     case MATERIAL_FRONT -> {
-                        velocityX[index] *= 0.948F;
-                        velocityZ[index] *= 0.948F;
-                        velocityY[index] += 0.001F;
-                        temperature[index] = Math.max(0.0F, temperature[index] - 0.055F);
-                        radius[index] *= 1.014F;
+                        velocityX[index] *= 0.958F;
+                        velocityZ[index] *= 0.958F;
+                        velocityY[index] += 0.0008F;
+                        temperature[index] = Math.max(0.0F, temperature[index] - 0.040F);
+                        radius[index] *= 1.010F;
                     }
                     case MATERIAL_RETURN -> {
-                        velocityX[index] *= 1.003F;
-                        velocityZ[index] *= 1.003F;
-                        velocityY[index] += 0.001F;
-                        radius[index] *= 1.010F;
+                        velocityX[index] *= 1.002F;
+                        velocityZ[index] *= 1.002F;
+                        velocityY[index] += 0.0008F;
+                        radius[index] *= 1.008F;
                     }
                     default -> { }
                 }
                 x[index] += velocityX[index];
                 y[index] += velocityY[index];
                 z[index] += velocityZ[index];
-                if (material[index] == MATERIAL_FIRE && y[index] > HE_FIRE_TOP) {
-                    y[index] = HE_FIRE_TOP;
-                    velocityY[index] = -Math.abs(velocityY[index]) * 0.08F;
-                    float horizontal = Mth.sqrt(x[index] * x[index] + z[index] * z[index]);
-                    if (horizontal > 1.0E-4F) {
-                        velocityX[index] += x[index] / horizontal * 0.032F;
-                        velocityZ[index] += z[index] / horizontal * 0.032F;
-                    }
+                if (material[index] == MATERIAL_FIRE && y[index] > maximumFireY) {
+                    y[index] = maximumFireY;
+                    velocityY[index] = -Math.abs(velocityY[index]) * 0.05F;
+                    spreadOutward(index, 0.042F);
+                } else if ((material[index] == MATERIAL_SMOKE || material[index] == MATERIAL_DUST)
+                    && (flags[index] & FLAG_TENDRIL) == 0 && y[index] > maximumSmokeY) {
+                    y[index] = maximumSmokeY;
+                    velocityY[index] = -Math.abs(velocityY[index]) * 0.10F;
+                    spreadOutward(index, 0.032F);
                 }
                 rotation[index] += rotationVelocity[index];
                 particleAge[index] = (short) (age + 1);
@@ -530,12 +559,21 @@ public final class ConventionalBlastParticleRenderer {
             }
         }
 
-        private void render(final PoseStack.Pose pose, final VertexConsumer buffer, final double age,
-            final WarheadMesh.Lod lod, final Quaternionf camera, final Pass pass) {
+        private void spreadOutward(final int index, final float amount) {
+            float horizontal = Mth.sqrt(x[index] * x[index] + z[index] * z[index]);
+            if (horizontal > 1.0E-4F) {
+                velocityX[index] += x[index] / horizontal * amount;
+                velocityZ[index] += z[index] / horizontal * amount;
+            }
+        }
+
+        private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+            final double age, final WarheadMesh.Lod lod, final Quaternionf camera,
+            final Pass pass) {
             ensureSimulated(age);
             float partial = (float) Mth.clamp(age - Math.floor(age), 0.0, 1.0);
             Basis basis = Basis.from(camera);
-            int stride = switch (lod) { case NEAR -> 1; case MEDIUM -> 2; case FAR -> 6; };
+            int stride = switch (lod) { case NEAR -> 1; case MEDIUM -> 2; case FAR -> 5; };
             int inspected = 0;
             int rejected = 0;
             for (int activePosition = 0; activePosition < activeCount; activePosition += stride) {
@@ -555,13 +593,14 @@ public final class ConventionalBlastParticleRenderer {
                 float px = Mth.lerp(partial, previousX[index], x[index]);
                 float py = Mth.lerp(partial, previousY[index], y[index]);
                 float pz = Mth.lerp(partial, previousZ[index], z[index]);
-                Colour colour = colour(index, pass);
+                Colour colour = colour(index);
                 float drawRadius = radius[index];
-                if (pass == Pass.SMOKE_CORE) drawRadius *= 1.12F;
-                if ((flags[index] & FLAG_ARC) != 0) drawRadius *= 1.28F;
-                int light = isEmissive(pass) ? 0xF000F0 : pass == Pass.SMOKE_CORE ? 0xA000A0 : 0xB000B0;
-                billboard(pose, buffer, px, py, pz, drawRadius, rotation[index], colour.red, colour.green,
-                    colour.blue, alpha, light, basis);
+                if (pass == Pass.SMOKE_CORE) drawRadius *= 1.18F;
+                if ((flags[index] & FLAG_TENDRIL) != 0) drawRadius *= 1.24F;
+                int light = isEmissive(pass) ? 0xF000F0
+                    : pass == Pass.SMOKE_CORE ? 0xA000A0 : 0xB000B0;
+                billboard(pose, buffer, px, py, pz, drawRadius, rotation[index],
+                    colour.red, colour.green, colour.blue, alpha, light, basis);
             }
             culledLastRender = Math.max(0, activeCount - inspected) + rejected;
         }
@@ -570,11 +609,15 @@ public final class ConventionalBlastParticleRenderer {
             byte type = material[index];
             float heat = temperature[index];
             return switch (pass) {
-                case FIRE_CORE -> type == MATERIAL_FIRE && heat >= 0.64F && (flags[index] & FLAG_CORE) != 0;
-                case FIRE_HOT -> type == MATERIAL_FIRE && heat >= 0.46F && (flags[index] & FLAG_CORE) == 0;
-                case FIRE_COOLING -> type == MATERIAL_FIRE && heat >= 0.12F && heat < 0.54F;
-                case SMOKE_CORE -> type == MATERIAL_SMOKE && (flags[index] & (FLAG_CORE | FLAG_SPOUT)) != 0;
-                case SMOKE_SOFT -> type == MATERIAL_SMOKE && (flags[index] & (FLAG_CORE | FLAG_SPOUT)) == 0;
+                case FIRE_CORE -> type == MATERIAL_FIRE && heat >= 0.66F
+                    && (flags[index] & FLAG_CORE) != 0;
+                case FIRE_HOT -> type == MATERIAL_FIRE && heat >= 0.50F
+                    && (flags[index] & FLAG_CORE) == 0;
+                case FIRE_COOLING -> type == MATERIAL_FIRE && heat >= 0.11F && heat < 0.50F;
+                case SMOKE_CORE -> type == MATERIAL_SMOKE
+                    && (flags[index] & (FLAG_CORE | FLAG_SPOUT)) != 0;
+                case SMOKE_SOFT -> (type == MATERIAL_SMOKE
+                    && (flags[index] & (FLAG_CORE | FLAG_SPOUT)) == 0) || type == MATERIAL_DUST;
                 case SURFACE_FRONT -> type == MATERIAL_FRONT;
                 case RETURN_FRONT -> type == MATERIAL_RETURN;
             };
@@ -583,33 +626,43 @@ public final class ConventionalBlastParticleRenderer {
         private float alpha(final int index, final Pass pass, final float progress) {
             float fadeIn = Math.min(1.0F, (particleAge[index] & 0xFFFF) / 2.5F);
             float fadeOut = (float) Math.pow(Math.max(0.0F, 1.0F - progress),
-                pass == Pass.SMOKE_CORE ? 0.48F : pass == Pass.SMOKE_SOFT ? 0.68F : 0.56F);
+                pass == Pass.SMOKE_CORE ? 0.52F : pass == Pass.SMOKE_SOFT ? 0.72F : 0.56F);
             float base = switch (pass) {
-                case FIRE_CORE -> 0.94F;
-                case FIRE_HOT -> 0.84F;
-                case FIRE_COOLING -> 0.64F;
-                case SMOKE_CORE -> 0.68F;
-                case SMOKE_SOFT -> (flags[index] & FLAG_ARC) != 0 ? 0.86F : 0.54F;
-                case SURFACE_FRONT -> 0.58F;
-                case RETURN_FRONT -> 0.46F;
+                case FIRE_CORE -> 0.95F;
+                case FIRE_HOT -> 0.85F;
+                case FIRE_COOLING -> 0.66F;
+                case SMOKE_CORE -> 0.76F;
+                case SMOKE_SOFT -> (flags[index] & FLAG_TENDRIL) != 0 ? 0.88F : 0.64F;
+                case SURFACE_FRONT -> 0.62F;
+                case RETURN_FRONT -> 0.52F;
             };
             return Mth.clamp(base * fadeIn * fadeOut, 0.0F, 0.96F);
         }
 
-        private Colour colour(final int index, final Pass pass) {
+        private Colour colour(final int index) {
             if (material[index] == MATERIAL_FRONT) {
                 if (temperature[index] > 0.18F) {
                     float heat = Mth.clamp(temperature[index], 0.0F, 1.0F);
-                    return new Colour(255, Mth.lerpInt(heat, 148, 236), Mth.lerpInt(heat, 54, 184));
+                    return new Colour(255, Mth.lerpInt(heat, 148, 236),
+                        Mth.lerpInt(heat, 54, 184));
                 }
                 int tone = 184 + Math.floorMod(particleSeed[index], 31);
                 return new Colour(tone, Math.min(220, tone + 3), Math.min(226, tone + 7));
             }
-            if (material[index] == MATERIAL_RETURN || material[index] == MATERIAL_SMOKE) {
-                int variation = Math.floorMod(particleSeed[index], 24);
-                int base = (flags[index] & FLAG_ARC) != 0 ? 216 : 154;
-                int tone = Mth.clamp(base + variation, 154, 242);
-                return new Colour(tone, Math.min(246, tone + 3), Math.min(250, tone + 7));
+            if (material[index] == MATERIAL_RETURN) {
+                int tone = 170 + Math.floorMod(particleSeed[index], 34);
+                return new Colour(tone, Math.min(214, tone + 4), Math.min(220, tone + 8));
+            }
+            if (material[index] == MATERIAL_DUST) {
+                int tone = 156 + Math.floorMod(particleSeed[index], 42);
+                return new Colour(tone, Mth.clamp(tone - 18, 120, 185),
+                    Mth.clamp(tone - 38, 92, 162));
+            }
+            if (material[index] == MATERIAL_SMOKE) {
+                int variation = Math.floorMod(particleSeed[index], 34);
+                int base = (flags[index] & FLAG_TENDRIL) != 0 ? 188 : 142;
+                int tone = Mth.clamp(base + variation, 142, 226);
+                return new Colour(tone, Math.min(232, tone + 3), Math.min(238, tone + 8));
             }
             float heat = Mth.clamp(temperature[index], 0.0F, 1.0F);
             if (heat > 0.84F) {
@@ -626,7 +679,8 @@ public final class ConventionalBlastParticleRenderer {
         }
 
         private static boolean isEmissive(final Pass pass) {
-            return pass == Pass.FIRE_CORE || pass == Pass.FIRE_HOT || pass == Pass.FIRE_COOLING;
+            return pass == Pass.FIRE_CORE || pass == Pass.FIRE_HOT
+                || pass == Pass.FIRE_COOLING;
         }
     }
 
@@ -641,24 +695,26 @@ public final class ConventionalBlastParticleRenderer {
     }
 
     private static void billboard(final PoseStack.Pose pose, final VertexConsumer buffer,
-        final float centerX, final float centerY, final float centerZ, final float radius, final float rotation,
-        final int red, final int green, final int blue, final float alpha, final int light, final Basis basis) {
+        final float centerX, final float centerY, final float centerZ, final float radius,
+        final float rotation, final int red, final int green, final int blue,
+        final float alpha, final int light, final Basis basis) {
         float cosine = Mth.cos(rotation);
         float sine = Mth.sin(rotation);
-        vertex(pose, buffer, centerX, centerY, centerZ, -radius, -radius, cosine, sine, 0.0F, 1.0F,
-            red, green, blue, alpha, light, basis);
-        vertex(pose, buffer, centerX, centerY, centerZ, -radius, radius, cosine, sine, 0.0F, 0.0F,
-            red, green, blue, alpha, light, basis);
-        vertex(pose, buffer, centerX, centerY, centerZ, radius, radius, cosine, sine, 1.0F, 0.0F,
-            red, green, blue, alpha, light, basis);
-        vertex(pose, buffer, centerX, centerY, centerZ, radius, -radius, cosine, sine, 1.0F, 1.0F,
-            red, green, blue, alpha, light, basis);
+        vertex(pose, buffer, centerX, centerY, centerZ, -radius, -radius,
+            cosine, sine, 0.0F, 1.0F, red, green, blue, alpha, light, basis);
+        vertex(pose, buffer, centerX, centerY, centerZ, -radius, radius,
+            cosine, sine, 0.0F, 0.0F, red, green, blue, alpha, light, basis);
+        vertex(pose, buffer, centerX, centerY, centerZ, radius, radius,
+            cosine, sine, 1.0F, 0.0F, red, green, blue, alpha, light, basis);
+        vertex(pose, buffer, centerX, centerY, centerZ, radius, -radius,
+            cosine, sine, 1.0F, 1.0F, red, green, blue, alpha, light, basis);
     }
 
     private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer,
-        final float centerX, final float centerY, final float centerZ, final float localX, final float localY,
-        final float cosine, final float sine, final float u, final float v, final int red, final int green,
-        final int blue, final float alpha, final int light, final Basis basis) {
+        final float centerX, final float centerY, final float centerZ,
+        final float localX, final float localY, final float cosine, final float sine,
+        final float u, final float v, final int red, final int green, final int blue,
+        final float alpha, final int light, final Basis basis) {
         float rotatedX = localX * cosine - localY * sine;
         float rotatedY = localX * sine + localY * cosine;
         float offsetX = basis.right.x * rotatedX + basis.up.x * rotatedY;

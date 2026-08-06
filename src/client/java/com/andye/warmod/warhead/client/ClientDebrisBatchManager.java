@@ -19,12 +19,13 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-/** Client-side rigid fragments with swept collision and real-path smoke trails. */
+/** Client-side rigid fragments with swept collision and long real-path smoke trails. */
 public final class ClientDebrisBatchManager {
     public static final ClientDebrisBatchManager INSTANCE = new ClientDebrisBatchManager();
     private static final int MAX_BATCHES = 64;
     private static final int MAX_RENDERED_PARTS = 8_192;
-    private static final int TRAIL_SAMPLES = 30;
+    private static final int TRAIL_SAMPLES = 52;
+    private static final int MAX_CATCH_UP_STEPS = 6;
     private static final double GRAVITY = -0.052;
     private static final double AIR_DRAG = 0.991;
     private static final byte CACHE_MISS = -1;
@@ -32,11 +33,6 @@ public final class ClientDebrisBatchManager {
     private static final byte CACHE_SOLID = 1;
 
     private final Map<UUID, Batch> batches = new LinkedHashMap<>();
-    /**
-     * Reused for one debris simulation step at a time. Many connected fragments
-     * probe the same terrain blocks, so this avoids repeating chunk, block-state
-     * and collision-shape lookups without changing collision resolution.
-     */
     private final Long2ByteOpenHashMap terrainCollisionCache = new Long2ByteOpenHashMap(16_384);
     private ClientLevel activeLevel;
 
@@ -81,11 +77,12 @@ public final class ClientDebrisBatchManager {
                 encodedVelocity.z * massDamping * horizontalScale);
             Vec3 angularVelocity = new Vec3(entry.spinX(), entry.spinY(), entry.spinZ())
                 .scale(Math.min(0.72, 2.2 / Math.sqrt(mass)));
-            float visualScale = entry.scale() * Mth.clamp(
-                1.0F + (float) Math.sqrt(parts.size()) * 0.055F, 1.0F, 1.72F);
+            float visualScale = Mth.clamp(entry.scale()
+                * (1.18F + (float) Math.sqrt(parts.size()) * 0.085F), 1.05F, 2.35F);
+            int lifetime = Math.max(96, entry.lifetime());
             pieces.add(new Piece(new Vec3(entry.offsetX(), entry.offsetY(), entry.offsetZ()),
-                velocity, angularVelocity, visualScale, entry.lifetime(), List.copyOf(parts), mass,
-                Math.max(0.38, maximumOffset * visualScale)));
+                velocity, angularVelocity, visualScale, lifetime, List.copyOf(parts), mass,
+                Math.max(0.42, maximumOffset * visualScale)));
         }
         batches.put(payload.impactId(), new Batch(
             new Vec3(payload.originX(), payload.originY(), payload.originZ()),
@@ -314,7 +311,7 @@ public final class ClientDebrisBatchManager {
             final Long2ByteOpenHashMap collisionCache) {
             long target = Math.max(spawnGameTime, gameTime);
             if (target < lastSimulatedGameTime) return;
-            long steps = Math.min(400L, target - lastSimulatedGameTime);
+            long steps = Math.min(MAX_CATCH_UP_STEPS, target - lastSimulatedGameTime);
             for (long step = 0; step < steps; step++) {
                 collisionCache.clear();
                 for (Piece piece : pieces) {
@@ -331,7 +328,7 @@ public final class ClientDebrisBatchManager {
                 maximumLifetime = Math.max(maximumLifetime, piece.lifetime);
                 if (!piece.terminal && piece.age < piece.lifetime) anyActive = true;
             }
-            return !anyActive || gameTime - spawnGameTime >= maximumLifetime + 2L;
+            return !anyActive || gameTime - spawnGameTime >= maximumLifetime + 40L;
         }
     }
 
