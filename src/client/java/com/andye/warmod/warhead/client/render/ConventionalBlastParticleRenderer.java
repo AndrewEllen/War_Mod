@@ -23,6 +23,7 @@ import org.joml.Vector3f;
 public final class ConventionalBlastParticleRenderer {
     private static final int MAX_FIELDS = 12;
     private static final int CAPACITY = 98_304;
+    private static final float HE_FIRE_TOP = 4.75F;
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
     private static final Map<Long, Field> FIELDS = new LinkedHashMap<>();
 
@@ -31,36 +32,66 @@ public final class ConventionalBlastParticleRenderer {
     public static void renderFireCore(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderFireCore(pose, buffer, age, visualScale, profile,
+                seed, lod, camera);
+            return;
+        }
         field(seed, visualScale, false).render(pose, buffer, age, lod, camera, Pass.FIRE_CORE);
     }
 
     public static void renderHot(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderHot(pose, buffer, age, visualScale, profile,
+                seed, lod, camera);
+            return;
+        }
         field(seed, visualScale, false).render(pose, buffer, age, lod, camera, Pass.FIRE_HOT);
     }
 
     public static void renderCooling(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderCooling(pose, buffer, age, visualScale, profile,
+                seed, lod, camera);
+            return;
+        }
         field(seed, visualScale, false).render(pose, buffer, age, lod, camera, Pass.FIRE_COOLING);
     }
 
     public static void renderSmokeCore(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderSmokeCore(pose, buffer, age, visualScale, profile,
+                seed, lod, camera);
+            return;
+        }
         field(seed, visualScale, false).render(pose, buffer, age, lod, camera, Pass.SMOKE_CORE);
     }
 
     public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderSmoke(pose, buffer, age, visualScale, profile,
+                seed, lod, camera);
+            return;
+        }
         field(seed, visualScale, false).render(pose, buffer, age, lod, camera, Pass.SMOKE_SOFT);
     }
 
     public static void renderSurfaceFront(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final double physicalRadius, final float visualScale, final long seed,
         final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderSurfaceFront(pose, buffer, age, physicalRadius,
+                visualScale, seed, lod, camera);
+            return;
+        }
         Field field = field(seed, visualScale, false);
         field.emitSurfaceFront(age, physicalRadius, lod);
         field.render(pose, buffer, age, lod, camera, Pass.SURFACE_FRONT);
@@ -69,12 +100,20 @@ public final class ConventionalBlastParticleRenderer {
     public static void renderNuclearReturnFront(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final double returnRadius, final float yieldScale, final long seed,
         final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            LegacyConventionalBlastRenderer.renderNuclearReturnFront(pose, buffer, age, returnRadius,
+                yieldScale, seed, lod, camera);
+            return;
+        }
         Field field = field(seed ^ NUCLEAR_KEY_MASK, yieldScale, true);
         field.emitReturnFront(age, returnRadius, lod);
         field.render(pose, buffer, age, lod, camera, Pass.RETURN_FRONT);
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
+        if (!WarheadRenderSettings.usePackedParticles()) {
+            return new DebugSnapshot(0, 0, 0, 0, "legacy_analytical_custom_geometry");
+        }
         int active = 0;
         int spawned = 0;
         int culled = 0;
@@ -193,7 +232,7 @@ public final class ConventionalBlastParticleRenderer {
                 int count = Math.min(7_200, Math.round((650.0F + 680.0F * scale) * density));
                 for (int index = 0; index < count; index++) spawnFireBody(tick, index, true);
             }
-            int feedEnd = Math.round(54.0F + 42.0F * scale);
+            int feedEnd = Math.round(34.0F + 22.0F * scale);
             if (tick <= feedEnd) {
                 float feed = 1.0F - tick / (float) Math.max(1, feedEnd);
                 int body = Math.round((185.0F + 225.0F * scale) * density * (0.34F + 0.66F * feed));
@@ -222,8 +261,8 @@ public final class ConventionalBlastParticleRenderer {
             float px = Mth.cos(angle) * radial;
             float pz = Mth.sin(angle) * radial;
             float py = craterFloor + 0.45F + dome * craterRadius * 0.70F + signed(random, 2) * 0.55F;
-            float outward = 0.025F + unit(random, 3) * (0.075F + 0.025F * scale);
-            float up = 0.10F + unit(random, 4) * (0.22F + 0.11F * scale);
+            float outward = 0.055F + unit(random, 3) * (0.13F + 0.04F * scale);
+            float up = 0.07F + unit(random, 4) * (0.16F + 0.06F * scale);
             byte particleFlags = unit(random, 5) < 0.34F ? FLAG_CORE : 0;
             spawn(MATERIAL_FIRE, particleFlags, px, py, pz,
                 Mth.cos(angle) * outward + signed(random, 6) * 0.018F, up,
@@ -241,10 +280,10 @@ public final class ConventionalBlastParticleRenderer {
             float px = Mth.cos(angle) * radial;
             float pz = Mth.sin(angle) * radial;
             float py = craterFloor + 0.8F + unit(random, 2) * craterRadius * 0.28F;
-            float sideways = 0.006F + unit(random, 3) * 0.018F;
+            float sideways = 0.018F + unit(random, 3) * 0.042F;
             spawn(MATERIAL_FIRE, (byte) (FLAG_CORE | FLAG_SPOUT), px, py, pz,
                 Mth.cos(angle) * sideways + signed(random, 4) * 0.008F,
-                0.74F + unit(random, 5) * (0.62F + 0.24F * scale),
+                0.30F + unit(random, 5) * (0.28F + 0.08F * scale),
                 Mth.sin(angle) * sideways + signed(random, 6) * 0.008F,
                 0.91F + unit(random, 7) * 0.14F,
                 (0.18F + unit(random, 8) * 0.32F) * (0.90F + scale * 0.12F),
@@ -372,8 +411,9 @@ public final class ConventionalBlastParticleRenderer {
             final float heat, final float particleRadius, final int particleLifetime, final int randomSeed) {
             int slot = reserve();
             if (slot < 0) return;
+            float initialY = particleMaterial == MATERIAL_FIRE ? Math.min(py, HE_FIRE_TOP) : py;
             x[slot] = previousX[slot] = px;
-            y[slot] = previousY[slot] = py;
+            y[slot] = previousY[slot] = initialY;
             z[slot] = previousZ[slot] = pz;
             velocityX[slot] = vx;
             velocityY[slot] = vy;
@@ -429,9 +469,10 @@ public final class ConventionalBlastParticleRenderer {
                             temperature[index] - cooling * (0.76F + progress * 0.72F));
                         velocityX[index] += turbulence * 0.004F;
                         velocityZ[index] += signed(particleSeed[index], tick & 7) * 0.004F;
-                        velocityY[index] += (flags[index] & FLAG_SPOUT) != 0 ? 0.007F : 0.0025F;
-                        velocityX[index] *= (flags[index] & FLAG_SPOUT) != 0 ? 0.973F : 0.987F;
-                        velocityZ[index] *= (flags[index] & FLAG_SPOUT) != 0 ? 0.973F : 0.987F;
+                        float lift = (flags[index] & FLAG_SPOUT) != 0 ? 0.0015F : 0.0005F;
+                        velocityY[index] = velocityY[index] * 0.942F + lift;
+                        velocityX[index] *= (flags[index] & FLAG_SPOUT) != 0 ? 0.982F : 0.991F;
+                        velocityZ[index] *= (flags[index] & FLAG_SPOUT) != 0 ? 0.982F : 0.991F;
                         radius[index] *= temperature[index] > 0.22F ? 1.004F : 1.008F;
                         if (temperature[index] < 0.12F) material[index] = MATERIAL_SMOKE;
                     }
@@ -474,6 +515,15 @@ public final class ConventionalBlastParticleRenderer {
                 x[index] += velocityX[index];
                 y[index] += velocityY[index];
                 z[index] += velocityZ[index];
+                if (material[index] == MATERIAL_FIRE && y[index] > HE_FIRE_TOP) {
+                    y[index] = HE_FIRE_TOP;
+                    velocityY[index] = -Math.abs(velocityY[index]) * 0.08F;
+                    float horizontal = Mth.sqrt(x[index] * x[index] + z[index] * z[index]);
+                    if (horizontal > 1.0E-4F) {
+                        velocityX[index] += x[index] / horizontal * 0.032F;
+                        velocityZ[index] += z[index] / horizontal * 0.032F;
+                    }
+                }
                 rotation[index] += rotationVelocity[index];
                 particleAge[index] = (short) (age + 1);
                 activePosition++;

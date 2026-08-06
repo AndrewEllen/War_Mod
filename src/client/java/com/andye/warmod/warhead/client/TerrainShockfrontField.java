@@ -15,6 +15,8 @@ public final class TerrainShockfrontField {
 	public static final int MAX_HORIZONTAL_RANGE = 512;
 	public static final int SAMPLE_SPACING = 2;
 	public static final int MAX_SPOKES = 256;
+	/** Amortises terrain/chunk height work without changing the completed field. */
+	private static final int MAX_BUILD_PER_CALL = 2_048;
 
 	private final Vec3 impactPosition;
 	private final long visualSeed;
@@ -46,8 +48,9 @@ public final class TerrainShockfrontField {
 	}
 
 	/**
-	 * Builds at most {@code maximumNodes} new samples and never builds farther
-	 * than {@code requiredDistance} from the impact.
+	 * Builds a bounded slice of new samples and never builds farther than
+	 * {@code requiredDistance} from the impact. Repeated ticks reach the exact
+	 * same 256-spoke field; only the per-tick chunk/height workload is capped.
 	 */
 	public synchronized int buildToDistance(final ClientLevel level, final double requiredDistance,
 		final int maximumNodes) {
@@ -56,9 +59,10 @@ public final class TerrainShockfrontField {
 			MAX_HORIZONTAL_RANGE / SAMPLE_SPACING,
 			(int) Math.ceil(Math.max(0.0, requiredDistance) / SAMPLE_SPACING)
 		));
+		int buildLimit = Math.min(maximumNodes, MAX_BUILD_PER_CALL);
 		int built = 0;
 		int unavailable = 0;
-		while (built < maximumNodes && unavailable < this.spokes.size()) {
+		while (built < buildLimit && unavailable < this.spokes.size()) {
 			TerrainShockfrontSpoke spoke = this.spokes.get(this.nextSpokeToBuild);
 			this.nextSpokeToBuild = (this.nextSpokeToBuild + 1) % this.spokes.size();
 			if (spoke.complete() || spoke.nextSampleIndex() > targetSampleIndex) {

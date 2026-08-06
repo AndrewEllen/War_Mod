@@ -1,6 +1,7 @@
 package com.andye.warmod.warhead.client;
 
 import com.andye.warmod.warhead.network.ClientboundWarheadDebrisPayload;
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -26,11 +27,22 @@ public final class ClientDebrisBatchManager {
     private static final int TRAIL_SAMPLES = 30;
     private static final double GRAVITY = -0.052;
     private static final double AIR_DRAG = 0.991;
+    private static final byte CACHE_MISS = -1;
+    private static final byte CACHE_EMPTY = 0;
+    private static final byte CACHE_SOLID = 1;
 
     private final Map<UUID, Batch> batches = new LinkedHashMap<>();
+    /**
+     * Reused for one debris simulation step at a time. Many connected fragments
+     * probe the same terrain blocks, so this avoids repeating chunk, block-state
+     * and collision-shape lookups without changing collision resolution.
+     */
+    private final Long2ByteOpenHashMap terrainCollisionCache = new Long2ByteOpenHashMap(16_384);
     private ClientLevel activeLevel;
 
-    private ClientDebrisBatchManager() { }
+    private ClientDebrisBatchManager() {
+        terrainCollisionCache.defaultReturnValue(CACHE_MISS);
+    }
 
     public synchronized void accept(final ClientboundWarheadDebrisPayload payload) {
         ClientLevel level = Minecraft.getInstance().level;
@@ -69,20 +81,26 @@ public final class ClientDebrisBatchManager {
                 encodedVelocity.z * massDamping * horizontalScale);
             Vec3 angularVelocity = new Vec3(entry.spinX(), entry.spinY(), entry.spinZ())
                 .scale(Math.min(0.72, 2.2 / Math.sqrt(mass)));
-            float visualScale = entry.scale() * Mth.clamp(1.0F + (float) Math.sqrt(parts.size()) * 0.055F,
-                1.0F, 1.72F);
-            pieces.add(new Piece(new Vec3(entry.offsetX(), entry.offsetY(), entry.offsetZ()), velocity,
-                angularVelocity, visualScale, entry.lifetime(), List.copyOf(parts), mass,
+            float visualScale = entry.scale() * Mth.clamp(
+                1.0F + (float) Math.sqrt(parts.size()) * 0.055F, 1.0F, 1.72F);
+            pieces.add(new Piece(new Vec3(entry.offsetX(), entry.offsetY(), entry.offsetZ()),
+                velocity, angularVelocity, visualScale, entry.lifetime(), List.copyOf(parts), mass,
                 Math.max(0.38, maximumOffset * visualScale)));
         }
-        batches.put(payload.impactId(), new Batch(new Vec3(payload.originX(), payload.originY(), payload.originZ()),
+        batches.put(payload.impactId(), new Batch(
+            new Vec3(payload.originX(), payload.originY(), payload.originZ()),
             payload.spawnGameTime(), payload.spawnGameTime() - 1L, List.copyOf(pieces)));
     }
 
     public synchronized void tick(final ClientLevel level, final long gameTime) {
-        if (level == null) { clear(); return; }
+        if (level == null) {
+            clear();
+            return;
+        }
         ensureLevel(level);
-        for (Batch batch : batches.values()) batch.simulateTo(level, gameTime);
+        for (Batch batch : batches.values()) {
+            batch.simulateTo(level, gameTime, terrainCollisionCache);
+        }
         batches.entrySet().removeIf(entry -> entry.getValue().expired(gameTime));
     }
 
@@ -90,7 +108,9 @@ public final class ClientDebrisBatchManager {
         final double partialTick, final Vec3 viewer, final double maximumDistance) {
         if (level == null || viewer == null) return List.of();
         ensureLevel(level);
-        for (Batch batch : batches.values()) batch.simulateTo(level, gameTime);
+        for (Batch batch : batches.values()) {
+            batch.simulateTo(level, gameTime, terrainCollisionCache);
+        }
         batches.entrySet().removeIf(entry -> entry.getValue().expired(gameTime));
         double maximumDistanceSquared = maximumDistance * maximumDistance;
         float partial = (float) Mth.clamp(partialTick, 0.0, 1.0);
@@ -103,10 +123,12 @@ public final class ClientDebrisBatchManager {
                 if (piece.terminal || piece.age >= piece.lifetime) continue;
                 Vec3 root = piece.previousPosition.lerp(piece.position, partial);
                 Vec3 worldRoot = batch.origin.add(piece.offset).add(root);
-                if (!worldRoot.isFinite() || viewer.distanceToSqr(worldRoot) > maximumDistanceSquared) continue;
+                if (!worldRoot.isFinite()
+                    || viewer.distanceToSqr(worldRoot) > maximumDistanceSquared) continue;
                 Vec3 interpolatedRotation = piece.previousRotation.lerp(piece.rotation, partial);
-                Quaternionf quaternion = new Quaternionf().rotationXYZ((float) interpolatedRotation.x,
-                    (float) interpolatedRotation.y, (float) interpolatedRotation.z);
+                Quaternionf quaternion = new Quaternionf().rotationXYZ(
+                    (float) interpolatedRotation.x, (float) interpolatedRotation.y,
+                    (float) interpolatedRotation.z);
                 float renderedAge = Math.max(0.001F, piece.age + partial);
                 Vec3 effectiveSpin = interpolatedRotation.scale(1.0 / renderedAge);
                 List<Vec3> trail = piece.trail(batch.origin.add(piece.offset));
@@ -116,8 +138,9 @@ public final class ClientDebrisBatchManager {
                     Vector3f local = new Vector3f((float) part.offset.x, (float) part.offset.y,
                         (float) part.offset.z).mul(piece.scale).rotate(quaternion);
                     Vec3 position = worldRoot.add(local.x, local.y, local.z);
-                    result.add(new RenderSample(batchEntry.getKey(), pieceIndex, partIndex, part.state,
-                        position, piece.velocity, effectiveSpin, renderedAge, piece.scale, false, trail));
+                    result.add(new RenderSample(batchEntry.getKey(), pieceIndex, partIndex,
+                        part.state, position, piece.velocity, effectiveSpin, renderedAge,
+                        piece.scale, false, trail));
                 }
             }
         }
@@ -127,33 +150,52 @@ public final class ClientDebrisBatchManager {
     public synchronized int activeFragmentCount() {
         int count = 0;
         for (Batch batch : batches.values()) {
-            for (Piece piece : batch.pieces) if (!piece.terminal && piece.age < piece.lifetime) count++;
+            for (Piece piece : batch.pieces) {
+                if (!piece.terminal && piece.age < piece.lifetime) count++;
+            }
         }
         return count;
     }
 
-    public synchronized void clear() { batches.clear(); activeLevel = null; }
+    public synchronized void clear() {
+        batches.clear();
+        terrainCollisionCache.clear();
+        activeLevel = null;
+    }
 
     private void ensureLevel(final ClientLevel level) {
-        if (activeLevel != level) { batches.clear(); activeLevel = level; }
+        if (activeLevel != level) {
+            batches.clear();
+            terrainCollisionCache.clear();
+            activeLevel = level;
+        }
     }
 
-    private static boolean collides(final ClientLevel level, final Vec3 position, final double extent) {
-        if (solid(level, position)) return true;
+    private static boolean collides(final ClientLevel level, final Vec3 position,
+        final double extent, final Long2ByteOpenHashMap collisionCache) {
+        if (solid(level, position, collisionCache)) return true;
         double sample = Math.max(0.22, Math.min(1.45, extent * 0.72));
-        return solid(level, position.add(sample, 0.0, 0.0))
-            || solid(level, position.add(-sample, 0.0, 0.0))
-            || solid(level, position.add(0.0, sample, 0.0))
-            || solid(level, position.add(0.0, -sample, 0.0))
-            || solid(level, position.add(0.0, 0.0, sample))
-            || solid(level, position.add(0.0, 0.0, -sample));
+        return solid(level, position.add(sample, 0.0, 0.0), collisionCache)
+            || solid(level, position.add(-sample, 0.0, 0.0), collisionCache)
+            || solid(level, position.add(0.0, sample, 0.0), collisionCache)
+            || solid(level, position.add(0.0, -sample, 0.0), collisionCache)
+            || solid(level, position.add(0.0, 0.0, sample), collisionCache)
+            || solid(level, position.add(0.0, 0.0, -sample), collisionCache);
     }
 
-    private static boolean solid(final ClientLevel level, final Vec3 position) {
+    private static boolean solid(final ClientLevel level, final Vec3 position,
+        final Long2ByteOpenHashMap collisionCache) {
         BlockPos blockPosition = BlockPos.containing(position);
-        if (!level.hasChunkAt(blockPosition)) return false;
-        BlockState state = level.getBlockState(blockPosition);
-        return !state.isAir() && !state.getCollisionShape(level, blockPosition).isEmpty();
+        long packedPosition = blockPosition.asLong();
+        byte cached = collisionCache.get(packedPosition);
+        if (cached != CACHE_MISS) return cached == CACHE_SOLID;
+        boolean solid = false;
+        if (level.hasChunkAt(blockPosition)) {
+            BlockState state = level.getBlockState(blockPosition);
+            solid = !state.isAir() && !state.getCollisionShape(level, blockPosition).isEmpty();
+        }
+        collisionCache.put(packedPosition, solid ? CACHE_SOLID : CACHE_EMPTY);
+        return solid;
     }
 
     private record Part(BlockState state, Vec3 offset) { }
@@ -177,6 +219,9 @@ public final class ClientDebrisBatchManager {
         private int age;
         private int trailHead;
         private int trailCount;
+        private int trailRevision;
+        private int cachedTrailRevision = -1;
+        private List<Vec3> cachedTrail = List.of();
         private boolean terminal;
 
         private Piece(final Vec3 offset, final Vec3 velocity, final Vec3 angularVelocity,
@@ -193,7 +238,8 @@ public final class ClientDebrisBatchManager {
             recordTrail(position);
         }
 
-        private void tick(final ClientLevel level, final Vec3 worldOrigin) {
+        private void tick(final ClientLevel level, final Vec3 worldOrigin,
+            final Long2ByteOpenHashMap collisionCache) {
             if (terminal || age >= lifetime) return;
             previousPosition = position;
             previousRotation = rotation;
@@ -207,7 +253,7 @@ public final class ClientDebrisBatchManager {
             for (int step = 1; step <= steps; step++) {
                 double fraction = step / (double) steps;
                 Vec3 candidate = previousPosition.lerp(proposed, fraction);
-                if (collides(level, worldOrigin.add(candidate), collisionExtent)) {
+                if (collides(level, worldOrigin.add(candidate), collisionExtent, collisionCache)) {
                     position = safe;
                     velocity = Vec3.ZERO;
                     angularVelocity = Vec3.ZERO;
@@ -219,7 +265,8 @@ public final class ClientDebrisBatchManager {
             }
             position = proposed;
             velocity = accelerated;
-            angularVelocity = angularVelocity.scale(Math.max(0.965, 0.990 - mass * 0.00008));
+            angularVelocity = angularVelocity.scale(
+                Math.max(0.965, 0.990 - mass * 0.00008));
             rotation = rotation.add(angularVelocity);
             recordTrail(position);
             age++;
@@ -231,17 +278,21 @@ public final class ClientDebrisBatchManager {
             trailZ[trailHead] = point.z;
             trailHead = (trailHead + 1) % TRAIL_SAMPLES;
             trailCount = Math.min(TRAIL_SAMPLES, trailCount + 1);
+            trailRevision++;
         }
 
         private List<Vec3> trail(final Vec3 origin) {
             if (trailCount < 2) return List.of();
+            if (cachedTrailRevision == trailRevision) return cachedTrail;
             ArrayList<Vec3> points = new ArrayList<>(trailCount);
             int first = Math.floorMod(trailHead - trailCount, TRAIL_SAMPLES);
             for (int index = 0; index < trailCount; index++) {
                 int slot = (first + index) % TRAIL_SAMPLES;
                 points.add(origin.add(trailX[slot], trailY[slot], trailZ[slot]));
             }
-            return List.copyOf(points);
+            cachedTrail = List.copyOf(points);
+            cachedTrailRevision = trailRevision;
+            return cachedTrail;
         }
     }
 
@@ -251,20 +302,24 @@ public final class ClientDebrisBatchManager {
         private long lastSimulatedGameTime;
         private final List<Piece> pieces;
 
-        private Batch(final Vec3 origin, final long spawnGameTime, final long lastSimulatedGameTime,
-            final List<Piece> pieces) {
+        private Batch(final Vec3 origin, final long spawnGameTime,
+            final long lastSimulatedGameTime, final List<Piece> pieces) {
             this.origin = origin;
             this.spawnGameTime = spawnGameTime;
             this.lastSimulatedGameTime = lastSimulatedGameTime;
             this.pieces = pieces;
         }
 
-        private void simulateTo(final ClientLevel level, final long gameTime) {
+        private void simulateTo(final ClientLevel level, final long gameTime,
+            final Long2ByteOpenHashMap collisionCache) {
             long target = Math.max(spawnGameTime, gameTime);
             if (target < lastSimulatedGameTime) return;
             long steps = Math.min(400L, target - lastSimulatedGameTime);
             for (long step = 0; step < steps; step++) {
-                for (Piece piece : pieces) piece.tick(level, origin.add(piece.offset));
+                collisionCache.clear();
+                for (Piece piece : pieces) {
+                    piece.tick(level, origin.add(piece.offset), collisionCache);
+                }
                 lastSimulatedGameTime++;
             }
         }
