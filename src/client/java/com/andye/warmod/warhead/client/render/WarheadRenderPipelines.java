@@ -33,10 +33,9 @@ public final class WarheadRenderPipelines {
         ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_shockwave_ribbons", false);
     private static final RenderPipeline GROUND_DUST_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_ground_dust", false);
-    private static final RenderPipeline HEAVY_SMOKE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT : translucent("pipeline/war_mod_heavy_smoke", true, 0.055F);
-    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT : translucent("pipeline/war_mod_heavy_smoke_core", true, 0.095F);
+    /* Smoke uses an opaque cutout pass: texture alpha shapes it, layers do not tint each other. */
+    private static final RenderPipeline HEAVY_SMOKE_PIPELINE = RenderPipelines.ENTITY_CUTOUT;
+    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = RenderPipelines.ENTITY_CUTOUT;
     private static final RenderPipeline COOL_FIRE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
         : emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
@@ -101,7 +100,6 @@ public final class WarheadRenderPipelines {
         PARTICLE_MASK, true, false, false);
     public static final RenderType HEAVY_SMOKE_CORE = create("war_mod_heavy_smoke_core",
         HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, false, false);
-    /* Opaque cutout smoke for the nuclear vortex: no sky/water transparency holes. */
     public static final RenderType NUCLEAR_SMOKE = create("war_mod_nuclear_smoke",
         RenderPipelines.ENTITY_CUTOUT, PARTICLE_MASK, true, false, false);
     public static final RenderType FIREBALL_CORE = createClamped("war_mod_fireball_core",
