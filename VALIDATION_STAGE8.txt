@@ -1,0 +1,11 @@
+Static validation performed:
+- Active WarheadWorldRenderer does not submit VoxelImpactCloudRenderer.renderFire or renderSmoke.
+- New packed particle engine does not call ParticleTypes or addParticle.
+- Surface shockfront puffs and debris trail rendering are submitted by WarheadWorldRenderer.
+- Temperature state drives fire-to-smoke colour/lifecycle changes.
+- Nuclear particles circulate through centre rise, cap expansion, outer curl, under-cap return, and stem re-entry.
+
+Not performed in this environment:
+- Full Gradle build.
+- In-game runtime test.
+- Sodium/Iris/shaderpack compatibility test.
