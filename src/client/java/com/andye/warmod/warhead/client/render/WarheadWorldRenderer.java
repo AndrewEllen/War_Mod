@@ -533,7 +533,7 @@ public final class WarheadWorldRenderer {
         if (previous >= 0.0 && current >= 0.0
             && previous >= distance && current < distance) {
             level.playLocalSound(listener.x, listener.y, listener.z,
-                SoundEvents.GENERIC_EXPLODE, SoundSource.BLOCKS,
+                SoundEvents.GENERIC_EXPLODE.value(), SoundSource.BLOCKS,
                 3.4F, 0.46F, false);
             RETURN_WAVE_SOUND_PLAYED.add(state.warheadId());
         }
