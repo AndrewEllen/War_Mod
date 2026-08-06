@@ -2,6 +2,9 @@ package com.andye.warmod.warhead.network;
 
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadGlassShockwaveManager;
+import com.andye.warmod.warhead.WarheadPayloadType;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
@@ -13,6 +16,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
 public final class WarheadVisualNetworking {
+    private static final int MAX_RECENT_IMPACTS = 128;
+    private static final Map<UUID, ImpactDescriptor> RECENT_IMPACTS = new LinkedHashMap<>();
     private static boolean payloadTypesRegistered;
 
     private WarheadVisualNetworking() { }
@@ -37,16 +42,26 @@ public final class WarheadVisualNetworking {
         if (payload.isWellFormed()) sendToNearby(level, payload, target);
     }
 
-    public static void sendImpact(final ServerLevel level, final ClientboundWarheadImpactPayload payload,
-        final Vec3 impact) {
+    public static synchronized void sendImpact(final ServerLevel level,
+        final ClientboundWarheadImpactPayload payload, final Vec3 impact) {
         if (!payload.isWellFormed()) return;
+        while (RECENT_IMPACTS.size() >= MAX_RECENT_IMPACTS) {
+            UUID oldest = RECENT_IMPACTS.keySet().iterator().next();
+            RECENT_IMPACTS.remove(oldest);
+        }
+        RECENT_IMPACTS.put(payload.warheadId(), new ImpactDescriptor(payload.impactVisualScale(),
+            payload.payloadType() == WarheadPayloadType.NUCLEAR));
         WarheadGlassShockwaveManager.schedule(level, payload, impact);
         sendToNearby(level, payload, impact);
     }
 
-    public static void sendDebris(final ServerLevel level, final ClientboundWarheadDebrisPayload payload,
-        final Vec3 impact) {
-        if (payload.isWellFormed() && !payload.entries().isEmpty()) sendToNearby(level, payload, impact);
+    public static synchronized void sendDebris(final ServerLevel level,
+        final ClientboundWarheadDebrisPayload payload, final Vec3 impact) {
+        if (!payload.isWellFormed() || payload.entries().isEmpty()) return;
+        ImpactDescriptor descriptor = RECENT_IMPACTS.remove(payload.impactId());
+        ClientboundWarheadDebrisPayload tuned = descriptor == null ? payload
+            : WarheadDebrisVisualTuner.tune(payload, descriptor.visualScale(), descriptor.nuclear());
+        if (tuned.isWellFormed() && !tuned.entries().isEmpty()) sendToNearby(level, tuned, impact);
     }
 
     public static void sendRemove(final ServerLevel level, final UUID id, final Vec3 target) {
@@ -72,4 +87,6 @@ public final class WarheadVisualNetworking {
             }
         }
     }
+
+    private record ImpactDescriptor(float visualScale, boolean nuclear) { }
 }
