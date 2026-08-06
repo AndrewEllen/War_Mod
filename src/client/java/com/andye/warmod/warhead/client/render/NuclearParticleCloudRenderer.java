@@ -4,6 +4,7 @@ import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,7 +20,9 @@ import org.joml.Vector3f;
  * deterministically from the crater fireball up the central stem, out across
  * the cap, down the outer face, beneath the cap and back into the stem. Dense
  * interior particles are represented by larger billboards and aggressively
- * culled, leaving the GPU to rasterise a substantially smaller visible shell.</p>
+ * culled, leaving the GPU to rasterise a substantially smaller visible shell.
+ * Active slots are compacted and render buckets are prepared once per frame so
+ * the three material passes never rescan the full fixed-capacity pool.</p>
  */
 public final class NuclearParticleCloudRenderer {
     private static final int CAPACITY = 131_072;
@@ -130,11 +133,24 @@ public final class NuclearParticleCloudRenderer {
         private final int[] particleSeed = new int[CAPACITY];
         private final byte[] region = new byte[CAPACITY];
         private final boolean[] active = new boolean[CAPACITY];
+
+        private final int[] activeSlots = new int[CAPACITY];
+        private final int[] activePositions = new int[CAPACITY];
+        private final int[] freeSlots = new int[CAPACITY];
+        private final int[] hotBucket = new int[CAPACITY];
+        private final int[] coolBucket = new int[CAPACITY];
+        private final int[] smokeBucket = new int[CAPACITY];
+
         private int simulatedTick = -1;
-        private int nextSlot;
+        private int freeCount;
         private int activeCount;
         private int spawnedLastTick;
         private int culledLastRender;
+        private int bucketTick = Integer.MIN_VALUE;
+        private WarheadMesh.Lod bucketLod;
+        private int hotCount;
+        private int coolCount;
+        private int smokeCount;
 
         private Field(final long seed, final float scale, final List<? extends NuclearCloudSource> sources,
             final long signature) {
@@ -149,6 +165,16 @@ public final class NuclearParticleCloudRenderer {
             this.craterFloor = -Math.max(7.0F, craterRadius * 0.30F);
             this.fireballEmissionEnd = Math.round(150.0F + 100.0F * yield);
             this.feedEmissionEnd = Math.round(1_200.0F + 700.0F * yield);
+            initialiseSlots();
+        }
+
+        private void initialiseSlots() {
+            Arrays.fill(active, false);
+            Arrays.fill(activePositions, -1);
+            for (int index = 0; index < CAPACITY; index++) freeSlots[index] = CAPACITY - 1 - index;
+            freeCount = CAPACITY;
+            activeCount = 0;
+            invalidateBuckets();
         }
 
         private void ensureSimulated(final double age) {
@@ -163,11 +189,17 @@ public final class NuclearParticleCloudRenderer {
         }
 
         private void reset() {
-            for (int index = 0; index < CAPACITY; index++) active[index] = false;
+            initialiseSlots();
             simulatedTick = -1;
-            nextSlot = 0;
-            activeCount = 0;
             spawnedLastTick = 0;
+        }
+
+        private void invalidateBuckets() {
+            bucketTick = Integer.MIN_VALUE;
+            bucketLod = null;
+            hotCount = 0;
+            coolCount = 0;
+            smokeCount = 0;
         }
 
         private void emit(final int tick) {
@@ -257,19 +289,29 @@ public final class NuclearParticleCloudRenderer {
             particleSeed[slot] = randomSeed;
             region[slot] = initialRegion;
             active[slot] = true;
-            activeCount++;
             spawnedLastTick++;
+            invalidateBuckets();
         }
 
         private int reserve() {
-            for (int scan = 0; scan < CAPACITY; scan++) {
-                int slot = (nextSlot + scan) % CAPACITY;
-                if (!active[slot]) {
-                    nextSlot = (slot + 1) % CAPACITY;
-                    return slot;
-                }
+            if (freeCount <= 0) return -1;
+            int slot = freeSlots[--freeCount];
+            activePositions[slot] = activeCount;
+            activeSlots[activeCount++] = slot;
+            return slot;
+        }
+
+        private void removeActiveAt(final int activePosition) {
+            int removedSlot = activeSlots[activePosition];
+            int lastPosition = --activeCount;
+            if (activePosition < lastPosition) {
+                int movedSlot = activeSlots[lastPosition];
+                activeSlots[activePosition] = movedSlot;
+                activePositions[movedSlot] = activePosition;
             }
-            return -1;
+            activePositions[removedSlot] = -1;
+            active[removedSlot] = false;
+            freeSlots[freeCount++] = removedSlot;
         }
 
         private float capCenterY(final int tick) {
@@ -299,13 +341,13 @@ public final class NuclearParticleCloudRenderer {
             float capR = capRadius(tick);
             float capD = capDepth(tick);
             float stemR = stemRadius(tick);
-            for (int index = 0; index < CAPACITY; index++) {
-                if (!active[index]) continue;
+            int activePosition = 0;
+            while (activePosition < activeCount) {
+                int index = activeSlots[activePosition];
                 int age = particleAge[index] & 0xFFFF;
                 int life = lifetime[index] & 0xFFFF;
                 if (age >= life) {
-                    active[index] = false;
-                    activeCount--;
+                    removeActiveAt(activePosition);
                     continue;
                 }
 
@@ -415,29 +457,66 @@ public final class NuclearParticleCloudRenderer {
                 }
                 radius[index] *= region[index] == REGION_OUTER_CURL ? 1.00028F : 1.00010F;
                 particleAge[index] = (short) (age + 1);
+                activePosition++;
             }
+            invalidateBuckets();
+        }
+
+        private void prepareBuckets(final int tick, final WarheadMesh.Lod lod) {
+            if (bucketTick == tick && bucketLod == lod) return;
+            hotCount = 0;
+            coolCount = 0;
+            smokeCount = 0;
+            int stride = switch (lod) { case NEAR -> 2; case MEDIUM -> 4; case FAR -> 10; };
+            int inspected = 0;
+            int rejected = 0;
+            for (int activePosition = 0; activePosition < activeCount; activePosition += stride) {
+                int index = activeSlots[activePosition];
+                inspected++;
+                if (interior(index, tick, lod)) {
+                    rejected++;
+                    continue;
+                }
+                float heat = temperature[index];
+                if (heat >= 0.72F) hotBucket[hotCount++] = index;
+                if (heat >= 0.34F && heat < 0.78F) coolBucket[coolCount++] = index;
+                if (heat < 0.42F) smokeBucket[smokeCount++] = index;
+            }
+            culledLastRender = Math.max(0, activeCount - inspected) + rejected;
+            bucketTick = tick;
+            bucketLod = lod;
         }
 
         private void render(final PoseStack.Pose pose, final VertexConsumer buffer, final double age,
             final WarheadMesh.Lod lod, final Quaternionf camera, final Pass pass) {
             ensureSimulated(age);
             int tick = Math.max(0, (int) Math.floor(age));
+            prepareBuckets(tick, lod);
             float partial = (float) Mth.clamp(age - Math.floor(age), 0.0, 1.0);
             Basis basis = Basis.from(camera);
-            int stride = switch (lod) { case NEAR -> 2; case MEDIUM -> 4; case FAR -> 10; };
-            int culled = 0;
-            for (int index = 0; index < CAPACITY; index += stride) {
-                if (!active[index] || !matches(index, pass) || interior(index, tick, lod)) {
-                    if (active[index]) culled++;
-                    continue;
+            int[] bucket;
+            int count;
+            switch (pass) {
+                case HOT_FIRE -> {
+                    bucket = hotBucket;
+                    count = hotCount;
                 }
+                case COOL_FIRE -> {
+                    bucket = coolBucket;
+                    count = coolCount;
+                }
+                case SMOKE -> {
+                    bucket = smokeBucket;
+                    count = smokeCount;
+                }
+                default -> throw new IllegalStateException("Unknown nuclear particle pass: " + pass);
+            }
+            for (int bucketPosition = 0; bucketPosition < count; bucketPosition++) {
+                int index = bucket[bucketPosition];
                 int life = lifetime[index] & 0xFFFF;
                 float progress = (particleAge[index] & 0xFFFF) / (float) Math.max(1, life);
                 float alpha = alpha(pass, progress, temperature[index]);
-                if (alpha <= 0.005F) {
-                    culled++;
-                    continue;
-                }
+                if (alpha <= 0.005F) continue;
                 float px = Mth.lerp(partial, previousX[index], x[index]);
                 float py = Mth.lerp(partial, previousY[index], y[index]);
                 float pz = Mth.lerp(partial, previousZ[index], z[index]);
@@ -447,7 +526,6 @@ public final class NuclearParticleCloudRenderer {
                 billboard(pose, buffer, px, py, pz, drawRadius, rotation[index], colour.red, colour.green,
                     colour.blue, alpha, light, basis);
             }
-            culledLastRender = culled + activeCount - activeCount / stride;
         }
 
         private float renderScale(final int index, final int tick, final Pass pass) {
@@ -486,15 +564,6 @@ public final class NuclearParticleCloudRenderer {
                 return deep && Math.floorMod(particleSeed[index], keepModulo + 2) != 0;
             }
             return false;
-        }
-
-        private boolean matches(final int index, final Pass pass) {
-            float heat = temperature[index];
-            return switch (pass) {
-                case HOT_FIRE -> heat >= 0.72F;
-                case COOL_FIRE -> heat >= 0.34F && heat < 0.78F;
-                case SMOKE -> heat < 0.42F;
-            };
         }
 
         private static float alpha(final Pass pass, final float progress, final float heat) {
