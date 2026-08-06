@@ -1,11 +1,16 @@
 Static validation performed:
 - Active WarheadWorldRenderer does not submit VoxelImpactCloudRenderer.renderFire or renderSmoke.
-- New packed particle engine does not call ParticleTypes or addParticle.
+- New packed particle engines do not call ParticleTypes or addParticle.
 - Surface shockfront puffs and debris trail rendering are submitted by WarheadWorldRenderer.
 - Temperature state drives fire-to-smoke colour/lifecycle changes.
 - Nuclear particles circulate through centre rise, cap expansion, outer curl, under-cap return, and stem re-entry.
+- Client command registration exposes packed/legacy renderer profiling modes and status counters.
+- Sodium alone no longer forces the compatibility pipeline; the fallback is selected for an active Iris shader pack.
+- Conventional hot fire is capped at 4.75 blocks above the impact surface.
+- Terrain shockfront construction retains its final resolution and is amortised at 2,048 new samples per impact call.
 
 Not performed in this environment:
 - Full Gradle build.
 - In-game runtime test.
-- Sodium/Iris/shaderpack compatibility test.
+- Vanilla/Sodium/Iris/shader-pack compatibility test.
+- Frame-time or GPU-profiler capture.
