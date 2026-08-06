@@ -53,7 +53,7 @@ public final class WarheadRenderPipelines {
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
             .withCull(false).build());
     private static final RenderPipeline TERRAIN_DEFORMATION_PIPELINE = EXTERNAL_RENDERER
-        ? RenderPipelines.ENTITY_CUTOUT_NO_CULL
+        ? RenderPipelines.ENTITY_CUTOUT
         : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
             .withLocation("pipeline/war_mod_terrain_deformation")
             .withShaderDefine("NO_OVERLAY")
