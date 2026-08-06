@@ -4,6 +4,7 @@ import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -15,7 +16,9 @@ import org.joml.Vector3f;
  * Fixed-capacity, structure-of-arrays conventional explosion field. Fire,
  * smoke, dust and pressure puffs use one soft mask; material and temperature
  * provide colour, lighting and motion. Fake-debris smoke is emitted as stable
- * deterministic streams so it forms readable white parabolic arcs.
+ * deterministic streams so it forms readable white parabolic arcs. A compact
+ * active-slot list keeps simulation and submission proportional to live
+ * particles rather than the fixed maximum capacity.
  */
 public final class ConventionalBlastParticleRenderer {
     private static final int MAX_FIELDS = 12;
@@ -80,7 +83,7 @@ public final class ConventionalBlastParticleRenderer {
             spawned += field.spawnedLastTick;
             culled += field.culledLastRender;
         }
-        return new DebugSnapshot(active, spawned, culled, FIELDS.size(), "packed_soa_single_mask");
+        return new DebugSnapshot(active, spawned, culled, FIELDS.size(), "packed_soa_compact_active_slots");
     }
 
     private static synchronized Field field(final long key, final float visualScale, final boolean nuclearOnly) {
@@ -138,8 +141,11 @@ public final class ConventionalBlastParticleRenderer {
         private final byte[] material = new byte[CAPACITY];
         private final byte[] flags = new byte[CAPACITY];
         private final boolean[] active = new boolean[CAPACITY];
+        private final int[] activeSlots = new int[CAPACITY];
+        private final int[] freeSlots = new int[CAPACITY];
+
         private int simulatedTick = -1;
-        private int nextSlot;
+        private int freeCount;
         private int activeCount;
         private int spawnedLastTick;
         private int culledLastRender;
@@ -152,6 +158,14 @@ public final class ConventionalBlastParticleRenderer {
             this.nuclearOnly = nuclearOnly;
             this.craterRadius = 2.0F + 15.0F * this.scale;
             this.craterFloor = -Math.max(1.6F, craterRadius * 0.28F);
+            initialiseSlots();
+        }
+
+        private void initialiseSlots() {
+            Arrays.fill(active, false);
+            for (int index = 0; index < CAPACITY; index++) freeSlots[index] = CAPACITY - 1 - index;
+            freeCount = CAPACITY;
+            activeCount = 0;
         }
 
         private void ensureSimulated(final double age) {
@@ -166,10 +180,8 @@ public final class ConventionalBlastParticleRenderer {
         }
 
         private void reset() {
-            for (int index = 0; index < CAPACITY; index++) active[index] = false;
+            initialiseSlots();
             simulatedTick = -1;
-            nextSlot = 0;
-            activeCount = 0;
             spawnedLastTick = 0;
             lastSurfaceTick = Integer.MIN_VALUE;
             lastReturnTick = Integer.MIN_VALUE;
@@ -376,29 +388,32 @@ public final class ConventionalBlastParticleRenderer {
             material[slot] = particleMaterial;
             flags[slot] = particleFlags;
             active[slot] = true;
-            activeCount++;
             spawnedLastTick++;
         }
 
         private int reserve() {
-            for (int scan = 0; scan < CAPACITY; scan++) {
-                int slot = (nextSlot + scan) % CAPACITY;
-                if (!active[slot]) {
-                    nextSlot = (slot + 1) % CAPACITY;
-                    return slot;
-                }
-            }
-            return -1;
+            if (freeCount <= 0) return -1;
+            int slot = freeSlots[--freeCount];
+            activeSlots[activeCount++] = slot;
+            return slot;
+        }
+
+        private void removeActiveAt(final int activePosition) {
+            int removedSlot = activeSlots[activePosition];
+            int lastPosition = --activeCount;
+            if (activePosition < lastPosition) activeSlots[activePosition] = activeSlots[lastPosition];
+            active[removedSlot] = false;
+            freeSlots[freeCount++] = removedSlot;
         }
 
         private void update(final int tick) {
-            for (int index = 0; index < CAPACITY; index++) {
-                if (!active[index]) continue;
+            int activePosition = 0;
+            while (activePosition < activeCount) {
+                int index = activeSlots[activePosition];
                 int age = particleAge[index] & 0xFFFF;
                 int life = lifetime[index] & 0xFFFF;
                 if (age >= life) {
-                    active[index] = false;
-                    activeCount--;
+                    removeActiveAt(activePosition);
                     continue;
                 }
                 previousX[index] = x[index];
@@ -461,6 +476,7 @@ public final class ConventionalBlastParticleRenderer {
                 z[index] += velocityZ[index];
                 rotation[index] += rotationVelocity[index];
                 particleAge[index] = (short) (age + 1);
+                activePosition++;
             }
         }
 
@@ -470,14 +486,20 @@ public final class ConventionalBlastParticleRenderer {
             float partial = (float) Mth.clamp(age - Math.floor(age), 0.0, 1.0);
             Basis basis = Basis.from(camera);
             int stride = switch (lod) { case NEAR -> 1; case MEDIUM -> 2; case FAR -> 6; };
-            int culled = 0;
-            for (int index = 0; index < CAPACITY; index += stride) {
-                if (!active[index] || !matches(index, pass)) continue;
+            int inspected = 0;
+            int rejected = 0;
+            for (int activePosition = 0; activePosition < activeCount; activePosition += stride) {
+                int index = activeSlots[activePosition];
+                inspected++;
+                if (!matches(index, pass)) {
+                    rejected++;
+                    continue;
+                }
                 int life = lifetime[index] & 0xFFFF;
                 float progress = (particleAge[index] & 0xFFFF) / (float) Math.max(1, life);
                 float alpha = alpha(index, pass, progress);
                 if (alpha <= 0.006F) {
-                    culled++;
+                    rejected++;
                     continue;
                 }
                 float px = Mth.lerp(partial, previousX[index], x[index]);
@@ -491,7 +513,7 @@ public final class ConventionalBlastParticleRenderer {
                 billboard(pose, buffer, px, py, pz, drawRadius, rotation[index], colour.red, colour.green,
                     colour.blue, alpha, light, basis);
             }
-            culledLastRender = culled + activeCount - activeCount / stride;
+            culledLastRender = Math.max(0, activeCount - inspected) + rejected;
         }
 
         private boolean matches(final int index, final Pass pass) {
