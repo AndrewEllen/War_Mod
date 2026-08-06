@@ -30,6 +30,7 @@ import com.andye.warmod.particle.WarheadParticleClient;
 import com.andye.warmod.radar.client.ClientRadarNetworking;
 import com.andye.warmod.radar.client.RadarKeyBindings;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
+import com.andye.warmod.warhead.client.render.WarheadRenderCommands;
 import com.andye.warmod.warhead.client.render.WarheadWorldRenderer;
 import com.andye.warmod.warhead.client.render.NuclearFlashOverlay;
 import net.fabricmc.api.ClientModInitializer;
@@ -60,6 +61,7 @@ public final class WarModClient implements ClientModInitializer {
 		MenuScreens.register(ModMenus.MISSILE_SILO, MissileSiloScreen::new);
 		MenuScreens.register(ModMenus.PHALANX, PhalanxScreen::new);
 		WarheadParticleClient.register();
+		WarheadRenderCommands.register();
 		WarheadWorldRenderer.register();
 		IcbmWorldRenderer.register();
         AntiAirWorldRenderer.register();
