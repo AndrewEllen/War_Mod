@@ -9,7 +9,7 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-/** Dense analytical smoke trail with allocation-free billboard basis reuse. */
+/** Dense neutral smoke trail with allocation-free billboard basis reuse. */
 public final class IcbmSmokeTrailRenderer {
 	private static final double MAX_SEGMENT_DISTANCE = 64.0;
 	private IcbmSmokeTrailRenderer() { }
@@ -18,9 +18,9 @@ public final class IcbmSmokeTrailRenderer {
 		final List<IcbmTrailSample> samples, final IcbmLongRangeRenderContext context,
 		final Quaternionf camera) {
 		IcbmLongRangeRenderContext.Lod lod = context.lod();
-		int limit = lod == IcbmLongRangeRenderContext.Lod.NEAR ? 176
-			: lod == IcbmLongRangeRenderContext.Lod.MEDIUM ? 104
-			: lod == IcbmLongRangeRenderContext.Lod.FAR ? 48 : 20;
+		int limit = lod == IcbmLongRangeRenderContext.Lod.NEAR ? 224
+			: lod == IcbmLongRangeRenderContext.Lod.MEDIUM ? 144
+			: lod == IcbmLongRangeRenderContext.Lod.FAR ? 64 : 28;
 		int stride = lod == IcbmLongRangeRenderContext.Lod.EXTREME ? 3
 			: lod == IcbmLongRangeRenderContext.Lod.FAR ? 2 : 1;
 		int start = Math.max(0, samples.size() - limit * stride);
@@ -38,17 +38,20 @@ public final class IcbmSmokeTrailRenderer {
 				if (distance <= 0.001 || distance > MAX_SEGMENT_DISTANCE) { previous = actual; continue; }
 			}
 			previous = actual;
-			double life = 176.0;
-			float alpha = (float) Math.max(0.0, Math.min(0.82, 1.0 - sample.ageTicks() / life));
-			float lodScale = lod == IcbmLongRangeRenderContext.Lod.EXTREME ? 1.85F : 1.0F;
-			float radius = sample.size() * (float) (1.14 + sample.ageTicks() * 0.021) * lodScale
+			double life = 210.0;
+			float alpha = (float) Math.max(0.0, Math.min(0.86, 1.0 - sample.ageTicks() / life));
+			float lodScale = lod == IcbmLongRangeRenderContext.Lod.EXTREME ? 1.95F : 1.0F;
+			float radius = sample.size() * (float) (1.10 + sample.ageTicks() * 0.024) * lodScale
 				* (float) context.transform().compression();
 			Vec3 center = context.transform().renderPosition(actual);
 			billboard(pose, buffer, center, radius, sample.rotation(), alpha, right, up, normal);
-			/* A second offset puff fills the gaps without adding trail entities or server work. */
-			if (lod != IcbmLongRangeRenderContext.Lod.EXTREME && (index & 1) == 0) {
-				billboard(pose, buffer, center.add(0.0, radius * 0.18, 0.0), radius * 0.72F,
-					sample.rotation() + 0.73F, alpha * 0.54F, right, up, normal);
+			if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
+				billboard(pose, buffer, center.add(0.0, radius * 0.18, 0.0), radius * 0.74F,
+					sample.rotation() + 0.73F, alpha * 0.62F, right, up, normal);
+				if ((index & 1) == 0) {
+					billboard(pose, buffer, center.add(radius * 0.12, -radius * 0.08, -radius * 0.10),
+						radius * 0.58F, sample.rotation() - 0.49F, alpha * 0.42F, right, up, normal);
+				}
 			}
 		}
 	}
@@ -71,9 +74,8 @@ public final class IcbmSmokeTrailRenderer {
 		float ox = right.x * x + up.x * y;
 		float oy = right.y * x + up.y * y;
 		float oz = right.z * x + up.z * y;
-		/* Minimum light prevents the plume becoming an unreadable black line at night. */
 		buffer.addVertex(pose, (float) center.x + ox, (float) center.y + oy, (float) center.z + oz)
-			.setColor(148, 153, 160, (int) (alpha * 255.0F)).setUv(u, v).setOverlay(0)
+			.setColor(154, 158, 164, (int) (alpha * 255.0F)).setUv(u, v).setOverlay(0)
 			.setLight(0xD000D0).setNormal(pose, normal.x, normal.y, normal.z);
 	}
 }
