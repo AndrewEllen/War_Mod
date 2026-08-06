@@ -36,6 +36,7 @@ import com.andye.warmod.silo.network.SiloNetworking;
 import com.andye.warmod.testtool.network.MasterExplosiveNetworking;
 import com.andye.warmod.warhead.IncomingWarheadRegistry;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
+import com.andye.warmod.warhead.WarheadGlassShockwaveManager;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
 import net.fabricmc.api.ModInitializer;
@@ -72,6 +73,7 @@ public final class WarMod implements ModInitializer {
         IcbmChunkTicketType.register();
         com.andye.warmod.warhead.WarheadImpactChunkLeaseManager.registerLifecycle();
         WarheadExplosionWorkManager.registerLifecycle();
+        WarheadGlassShockwaveManager.registerLifecycle();
         WarheadYieldRegistry.registerLifecycle();
         IcbmFlightControllerManager.register();
         AntiAirFlightControllerManager.register();
