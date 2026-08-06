@@ -1,0 +1,16 @@
+src/client/java/com/andye/warmod/icbm/client/render/IcbmExhaustRenderer.java
+src/client/java/com/andye/warmod/icbm/client/render/IcbmRenderPipelines.java
+src/client/java/com/andye/warmod/icbm/client/render/IcbmSmokeTrailRenderer.java
+src/client/java/com/andye/warmod/icbm/client/render/IcbmWorldRenderer.java
+src/client/java/com/andye/warmod/warhead/client/ClientDebrisBatchManager.java
+src/client/java/com/andye/warmod/warhead/client/render/ConventionalBlastParticleRenderer.java
+src/client/java/com/andye/warmod/warhead/client/render/GroundDustFrontRenderer.java
+src/client/java/com/andye/warmod/warhead/client/render/NuclearCloudSource.java
+src/client/java/com/andye/warmod/warhead/client/render/NuclearParticleCloudRenderer.java
+src/client/java/com/andye/warmod/warhead/client/render/WarheadWorldRenderer.java
+src/client/resources/assets/war_mod/textures/effect/icbm_exhaust_core.png
+src/client/resources/assets/war_mod/textures/effect/icbm_exhaust_fringe.png
+src/client/resources/assets/war_mod/textures/effect/icbm_smoke.png
+BASE_COMMIT.txt
+FILES_CHANGED.txt
+README_STAGE8.md

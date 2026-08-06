@@ -33,32 +33,16 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+/** Active War Mod world render submission path. */
 public final class WarheadWorldRenderer {
-	private static final int[][] CLUSTER_TWO_OFFSETS = {
-		{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {-1, 0, 0}
-	};
-	private static final int[][] CLUSTER_THREE_OFFSETS = {
-		{0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1},
-		{0, 1, 0}, {1, 1, 0}, {0, 1, 1}, {-1, 1, 0}, {0, 2, 0}
-	};
-	private static final int[][] CLUSTER_FOUR_OFFSETS = {
-		{0,0,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
-		{0,1,0},{1,1,0},{-1,1,0},{0,1,1},{0,1,-1},{1,1,1},{-1,1,-1},{0,2,0},{1,2,0},{0,2,1}
-	};
-	private static final int[][] CLUSTER_FIVE_OFFSETS = {
-		{0,0,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
-		{2,0,0},{-2,0,0},{0,0,2},{0,0,-2},{0,1,0},{1,1,0},{-1,1,0},{0,1,1},{0,1,-1},
-		{1,1,1},{-1,1,1},{1,1,-1},{-1,1,-1},{2,1,0},{-2,1,0},{0,1,2},{0,1,-2},
-		{0,2,0},{1,2,0},{-1,2,0},{0,2,1},{0,2,-1},{1,2,1},{-1,2,-1},{0,3,0}
-	};
 	private static final double NEAR_DISTANCE = 192.0;
 	private static final double MEDIUM_DISTANCE = 640.0;
 	private static final double MAX_DISTANCE = 1536.0;
 	private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
 	private static boolean registered;
+	private static long lastDebugTick = Long.MIN_VALUE;
 
-	private WarheadWorldRenderer() {
-	}
+	private WarheadWorldRenderer() { }
 
 	public static void register() {
 		if (registered) return;
@@ -66,8 +50,7 @@ public final class WarheadWorldRenderer {
 		LevelRenderEvents.COLLECT_SUBMITS.register(WarheadWorldRenderer::collectSubmits);
 		registered = true;
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
-			com.andye.warmod.WarMod.LOGGER.info("Re-entry visual configuration loaded; sodiumIrisCompatibility={}",
-				WarheadRenderPipelines.compatibilityRendererActive());
+			com.andye.warmod.WarMod.LOGGER.info("Warhead renderer loaded; backend={}", debugSnapshot().activeRenderBackend());
 		}
 	}
 
@@ -92,17 +75,9 @@ public final class WarheadWorldRenderer {
 			double distance = cameraPosition.distanceTo(position);
 			if (!position.isFinite() || !velocity.isFinite() || !Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			double elapsed = state.elapsedTicks(gameTime, partialTick);
-			warheads.add(new WarheadFrame(
-				position,
-				velocity,
-				(float) state.progressAt(gameTime, partialTick),
-				(float) elapsed,
-				(float) Math.max(0.0, state.flightTicks() - elapsed),
-				state.flightTicks(),
-				state.visualSeed(),
-				lod(distance),
-				sampledLight(level, position)
-			));
+			warheads.add(new WarheadFrame(position, velocity, (float) state.progressAt(gameTime, partialTick),
+				(float) elapsed, (float) Math.max(0.0, state.flightTicks() - elapsed), state.flightTicks(),
+				state.visualSeed(), lod(distance), sampledLight(level, position)));
 		}
 
 		List<ImpactFrame> impacts = new ArrayList<>();
@@ -111,36 +86,22 @@ public final class WarheadWorldRenderer {
 			if (state.isExpired(gameTime, partialTick)) continue;
 			double distance = cameraPosition.distanceTo(state.impactPosition());
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
-			WarheadMesh.Lod lod = lod(distance);
+			WarheadMesh.Lod impactLod = lod(distance);
 			float yieldRadiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
 			double groundDistance = WarheadVisualMath.groundShockwaveDistance(age, yieldRadiusScale);
-			int dustLimit = lod == WarheadMesh.Lod.NEAR ? 2_000 : lod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
+			int dustLimit = impactLod == WarheadMesh.Lod.NEAR ? 2_000 : impactLod == WarheadMesh.Lod.MEDIUM ? 1_000 : 400;
 			List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile())
-				? state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(lod), dustLimit, gameTime)
+				? state.terrainShockfrontField().activeDustNodes(groundDistance, frontierSpokeCount(impactLod), dustLimit, gameTime)
 				: List.of();
 			for (TerrainShockfrontNode node : dustNodes) {
-				if (node.state() == TerrainShockfrontNode.State.READY) {
-					state.terrainShockfrontField().markEmitted(node, gameTime);
-				}
+				if (node.state() == TerrainShockfrontNode.State.READY) state.terrainShockfrontField().markEmitted(node, gameTime);
 			}
-			impacts.add(new ImpactFrame(
-				state.warheadId(),
-				state.impactPosition(),
-				age,
-				state.visualScale(),
-				state.visualSeed(),
-				state.payloadType(),
-				state.effectProfile(),
-				ClientWarheadVisualManager.INSTANCE.shouldRenderVolumetrics(state.warheadId()),
-				state.profile(),
-				lod,
-				state.terrainShockfrontField().snapshotSpokes(),
-				dustNodes,
-				state.fireballLobes(),
-				state.blastCloudLobes(),
-				gameTime
-			));
+			impacts.add(new ImpactFrame(state.warheadId(), state.impactPosition(), age, state.visualScale(),
+				state.visualSeed(), state.payloadType(), state.effectProfile(),
+				ClientWarheadVisualManager.INSTANCE.shouldRenderVolumetrics(state.warheadId()), state.profile(),
+				impactLod, state.terrainShockfrontField().snapshotSpokes(), dustNodes, gameTime));
 		}
+
 		List<DebrisFrame> debris = new ArrayList<>();
 		for (ClientDebrisBatchManager.RenderSample sample : ClientDebrisBatchManager.INSTANCE.snapshot(
 			level, gameTime, partialTick, cameraPosition, MAX_DISTANCE)) {
@@ -149,33 +110,31 @@ public final class WarheadWorldRenderer {
 			movingBlock.randomSeedPos = blockPosition;
 			movingBlock.blockPos = blockPosition;
 			movingBlock.blockState = sample.state();
-			movingBlock.biome = null;
+			movingBlock.biome = level.hasChunkAt(blockPosition) ? level.getBiome(blockPosition) : null;
 			movingBlock.cardinalLighting = CardinalLighting.DEFAULT;
 			movingBlock.lightEngine = LevelLightEngine.EMPTY;
-			int trailColour = 0xD0CAC0;
-			if (level.hasChunkAt(blockPosition)) {
-				movingBlock.biome = level.getBiome(blockPosition);
-				movingBlock.cardinalLighting = level.cardinalLighting();
-				movingBlock.lightEngine = level.getLightEngine();
-			}
-			debris.add(new DebrisFrame(sample, movingBlock, trailColour));
+			debris.add(new DebrisFrame(sample, movingBlock, 0xD8D8D2));
 		}
 		currentFrame = new RenderFrame(cameraPosition, cameraOrientation, List.copyOf(warheads),
 			List.copyOf(impacts), List.copyOf(debris));
+
+		if (SharedConstants.IS_RUNNING_IN_IDE && gameTime != lastDebugTick && gameTime % 100L == 0L) {
+			lastDebugTick = gameTime;
+			DebugSnapshot debug = debugSnapshot();
+			com.andye.warmod.WarMod.LOGGER.info(
+				"Stage8 particles={} spawned/tick={} culled={} debris={} backend={}",
+				debug.activeParticles(), debug.spawnedParticlesPerTick(), debug.culledParticles(),
+				debug.activeDebrisFragments(), debug.activeRenderBackend());
+		}
 	}
 
 	private static void collectSubmits(final LevelRenderContext context) {
 		RenderFrame frame = currentFrame;
-		if (frame == RenderFrame.EMPTY || (frame.warheads().isEmpty() && frame.impacts().isEmpty()
-			&& frame.debris().isEmpty())) return;
+		if (frame == RenderFrame.EMPTY || (frame.warheads().isEmpty() && frame.impacts().isEmpty() && frame.debris().isEmpty())) return;
 		PoseStack poseStack = context.poseStack();
 		if (poseStack == null) return;
-		for (WarheadFrame warhead : frame.warheads()) {
-			renderWarhead(context, poseStack, frame.cameraPosition(), warhead);
-		}
-		for (ImpactFrame impact : frame.impacts()) {
-			renderImpact(context, poseStack, frame, impact);
-		}
+		for (WarheadFrame warhead : frame.warheads()) renderWarhead(context, poseStack, frame.cameraPosition(), warhead);
+		for (ImpactFrame impact : frame.impacts()) renderImpact(context, poseStack, frame, impact);
 		renderDebris(context, poseStack, frame);
 	}
 
@@ -212,8 +171,7 @@ public final class WarheadWorldRenderer {
 		float yieldRadiusScale = WarheadYieldScaling.radiusScale(impact.payloadType(), impact.visualScale());
 		float yieldThicknessScale = (float) Math.sqrt(yieldRadiusScale);
 		float thicknessScale = (float) impact.profile().shockwaveThicknessScale() * yieldThicknessScale;
-		float alphaScale = (float) impact.profile().shockwaveAlphaScale()
-			* Mth.clamp(yieldThicknessScale, 0.72F, 1.28F);
+		float alphaScale = (float) impact.profile().shockwaveAlphaScale() * Mth.clamp(yieldThicknessScale, 0.72F, 1.28F);
 		double groundDistance = WarheadVisualMath.groundShockwaveDistance(impact.ageTicks(), yieldRadiusScale);
 
 		poseStack.pushPose();
@@ -240,18 +198,12 @@ public final class WarheadWorldRenderer {
 				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(),
 					impact.position(), Math.max(0.0, groundDistance - 3.0 * thicknessScale),
 					frontierSpokeCount(impact.lod()), dustWidth(impact.ageTicks(), thicknessScale, yieldRadiusScale),
-					dustAlpha(impact.ageTicks(), alphaScale, yieldRadiusScale), 130, 119, 108));
+					dustAlpha(impact.ageTicks(), alphaScale, yieldRadiusScale), 188, 190, 190));
 		}
 		poseStack.popPose();
 
-		CloudCluster cloud = impact.payloadType() == WarheadPayloadType.NUCLEAR
-			? cloudCluster(frame.impacts(), impact)
-			: new CloudCluster(impact.id(), impact.ageTicks(), impact.visualScale(), impact.visualSeed(),
-				impact.profile(), List.of(new VoxelImpactCloudRenderer.CloudSource(
-					Vec3.ZERO, impact.ageTicks(), impact.visualScale(), impact.visualSeed())));
-		boolean renderMergedCloud = impact.payloadType() == WarheadPayloadType.NUCLEAR
-			? impact.renderVolumetrics() && cloud.leaderId().equals(impact.id())
-			: impact.renderVolumetrics();
+		CloudCluster cloud = impact.payloadType() == WarheadPayloadType.NUCLEAR ? cloudCluster(frame.impacts(), impact) : null;
+		boolean renderCloud = impact.renderVolumetrics() && (cloud == null || cloud.leaderId().equals(impact.id()));
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
@@ -261,55 +213,20 @@ public final class WarheadWorldRenderer {
 					impact.gameTime(), impact.lod(),
 					(float) impact.profile().shockwaveParticleDensityScale() * yieldThicknessScale,
 					frame.cameraOrientation()));
-		}
-		if (impact.payloadType() != WarheadPayloadType.NUCLEAR) {
-			/* OpenMiner-style ground-coupled blast: fire, cooling smoke and dust all emerge from the crater. */
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
-				(pose, buffer) -> ConventionalBlastParticleRenderer.renderSurfaceFront(pose, buffer,
-					impact.ageTicks(), groundDistance, impact.visualScale(), impact.visualSeed(),
-					impact.lod(), frame.cameraOrientation()));
-			if (renderMergedCloud) {
-				/* Dense cores write depth; soft fringes remain translucent. */
-				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE_CORE,
-					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmokeCore(pose, buffer,
-						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
-						impact.lod(), frame.cameraOrientation()));
-				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_CORE,
-					(pose, buffer) -> ConventionalBlastParticleRenderer.renderFireCore(pose, buffer,
-						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
-						impact.lod(), frame.cameraOrientation()));
+			if (renderCloud) {
 				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmoke(pose, buffer,
-						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
-						impact.lod(), frame.cameraOrientation()));
+					(pose, buffer) -> NuclearParticleCloudRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
+						cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), cloud.sources(),
+						frame.cameraOrientation()));
 				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
-					(pose, buffer) -> ConventionalBlastParticleRenderer.renderCooling(pose, buffer,
-						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
-						impact.lod(), frame.cameraOrientation()));
+					(pose, buffer) -> NuclearParticleCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
+						cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), false, cloud.sources(),
+						frame.cameraOrientation()));
 				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
-					(pose, buffer) -> ConventionalBlastParticleRenderer.renderHot(pose, buffer,
-						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
-						impact.lod(), frame.cameraOrientation()));
+					(pose, buffer) -> NuclearParticleCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
+						cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), true, cloud.sources(),
+						frame.cameraOrientation()));
 			}
-		} else if (renderMergedCloud) {
-			/* Emissive voxel fire is submitted before the opaque smoke shell; deterministic vents reveal it. */
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_COOL,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), false, cloud.sources()));
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_HOT,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), true, cloud.sources()));
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_SMOKE,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), cloud.sources()));
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale() * 0.28F, cloud.profile(), cloud.visualSeed(), impact.blastCloudLobes(),
-					impact.lod(), frame.cameraOrientation()));
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderHot(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale() * 0.30F, cloud.profile(), cloud.visualSeed(), impact.lod(),
-					frame.cameraOrientation()));
 			double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(impact.ageTicks(), yieldRadiusScale);
 			if (returnRadius > 0.0) {
 				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
@@ -317,12 +234,37 @@ public final class WarheadWorldRenderer {
 						impact.ageTicks(), returnRadius, yieldRadiusScale, impact.visualSeed(), impact.lod(),
 						frame.cameraOrientation()));
 			}
-		}
-
-		if (impact.payloadType() == WarheadPayloadType.NUCLEAR
-			&& (renderMergedCloud || cloud.sources().size() == 1)) {
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
-				(pose, buffer) -> NuclearFlashRenderer.render(pose, buffer, impact.ageTicks(), frame.cameraOrientation()));
+			if (renderCloud || cloud.sources().size() == 1) {
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.NUCLEAR_FLASH,
+					(pose, buffer) -> NuclearFlashRenderer.render(pose, buffer, impact.ageTicks(), frame.cameraOrientation()));
+			}
+		} else {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
+				(pose, buffer) -> ConventionalBlastParticleRenderer.renderSurfaceFront(pose, buffer,
+					impact.ageTicks(), groundDistance, impact.visualScale(), impact.visualSeed(),
+					impact.lod(), frame.cameraOrientation()));
+			if (renderCloud) {
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE_CORE,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmokeCore(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(),
+						frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_CORE,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderFireCore(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(),
+						frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmoke(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(),
+						frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_COOL,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderCooling(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(),
+						frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderHot(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(), impact.lod(),
+						frame.cameraOrientation()));
+			}
 		}
 		poseStack.popPose();
 	}
@@ -341,11 +283,8 @@ public final class WarheadWorldRenderer {
 			poseStack.pushPose();
 			poseStack.translate(relative.x, relative.y, relative.z);
 			poseStack.scale(sample.scale(), sample.scale(), sample.scale());
-			poseStack.mulPose(new Quaternionf().rotationXYZ(
-				(float) sample.spin().x * sample.age(),
-				(float) sample.spin().y * sample.age(),
-				(float) sample.spin().z * sample.age()));
-			/* Each sample is an actual block from a connected captured fragment. */
+			poseStack.mulPose(new Quaternionf().rotationXYZ((float) sample.spin().x * sample.age(),
+				(float) sample.spin().y * sample.age(), (float) sample.spin().z * sample.age()));
 			poseStack.translate(-0.5, -0.5, -0.5);
 			context.submitNodeCollector().submitMovingBlock(poseStack, debris.movingBlock(), 0);
 			poseStack.popPose();
@@ -359,25 +298,24 @@ public final class WarheadWorldRenderer {
 		Vector3f normal = new Vector3f(0.0F, 0.0F, 1.0F).rotate(cameraOrientation);
 		for (DebrisFrame debris : debrisFrames) {
 			ClientDebrisBatchManager.RenderSample sample = debris.sample();
-			if (sample.partIndex() != 0 || sample.onGround() || sample.age() > 68.0F
-				|| sample.velocity().lengthSqr() < 0.01) continue;
-			Vec3 current = sample.position().subtract(cameraPosition);
-			Vec3 velocity = sample.velocity();
-			double speed = Math.sqrt(velocity.lengthSqr());
+			if (sample.partIndex() != 0 || sample.trailPositions().size() < 2) continue;
+			List<Vec3> trail = sample.trailPositions();
 			int red = debris.trailColour() >>> 16 & 255;
 			int green = debris.trailColour() >>> 8 & 255;
 			int blue = debris.trailColour() & 255;
-			if (sample.scale() < 0.55F) {
-				addDebrisBillboard(pose, buffer, current, Math.max(0.12F, sample.scale() * 0.62F),
-					red, green, blue, 0.78F, right, up, normal);
-			}
-			Vec3 direction = velocity.normalize();
-			for (int puff = 0; puff < 6; puff++) {
-				double back = (puff + 1) * (0.28 + Math.min(1.30, speed * 0.92));
-				Vec3 center = current.subtract(direction.scale(back)).add(0.0, 0.05 * puff, 0.0);
-				float radius = (0.12F + puff * 0.055F) * Math.max(0.55F, sample.scale());
-				float alpha = (0.34F - puff * 0.046F) * Math.max(0.0F, 1.0F - sample.age() / 68.0F);
-				addDebrisBillboard(pose, buffer, center, radius, red, green, blue, alpha, right, up, normal);
+			for (int point = 1; point < trail.size(); point++) {
+				Vec3 start = trail.get(point - 1);
+				Vec3 end = trail.get(point);
+				double segmentLength = start.distanceTo(end);
+				int subdivisions = Math.max(1, Math.min(5, (int) Math.ceil(segmentLength / 0.35)));
+				for (int subdivision = 0; subdivision < subdivisions; subdivision++) {
+					double t = (subdivision + 0.5) / subdivisions;
+					Vec3 center = start.lerp(end, t).subtract(cameraPosition);
+					float head = (point - 1 + (float) t) / Math.max(1.0F, trail.size() - 1.0F);
+					float radius = (0.075F + 0.16F * head) * Math.max(0.65F, sample.scale());
+					float alpha = (0.08F + 0.34F * head) * (sample.onGround() ? 0.24F : 1.0F);
+					addDebrisBillboard(pose, buffer, center, radius, red, green, blue, alpha, right, up, normal);
+				}
 			}
 		}
 	}
@@ -399,58 +337,51 @@ public final class WarheadWorldRenderer {
 		float oy = right.y * x + up.y * y;
 		float oz = right.z * x + up.z * y;
 		buffer.addVertex(pose, (float) center.x + ox, (float) center.y + oy, (float) center.z + oz)
-			.setColor(red, green, blue, alpha).setUv(u, v).setOverlay(0).setLight(0xA000A0)
+			.setColor(red, green, blue, alpha).setUv(u, v).setOverlay(0).setLight(0xB000B0)
 			.setNormal(pose, normal.x, normal.y, normal.z);
 	}
 
-
 	private static CloudCluster cloudCluster(final List<ImpactFrame> impacts, final ImpactFrame anchor) {
 		float anchorRadiusScale = WarheadYieldScaling.radiusScale(anchor.payloadType(), anchor.visualScale());
-		double mergeRadius = (anchor.payloadType() == WarheadPayloadType.NUCLEAR ? 82.0 : 24.0)
-			* Math.max(0.55, anchorRadiusScale);
-		double maximumAgeDelta = anchor.payloadType() == WarheadPayloadType.NUCLEAR ? 180.0 : 72.0;
+		double mergeRadius = 82.0 * Math.max(0.55, anchorRadiusScale);
 		ArrayList<ImpactFrame> members = new ArrayList<>();
 		ImpactFrame leader = null;
 		for (ImpactFrame candidate : impacts) {
-			if (candidate.payloadType() != anchor.payloadType()
-				|| candidate.effectProfile() != anchor.effectProfile()) continue;
+			if (candidate.payloadType() != WarheadPayloadType.NUCLEAR || candidate.effectProfile() != anchor.effectProfile()) continue;
 			float candidateScale = WarheadYieldScaling.radiusScale(candidate.payloadType(), candidate.visualScale());
-			double candidateMerge = Math.max(mergeRadius,
-				(anchor.payloadType() == WarheadPayloadType.NUCLEAR ? 82.0 : 24.0) * candidateScale);
-			if (Math.abs(candidate.ageTicks() - anchor.ageTicks()) > maximumAgeDelta
+			double candidateMerge = Math.max(mergeRadius, 82.0 * candidateScale);
+			if (Math.abs(candidate.ageTicks() - anchor.ageTicks()) > 180.0
 				|| candidate.position().distanceToSqr(anchor.position()) > candidateMerge * candidateMerge) continue;
 			members.add(candidate);
-			if (candidate.renderVolumetrics()
-				&& (leader == null || candidate.ageTicks() > leader.ageTicks())) leader = candidate;
+			if (candidate.renderVolumetrics() && (leader == null || candidate.ageTicks() > leader.ageTicks())) leader = candidate;
 		}
 		if (members.isEmpty()) members.add(anchor);
 		if (leader == null) leader = anchor;
-
 		double volume = 0.0;
 		double maximumScale = 0.01;
 		long mergedSeed = 0x434C4F55445F4D35L;
 		ArrayList<VoxelImpactCloudRenderer.CloudSource> sources = new ArrayList<>(members.size());
 		for (ImpactFrame member : members) {
-			double scale = Math.max(0.05, member.visualScale());
-			volume += scale * scale * scale;
-			maximumScale = Math.max(maximumScale, scale);
+			double memberScale = Math.max(0.05, member.visualScale());
+			volume += memberScale * memberScale * memberScale;
+			maximumScale = Math.max(maximumScale, memberScale);
 			mergedSeed ^= mixCloudSeed(member.visualSeed());
-			sources.add(new VoxelImpactCloudRenderer.CloudSource(
-				member.position().subtract(leader.position()),
-				member.ageTicks(),
-				member.visualScale(),
-				member.visualSeed()
-			));
+			sources.add(new VoxelImpactCloudRenderer.CloudSource(member.position().subtract(leader.position()),
+				member.ageTicks(), member.visualScale(), member.visualSeed()));
 		}
 		float mergedScale = (float) Math.min(maximumScale * 1.90, Math.cbrt(volume));
-		return new CloudCluster(
-			leader.id(),
-			leader.ageTicks(),
-			mergedScale,
-			mergedSeed,
-			leader.profile(),
-			List.copyOf(sources)
-		);
+		return new CloudCluster(leader.id(), leader.ageTicks(), mergedScale, mergedSeed, leader.profile(), List.copyOf(sources));
+	}
+
+	public static DebugSnapshot debugSnapshot() {
+		ConventionalBlastParticleRenderer.DebugSnapshot conventional = ConventionalBlastParticleRenderer.debugSnapshot();
+		NuclearParticleCloudRenderer.DebugSnapshot nuclear = NuclearParticleCloudRenderer.debugSnapshot();
+		return new DebugSnapshot(conventional.activeParticles() + nuclear.activeParticles(),
+			conventional.spawnedParticlesPerTick() + nuclear.spawnedParticlesPerTick(),
+			conventional.culledParticles() + nuclear.culledParticles(),
+			ClientDebrisBatchManager.INSTANCE.activeFragmentCount(),
+			WarheadRenderPipelines.compatibilityRendererActive()
+				? "fabric_entity_pipeline_external_renderer" : "war_mod_custom_pipeline");
 	}
 
 	private static long mixCloudSeed(long value) {
@@ -512,23 +443,22 @@ public final class WarheadWorldRenderer {
 		return Mth.clamp((float) (WarheadVisualMath.groundShockwaveAlpha(age, radiusScale) * 0.58 * scale), 0.0F, 1.0F);
 	}
 
+	public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick, int culledParticles,
+		int activeDebrisFragments, String activeRenderBackend) { }
+
 	private record WarheadFrame(Vec3 position, Vec3 velocity, float progress, float elapsedTicks,
-		float remainingTicks, int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) {
-	}
+		float remainingTicks, int flightTicks, long visualSeed, WarheadMesh.Lod lod, int packedLight) { }
 
 	private record ImpactFrame(UUID id, Vec3 position, double ageTicks, float visualScale, long visualSeed,
 		WarheadPayloadType payloadType, WarheadEffectProfile effectProfile, boolean renderVolumetrics,
-		WarheadClientVisualProfile profile,
-		WarheadMesh.Lod lod, List<TerrainShockfrontSpoke> shockfrontSpokes, List<TerrainShockfrontNode> dustNodes,
-		List<FireballLobe> fireballLobes, List<BlastCloudLobe> blastCloudLobes, long gameTime) {
-	}
+		WarheadClientVisualProfile profile, WarheadMesh.Lod lod, List<TerrainShockfrontSpoke> shockfrontSpokes,
+		List<TerrainShockfrontNode> dustNodes, long gameTime) { }
 
 	private record CloudCluster(UUID leaderId, double ageTicks, float visualScale, long visualSeed,
-		WarheadClientVisualProfile profile, List<VoxelImpactCloudRenderer.CloudSource> sources) {
-	}
+		WarheadClientVisualProfile profile, List<VoxelImpactCloudRenderer.CloudSource> sources) { }
 
-	private record DebrisFrame(ClientDebrisBatchManager.RenderSample sample, MovingBlockRenderState movingBlock, int trailColour) {
-	}
+	private record DebrisFrame(ClientDebrisBatchManager.RenderSample sample,
+		MovingBlockRenderState movingBlock, int trailColour) { }
 
 	private record RenderFrame(Vec3 cameraPosition, Quaternionf cameraOrientation,
 		List<WarheadFrame> warheads, List<ImpactFrame> impacts, List<DebrisFrame> debris) {
