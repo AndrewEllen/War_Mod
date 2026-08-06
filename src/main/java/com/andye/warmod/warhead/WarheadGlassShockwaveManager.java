@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -19,14 +20,14 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Bounded physical glass and fragile-surface response carried by the same
- * 343 m/s pressure front used by the client visuals. Work is deterministic,
- * never requests chunk loads, and scales its maximum range with yield.
+ * Bounded physical glass, vegetation and surface response carried by the same
+ * 343 m/s pressure front used by the client visuals. Work is deterministic and
+ * never forces unrelated chunks to load.
  */
 public final class WarheadGlassShockwaveManager {
     private static final double SPEED_BLOCKS_PER_TICK = WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
-    private static final int MAX_COLUMNS_PER_WAVE_TICK = 4_096;
+    private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final Map<ServerLevel, List<Wave>> WAVES = new IdentityHashMap<>();
     private static boolean registered;
 
@@ -95,7 +96,7 @@ public final class WarheadGlassShockwaveManager {
             double annulusWidth = Math.max(0.75, targetRadius - innerRadius);
             int radialBands = Mth.clamp((int) Math.ceil(annulusWidth / 2.25), 2, 8);
             int angularSamples = Mth.clamp(
-                (int) Math.ceil(Math.PI * 2.0 * Math.max(2.0, targetRadius) * 1.45),
+                (int) Math.ceil(Math.PI * 2.0 * Math.max(2.0, targetRadius) * 1.30),
                 72,
                 Math.max(72, MAX_COLUMNS_PER_WAVE_TICK / radialBands)
             );
@@ -133,6 +134,11 @@ public final class WarheadGlassShockwaveManager {
             double glassChance = normalizedDistance <= 0.62
                 ? 1.0
                 : Mth.clamp((1.0 - normalizedDistance) / 0.38, 0.0, 1.0);
+            double scorchLimit = nuclear ? 0.84 : 0.46;
+            double scorchIntensity = normalizedDistance >= scorchLimit
+                ? 0.0 : 1.0 - normalizedDistance / scorchLimit;
+
+            scorchGround(level, x, surfaceY, z, scorchIntensity);
 
             for (int y = surfaceY - belowSurface; y <= surfaceY + aboveSurface; y++) {
                 cursor.set(x, y, z);
@@ -148,6 +154,24 @@ public final class WarheadGlassShockwaveManager {
                     continue;
                 }
 
+                if (scorchIntensity > 0.0) {
+                    long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
+                    if (state.is(BlockTags.LEAVES)) {
+                        double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92, 0.0, 1.0);
+                        if (unit(hash) < stripChance) {
+                            level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                        }
+                        continue;
+                    }
+                    if (state.is(BlockTags.LOGS)) {
+                        double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18, 0.0, 0.92);
+                        if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
+                            level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(), UPDATE_FLAGS);
+                        }
+                        continue;
+                    }
+                }
+
                 if (nuclear && normalizedDistance < 0.82 && isFragileSurface(state)) {
                     double chance = (1.0 - normalizedDistance / 0.82) * 0.82;
                     if (unit(seed ^ cursor.asLong() ^ 0x5355524641434556L) < chance) {
@@ -155,6 +179,24 @@ public final class WarheadGlassShockwaveManager {
                     }
                 }
             }
+        }
+
+        private void scorchGround(final ServerLevel level, final int x, final int surfaceY,
+            final int z, final double intensity) {
+            if (intensity <= 0.0) return;
+            cursor.set(x, surfaceY, z);
+            if (!level.isInWorldBounds(cursor)) return;
+            BlockState state = level.getBlockState(cursor);
+            if (!(state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.DIRT)
+                || state.is(Blocks.COARSE_DIRT) || state.is(Blocks.ROOTED_DIRT)
+                || state.is(Blocks.MYCELIUM) || state.is(Blocks.PODZOL))) return;
+            long hash = seed ^ cursor.asLong() ^ 0x53434F5243484544L;
+            double replaceChance = Mth.clamp(0.18 + intensity * 0.82, 0.0, 1.0);
+            if (unit(hash) >= replaceChance) return;
+            BlockState replacement = unit(hash ^ 0x504F445A4F4C5F31L) < 0.68
+                ? Blocks.PODZOL.defaultBlockState()
+                : Blocks.COARSE_DIRT.defaultBlockState();
+            level.setBlock(cursor, replacement, UPDATE_FLAGS);
         }
 
         private static boolean isGlass(final BlockState state) {
