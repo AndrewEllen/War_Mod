@@ -10,7 +10,7 @@ The previous analytical conventional renderer is retained as a client-side profi
 - `/warmod renderer legacy` (alias: `cpu`) selects the analytical per-frame baseline.
 - `/warmod renderer status` reports the selected mode and current counters.
 
-The packed path is the optimised renderer, but particle simulation and billboard extraction are still performed on the CPU; this branch does not claim compute-shader simulation or hardware instancing.
+The packed path is the optimised renderer, but particle simulation and billboard extraction are still performed on the CPU; this branch does not claim compute-shader simulation or hardware instancing. Both profiling modes use the same shared soft particle mask so the comparison is not distorted by different texture sampling.
 
 Conventional HE visuals now favour a broad crater-origin burst and a compact central spout. Hot fire is capped at 4.75 blocks above the impact surface, matching the requested 4-5 block target; cooled smoke can continue rising after the fire phase. Feed duration and vertical acceleration were reduced while radial ejection was increased.
 
@@ -20,7 +20,7 @@ Iris handling now distinguishes an installed Iris mod from an actively enabled s
 
 Terrain shockfront sampling preserves the same 256-spoke, two-block-resolution final field. Work is now capped to 2,048 new surface samples per impact call and continued over subsequent ticks, reducing one-tick chunk/height-query spikes without removing terrain-following detail.
 
-Terrain fragments retain connected captured block states. The client approximation adds mass-scaled launch velocity, swept multi-sample collision, impact damping, a settled state, and trails generated from recorded historical positions.
+Terrain fragments retain connected captured block states. The client approximation adds mass-scaled launch velocity, swept multi-sample collision, impact damping, a settled state, and trails generated from recorded historical positions. Terrain collision results are cached for each simulation step so fragments probing the same blocks share chunk, block-state, and collision-shape lookups. Trail snapshots are rebuilt only after a fragment advances rather than once per rendered frame. Neither optimisation reduces fragment count, collision samples, trail length, or rendered block detail.
 
 ICBM exhaust is split into dedicated full-bright core and emissive fringe passes, with separate neutral alpha-mask resources. The smoke trail is denser and uses a dedicated neutral mask.
 
