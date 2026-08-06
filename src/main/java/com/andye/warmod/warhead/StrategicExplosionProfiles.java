@@ -12,7 +12,7 @@ public final class StrategicExplosionProfiles {
 		/* Deep excavation has deliberately been reduced from Stage 5. The aftermath radius remains broader. */
 		put(WarheadYield.HIGH_EXPLOSIVE,
 			6.5, 3.5, 4.0, 0.68, 0.10, 34.0F, 0.58F, 10.0F, 1.55, 0.07);
-		put(WarheadYield.MEDIUM_EXPLOSIVE,
+		put(WarheadYield.HIGH_CAPACITY_HE,
 			10.5, 5.5, 7.0, 0.69, 0.10, 64.0F, 0.55F, 17.0F, 1.60, 0.08);
 		put(WarheadYield.CONVENTIONAL,
 			17.0, 9.0, 12.0, 0.71, 0.095, 122.0F, 0.51F, 27.0F, 1.65, 0.10);
@@ -62,7 +62,7 @@ public final class StrategicExplosionProfiles {
 		if (strength >= 55.0F) return get(WarheadYield.TACTICAL_NUCLEAR);
 		if (strength >= 28.0F) return get(WarheadYield.HEAVY_CONVENTIONAL);
 		if (strength >= 13.0F) return get(WarheadYield.CONVENTIONAL);
-		if (strength > 7.0F) return get(WarheadYield.MEDIUM_EXPLOSIVE);
+		if (strength > 7.0F) return get(WarheadYield.HIGH_CAPACITY_HE);
 		return get(WarheadYield.HIGH_EXPLOSIVE);
 	}
 }

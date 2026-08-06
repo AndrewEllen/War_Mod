@@ -17,11 +17,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.SplittableRandom;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.phys.Vec3;
 
 public final class ClientWarheadVisualManager {
@@ -34,6 +32,7 @@ public final class ClientWarheadVisualManager {
 	private final Map<UUID, ImpactVisualState> activeImpacts = new LinkedHashMap<>();
 	private final Set<UUID> volumetricImpacts = new HashSet<>();
 	private final Set<UUID> deliveredVisualShake = new HashSet<>();
+	private final Set<UUID> deliveredReturnShake = new HashSet<>();
 	private ClientLevel activeLevel;
 
 	private ClientWarheadVisualManager() {
@@ -52,6 +51,7 @@ public final class ClientWarheadVisualManager {
 		this.activeImpacts.remove(payload.warheadId());
 		this.volumetricImpacts.remove(payload.warheadId());
 		this.deliveredVisualShake.remove(payload.warheadId());
+		this.deliveredReturnShake.remove(payload.warheadId());
 		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload);
 		this.assignVolumetricSlot(payload.warheadId(), incoming);
 		this.removeOldestImpactIfAtCapacity(WarheadConstants.MAX_ACTIVE_CLIENT_IMPACTS);
@@ -85,11 +85,13 @@ public final class ClientWarheadVisualManager {
 			if (entry.getValue().isExpired(gameTime, 0.0)) {
 				this.volumetricImpacts.remove(entry.getKey());
 				this.deliveredVisualShake.remove(entry.getKey());
+				this.deliveredReturnShake.remove(entry.getKey());
 				impactIterator.remove();
 			}
 		}
 
 		this.deliverSupplementalImpactShake(client, gameTime);
+		this.deliverNuclearReturnShake(client, gameTime);
 
 		int remainingTerrainBudget = TOTAL_TERRAIN_BUILD_BUDGET;
 		int impactCount = Math.max(1, this.activeImpacts.size());
@@ -110,7 +112,6 @@ public final class ClientWarheadVisualManager {
 			remainingTerrainBudget -= built;
 		}
 
-		this.spawnWarheadTrailParticles(client, gameTime);
 	}
 
 	public synchronized void clear() {
@@ -118,6 +119,7 @@ public final class ClientWarheadVisualManager {
 		this.activeImpacts.clear();
 		this.volumetricImpacts.clear();
 		this.deliveredVisualShake.clear();
+		this.deliveredReturnShake.clear();
 		TerrainSurfaceCache.INSTANCE.clear();
 		ClientDebrisBatchManager.INSTANCE.clear();
 		this.activeLevel = null;
@@ -134,6 +136,7 @@ public final class ClientWarheadVisualManager {
 			this.activeImpacts.clear();
 			this.volumetricImpacts.clear();
 			this.deliveredVisualShake.clear();
+			this.deliveredReturnShake.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = null;
@@ -144,6 +147,7 @@ public final class ClientWarheadVisualManager {
 			this.activeImpacts.clear();
 			this.volumetricImpacts.clear();
 			this.deliveredVisualShake.clear();
+			this.deliveredReturnShake.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = level;
@@ -173,6 +177,27 @@ public final class ClientWarheadVisualManager {
 				state.payloadType() == WarheadPayloadType.NUCLEAR
 			);
 			this.deliveredVisualShake.add(id);
+		}
+	}
+
+	private void deliverNuclearReturnShake(final Minecraft client, final long gameTime) {
+		if (client.player == null) return;
+		Vec3 listener = client.player.position();
+		for (Map.Entry<UUID, ImpactVisualState> entry : this.activeImpacts.entrySet()) {
+			UUID id = entry.getKey();
+			if (this.deliveredReturnShake.contains(id)) continue;
+			ImpactVisualState state = entry.getValue();
+			if (state.payloadType() != WarheadPayloadType.NUCLEAR) continue;
+			double distance = listener.distanceTo(state.impactPosition());
+			float radiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
+			double maximum = WarheadVisualMath.nuclearReturnWaveMaximumRadius(radiusScale);
+			if (distance > maximum) { this.deliveredReturnShake.add(id); continue; }
+			double arrival = WarheadVisualMath.nuclearReturnWaveStartTicks(radiusScale)
+				+ (maximum - distance) / WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
+			if (state.ageTicks(gameTime, 0.0) + 1.0E-4 < arrival) continue;
+			ExplosionShakeManager.INSTANCE.addVisualImpact(
+				state.visualSeed() ^ 0x52455455524E5741L, distance, radiusScale * 0.72, true);
+			this.deliveredReturnShake.add(id);
 		}
 	}
 
@@ -221,6 +246,7 @@ public final class ClientWarheadVisualManager {
 			iterator.remove();
 			this.volumetricImpacts.remove(removed);
 			this.deliveredVisualShake.remove(removed);
+			this.deliveredReturnShake.remove(removed);
 		}
 	}
 
@@ -231,31 +257,6 @@ public final class ClientWarheadVisualManager {
 			iterator.next();
 			iterator.remove();
 		}
-	}
-
-	private int spawnWarheadTrailParticles(final Minecraft client, final long gameTime) {
-		if (client.level == null || client.player == null) return 0;
-		int spawned = 0;
-		for (WarheadVisualState state : this.activeWarheads.values()) {
-			if (spawned >= 4) return spawned;
-			Vec3 position = state.positionAt(gameTime, 0.0);
-			double distanceSquared = client.player.position().distanceToSqr(position);
-			int perWarheadLimit = distanceSquared < 192.0 * 192.0 ? 2 : distanceSquared < 640.0 * 640.0 ? 1 : 0;
-			if (perWarheadLimit == 0) continue;
-			SplittableRandom random = new SplittableRandom(state.visualSeed() ^ gameTime);
-			for (int particle = 0; particle < perWarheadLimit && spawned < 4; particle++) {
-				client.level.addParticle(ParticleTypes.CLOUD,
-					position.x + random.nextDouble(-0.12, 0.12), position.y + random.nextDouble(-0.12, 0.12),
-					position.z + random.nextDouble(-0.12, 0.12), random.nextDouble(-0.025, 0.025),
-					random.nextDouble(0.01, 0.06), random.nextDouble(-0.025, 0.025));
-				spawned++;
-			}
-			if (spawned < 4 && (random.nextInt() & 3) == 0) {
-				client.level.addParticle(ParticleTypes.FLAME, position.x, position.y, position.z, 0.0, 0.02, 0.0);
-				spawned++;
-			}
-		}
-		return spawned;
 	}
 
 	public record Snapshot(List<WarheadVisualState> warheads, List<ImpactVisualState> impacts) {

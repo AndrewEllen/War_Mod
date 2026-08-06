@@ -185,15 +185,15 @@ public final class WarheadImpactService {
 
 		List<ClientboundWarheadDebrisPayload.Entry> entries = new ArrayList<>();
 		int consumedBlocks = 0;
-		for (int rootIndex = 0; rootIndex < ranked.size() && consumedBlocks < blockBudget && entries.size() < 256; rootIndex++) {
+		for (int rootIndex = 0; rootIndex < ranked.size() && consumedBlocks < blockBudget && entries.size() < 320; rootIndex++) {
 			WarheadExplosionDropContext.DestroyedBlock rankedRoot = ranked.get(rootIndex).block();
 			WarheadExplosionDropContext.DestroyedBlock root = available.remove(rankedRoot.position().asLong());
 			if (root == null) continue;
 			SplittableRandom random = new SplittableRandom(mix(seed ^ root.position().asLong()));
 			boolean large = consumedBlocks < yield.maximumLargeDebris();
 			int desiredParts = large
-				? (yield.nuclear() ? random.nextInt(10, 25) : random.nextInt(5, 15))
-				: (random.nextDouble() < 0.28 ? random.nextInt(2, 6) : 1);
+				? (yield.nuclear() ? random.nextInt(22, 49) : random.nextInt(10, 37))
+				: (random.nextDouble() < 0.52 ? random.nextInt(3, 13) : random.nextInt(1, 5));
 			desiredParts = Math.min(desiredParts, blockBudget - consumedBlocks);
 
 			BlockPos rootPos = root.position();
@@ -233,12 +233,15 @@ public final class WarheadImpactService {
 			Vec3 outward = radial.normalize();
 			Vec3 sideways = new Vec3(-outward.z, 0.0, outward.x);
 			double normalized = Math.min(1.0, Math.sqrt(radial.lengthSqr()) / Math.max(1.0, craterProfile.horizontalRadius()));
-			double horizontal = random.nextDouble(0.46, large ? 1.24 : 0.98) * yield.debrisVelocityScale();
-			double vertical = random.nextDouble(large ? 1.05 : 0.62, large ? 2.15 : 1.45)
-				+ (1.0 - normalized) * (yield.nuclear() ? 0.88 : 0.42);
+			double massFactor = 1.0 / Math.sqrt(Math.max(1.0, parts.size() * 0.34));
+			double horizontal = random.nextDouble(large ? 0.22 : 0.34, large ? 0.62 : 0.88)
+				* yield.debrisVelocityScale() * (0.72 + 0.28 * massFactor);
+			double vertical = random.nextDouble(large ? 1.28 : 0.82, large ? 2.72 : 1.92)
+				* (0.82 + 0.18 * massFactor)
+				+ (1.0 - normalized) * (yield.nuclear() ? 1.05 : 0.58);
 			Vec3 velocity = outward.scale(horizontal)
 				.add(sideways.scale(random.nextDouble(-0.20, 0.20)))
-				.add(0.0, Math.min(yield.nuclear() ? 4.15 : 2.55, vertical * yield.debrisVelocityScale()), 0.0);
+				.add(0.0, Math.min(yield.nuclear() ? 4.35 : 3.05, vertical * yield.debrisVelocityScale()), 0.0);
 			double spinLimit = parts.size() > 6 ? 0.045 : 0.12;
 			Vec3 spin = new Vec3(random.nextDouble(-spinLimit, spinLimit),
 				random.nextDouble(-spinLimit, spinLimit), random.nextDouble(-spinLimit, spinLimit));

@@ -13,25 +13,46 @@ import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
+import net.fabricmc.loader.api.FabricLoader;
 
 /** Minecraft 26.2 render pipelines for each visual layer. */
 public final class WarheadRenderPipelines {
+	/**
+	 * Sodium and Iris only receive pipelines built from vanilla-known pipeline identities.
+	 * The analytical War Mod particle engine remains active; this is not a vanilla-particle fallback.
+	 */
+	private static final boolean EXTERNAL_RENDERER = FabricLoader.getInstance().isModLoaded("sodium")
+		|| FabricLoader.getInstance().isModLoaded("iris");
 	private static final Identifier SMOKE_LOBE_TEXTURE = Identifier.fromNamespaceAndPath(
 		WarMod.MOD_ID,
 		"textures/effect/smoke_lobe.png"
 	);
-	private static final RenderPipeline CONDENSATION_PIPELINE = condensation();
-	private static final RenderPipeline PRESSURE_PIPELINE = translucent("pipeline/war_mod_pressure_shell", false);
-	private static final RenderPipeline SHOCKWAVE_PIPELINE = translucent("pipeline/war_mod_shockwave_ribbons", false);
-	private static final RenderPipeline GROUND_DUST_PIPELINE = translucent("pipeline/war_mod_ground_dust", false);
+	private static final RenderPipeline CONDENSATION_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT : condensation();
+	private static final RenderPipeline PRESSURE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_pressure_shell", false);
+	private static final RenderPipeline SHOCKWAVE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_shockwave_ribbons", false);
+	private static final RenderPipeline GROUND_DUST_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_ground_dust", false);
 	/* Soft smoke does not write depth, so transparent edges cannot erase water. */
-	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke", false, 0.02F);
+	private static final RenderPipeline HEAVY_SMOKE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_heavy_smoke", false, 0.02F);
 	/* Only dense macro-voxel cores write depth to reject hidden overlapping clouds. */
-	private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = translucent("pipeline/war_mod_heavy_smoke_core", true, 0.18F);
-	/* Surface voxels are opaque-looking but do not write depth, preserving water behind the cloud. */
-	private static final RenderPipeline VOXEL_SMOKE_PIPELINE = translucent("pipeline/war_mod_voxel_smoke", false, 0.08F);
-	private static final RenderPipeline COOL_FIRE_PIPELINE = translucent("pipeline/war_mod_cooling_fire", false);
-	private static final RenderPipeline GROUND_RIPPLE_PIPELINE = RenderPipelines.register(
+	private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_CUTOUT_NO_CULL : translucent("pipeline/war_mod_heavy_smoke_core", true, 0.18F);
+	/* Dense one-block voxel surfaces are opaque and write depth; dissipation removes cells instead of alpha-fading them. */
+	private static final RenderPipeline VOXEL_SMOKE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_CUTOUT_NO_CULL : opaqueCutout("pipeline/war_mod_voxel_smoke", false);
+	private static final RenderPipeline COOL_FIRE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
+		: emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.02F);
+	private static final RenderPipeline FIREBALL_CORE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
+		: emissiveTranslucent("pipeline/war_mod_fireball_core", true, 0.16F);
+	private static final RenderPipeline GROUND_RIPPLE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT
+		: RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
 			.withLocation("pipeline/war_mod_ground_ripple")
 			.withVertexShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
@@ -43,7 +64,9 @@ public final class WarheadRenderPipelines {
 			.withCull(false)
 			.build()
 	);
-	private static final RenderPipeline TERRAIN_DEFORMATION_PIPELINE = RenderPipelines.register(
+	private static final RenderPipeline TERRAIN_DEFORMATION_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_CUTOUT_NO_CULL
+		: RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
 			.withLocation("pipeline/war_mod_terrain_deformation")
 			.withShaderDefine("NO_OVERLAY")
@@ -51,7 +74,9 @@ public final class WarheadRenderPipelines {
 			.withCull(false)
 			.build()
 	);
-	private static final RenderPipeline HOT_FIRE_PIPELINE = RenderPipelines.register(
+	private static final RenderPipeline HOT_FIRE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
+		: RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
 			.withLocation("pipeline/war_mod_hot_fire")
 			.withShaderDefine("ALPHA_CUTOUT", 0.05F)
@@ -62,6 +87,8 @@ public final class WarheadRenderPipelines {
 			.withCull(false)
 			.build()
 	);
+	private static final RenderPipeline VOXEL_FIRE_PIPELINE = EXTERNAL_RENDERER
+		? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE : opaqueCutout("pipeline/war_mod_voxel_fire", true);
 
 	public static final RenderType PROJECTILE = create("war_mod_projectile", RenderPipelines.ENTITY_CUTOUT, texture("warhead_albedo.png"), true, true, false);
 	public static final RenderType CONE = create("war_mod_cone", CONDENSATION_PIPELINE, texture("vapor_noise.png"), false, false, true);
@@ -74,16 +101,22 @@ public final class WarheadRenderPipelines {
 	public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
 	public static final RenderType HEAVY_SMOKE_CORE = create("war_mod_heavy_smoke_core", HEAVY_SMOKE_CORE_PIPELINE, SMOKE_LOBE_TEXTURE, true, false, true);
 	public static final RenderType VOXEL_SMOKE = create("war_mod_voxel_smoke", VOXEL_SMOKE_PIPELINE, texture("voxel_cloud.png"), true, false, false);
-	public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), true, true);
+	public static final RenderType FIREBALL_CORE = createClamped("war_mod_fireball_core", FIREBALL_CORE_PIPELINE, texture("fireball_sheet.png"), false, true);
+	public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool", COOL_FIRE_PIPELINE, texture("fireball_sheet.png"), false, true);
 	public static final RenderType FIREBALL_HOT = createClamped("war_mod_fireball_hot", HOT_FIRE_PIPELINE, texture("fireball_sheet.png"), false, true);
-	public static final RenderType VOXEL_FIRE_COOL = createClamped("war_mod_voxel_fire_cool", COOL_FIRE_PIPELINE,
-		texture("voxel_cloud.png"), true, false);
-	public static final RenderType VOXEL_FIRE_HOT = createClamped("war_mod_voxel_fire_hot", HOT_FIRE_PIPELINE,
+	public static final RenderType VOXEL_FIRE_COOL = createClamped("war_mod_voxel_fire_cool", VOXEL_FIRE_PIPELINE,
+		texture("voxel_cloud.png"), false, false);
+	public static final RenderType VOXEL_FIRE_HOT = createClamped("war_mod_voxel_fire_hot", VOXEL_FIRE_PIPELINE,
 		texture("voxel_cloud.png"), false, false);
 	public static final RenderType NUCLEAR_FLASH = createClamped("war_mod_nuclear_flash", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
+	public static final RenderType ICBM_EXHAUST = createClamped("war_mod_icbm_exhaust", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
 	public static final RenderType REENTRY_PLASMA = createClamped("war_mod_reentry_plasma", HOT_FIRE_PIPELINE, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/particle/warhead_fireball_0.png"), false, true);
 	public static final RenderType SMOKE_LOBE = HEAVY_SMOKE;
 	public static final RenderType FIREBALL = FIREBALL_COOL;
+
+	public static boolean compatibilityRendererActive() {
+		return EXTERNAL_RENDERER;
+	}
 
 	private WarheadRenderPipelines() {
 	}
@@ -111,6 +144,32 @@ public final class WarheadRenderPipelines {
 			.withShaderDefine("NO_CARDINAL_LIGHTING")
 			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
 			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+			.withCull(false)
+			.build());
+	}
+
+	private static RenderPipeline opaqueCutout(final String location, final boolean emissive) {
+		RenderPipeline.Builder builder = RenderPipeline.builder(
+			emissive ? RenderPipelines.ENTITY_EMISSIVE_SNIPPET : RenderPipelines.ENTITY_SNIPPET)
+			.withLocation(location)
+			.withShaderDefine("ALPHA_CUTOUT", 0.05F)
+			.withShaderDefine("NO_OVERLAY")
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
+			.withCull(false);
+		if (emissive) builder.withShaderDefine("NO_CARDINAL_LIGHTING");
+		return RenderPipelines.register(builder.build());
+	}
+
+	private static RenderPipeline emissiveTranslucent(
+		final String location, final boolean writeDepth, final float alphaCutout
+	) {
+		return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+			.withLocation(location)
+			.withShaderDefine("ALPHA_CUTOUT", alphaCutout)
+			.withShaderDefine("NO_OVERLAY")
+			.withShaderDefine("NO_CARDINAL_LIGHTING")
+			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, writeDepth))
 			.withCull(false)
 			.build());
 	}

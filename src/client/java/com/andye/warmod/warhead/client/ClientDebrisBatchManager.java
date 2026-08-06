@@ -21,7 +21,7 @@ import org.joml.Vector3f;
 public final class ClientDebrisBatchManager {
 	public static final ClientDebrisBatchManager INSTANCE = new ClientDebrisBatchManager();
 	private static final int MAX_BATCHES = 64;
-	private static final int MAX_RENDERED_PARTS = 4_096;
+	private static final int MAX_RENDERED_PARTS = 8_192;
 	private static final double DRAG = 0.985;
 	private static final double GRAVITY = -0.04;
 

@@ -10,120 +10,163 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
- * Analytical non-nuclear blast field inspired by a ground-coupled high-explosive plume.
- * No particle objects are allocated: every fire, smoke and surface-front sample is
- * reconstructed from impact age and seed during rendering.
+ * Dense analytical non-nuclear blast field.
+ *
+ * <p>The field is rebuilt deterministically from age and seed rather than from
+ * thousands of particle objects. Dense depth-writing cores solve the water
+ * ordering problem; smaller translucent fringe particles provide soft detail.</p>
  */
 public final class ConventionalBlastParticleRenderer {
-	private static final long FIRE_SEED = 0x535447365F464952L;
-	private static final long SMOKE_SEED = 0x535447365F534D4BL;
-	private static final long FRONT_SEED = 0x535447365F46524EL;
+	private static final long FIRE_SEED = 0x535447375F464952L;
+	private static final long SMOKE_SEED = 0x535447375F534D4BL;
+	private static final long FRONT_SEED = 0x535447375F46524EL;
+	private static final long RETURN_SEED = 0x535447375F524554L;
 
 	private ConventionalBlastParticleRenderer() { }
+
+	public static void renderFireCore(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final double age, final float visualScale, final WarheadClientVisualProfile profile,
+		final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+		renderFire(pose, buffer, age, visualScale, seed, lod, camera, FireLayer.CORE);
+	}
 
 	public static void renderHot(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final double age, final float visualScale, final WarheadClientVisualProfile profile,
 		final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
-		renderFire(pose, buffer, age, visualScale, profile, seed, lod, camera, true);
+		renderFire(pose, buffer, age, visualScale, seed, lod, camera, FireLayer.HOT_FRINGE);
 	}
 
 	public static void renderCooling(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final double age, final float visualScale, final WarheadClientVisualProfile profile,
 		final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
-		renderFire(pose, buffer, age, visualScale, profile, seed, lod, camera, false);
+		renderFire(pose, buffer, age, visualScale, seed, lod, camera, FireLayer.COOL_FRINGE);
 	}
 
 	private static void renderFire(final PoseStack.Pose pose, final VertexConsumer buffer,
-		final double age, final float visualScale, final WarheadClientVisualProfile profile,
-		final long seed, final WarheadMesh.Lod lod, final Quaternionf camera, final boolean hotPass) {
-		if (age < 0.0 || age > 108.0) return;
+		final double age, final float visualScale, final long seed, final WarheadMesh.Lod lod,
+		final Quaternionf camera, final FireLayer layer) {
+		if (age < 0.0 || age > 126.0) return;
 		float scale = Mth.clamp(visualScale, 0.28F, 1.55F);
-		int samples = switch (lod) { case NEAR -> 760; case MEDIUM -> 390; case FAR -> 140; };
+		double density = 0.72 + Math.pow(scale, 1.48);
+		int baseSamples = switch (lod) { case NEAR -> 1_080; case MEDIUM -> 560; case FAR -> 190; };
+		int samples = Math.min(lod == WarheadMesh.Lod.NEAR ? 2_900 : 1_420,
+			Math.max(96, (int) Math.round(baseSamples * density)));
+		if (layer == FireLayer.CORE) samples = Math.max(80, samples / 3);
 		Basis basis = Basis.from(camera);
-		double craterBase = -(2.2 + 6.8 * scale);
+		double craterBase = -(1.8 + 5.6 * scale);
 		for (int index = 0; index < samples; index++) {
 			long value = mix(seed ^ FIRE_SEED ^ (long) index * 0x9E3779B97F4A7C15L);
-			double birth = unit(value, 0) * (6.0 + scale * 5.0);
-			double life = 22.0 + unit(value, 1) * (30.0 + scale * 22.0);
+			double birth = unit(value, 0) * (5.0 + scale * 4.0);
+			double life = 32.0 + unit(value, 1) * (30.0 + scale * 30.0);
 			double localAge = age - birth;
 			if (localAge < 0.0 || localAge >= life) continue;
 			double progress = localAge / life;
-			boolean hot = progress < 0.58;
-			if (hot != hotPass) continue;
+			double coreMarker = unit(value, 2);
+			boolean core = coreMarker < 0.30 + 0.12 * scale;
+			boolean hot = progress < 0.56 + 0.06 * unit(value, 3);
+			if (layer == FireLayer.CORE && !core) continue;
+			if (layer == FireLayer.HOT_FRINGE && (!hot || core)) continue;
+			if (layer == FireLayer.COOL_FRINGE && (hot || core)) continue;
 
-			double angle = unit(value, 2) * Mth.TWO_PI;
-			double sourceRadius = Math.sqrt(unit(value, 3)) * (1.1 + 3.6 * scale);
-			double radialSpeed = (0.16 + unit(value, 4) * 0.34) * scale;
-			double radial = sourceRadius + localAge * radialSpeed * (1.0 - 0.38 * progress);
-			/* The hot plume rises from the crater, spreads, then flattens at the top. */
-			double upward = (0.34 + unit(value, 5) * 0.58) * scale;
-			double y = craterBase + 1.2 + localAge * upward
-				- localAge * localAge * (0.0035 + 0.0025 / Math.max(0.35, scale));
-			double flatten = 1.0 - 0.48 * smooth(progress);
-			double curl = Math.sin(localAge * (0.15 + unit(value, 6) * 0.12) + angle)
-				* (0.35 + progress * 1.1) * scale;
+			double angle = unit(value, 4) * Mth.TWO_PI;
+			double sourceRadius = Math.sqrt(unit(value, 5)) * (0.70 + 2.6 * scale) * (core ? 0.52 : 1.0);
+			double outwardVelocity = (0.070 + unit(value, 6) * 0.19) * (0.72 + 0.52 * scale);
+			double upwardVelocity = (0.46 + unit(value, 7) * 0.72) * (0.68 + 0.52 * scale);
+			double drive = 1.0 - 0.58 * smooth(progress);
+			double radial = sourceRadius + localAge * outwardVelocity * drive;
+			double y = craterBase + 1.0 + localAge * upwardVelocity
+				- localAge * localAge * (0.0032 + 0.0014 / Math.max(0.35, scale));
+			/* Narrow hot centre pushes the upper fire outwards, rather than forming a flat disc. */
+			double topSpread = smooth(localAge / (16.0 + 8.0 * scale));
+			radial *= 0.78 + 0.46 * topSpread;
+			double curl = Math.sin(localAge * (0.10 + unit(value, 8) * 0.08) + angle * 2.0)
+				* (0.10 + progress * 0.55) * scale;
 			Vec3 center = new Vec3(
-				Math.cos(angle) * radial * flatten + Math.cos(angle + Math.PI * 0.5) * curl,
+				Math.cos(angle) * radial + Math.cos(angle + Math.PI * 0.5) * curl,
 				y,
-				Math.sin(angle) * radial * flatten + Math.sin(angle + Math.PI * 0.5) * curl
+				Math.sin(angle) * radial + Math.sin(angle + Math.PI * 0.5) * curl
 			);
-			float radius = (float) ((0.38 + unit(value, 7) * 0.95) * (0.72 + scale * 0.48)
-				* (0.72 + progress * 0.78));
-			float alpha = (float) Mth.clamp((hotPass ? 0.82 : 0.62)
-				* Math.pow(1.0 - progress, hotPass ? 0.42 : 0.74), 0.0, 0.88);
-			int red = hotPass ? 255 : Mth.lerpInt((float) progress, 238, 104);
-			int green = hotPass ? Mth.lerpInt((float) progress, 224, 112)
-				: Mth.lerpInt((float) progress, 122, 58);
-			int blue = hotPass ? Mth.lerpInt((float) progress, 94, 20)
-				: Mth.lerpInt((float) progress, 40, 26);
-			int frame = Math.floorMod((int) Math.floor(localAge / 2.4 + unit(value, 8) * FireballAtlas.FRAME_COUNT),
+			float radius = (float) ((0.18 + unit(value, 9) * 0.48)
+				* (0.76 + scale * 0.34) * (0.78 + progress * 0.46));
+			if (layer == FireLayer.CORE) radius *= 1.18F;
+			float alpha = (float) Mth.clamp((layer == FireLayer.CORE ? 0.94 : hot ? 0.80 : 0.58)
+				* Math.pow(1.0 - progress, layer == FireLayer.CORE ? 0.30 : hot ? 0.42 : 0.72), 0.0, 0.96);
+			int red = layer == FireLayer.COOL_FRINGE ? Mth.lerpInt((float) progress, 244, 105) : 255;
+			int green = layer == FireLayer.CORE ? Mth.lerpInt((float) progress, 246, 154)
+				: hot ? Mth.lerpInt((float) progress, 224, 112) : Mth.lerpInt((float) progress, 132, 54);
+			int blue = layer == FireLayer.CORE ? Mth.lerpInt((float) progress, 154, 30)
+				: hot ? Mth.lerpInt((float) progress, 80, 18) : Mth.lerpInt((float) progress, 34, 22);
+			int frame = Math.floorMod((int) Math.floor(localAge / 2.1 + unit(value, 10) * FireballAtlas.FRAME_COUNT),
 				FireballAtlas.FRAME_COUNT);
 			float u0 = frame / (float) FireballAtlas.FRAME_COUNT + 0.5F / FireballAtlas.ATLAS_WIDTH;
 			float u1 = (frame + 1) / (float) FireballAtlas.FRAME_COUNT - 0.5F / FireballAtlas.ATLAS_WIDTH;
 			float v0 = 0.5F / FireballAtlas.ATLAS_HEIGHT;
 			float v1 = 1.0F - v0;
-			billboard(pose, buffer, center, radius, (float) (angle + localAge * 0.018),
-				red, green, blue, alpha, hotPass ? 0xF000F0 : 0xC000C0, basis, u0, u1, v0, v1);
+			billboard(pose, buffer, center, radius, (float) (angle + localAge * 0.024),
+				red, green, blue, alpha, layer == FireLayer.CORE ? 0xF000F0 : hot ? 0xF000F0 : 0xC000C0,
+				basis, u0, u1, v0, v1);
 		}
+	}
+
+	public static void renderSmokeCore(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final double age, final float visualScale, final WarheadClientVisualProfile profile,
+		final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+		renderSmokeLayer(pose, buffer, age, visualScale, seed, lod, camera, true);
 	}
 
 	public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final double age, final float visualScale, final WarheadClientVisualProfile profile,
 		final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
-		if (age < 4.0 || age > 340.0) return;
+		renderSmokeLayer(pose, buffer, age, visualScale, seed, lod, camera, false);
+	}
+
+	private static void renderSmokeLayer(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final double age, final float visualScale, final long seed, final WarheadMesh.Lod lod,
+		final Quaternionf camera, final boolean corePass) {
+		if (age < 5.0 || age > 360.0) return;
 		float scale = Mth.clamp(visualScale, 0.28F, 1.55F);
-		int samples = switch (lod) { case NEAR -> 920; case MEDIUM -> 470; case FAR -> 160; };
+		double density = 0.82 + Math.pow(scale, 1.55);
+		int baseSamples = switch (lod) { case NEAR -> 1_420; case MEDIUM -> 720; case FAR -> 240; };
+		int samples = Math.min(lod == WarheadMesh.Lod.NEAR ? 3_600 : 1_700,
+			Math.max(120, (int) Math.round(baseSamples * density)));
+		if (corePass) samples = Math.max(100, samples / 4);
 		Basis basis = Basis.from(camera);
-		double craterBase = -(2.2 + 6.8 * scale);
+		double craterBase = -(1.8 + 5.6 * scale);
 		for (int index = 0; index < samples; index++) {
 			long value = mix(seed ^ SMOKE_SEED ^ (long) index * 0xD1B54A32D192ED03L);
-			double birth = 4.0 + unit(value, 0) * (42.0 + scale * 28.0);
-			double life = 82.0 + unit(value, 1) * (92.0 + scale * 55.0);
+			double birth = 5.0 + unit(value, 0) * (40.0 + scale * 24.0);
+			double life = 96.0 + unit(value, 1) * (105.0 + scale * 66.0);
 			double localAge = age - birth;
 			if (localAge < 0.0 || localAge >= life) continue;
 			double progress = localAge / life;
-			double angle = unit(value, 2) * Mth.TWO_PI;
-			double radialBirth = Math.sqrt(unit(value, 3)) * (2.0 + 8.0 * scale);
-			double outward = localAge * (0.025 + unit(value, 4) * 0.075) * scale;
-			double rise = localAge * (0.055 + unit(value, 5) * 0.11) * scale;
-			/* Heavy smoke remains crater coupled and broad; it does not form a nuclear cap. */
-			double y = craterBase + 2.0 + rise + Math.sin(localAge * 0.06 + angle) * 0.8 * scale;
+			double coreMarker = unit(value, 2);
+			boolean core = coreMarker < 0.20 + 0.10 * scale;
+			if (core != corePass) continue;
+			double angle = unit(value, 3) * Mth.TWO_PI;
+			double radialBirth = Math.sqrt(unit(value, 4)) * (0.9 + 5.8 * scale) * (core ? 0.48 : 1.0);
+			double outward = localAge * (0.018 + unit(value, 5) * 0.054) * (0.70 + 0.46 * scale);
+			double rise = localAge * (0.080 + unit(value, 6) * 0.145) * (0.68 + 0.50 * scale);
+			double y = craterBase + 1.5 + rise + Math.sin(localAge * 0.045 + angle * 2.0) * 0.42 * scale;
 			double radial = radialBirth + outward;
-			double shear = Math.sin(localAge * 0.035 + unit(value, 6) * Mth.TWO_PI) * progress * 2.2 * scale;
+			double shear = Math.sin(localAge * 0.027 + unit(value, 7) * Mth.TWO_PI)
+				* progress * (0.65 + 0.85 * scale);
 			Vec3 center = new Vec3(Math.cos(angle) * radial + Math.cos(angle + Math.PI * 0.5) * shear,
 				y, Math.sin(angle) * radial + Math.sin(angle + Math.PI * 0.5) * shear);
-			float radius = (float) ((0.42 + unit(value, 7) * 1.18) * (0.78 + scale * 0.44)
-				* (0.72 + progress * 1.05));
-			float alpha = (float) Mth.clamp(0.50 * Math.pow(1.0 - progress, 0.52)
-				* smooth(localAge / 9.0), 0.0, 0.58);
-			int tone = Mth.clamp(46 + (int) (unit(value, 8) * 62.0) + (int) (progress * 30.0), 42, 142);
-			billboard(pose, buffer, center, radius, (float) (angle + localAge * 0.006),
-				tone, Math.min(148, tone + 4), Math.min(156, tone + 10), alpha,
-				0xA000A0, basis, 0.0F, 1.0F, 0.0F, 1.0F);
+			float radius = (float) ((0.17 + unit(value, 8) * 0.54) * (0.78 + scale * 0.34)
+				* (0.72 + progress * 0.76));
+			if (corePass) radius *= 1.20F;
+			float alpha = (float) Mth.clamp((corePass ? 0.86 : 0.40)
+				* Math.pow(1.0 - progress, corePass ? 0.42 : 0.58) * smooth(localAge / 7.0),
+				0.0, corePass ? 0.90 : 0.48);
+			int tone = Mth.clamp((corePass ? 32 : 48) + (int) (unit(value, 9) * (corePass ? 28.0 : 58.0))
+				+ (int) (progress * 42.0), 28, 154);
+			billboard(pose, buffer, center, radius, (float) (angle + localAge * 0.007),
+				tone, Math.min(158, tone + 4), Math.min(168, tone + 10), alpha,
+				corePass ? 0x900090 : 0xA000A0, basis, 0.0F, 1.0F, 0.0F, 1.0F);
 		}
 	}
 
-	/** Dust, soil and vapour samples carried by the same physical speed-of-sound front. */
+	/** Dust and vapour carried by the same physical speed-of-sound front. */
 	public static void renderSurfaceFront(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final double age, final double physicalRadius, final float visualScale, final long seed,
 		final WarheadMesh.Lod lod, final Quaternionf camera) {
@@ -132,24 +175,51 @@ public final class ConventionalBlastParticleRenderer {
 		double duration = WarheadVisualMath.airShockwaveDurationTicks(scale);
 		if (age >= duration) return;
 		double fade = Math.pow(1.0 - age / duration, 0.58);
-		int samples = switch (lod) { case NEAR -> 360; case MEDIUM -> 180; case FAR -> 72; };
+		int base = switch (lod) { case NEAR -> 520; case MEDIUM -> 260; case FAR -> 96; };
+		int samples = Math.min(1_100, (int) Math.round(base * (0.74 + Math.pow(scale, 1.22))));
 		Basis basis = Basis.from(camera);
 		for (int index = 0; index < samples; index++) {
 			long value = mix(seed ^ FRONT_SEED ^ (long) index * 0x94D049BB133111EBL);
 			double angle = (index + unit(value, 0)) / samples * Mth.TWO_PI;
-			double trail = unit(value, 1) * (4.0 + 8.0 * scale);
+			double band = unit(value, 1);
+			double trail = band * (3.0 + 7.0 * scale);
 			double radius = Math.max(0.0, physicalRadius - trail);
-			double height = 0.15 + unit(value, 2) * (0.8 + 1.8 * scale)
-				+ Math.sin(angle * 7.0 + age * 0.18) * 0.22;
+			double lift = Math.pow(1.0 - band, 1.8) * (0.65 + 2.2 * scale);
+			double height = 0.10 + unit(value, 2) * (0.35 + 0.75 * scale) + lift
+				+ Math.sin(angle * 9.0 + age * 0.21) * 0.16;
 			Vec3 center = new Vec3(Math.cos(angle) * radius, height, Math.sin(angle) * radius);
-			float size = (float) ((0.26 + unit(value, 3) * 0.82) * (0.65 + 0.42 * scale));
-			float alpha = (float) Mth.clamp((0.22 + unit(value, 4) * 0.28) * fade, 0.0, 0.50);
-			boolean pale = unit(value, 5) > 0.38;
-			int red = pale ? 188 + (int) (unit(value, 6) * 48.0) : 92 + (int) (unit(value, 6) * 48.0);
-			int green = pale ? Math.min(242, red + 8) : Math.max(72, red - 8);
-			int blue = pale ? Math.min(250, red + 16) : Math.max(62, red - 18);
+			float size = (float) ((0.10 + unit(value, 3) * 0.34) * (0.76 + 0.34 * scale));
+			float alpha = (float) Mth.clamp((0.20 + unit(value, 4) * 0.34) * fade, 0.0, 0.54);
+			boolean white = unit(value, 5) > 0.26;
+			int tone = white ? 192 + (int) (unit(value, 6) * 54.0) : 104 + (int) (unit(value, 6) * 46.0);
+			int red = tone;
+			int green = white ? Math.min(248, tone + 3) : Math.max(86, tone - 7);
+			int blue = white ? Math.min(252, tone + 8) : Math.max(74, tone - 17);
 			billboard(pose, buffer, center, size, (float) angle, red, green, blue, alpha,
 				0xA000A0, basis, 0.0F, 1.0F, 0.0F, 1.0F);
+		}
+	}
+
+	/** Dust pulled back toward a nuclear epicentre during the negative-pressure phase. */
+	public static void renderNuclearReturnFront(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final double age, final double physicalRadius, final float radiusScale, final long seed,
+		final WarheadMesh.Lod lod, final Quaternionf camera) {
+		if (physicalRadius <= 0.0) return;
+		double alphaEnvelope = WarheadVisualMath.nuclearReturnWaveAlpha(age, radiusScale);
+		if (alphaEnvelope <= 0.0) return;
+		int samples = switch (lod) { case NEAR -> 620; case MEDIUM -> 300; case FAR -> 112; };
+		Basis basis = Basis.from(camera);
+		for (int index = 0; index < samples; index++) {
+			long value = mix(seed ^ RETURN_SEED ^ (long) index * 0x9E3779B97F4A7C15L);
+			double angle = (index + unit(value, 0)) / samples * Mth.TWO_PI;
+			double radius = Math.max(0.0, physicalRadius + (unit(value, 1) - 0.5) * 8.0 * radiusScale);
+			double height = 0.25 + unit(value, 2) * (1.4 + 1.8 * radiusScale);
+			Vec3 center = new Vec3(Math.cos(angle) * radius, height, Math.sin(angle) * radius);
+			float size = (float) ((0.12 + unit(value, 3) * 0.38) * (0.82 + 0.35 * radiusScale));
+			float alpha = (float) Mth.clamp(alphaEnvelope * (0.42 + unit(value, 4) * 0.46), 0.0, 0.48);
+			int tone = 172 + (int) (unit(value, 5) * 62.0);
+			billboard(pose, buffer, center, size, (float) -angle, tone, Math.min(240, tone + 4),
+				Math.min(246, tone + 10), alpha, 0xA000A0, basis, 0.0F, 1.0F, 0.0F, 1.0F);
 		}
 	}
 
@@ -194,6 +264,8 @@ public final class ConventionalBlastParticleRenderer {
 		value *= 0x94D049BB133111EBL;
 		return value ^ value >>> 31;
 	}
+
+	private enum FireLayer { CORE, HOT_FRINGE, COOL_FRINGE }
 
 	private static final class Basis {
 		private final float rightX, rightY, rightZ;

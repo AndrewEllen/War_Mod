@@ -140,6 +140,41 @@ public final class WarheadVisualMath {
 		return Math.min(0.78, airShockwaveAlpha(ageTicks, radiusScale) * 1.65);
 	}
 
+	/**
+	 * Nuclear rarefaction/return front. It begins after the primary front has
+	 * substantially expanded, then contracts at the same acoustic propagation
+	 * speed. This is a visual/gameplay approximation of the negative-pressure
+	 * phase rather than a second faster shockwave.
+	 */
+	public static double nuclearReturnWaveStartTicks(final double radiusScale) {
+		return airShockwaveDurationTicks(radiusScale) * 0.72;
+	}
+
+	public static double nuclearReturnWaveDurationTicks(final double radiusScale) {
+		return airShockwaveDurationTicks(radiusScale) * 0.82;
+	}
+
+	public static double nuclearReturnWaveMaximumRadius(final double radiusScale) {
+		return nuclearReturnWaveDurationTicks(radiusScale) * AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
+	}
+
+	public static double nuclearReturnWaveRadius(final double ageTicks, final double radiusScale) {
+		double start = nuclearReturnWaveStartTicks(radiusScale);
+		double duration = nuclearReturnWaveDurationTicks(radiusScale);
+		if (!Double.isFinite(ageTicks) || ageTicks < start || ageTicks >= start + duration) return -1.0;
+		double elapsed = ageTicks - start;
+		return Math.max(0.0, nuclearReturnWaveMaximumRadius(radiusScale)
+			- elapsed * AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK);
+	}
+
+	public static double nuclearReturnWaveAlpha(final double ageTicks, final double radiusScale) {
+		double start = nuclearReturnWaveStartTicks(radiusScale);
+		double duration = nuclearReturnWaveDurationTicks(radiusScale);
+		if (!Double.isFinite(ageTicks) || ageTicks < start || ageTicks >= start + duration) return 0.0;
+		double progress = clamp((ageTicks - start) / duration, 0.0, 1.0);
+		return 0.24 * Math.pow(Math.sin(Math.PI * progress), 0.72);
+	}
+
 	public static double fireballRise(final double ageTicks) {
 		if (!Double.isFinite(ageTicks) || ageTicks <= 10.0) return 0.0;
 		return 18.0 * smoothstep(clamp((ageTicks - 10.0) / 65.0, 0.0, 1.0));

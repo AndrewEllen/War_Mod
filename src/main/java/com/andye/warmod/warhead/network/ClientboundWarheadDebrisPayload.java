@@ -18,8 +18,8 @@ public record ClientboundWarheadDebrisPayload(
 	long spawnGameTime,
 	List<Entry> entries
 ) implements CustomPacketPayload {
-	private static final int MAX_ENTRIES = 256;
-	private static final int MAX_PARTS_PER_ENTRY = 24;
+	private static final int MAX_ENTRIES = 320;
+	private static final int MAX_PARTS_PER_ENTRY = 48;
 	public static final Type<ClientboundWarheadDebrisPayload> TYPE = new Type<>(
 		Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "warhead_debris")
 	);

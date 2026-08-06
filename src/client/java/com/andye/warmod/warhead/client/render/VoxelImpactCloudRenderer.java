@@ -16,10 +16,9 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Nuclear-only one-block voxel plume.
  *
- * <p>Every visible cell is exactly one Minecraft block in size. Yield changes the
- * number and occupied volume of cells, never their physical scale. The generator
- * builds a crater-coupled hot core, converging stems and a rolling cap, then emits
- * only exposed faces. Nearby cluster sources feed the same volume.</p>
+ * <p>Stage 7 uses parametric surfaces instead of scanning a large voxel volume.
+ * This removes visible scanlines and prevents a cell budget from cutting a cloud
+ * in half. Every cell remains exactly one Minecraft block in size.</p>
  */
 public final class VoxelImpactCloudRenderer {
 	private static final int FACE_NEG_X = 1;
@@ -28,7 +27,7 @@ public final class VoxelImpactCloudRenderer {
 	private static final int FACE_POS_Y = 8;
 	private static final int FACE_NEG_Z = 16;
 	private static final int FACE_POS_Z = 32;
-	private static final int MAX_CACHE = 12;
+	private static final int MAX_CACHE = 16;
 	private static final ThreadLocal<MeshCache> CACHE = ThreadLocal.withInitial(MeshCache::new);
 
 	private VoxelImpactCloudRenderer() { }
@@ -54,18 +53,22 @@ public final class VoxelImpactCloudRenderer {
 		Mesh mesh = mesh(0, age, visualScale, profile, seed, lod, sources);
 		double dissipation = WarheadVisualMath.clamp((age - profile.cloudRiseEndTick())
 			/ Math.max(1.0, profile.cloudDissipationEndTick() - profile.cloudRiseEndTick()), 0.0, 1.0);
-		float globalAlpha = (float) Math.pow(1.0 - dissipation, 0.58);
 		for (Cell cell : mesh.cells) {
 			long hash = mix(seed ^ cell.packed);
-			double breakup = unit(hash, 0);
-			if (dissipation > 0.08 && breakup < dissipation * 0.62) continue;
-			double heightFraction = Mth.clamp((cell.y - mesh.minimumY) / Math.max(1.0, mesh.maximumY - mesh.minimumY), 0.0, 1.0);
-			int variation = (int) (unit(hash, 1) * 34.0);
-			int red = Mth.clamp(28 + variation + (int) (dissipation * 48.0), 24, 136);
-			int green = Mth.clamp(red + 4, 28, 142);
-			int blue = Mth.clamp(red + 10 + (int) (heightFraction * 8.0), 34, 154);
-			float alpha = (float) Mth.clamp((0.78 + unit(hash, 2) * 0.16) * globalAlpha, 0.0, 0.94);
-			emitCube(pose, buffer, cell.x, cell.y, cell.z, cell.faces, red, green, blue, alpha, 0xA000A0);
+			double heightFraction = Mth.clamp((cell.y - mesh.minimumY)
+				/ Math.max(1.0, mesh.maximumY - mesh.minimumY), 0.0, 1.0);
+			/* The stem clears bottom-up and the cap breaks into patches instead of all fading together. */
+			if (dissipation > 0.0) {
+				double bottomClear = smooth(dissipation * 1.18);
+				if (heightFraction < bottomClear * 0.76 && unit(hash, 0) < bottomClear * 0.92) continue;
+				if (unit(hash, 1) < dissipation * (0.18 + 0.54 * heightFraction)) continue;
+			}
+			int variation = (int) (unit(hash, 2) * 32.0);
+			int red = Mth.clamp(27 + variation + (int) (dissipation * 58.0), 24, 148);
+			int green = Mth.clamp(red + 4, 28, 154);
+			int blue = Mth.clamp(red + 10 + (int) (heightFraction * 10.0), 34, 166);
+			emitCube(pose, buffer, cell.x, cell.y, cell.z, cell.faces,
+				red, green, blue, 255, 0xA000A0);
 		}
 	}
 
@@ -85,26 +88,26 @@ public final class VoxelImpactCloudRenderer {
 		Mesh mesh = mesh(hotPass ? 1 : 2, age, visualScale, profile, seed, lod, sources);
 		double cooling = WarheadVisualMath.clamp((age - profile.fireballHoldEndTick())
 			/ Math.max(1.0, profile.fireballCoolingEndTick() - profile.fireballHoldEndTick()), 0.0, 1.0);
-		double intensity = hotPass ? 1.0 - Math.pow(cooling, 1.16)
-			: smooth(cooling / 0.22) * Math.pow(1.0 - cooling, 0.62);
+		double intensity = hotPass ? 1.0 - Math.pow(cooling, 1.12)
+			: smooth(cooling / 0.18) * Math.pow(1.0 - cooling, 0.54);
 		if (intensity <= 0.01) return;
 		for (Cell cell : mesh.cells) {
 			long hash = mix(seed ^ cell.packed ^ (hotPass ? 0x484F545F564F584CL : 0x434F4F4C5F564F58L));
+			if (unit(hash, 0) > intensity * (hotPass ? 1.08 : 0.92)) continue;
 			int red;
 			int green;
 			int blue;
 			if (hotPass) {
 				red = 255;
-				green = Mth.clamp(158 + (int) (unit(hash, 0) * 82.0) - (int) (cooling * 42.0), 118, 240);
-				blue = Mth.clamp(22 + (int) (unit(hash, 1) * 58.0), 18, 86);
+				green = Mth.clamp(174 + (int) (unit(hash, 1) * 78.0) - (int) (cooling * 44.0), 126, 252);
+				blue = Mth.clamp(34 + (int) (unit(hash, 2) * 86.0), 24, 126);
 			} else {
-				red = Mth.clamp(208 - (int) (cooling * 112.0), 86, 208);
-				green = Mth.clamp(96 - (int) (cooling * 48.0), 42, 104);
-				blue = Mth.clamp(24 + (int) (unit(hash, 1) * 28.0), 20, 56);
+				red = Mth.clamp(232 - (int) (cooling * 132.0), 92, 232);
+				green = Mth.clamp(116 - (int) (cooling * 62.0), 44, 124);
+				blue = Mth.clamp(28 + (int) (unit(hash, 2) * 34.0), 22, 64);
 			}
-			float alpha = (float) Mth.clamp((hotPass ? 0.92 : 0.78) * intensity, 0.0, 0.94);
-			emitCube(pose, buffer, cell.x, cell.y, cell.z, cell.faces, red, green, blue, alpha,
-				hotPass ? 0xF000F0 : 0xD000D0);
+			emitCube(pose, buffer, cell.x, cell.y, cell.z, cell.faces,
+				red, green, blue, 255, hotPass ? 0xF000F0 : 0xD000D0);
 		}
 	}
 
@@ -118,8 +121,7 @@ public final class VoxelImpactCloudRenderer {
 					^ Long.rotateLeft(Double.doubleToLongBits(source.offset().z), 17));
 			}
 		}
-		int ageBucket = Mth.floor(age);
-		Key key = new Key(pass, ageBucket, Float.floatToIntBits(visualScale), seed, lod.ordinal(), sourceHash);
+		Key key = new Key(pass, Mth.floor(age), Float.floatToIntBits(visualScale), seed, lod.ordinal(), sourceHash);
 		Mesh cached = CACHE.get().get(key);
 		if (cached != null) return cached;
 		Mesh created = build(pass, age, visualScale, profile, seed, lod,
@@ -133,100 +135,82 @@ public final class VoxelImpactCloudRenderer {
 		final WarheadClientVisualProfile profile, final long seed, final WarheadMesh.Lod lod,
 		final List<CloudSource> sources) {
 		float yieldScale = Mth.clamp(visualScale / 2.70F, 0.62F, 1.34F);
-		double rise = smooth((age - profile.smokeStartTick())
-			/ Math.max(1.0, profile.cloudRiseEndTick() - profile.smokeStartTick()));
-		double fireGrowth = smooth(age / Math.max(1.0, profile.fireballGrowthEndTick()));
-		double craterBase = -(7.0 + 15.0 * yieldScale);
-		double height = (58.0 + 76.0 * yieldScale) * (0.18 + 0.82 * rise);
-		double capRadius = (20.0 + 30.0 * yieldScale) * (0.24 + 0.76 * rise);
-		double stemRadius = 3.0 + 4.8 * yieldScale;
-		int stride = lod == WarheadMesh.Lod.NEAR ? 1 : lod == WarheadMesh.Lod.MEDIUM ? 2 : 3;
-		int cellBudget = switch (lod) {
-			case NEAR -> pass == 0 ? 9_500 : 5_500;
-			case MEDIUM -> pass == 0 ? 4_500 : 2_600;
-			case FAR -> pass == 0 ? 1_500 : 900;
+		int budget = switch (lod) {
+			case NEAR -> pass == 0 ? 14_000 : 9_000;
+			case MEDIUM -> pass == 0 ? 7_000 : 4_400;
+			case FAR -> pass == 0 ? 2_600 : 1_700;
 		};
-		Map<Long, Byte> occupied = new HashMap<>(Math.min(cellBudget * 2, 24_000));
+		SurfaceBuilder builder = new SurfaceBuilder(budget);
+		double craterBase = -(6.0 + 10.0 * yieldScale);
+		double rise = smooth((age - 18.0) / (250.0 + 90.0 * yieldScale));
+		double capGrowth = smooth((age - 54.0) / (165.0 + 45.0 * yieldScale));
+		double fireGrowth = smooth(age / 25.0);
+		double cooling = smooth((age - profile.fireballHoldEndTick())
+			/ Math.max(1.0, profile.fireballCoolingEndTick() - profile.fireballHoldEndTick()));
 
 		if (pass == 0) {
-			/* Each impact feeds a narrowing lower plume that converges into one shared stem. */
+			double stemHeight = 12.0 + (55.0 + 82.0 * yieldScale) * rise;
+			double stemRadius = 4.0 + 5.6 * yieldScale;
+			double capRadius = (12.0 + 34.0 * yieldScale) * (0.18 + 0.82 * capGrowth);
+			double capHalfHeight = (6.0 + 13.0 * yieldScale) * (0.28 + 0.72 * capGrowth);
+			/* Separate cluster sources converge continuously into one central stem. */
 			for (CloudSource source : sources) {
-				double sourceStrength = Mth.clamp(source.visualScale() / Math.max(0.2F, visualScale), 0.35, 1.0);
-				int steps = Math.max(5, (int) ((height * 0.58) / stride));
-				for (int step = 0; step <= steps; step++) {
-					double t = step / (double) steps;
-					double convergence = smooth(t);
-					double cx = source.offset().x * (1.0 - convergence);
-					double cz = source.offset().z * (1.0 - convergence);
-					double y = craterBase + t * height * 0.68;
-					double swirl = (1.0 - t) * 0.8 + t * 2.2;
-					double phase = t * 7.0 + (source.seed() & 1023L) * 0.006;
-					cx += Math.cos(phase) * swirl;
-					cz += Math.sin(phase) * swirl;
-					double radius = stemRadius * sourceStrength * (0.72 + 0.40 * t);
-					stampSphere(occupied, cx, y, cz, radius, stride, cellBudget, seed ^ source.seed());
-					if (occupied.size() >= cellBudget) break;
-				}
+				double sourceScale = Mth.clamp(source.visualScale() / Math.max(0.2F, visualScale), 0.32, 1.0);
+				builder.curvedTube(source.offset().x, source.offset().z, craterBase + 1.0,
+					stemHeight * 0.58, stemRadius * sourceScale * 0.82,
+					seed ^ source.seed(), lod);
 			}
-			/* Rolling cap: an oblate centre plus a toroidal outer rim. */
-			double capY = craterBase + height;
-			stampEllipsoid(occupied, 0.0, capY, 0.0, capRadius * 0.70,
-				capRadius * 0.33, capRadius * 0.70, stride, cellBudget, seed ^ 0x4341505F434F5245L);
-			int ringSamples = Math.max(18, (int) (capRadius * 2.2 / stride));
-			for (int index = 0; index < ringSamples && occupied.size() < cellBudget; index++) {
-				double angle = index / (double) ringSamples * Mth.TWO_PI;
-				double ring = capRadius * (0.60 + 0.08 * Math.sin(angle * 5.0 + age * 0.025));
-				double cx = Math.cos(angle) * ring;
-				double cz = Math.sin(angle) * ring;
-				double cy = capY - capRadius * 0.05 + Math.sin(angle * 3.0) * capRadius * 0.06;
-				stampSphere(occupied, cx, cy, cz, capRadius * 0.22, stride, cellBudget,
-					seed ^ (long) index * 0x9E3779B97F4A7C15L);
-			}
-			/* A restrained crater-connected dust skirt; never render-distance sized. */
-			double skirtRadius = capRadius * 0.68;
-			int skirtSamples = Math.max(14, (int) (skirtRadius * 1.6 / stride));
-			for (int index = 0; index < skirtSamples && occupied.size() < cellBudget; index++) {
-				double angle = index / (double) skirtSamples * Mth.TWO_PI;
-				double radial = skirtRadius * (0.62 + 0.28 * rise);
-				stampSphere(occupied, Math.cos(angle) * radial, craterBase + 3.0 + unit(seed, index) * 3.0,
-					Math.sin(angle) * radial, 2.5 + 2.2 * yieldScale, stride, cellBudget,
-					seed ^ (long) index * 0xD1B54A32D192ED03L);
-			}
+			builder.curvedTube(0.0, 0.0, craterBase + stemHeight * 0.24,
+				stemHeight * 0.82, stemRadius * (0.86 + 0.24 * rise), seed ^ 0x5354454D5F535552L, lod);
+			double capY = craterBase + stemHeight;
+			/* A thick oblate cap connected to the stem; never a one-cell disc. */
+			builder.ellipsoidSurface(0.0, capY, 0.0, capRadius, capHalfHeight,
+				capRadius, seed ^ 0x4341505F53555246L, lod, 2);
+			builder.torusSurface(0.0, capY - capHalfHeight * 0.08, 0.0,
+				capRadius * 0.68, Math.max(3.0, capHalfHeight * 0.48),
+				seed ^ 0x4341505F52494D30L, lod);
+			/* Neck overlap prevents the cap floating above the stem. */
+			builder.ellipsoidSurface(0.0, capY - capHalfHeight * 0.55, 0.0,
+				stemRadius * 1.55, capHalfHeight * 0.85, stemRadius * 1.55,
+				seed ^ 0x4E45434B5F535552L, lod, 1);
 		} else {
-			/* Emissive hot material begins in the crater and is progressively pulled up the stem. */
-			double cooling = WarheadVisualMath.clamp((age - profile.fireballHoldEndTick())
-				/ Math.max(1.0, profile.fireballCoolingEndTick() - profile.fireballHoldEndTick()), 0.0, 1.0);
-			double coreRadius = (10.0 + 14.0 * yieldScale) * (0.22 + 0.78 * fireGrowth) * (1.0 - 0.34 * cooling);
-			double coreY = craterBase + coreRadius * 0.62 + rise * height * 0.30;
+			/* The initial fire volume is larger than the crater and begins below the old surface. */
+			double baseRadius = (19.0 + 25.0 * yieldScale) * fireGrowth * (1.0 - 0.38 * cooling);
+			double lift = rise * (32.0 + 54.0 * yieldScale);
+			double coreY = craterBase + baseRadius * 0.46 + lift;
+			double shellScale = pass == 1 ? 0.90 : 1.08;
 			for (CloudSource source : sources) {
-				double convergence = smooth(Math.min(1.0, rise * 1.35));
+				double convergence = smooth(Math.min(1.0, rise * 1.30));
 				double cx = source.offset().x * (1.0 - convergence);
 				double cz = source.offset().z * (1.0 - convergence);
-				stampEllipsoid(occupied, cx, coreY, cz, coreRadius, coreRadius * 0.78,
-					coreRadius, stride, cellBudget, seed ^ source.seed());
+				builder.ellipsoidSurface(cx, coreY, cz,
+					baseRadius * shellScale, baseRadius * 0.80 * shellScale,
+					baseRadius * shellScale, seed ^ source.seed() ^ pass, lod, pass == 1 ? 2 : 1);
 			}
-			double tongueHeight = height * (0.18 + 0.38 * rise);
-			int steps = Math.max(4, (int) (tongueHeight / stride));
-			for (int step = 0; step <= steps && occupied.size() < cellBudget; step++) {
-				double t = step / (double) steps;
-				double y = craterBase + coreRadius * 0.35 + t * tongueHeight;
-				double phase = t * 8.0 + age * 0.028;
-				double radius = Math.max(2.0, coreRadius * (0.40 - 0.25 * t));
-				stampSphere(occupied, Math.cos(phase) * 1.8 * t, y,
-					Math.sin(phase) * 1.8 * t, radius, stride, cellBudget, seed ^ step);
-			}
-			if (pass == 2) {
-				/* Cooling orange shell surrounds, rather than replaces, the hot core. */
-				stampEllipsoid(occupied, 0.0, coreY, 0.0, coreRadius * 1.12,
-					coreRadius * 0.90, coreRadius * 1.12, stride, cellBudget, seed ^ 0x434F4F4C5F53484CL);
+			/* Hot material is pulled from the crater through the centre into the forming cap. */
+			double tongueHeight = Math.max(6.0, lift + baseRadius * 0.92);
+			double tongueRadius = Math.max(2.2, baseRadius * (0.25 - 0.09 * cooling));
+			builder.curvedTube(0.0, 0.0, craterBase + 1.0, tongueHeight,
+				tongueRadius * shellScale, seed ^ 0x464952455F544E47L ^ pass, lod);
+			if (rise > 0.28) {
+				double capFireRadius = baseRadius * (0.34 + 0.30 * rise) * (1.0 - 0.52 * cooling);
+				builder.ellipsoidSurface(0.0, craterBase + tongueHeight, 0.0,
+					Math.max(2.0, capFireRadius), Math.max(2.0, capFireRadius * 0.42),
+					Math.max(2.0, capFireRadius), seed ^ 0x464952455F434150L ^ pass, lod, 1);
 			}
 		}
 
+		Map<Long, Byte> occupied = builder.cells;
 		ArrayList<Cell> cells = new ArrayList<>(occupied.size());
 		int minimumY = Integer.MAX_VALUE;
 		int maximumY = Integer.MIN_VALUE;
 		for (long packed : occupied.keySet()) {
 			int x = unpackX(packed), y = unpackY(packed), z = unpackZ(packed);
+			/* Vent gaps reveal the emissive fire beneath the smoke shell. */
+			if (pass == 0 && age < profile.fireballCoolingEndTick()) {
+				double radial = Math.sqrt((double) x * x + (double) z * z);
+				if (radial < 7.0 + 5.0 * yieldScale && unit(seed ^ packed, 4) < 0.19) continue;
+			}
 			int faces = exposedFaces(occupied, x, y, z);
 			if (faces == 0) continue;
 			cells.add(new Cell(packed, x, y, z, faces));
@@ -235,33 +219,6 @@ public final class VoxelImpactCloudRenderer {
 		}
 		if (minimumY == Integer.MAX_VALUE) { minimumY = 0; maximumY = 1; }
 		return new Mesh(List.copyOf(cells), minimumY, maximumY);
-	}
-
-	private static void stampSphere(final Map<Long, Byte> occupied, final double cx, final double cy,
-		final double cz, final double radius, final int stride, final int budget, final long seed) {
-		stampEllipsoid(occupied, cx, cy, cz, radius, radius, radius, stride, budget, seed);
-	}
-
-	private static void stampEllipsoid(final Map<Long, Byte> occupied, final double cx, final double cy,
-		final double cz, final double rx, final double ry, final double rz,
-		final int stride, final int budget, final long seed) {
-		int minX = Mth.floor(cx - rx), maxX = Mth.ceil(cx + rx);
-		int minY = Mth.floor(cy - ry), maxY = Mth.ceil(cy + ry);
-		int minZ = Mth.floor(cz - rz), maxZ = Mth.ceil(cz + rz);
-		for (int y = minY; y <= maxY && occupied.size() < budget; y += stride) {
-			for (int z = minZ; z <= maxZ && occupied.size() < budget; z += stride) {
-				for (int x = minX; x <= maxX && occupied.size() < budget; x += stride) {
-					double nx = (x + 0.5 - cx) / Math.max(0.5, rx);
-					double ny = (y + 0.5 - cy) / Math.max(0.5, ry);
-					double nz = (z + 0.5 - cz) / Math.max(0.5, rz);
-					double density = nx * nx + ny * ny + nz * nz;
-					if (density > 1.0) continue;
-					long packed = pack(x, y, z);
-					if (unit(seed ^ packed, 0) < 0.035 * density) continue;
-					occupied.put(packed, (byte) 1);
-				}
-			}
-		}
 	}
 
 	private static int exposedFaces(final Map<Long, Byte> occupied, final int x, final int y, final int z) {
@@ -277,37 +234,31 @@ public final class VoxelImpactCloudRenderer {
 
 	private static void emitCube(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final int x, final int y, final int z, final int faces,
-		final int red, final int green, final int blue, final float alpha, final int light) {
+		final int red, final int green, final int blue, final int alpha, final int light) {
 		float x0 = x, y0 = y, z0 = z, x1 = x + 1.0F, y1 = y + 1.0F, z1 = z + 1.0F;
-		int a = Mth.clamp((int) (alpha * 255.0F), 0, 255);
-		if ((faces & FACE_NEG_X) != 0) face(pose, buffer, x0,y0,z1, x0,y1,z0, red,green,blue,a,light, -1,0,0);
-		if ((faces & FACE_POS_X) != 0) face(pose, buffer, x1,y0,z0, x1,y1,z1, red,green,blue,a,light, 1,0,0);
-		if ((faces & FACE_NEG_Y) != 0) face(pose, buffer, x0,y0,z0, x1,y0,z1, red,green,blue,a,light, 0,-1,0);
-		if ((faces & FACE_POS_Y) != 0) face(pose, buffer, x0,y1,z1, x1,y1,z0, red,green,blue,a,light, 0,1,0);
-		if ((faces & FACE_NEG_Z) != 0) face(pose, buffer, x1,y0,z0, x0,y1,z0, red,green,blue,a,light, 0,0,-1);
-		if ((faces & FACE_POS_Z) != 0) face(pose, buffer, x0,y0,z1, x1,y1,z1, red,green,blue,a,light, 0,0,1);
+		if ((faces & FACE_NEG_X) != 0) quad(pose, buffer,
+			x0,y0,z1, x0,y0,z0, x0,y1,z0, x0,y1,z1, red,green,blue,alpha,light,-1,0,0);
+		if ((faces & FACE_POS_X) != 0) quad(pose, buffer,
+			x1,y0,z0, x1,y0,z1, x1,y1,z1, x1,y1,z0, red,green,blue,alpha,light,1,0,0);
+		if ((faces & FACE_NEG_Y) != 0) quad(pose, buffer,
+			x0,y0,z0, x1,y0,z0, x1,y0,z1, x0,y0,z1, red,green,blue,alpha,light,0,-1,0);
+		if ((faces & FACE_POS_Y) != 0) quad(pose, buffer,
+			x0,y1,z1, x1,y1,z1, x1,y1,z0, x0,y1,z0, red,green,blue,alpha,light,0,1,0);
+		if ((faces & FACE_NEG_Z) != 0) quad(pose, buffer,
+			x0,y0,z0, x0,y1,z0, x1,y1,z0, x1,y0,z0, red,green,blue,alpha,light,0,0,-1);
+		if ((faces & FACE_POS_Z) != 0) quad(pose, buffer,
+			x1,y0,z1, x1,y1,z1, x0,y1,z1, x0,y0,z1, red,green,blue,alpha,light,0,0,1);
 	}
 
-	private static void face(final PoseStack.Pose pose, final VertexConsumer buffer,
-		final float x0, final float y0, final float z0, final float x1, final float y1, final float z1,
+	private static void quad(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final float ax, final float ay, final float az, final float bx, final float by, final float bz,
+		final float cx, final float cy, final float cz, final float dx, final float dy, final float dz,
 		final int red, final int green, final int blue, final int alpha, final int light,
 		final float nx, final float ny, final float nz) {
-		if (nx != 0.0F) {
-			vertex(pose,buffer,x0,y0,z0,0,1,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x0,y1,z1,0,0,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x1,y1,z1,1,0,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x1,y0,z0,1,1,red,green,blue,alpha,light,nx,ny,nz);
-		} else if (ny != 0.0F) {
-			vertex(pose,buffer,x0,y0,z0,0,1,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x0,y0,z1,0,0,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x1,y1,z1,1,0,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x1,y1,z0,1,1,red,green,blue,alpha,light,nx,ny,nz);
-		} else {
-			vertex(pose,buffer,x0,y0,z0,0,1,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x0,y1,z0,0,0,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x1,y1,z1,1,0,red,green,blue,alpha,light,nx,ny,nz);
-			vertex(pose,buffer,x1,y0,z1,1,1,red,green,blue,alpha,light,nx,ny,nz);
-		}
+		vertex(pose, buffer, ax,ay,az, 0,1, red,green,blue,alpha,light,nx,ny,nz);
+		vertex(pose, buffer, bx,by,bz, 1,1, red,green,blue,alpha,light,nx,ny,nz);
+		vertex(pose, buffer, cx,cy,cz, 1,0, red,green,blue,alpha,light,nx,ny,nz);
+		vertex(pose, buffer, dx,dy,dz, 0,0, red,green,blue,alpha,light,nx,ny,nz);
 	}
 
 	private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer,
@@ -343,8 +294,113 @@ public final class VoxelImpactCloudRenderer {
 	private record Key(int pass, int age, int scale, long seed, int lod, long sources) { }
 	private record Cell(long packed, int x, int y, int z, int faces) { }
 	private record Mesh(List<Cell> cells, int minimumY, int maximumY) { }
+
+	private static final class SurfaceBuilder {
+		private final int budget;
+		private final Map<Long, Byte> cells;
+		private SurfaceBuilder(final int budget) {
+			this.budget = Math.max(128, budget);
+			this.cells = new HashMap<>(Math.min(this.budget * 2, 32_768));
+		}
+
+		private void add(final double x, final double y, final double z) {
+			if (cells.size() >= budget) return;
+			cells.put(pack(Mth.floor(x), Mth.floor(y), Mth.floor(z)), (byte) 1);
+		}
+
+		private void thicken(final double x, final double y, final double z, final int thickness, final long seed) {
+			add(x, y, z);
+			if (thickness <= 1 || cells.size() >= budget) return;
+			int[][] offsets = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+			int start = (int) (mix(seed) & 5L);
+			for (int index = 0; index < offsets.length && index < thickness + 1 && cells.size() < budget; index++) {
+				int[] offset = offsets[(start + index) % offsets.length];
+				add(x + offset[0], y + offset[1], z + offset[2]);
+			}
+		}
+
+		private void ellipsoidSurface(final double cx, final double cy, final double cz,
+			final double rx, final double ry, final double rz, final long seed,
+			final WarheadMesh.Lod lod, final int thickness) {
+			if (rx < 0.5 || ry < 0.5 || rz < 0.5 || cells.size() >= budget) return;
+			int latitudeSteps = switch (lod) {
+				case NEAR -> Math.max(12, (int) Math.ceil(Math.PI * ry * 0.82));
+				case MEDIUM -> Math.max(10, (int) Math.ceil(Math.PI * ry * 0.52));
+				case FAR -> Math.max(8, (int) Math.ceil(Math.PI * ry * 0.30));
+			};
+			for (int latitude = 0; latitude <= latitudeSteps && cells.size() < budget; latitude++) {
+				double theta = Math.PI * latitude / latitudeSteps;
+				double sinTheta = Math.sin(theta);
+				double ringRadius = Math.max(rx, rz) * sinTheta;
+				int longitudeSteps = switch (lod) {
+					case NEAR -> Math.max(12, (int) Math.ceil(Mth.TWO_PI * Math.max(1.0, ringRadius) * 0.86));
+					case MEDIUM -> Math.max(10, (int) Math.ceil(Mth.TWO_PI * Math.max(1.0, ringRadius) * 0.54));
+					case FAR -> Math.max(8, (int) Math.ceil(Mth.TWO_PI * Math.max(1.0, ringRadius) * 0.31));
+				};
+				for (int longitude = 0; longitude < longitudeSteps && cells.size() < budget; longitude++) {
+					double phi = Mth.TWO_PI * longitude / longitudeSteps;
+					double x = cx + rx * sinTheta * Math.cos(phi);
+					double y = cy + ry * Math.cos(theta);
+					double z = cz + rz * sinTheta * Math.sin(phi);
+					thicken(x, y, z, thickness, seed ^ (long) latitude << 32 ^ longitude);
+				}
+			}
+		}
+
+		private void curvedTube(final double sourceX, final double sourceZ, final double baseY,
+			final double height, final double radius, final long seed, final WarheadMesh.Lod lod) {
+			if (height <= 1.0 || radius <= 0.5 || cells.size() >= budget) return;
+			int verticalSteps = switch (lod) {
+				case NEAR -> Math.max(8, (int) Math.ceil(height));
+				case MEDIUM -> Math.max(7, (int) Math.ceil(height * 0.62));
+				case FAR -> Math.max(6, (int) Math.ceil(height * 0.36));
+			};
+			int ringSteps = switch (lod) {
+				case NEAR -> Math.max(12, (int) Math.ceil(Mth.TWO_PI * radius * 0.90));
+				case MEDIUM -> Math.max(10, (int) Math.ceil(Mth.TWO_PI * radius * 0.58));
+				case FAR -> Math.max(8, (int) Math.ceil(Mth.TWO_PI * radius * 0.34));
+			};
+			for (int step = 0; step <= verticalSteps && cells.size() < budget; step++) {
+				double t = step / (double) verticalSteps;
+				double convergence = smooth(t);
+				double phase = t * 7.2 + (seed & 1023L) * 0.006;
+				double cx = sourceX * (1.0 - convergence) + Math.cos(phase) * (0.35 + 1.4 * t);
+				double cz = sourceZ * (1.0 - convergence) + Math.sin(phase) * (0.35 + 1.4 * t);
+				double localRadius = radius * (0.82 + 0.24 * t + 0.08 * Math.sin(phase * 1.7));
+				double y = baseY + height * t;
+				for (int ring = 0; ring < ringSteps && cells.size() < budget; ring++) {
+					double angle = Mth.TWO_PI * ring / ringSteps;
+					add(cx + Math.cos(angle) * localRadius, y, cz + Math.sin(angle) * localRadius);
+				}
+			}
+		}
+
+		private void torusSurface(final double cx, final double cy, final double cz,
+			final double majorRadius, final double minorRadius, final long seed, final WarheadMesh.Lod lod) {
+			if (majorRadius <= 1.0 || minorRadius <= 0.5 || cells.size() >= budget) return;
+			int majorSteps = switch (lod) {
+				case NEAR -> Math.max(20, (int) Math.ceil(Mth.TWO_PI * majorRadius * 0.72));
+				case MEDIUM -> Math.max(16, (int) Math.ceil(Mth.TWO_PI * majorRadius * 0.44));
+				case FAR -> Math.max(12, (int) Math.ceil(Mth.TWO_PI * majorRadius * 0.26));
+			};
+			int minorSteps = switch (lod) {
+				case NEAR -> Math.max(10, (int) Math.ceil(Mth.TWO_PI * minorRadius * 0.70));
+				case MEDIUM -> Math.max(8, (int) Math.ceil(Mth.TWO_PI * minorRadius * 0.44));
+				case FAR -> Math.max(6, (int) Math.ceil(Mth.TWO_PI * minorRadius * 0.28));
+			};
+			for (int major = 0; major < majorSteps && cells.size() < budget; major++) {
+				double a = Mth.TWO_PI * major / majorSteps;
+				for (int minor = 0; minor < minorSteps && cells.size() < budget; minor++) {
+					double b = Mth.TWO_PI * minor / minorSteps;
+					double ring = majorRadius + minorRadius * Math.cos(b);
+					add(cx + Math.cos(a) * ring, cy + minorRadius * Math.sin(b), cz + Math.sin(a) * ring);
+				}
+			}
+		}
+	}
+
 	private static final class MeshCache extends LinkedHashMap<Key, Mesh> {
-		private MeshCache() { super(16, 0.75F, true); }
+		private MeshCache() { super(20, 0.75F, true); }
 		@Override protected boolean removeEldestEntry(final Map.Entry<Key, Mesh> eldest) { return size() > MAX_CACHE; }
 	}
 }

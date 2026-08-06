@@ -41,6 +41,20 @@ public final class PressureWaveSphereRenderer {
 			195, 220, 242, (float) (alpha * 0.28), 0.18F, 0.72F);
 	}
 
+	public static void renderReturn(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final double physicalRadius, final double ageTicks, final float radiusScale, final WarheadMesh.Lod lod) {
+		double alpha = WarheadVisualMath.nuclearReturnWaveAlpha(ageTicks, radiusScale);
+		if (alpha <= 0.0 || !Double.isFinite(physicalRadius) || physicalRadius <= 0.0) return;
+		float radius = (float) physicalRadius;
+		float thickness = (float) (1.6 + 3.8 * Math.sqrt(Math.max(0.25F, radiusScale)));
+		int longitudes = lod == WarheadMesh.Lod.NEAR ? 24 : lod == WarheadMesh.Lod.MEDIUM ? 16 : 10;
+		int latitudes = lod == WarheadMesh.Lod.NEAR ? 12 : lod == WarheadMesh.Lod.MEDIUM ? 8 : 5;
+		renderShell(pose, buffer, radius + thickness * 0.20F, longitudes, latitudes,
+			210, 228, 242, (float) alpha, 0.04F, 0.90F);
+		renderShell(pose, buffer, Math.max(0.0F, radius - thickness * 1.7F), longitudes, latitudes,
+			184, 208, 230, (float) (alpha * 0.46), 0.16F, 0.70F);
+	}
+
 	private static void renderShell(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final float radius, final int longitudes, final int latitudes, final int red,
 		final int green, final int blue, final float alpha, final float vOffset,

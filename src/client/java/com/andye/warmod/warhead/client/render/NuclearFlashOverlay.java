@@ -34,7 +34,7 @@ public final class NuclearFlashOverlay {
 					if (!Double.isFinite(distance) || distance > 2_048.0 || distance < 1.0E-5) continue;
 					double age = state.ageTicks(time, partial);
 					double yield = Math.max(0.6, state.visualScale() / 2.7);
-					double duration = 30.0 + 44.0 * yield;
+					double duration = 56.0 + 76.0 * yield;
 					if (age >= duration) continue;
 					double distanceFalloff = distance < 120.0 ? 1.0
 						: distance < 500.0 ? 0.88 : distance < 1_200.0 ? 0.56 : 0.28;
@@ -46,12 +46,12 @@ public final class NuclearFlashOverlay {
 				}
 				if (ambientIntensity > 0.005) {
 					/* Warm low-alpha wash makes night terrain read as briefly daylight-lit. */
-					int ambientAlpha = Math.min(170, (int) (ambientIntensity * 150.0));
+					int ambientAlpha = Math.min(224, (int) (ambientIntensity * 214.0));
 					graphics.fill(0, 0, graphics.guiWidth(), graphics.guiHeight(),
-						(ambientAlpha << 24) | 0x00FFF0C8);
+						(ambientAlpha << 24) | 0x00FFF6D8);
 				}
 				if (directIntensity > 0.005) {
-					int directAlpha = Math.min(250, (int) (directIntensity * 245.0));
+					int directAlpha = Math.min(252, (int) (directIntensity * 252.0));
 					graphics.fill(0, 0, graphics.guiWidth(), graphics.guiHeight(),
 						(directAlpha << 24) | 0x00FFFDF5);
 				}

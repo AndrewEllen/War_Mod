@@ -66,7 +66,8 @@ public final class WarheadWorldRenderer {
 		LevelRenderEvents.COLLECT_SUBMITS.register(WarheadWorldRenderer::collectSubmits);
 		registered = true;
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
-			com.andye.warmod.WarMod.LOGGER.info("Re-entry visual configuration loaded");
+			com.andye.warmod.WarMod.LOGGER.info("Re-entry visual configuration loaded; sodiumIrisCompatibility={}",
+				WarheadRenderPipelines.compatibilityRendererActive());
 		}
 	}
 
@@ -151,12 +152,11 @@ public final class WarheadWorldRenderer {
 			movingBlock.biome = null;
 			movingBlock.cardinalLighting = CardinalLighting.DEFAULT;
 			movingBlock.lightEngine = LevelLightEngine.EMPTY;
-			int trailColour = 0x8A8178;
+			int trailColour = 0xD0CAC0;
 			if (level.hasChunkAt(blockPosition)) {
 				movingBlock.biome = level.getBiome(blockPosition);
 				movingBlock.cardinalLighting = level.cardinalLighting();
 				movingBlock.lightEngine = level.getLightEngine();
-				trailColour = sample.state().getMapColor(level, blockPosition).col & 0xFFFFFF;
 			}
 			debris.add(new DebrisFrame(sample, movingBlock, trailColour));
 		}
@@ -222,6 +222,14 @@ public final class WarheadWorldRenderer {
 			(pose, buffer) -> PressureWaveSphereRenderer.render(pose, buffer,
 				WarheadVisualMath.airShockwaveRadius(impact.ageTicks(), yieldRadiusScale), impact.ageTicks(),
 				thicknessScale, alphaScale, yieldRadiusScale, impact.lod()));
+		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
+			double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(impact.ageTicks(), yieldRadiusScale);
+			if (returnRadius > 0.0) {
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.PRESSURE_SHELL,
+					(pose, buffer) -> PressureWaveSphereRenderer.renderReturn(pose, buffer, returnRadius,
+						impact.ageTicks(), yieldRadiusScale, impact.lod()));
+			}
+		}
 		if (groundEffects(impact.effectProfile())) {
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.SHOCKWAVE,
 				(pose, buffer) -> TerrainShockwaveRenderer.renderFrontier(pose, buffer, impact.shockfrontSpokes(),
@@ -247,11 +255,13 @@ public final class WarheadWorldRenderer {
 
 		poseStack.pushPose();
 		poseStack.translate(relative.x, relative.y, relative.z);
-		context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
-			(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(),
-				impact.gameTime(), impact.lod(),
-				(float) impact.profile().shockwaveParticleDensityScale() * yieldThicknessScale,
-				frame.cameraOrientation()));
+		if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
+				(pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer, impact.dustNodes(), impact.position(),
+					impact.gameTime(), impact.lod(),
+					(float) impact.profile().shockwaveParticleDensityScale() * yieldThicknessScale,
+					frame.cameraOrientation()));
+		}
 		if (impact.payloadType() != WarheadPayloadType.NUCLEAR) {
 			/* OpenMiner-style ground-coupled blast: fire, cooling smoke and dust all emerge from the crater. */
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
@@ -259,6 +269,15 @@ public final class WarheadWorldRenderer {
 					impact.ageTicks(), groundDistance, impact.visualScale(), impact.visualSeed(),
 					impact.lod(), frame.cameraOrientation()));
 			if (renderMergedCloud) {
+				/* Dense cores write depth; soft fringes remain translucent. */
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE_CORE,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmokeCore(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
+						impact.lod(), frame.cameraOrientation()));
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_CORE,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderFireCore(pose, buffer,
+						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
+						impact.lod(), frame.cameraOrientation()));
 				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
 					(pose, buffer) -> ConventionalBlastParticleRenderer.renderSmoke(pose, buffer,
 						impact.ageTicks(), impact.visualScale(), impact.profile(), impact.visualSeed(),
@@ -273,24 +292,31 @@ public final class WarheadWorldRenderer {
 						impact.lod(), frame.cameraOrientation()));
 			}
 		} else if (renderMergedCloud) {
-			/* Nuclear yields alone use one-block voxels, with analytical particles only as edge turbulence. */
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_SMOKE,
-				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), cloud.sources()));
-			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale() * 0.58F, cloud.profile(), cloud.visualSeed(), impact.blastCloudLobes(),
-					impact.lod(), frame.cameraOrientation()));
+			/* Emissive voxel fire is submitted before the opaque smoke shell; deterministic vents reveal it. */
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_COOL,
 				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
 					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), false, cloud.sources()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_FIRE_HOT,
 				(pose, buffer) -> VoxelImpactCloudRenderer.renderFire(pose, buffer, cloud.ageTicks(),
 					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), true, cloud.sources()));
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.VOXEL_SMOKE,
+				(pose, buffer) -> VoxelImpactCloudRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale(), cloud.profile(), cloud.visualSeed(), impact.lod(), cloud.sources()));
+			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
+				(pose, buffer) -> ProceduralImpactParticleRenderer.renderSmoke(pose, buffer, cloud.ageTicks(),
+					cloud.visualScale() * 0.28F, cloud.profile(), cloud.visualSeed(), impact.blastCloudLobes(),
+					impact.lod(), frame.cameraOrientation()));
 			context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
 				(pose, buffer) -> ProceduralImpactParticleRenderer.renderHot(pose, buffer, cloud.ageTicks(),
-					cloud.visualScale() * 0.52F, cloud.profile(), cloud.visualSeed(), impact.lod(),
+					cloud.visualScale() * 0.30F, cloud.profile(), cloud.visualSeed(), impact.lod(),
 					frame.cameraOrientation()));
+			double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(impact.ageTicks(), yieldRadiusScale);
+			if (returnRadius > 0.0) {
+				context.submitNodeCollector().submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
+					(pose, buffer) -> ConventionalBlastParticleRenderer.renderNuclearReturnFront(pose, buffer,
+						impact.ageTicks(), returnRadius, yieldRadiusScale, impact.visualSeed(), impact.lod(),
+						frame.cameraOrientation()));
+			}
 		}
 
 		if (impact.payloadType() == WarheadPayloadType.NUCLEAR
@@ -333,7 +359,8 @@ public final class WarheadWorldRenderer {
 		Vector3f normal = new Vector3f(0.0F, 0.0F, 1.0F).rotate(cameraOrientation);
 		for (DebrisFrame debris : debrisFrames) {
 			ClientDebrisBatchManager.RenderSample sample = debris.sample();
-			if (sample.onGround() || sample.age() > 55.0F || sample.velocity().lengthSqr() < 0.01) continue;
+			if (sample.partIndex() != 0 || sample.onGround() || sample.age() > 68.0F
+				|| sample.velocity().lengthSqr() < 0.01) continue;
 			Vec3 current = sample.position().subtract(cameraPosition);
 			Vec3 velocity = sample.velocity();
 			double speed = Math.sqrt(velocity.lengthSqr());
@@ -344,11 +371,12 @@ public final class WarheadWorldRenderer {
 				addDebrisBillboard(pose, buffer, current, Math.max(0.12F, sample.scale() * 0.62F),
 					red, green, blue, 0.78F, right, up, normal);
 			}
-			for (int puff = 0; puff < 3; puff++) {
-				double back = (puff + 1) * (0.45 + Math.min(1.8, speed * 1.4));
-				Vec3 center = current.subtract(velocity.normalize().scale(back));
-				float radius = (0.24F + puff * 0.11F) * Math.max(0.35F, sample.scale());
-				float alpha = (0.28F - puff * 0.065F) * Math.max(0.0F, 1.0F - sample.age() / 55.0F);
+			Vec3 direction = velocity.normalize();
+			for (int puff = 0; puff < 6; puff++) {
+				double back = (puff + 1) * (0.28 + Math.min(1.30, speed * 0.92));
+				Vec3 center = current.subtract(direction.scale(back)).add(0.0, 0.05 * puff, 0.0);
+				float radius = (0.12F + puff * 0.055F) * Math.max(0.55F, sample.scale());
+				float alpha = (0.34F - puff * 0.046F) * Math.max(0.0F, 1.0F - sample.age() / 68.0F);
 				addDebrisBillboard(pose, buffer, center, radius, red, green, blue, alpha, right, up, normal);
 			}
 		}

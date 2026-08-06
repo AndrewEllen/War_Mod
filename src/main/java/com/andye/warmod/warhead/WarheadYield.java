@@ -9,31 +9,31 @@ import net.minecraft.util.StringRepresentable;
 public enum WarheadYield implements StringRepresentable {
 	HIGH_EXPLOSIVE(
 		"high_explosive", "High Explosive", WarheadPayloadType.CONVENTIONAL,
-		0.34F, 0.46F, 1.12F, 32, 8, 0.52
+		0.34F, 0.46F, 1.12F, 120, 42, 0.50
 	),
-	MEDIUM_EXPLOSIVE(
-		"medium_explosive", "Medium Explosive", WarheadPayloadType.CONVENTIONAL,
-		0.64F, 0.72F, 1.06F, 88, 28, 0.76
+	HIGH_CAPACITY_HE(
+		"high_capacity_he", "High-Capacity HE", WarheadPayloadType.CONVENTIONAL,
+		0.64F, 0.72F, 1.06F, 260, 96, 0.68
 	),
 	CONVENTIONAL(
 		"conventional", "Conventional", WarheadPayloadType.CONVENTIONAL,
-		1.00F, 1.00F, 1.00F, 160, 64, 1.00
+		1.00F, 1.00F, 1.00F, 520, 220, 0.82
 	),
 	HEAVY_CONVENTIONAL(
 		"heavy_conventional", "Heavy Conventional", WarheadPayloadType.CONVENTIONAL,
-		1.38F, 1.28F, 0.96F, 208, 88, 1.16
+		1.38F, 1.28F, 0.96F, 860, 390, 0.92
 	),
 	TACTICAL_NUCLEAR(
 		"tactical_nuclear", "Tactical Nuclear", WarheadPayloadType.NUCLEAR,
-		1.82F, 1.78F, 0.98F, 240, 112, 1.08
+		1.82F, 1.78F, 0.98F, 1_080, 520, 0.92
 	),
 	STRATEGIC_NUCLEAR(
 		"strategic_nuclear", "Strategic Nuclear", WarheadPayloadType.NUCLEAR,
-		2.70F, 2.28F, 0.96F, 288, 136, 1.14
+		2.70F, 2.28F, 0.96F, 1_420, 720, 0.98
 	),
 	HEAVY_NUCLEAR(
 		"heavy_nuclear", "Heavy Nuclear", WarheadPayloadType.NUCLEAR,
-		3.55F, 2.86F, 0.91F, 352, 168, 1.22
+		3.55F, 2.86F, 0.91F, 1_760, 920, 1.04
 	);
 
 	public static final Codec<WarheadYield> CODEC = StringRepresentable.fromEnum(WarheadYield::values);
@@ -102,6 +102,10 @@ public enum WarheadYield implements StringRepresentable {
 	public static Optional<WarheadYield> fromSerializedName(final String value) {
 		if (value == null) return Optional.empty();
 		String normalized = value.toLowerCase(Locale.ROOT);
+		/* Stage 6 compatibility: existing saved test-stick selections still load. */
+		if (normalized.equals("medium_explosive") || normalized.equals("enhanced_high_explosive")) {
+			return Optional.of(HIGH_CAPACITY_HE);
+		}
 		for (WarheadYield yield : values()) {
 			if (yield.serializedName.equals(normalized)) return Optional.of(yield);
 		}
