@@ -32,7 +32,7 @@ public final class NuclearParticleCloudRenderer {
     public static void renderFire(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
-        final List<NuclearCloudSource> sources, final Quaternionf camera) {
+        final List<? extends NuclearCloudSource> sources, final Quaternionf camera) {
         if (!valid(profile, age)) return;
         field(seed, visualScale, sources).render(pose, buffer, age, lod, camera,
             hotPass ? Pass.HOT_FIRE : Pass.COOL_FIRE);
@@ -40,7 +40,7 @@ public final class NuclearParticleCloudRenderer {
 
     public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
-        final long seed, final WarheadMesh.Lod lod, final List<NuclearCloudSource> sources,
+        final long seed, final WarheadMesh.Lod lod, final List<? extends NuclearCloudSource> sources,
         final Quaternionf camera) {
         if (!valid(profile, age)) return;
         field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, Pass.SMOKE);
@@ -64,7 +64,7 @@ public final class NuclearParticleCloudRenderer {
     }
 
     private static synchronized Field field(final long seed, final float scale,
-        final List<NuclearCloudSource> sources) {
+        final List<? extends NuclearCloudSource> sources) {
         long signature = sourceSignature(sources);
         long key = seed ^ Long.rotateLeft(signature, 21);
         Field existing = FIELDS.get(key);
@@ -80,7 +80,7 @@ public final class NuclearParticleCloudRenderer {
         return created;
     }
 
-    private static long sourceSignature(final List<NuclearCloudSource> sources) {
+    private static long sourceSignature(final List<? extends NuclearCloudSource> sources) {
         long value = 0x4E55434C45415253L;
         if (sources == null) return value;
         for (NuclearCloudSource source : sources) {
@@ -105,7 +105,7 @@ public final class NuclearParticleCloudRenderer {
 
         private final long seed;
         private final float scale;
-        private final List<NuclearCloudSource> sources;
+        private final List<? extends NuclearCloudSource> sources;
         private final long signature;
         private final float yield;
         private final float craterRadius;
@@ -136,12 +136,12 @@ public final class NuclearParticleCloudRenderer {
         private int spawnedLastTick;
         private int culledLastRender;
 
-        private Field(final long seed, final float scale, final List<NuclearCloudSource> sources,
+        private Field(final long seed, final float scale, final List<? extends NuclearCloudSource> sources,
             final long signature) {
             this.seed = seed;
             this.scale = Mth.clamp(scale, 1.4F, 4.2F);
             this.sources = sources == null || sources.isEmpty()
-                ? List.of(new NuclearCloudSource(net.minecraft.world.phys.Vec3.ZERO, 0.0, scale, seed))
+                ? List.of(new NuclearCloudSource.Basic(net.minecraft.world.phys.Vec3.ZERO, 0.0, scale, seed))
                 : List.copyOf(sources);
             this.signature = signature;
             this.yield = Mth.clamp(this.scale / 2.70F, 0.55F, 1.55F);
