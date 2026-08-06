@@ -8,6 +8,9 @@ Static validation performed:
 - Sodium alone no longer forces the compatibility pipeline; the fallback is selected for an active Iris shader pack.
 - Conventional hot fire is capped at 4.75 blocks above the impact surface.
 - Terrain shockfront construction retains its final resolution and is amortised at 2,048 new samples per impact call.
+- Debris swept-collision resolution and sample count are unchanged; repeated terrain lookups are cached per simulation step.
+- Debris trail length and positions are unchanged; immutable trail snapshots are reused until the piece advances.
+- Packed and legacy conventional profiling modes use the same soft particle mask.
 
 Not performed in this environment:
 - Full Gradle build.
