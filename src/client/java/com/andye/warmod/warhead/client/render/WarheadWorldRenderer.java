@@ -292,18 +292,16 @@ public final class WarheadWorldRenderer {
                     (float) impact.profile().shockwaveParticleDensityScale()
                         * yieldThicknessScale,
                     frame.cameraOrientation()));
-            if (impact.payloadType() != WarheadPayloadType.NUCLEAR) {
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.EXPLOSION_PUFF,
-                    (pose, buffer) -> GroundDustFrontRenderer.renderExplosionFlecks(
-                        pose, buffer, impact.dustNodes(), impact.position(), impact.gameTime(),
-                        impact.lod(), (float) impact.profile().shockwaveParticleDensityScale()
-                            * yieldThicknessScale,
-                        frame.cameraOrientation()));
-            }
+            context.submitNodeCollector().submitCustomGeometry(poseStack,
+                WarheadRenderPipelines.EXPLOSION_PUFF,
+                (pose, buffer) -> GroundDustFrontRenderer.renderExplosionFlecks(
+                    pose, buffer, impact.dustNodes(), impact.position(), impact.gameTime(),
+                    impact.lod(), (float) impact.profile().shockwaveParticleDensityScale()
+                        * yieldThicknessScale,
+                    frame.cameraOrientation()));
         }
 
-        if (renderCloud) {
+        if (renderCloud || impact.payloadType() == WarheadPayloadType.NUCLEAR) {
             context.submitNodeCollector().submitCustomGeometry(poseStack,
                 impact.payloadType() == WarheadPayloadType.NUCLEAR
                     ? WarheadRenderPipelines.NUCLEAR_SMOKE
@@ -426,67 +424,10 @@ public final class WarheadWorldRenderer {
         final com.mojang.blaze3d.vertex.VertexConsumer buffer,
         final List<DebrisFrame> debrisFrames, final Vec3 cameraPosition,
         final Quaternionf cameraOrientation) {
-        Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F).rotate(cameraOrientation);
-        Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F).rotate(cameraOrientation);
-        Vector3f normal = new Vector3f(0.0F, 0.0F, 1.0F).rotate(cameraOrientation);
         for (DebrisFrame debris : debrisFrames) {
-            ClientDebrisBatchManager.RenderSample sample = debris.sample();
-            if (sample.partIndex() != 0 || sample.trailPositions().size() < 2) continue;
-            List<Vec3> trail = sample.trailPositions();
-            int red = debris.trailColour() >>> 16 & 255;
-            int green = debris.trailColour() >>> 8 & 255;
-            int blue = debris.trailColour() & 255;
-            for (int point = 1; point < trail.size(); point++) {
-                Vec3 start = trail.get(point - 1);
-                Vec3 end = trail.get(point);
-                double segmentLength = start.distanceTo(end);
-                int subdivisions = Math.max(1,
-                    Math.min(6, (int) Math.ceil(segmentLength / 0.32)));
-                for (int subdivision = 0; subdivision < subdivisions; subdivision++) {
-                    double t = (subdivision + 0.5) / subdivisions;
-                    Vec3 center = start.lerp(end, t).subtract(cameraPosition);
-                    float head = (point - 1 + (float) t)
-                        / Math.max(1.0F, trail.size() - 1.0F);
-                    float radius = (0.12F + 0.29F * head)
-                        * Math.max(0.78F, sample.scale());
-                    float alpha = (0.13F + 0.50F * head)
-                        * (sample.onGround() ? 0.42F : 1.0F);
-                    addDebrisBillboard(pose, buffer, center, radius,
-                        red, green, blue, alpha, right, up, normal);
-                }
-            }
+            DebrisTrailRendererV7.render(pose, buffer, debris.sample(),
+                debris.trailColour(), cameraPosition, cameraOrientation);
         }
-    }
-
-    private static void addDebrisBillboard(final PoseStack.Pose pose,
-        final com.mojang.blaze3d.vertex.VertexConsumer buffer,
-        final Vec3 center, final float radius, final int red, final int green,
-        final int blue, final float alpha, final Vector3f right,
-        final Vector3f up, final Vector3f normal) {
-        int a = Mth.clamp((int) (alpha * 255.0F), 0, 255);
-        debrisVertex(pose, buffer, center, -radius, -radius, 0.0F, 1.0F,
-            red, green, blue, a, right, up, normal);
-        debrisVertex(pose, buffer, center, -radius, radius, 0.0F, 0.0F,
-            red, green, blue, a, right, up, normal);
-        debrisVertex(pose, buffer, center, radius, radius, 1.0F, 0.0F,
-            red, green, blue, a, right, up, normal);
-        debrisVertex(pose, buffer, center, radius, -radius, 1.0F, 1.0F,
-            red, green, blue, a, right, up, normal);
-    }
-
-    private static void debrisVertex(final PoseStack.Pose pose,
-        final com.mojang.blaze3d.vertex.VertexConsumer buffer,
-        final Vec3 center, final float x, final float y, final float u,
-        final float v, final int red, final int green, final int blue,
-        final int alpha, final Vector3f right, final Vector3f up,
-        final Vector3f normal) {
-        float ox = right.x * x + up.x * y;
-        float oy = right.y * x + up.y * y;
-        float oz = right.z * x + up.z * y;
-        buffer.addVertex(pose, (float) center.x + ox, (float) center.y + oy,
-                (float) center.z + oz)
-            .setColor(red, green, blue, alpha).setUv(u, v).setOverlay(0)
-            .setLight(0xB000B0).setNormal(pose, normal.x, normal.y, normal.z);
     }
 
     private static CloudCluster cloudCluster(final List<ImpactFrame> impacts,

@@ -7,9 +7,9 @@ import java.util.SplittableRandom;
 public final class WarheadClientVisualProfiles {
     private static final WarheadClientVisualProfile CONVENTIONAL = new WarheadClientVisualProfile(
         WarheadPayloadType.CONVENTIONAL,
-        720, 0, 0,
-        0, 22, 78, 250,
-        3, 5, 330, 720,
+        1_260, 0, 0,
+        0, 22, 78, 650,
+        3, 5, 430, 1_220,
         52, 44, 20,
         12, 22, 52,
         72, 44, 20,

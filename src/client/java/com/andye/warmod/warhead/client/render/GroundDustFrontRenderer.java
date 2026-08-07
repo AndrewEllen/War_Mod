@@ -18,10 +18,10 @@ public final class GroundDustFrontRenderer {
         final WarheadMesh.Lod lod, final float densityScale, final Quaternionf cameraOrientation) {
         if (nodes == null || nodes.isEmpty()) return;
         float budgetScale = Mth.clamp(
-            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 3.0F),
-            0.45F, 1.42F);
-        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 4_800
-            : lod == WarheadMesh.Lod.MEDIUM ? 2_400 : 900)
+            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
+            0.45F, 4.0F);
+        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 8_400
+            : lod == WarheadMesh.Lod.MEDIUM ? 4_200 : 1_650)
             * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);
@@ -31,7 +31,7 @@ public final class GroundDustFrontRenderer {
             long start = node.emittedGameTime() == Long.MIN_VALUE
                 ? node.readyGameTime() : node.emittedGameTime();
             double age = Math.max(0.0, gameTime - start);
-            double lifetime = 48.0 + ((seed >>> 8) & 47L);
+            double lifetime = 132.0 + ((seed >>> 8) & 111L);
             if (age > lifetime) continue;
             double progress = age / lifetime;
             double dx = node.position().x - impactPosition.x;
@@ -39,16 +39,18 @@ public final class GroundDustFrontRenderer {
             double length = Math.sqrt(dx * dx + dz * dz);
             if (length < 1.0E-4) continue;
 
-            /* Stay attached to the sampled terrain column; only drift about one block. */
-            double outward = (0.18 + ((seed >>> 18) & 31L) / 42.0) * progress;
-            double rise = (0.12 + ((seed >>> 27) & 31L) / 34.0)
-                * Math.sin(progress * Math.PI * 0.92);
+            double outward = (0.24 + ((seed >>> 18) & 31L) / 36.0) * progress;
+            double rise = (0.18 + ((seed >>> 27) & 31L) / 25.0)
+                * Math.sin(progress * Math.PI * 0.88);
             Vec3 base = node.position().subtract(impactPosition)
-                .add(dx / length * outward, 0.05 + rise, dz / length * outward);
-            float alpha = (float) ((0.48 + ((seed >>> 12) & 7L) * 0.022)
-                * Math.pow(1.0 - progress, 0.62));
-            int puffs = lod == WarheadMesh.Lod.NEAR ? 6
-                : lod == WarheadMesh.Lod.MEDIUM ? 4 : 2;
+                .add(dx / length * outward, 0.06 + rise, dz / length * outward);
+            float fadeStart = 0.68F + unit(seed, 7) * 0.25F;
+            float fade = progress < fadeStart ? 1.0F
+                : smoothstep(Mth.clamp((float) ((1.0 - progress)
+                    / Math.max(0.03, 1.0 - fadeStart)), 0.0F, 1.0F));
+            float alpha = (0.58F + unit(seed, 8) * 0.24F) * fade;
+            int puffs = lod == WarheadMesh.Lod.NEAR ? 8
+                : lod == WarheadMesh.Lod.MEDIUM ? 5 : 3;
             for (int puff = 0; puff < puffs; puff++) {
                 long puffSeed = mix(seed + puff * 0x9E3779B97F4A7C15L);
                 int selector = Math.floorMod((int) puffSeed, 100);
@@ -71,12 +73,12 @@ public final class GroundDustFrontRenderer {
                     green = Mth.clamp(earth - 13, 105, 172);
                     blue = Mth.clamp(earth - 28, 78, 154);
                 }
-                float radius = (0.065F + unit(puffSeed, 0) * 0.19F)
-                    * (0.90F + (float) progress * 0.55F);
+                float radius = (0.14F + unit(puffSeed, 0) * 0.42F)
+                    * (0.92F + (float) progress * 0.72F);
                 float rotation = unit(puffSeed, 1) * Mth.TWO_PI;
-                Vec3 center = base.add(signed(puffSeed, 2) * radius * 1.4,
-                    unit(puffSeed, 3) * radius * 0.82,
-                    signed(puffSeed, 4) * radius * 1.4);
+                Vec3 center = base.add(signed(puffSeed, 2) * radius * 1.7,
+                    unit(puffSeed, 3) * radius * 0.95,
+                    signed(puffSeed, 4) * radius * 1.7);
                 addBillboard(pose, buffer, center, radius, rotation, red, green, blue,
                     alpha * (0.68F + unit(puffSeed, 5) * 0.30F), basis);
             }
@@ -90,39 +92,47 @@ public final class GroundDustFrontRenderer {
         final float densityScale, final Quaternionf cameraOrientation) {
         if (nodes == null || nodes.isEmpty()) return;
         float budgetScale = Mth.clamp(
-            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 3.0F),
-            0.45F, 1.42F);
-        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 2_400
-            : lod == WarheadMesh.Lod.MEDIUM ? 1_150 : 420)
+            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
+            0.45F, 4.0F);
+        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 6_400
+            : lod == WarheadMesh.Lod.MEDIUM ? 3_100 : 1_250)
             * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);
+        int divisor = lod == WarheadMesh.Lod.NEAR ? 1
+            : lod == WarheadMesh.Lod.MEDIUM ? 2 : 3;
         for (int index = 0; index < count; index++) {
             TerrainShockfrontNode node = nodes.get(index);
-            long seed = mix(node.surfaceBlock().asLong() ^ 0x4558504C4F444534L);
-            if (Math.floorMod((int) seed, lod == WarheadMesh.Lod.NEAR ? 3 : 5) != 0) continue;
+            long seed = mix(node.surfaceBlock().asLong() ^ 0x4558504C4F444537L);
+            if (Math.floorMod((int) seed, divisor) != 0) continue;
             long start = node.emittedGameTime() == Long.MIN_VALUE
                 ? node.readyGameTime() : node.emittedGameTime();
             double age = Math.max(0.0, gameTime - start);
-            double lifetime = 13.0 + ((seed >>> 9) & 13L);
+            double lifetime = 22.0 + ((seed >>> 9) & 25L);
             if (age > lifetime) continue;
             double progress = age / lifetime;
             double dx = node.position().x - impactPosition.x;
             double dz = node.position().z - impactPosition.z;
             double length = Math.sqrt(dx * dx + dz * dz);
             if (length < 1.0E-4) continue;
-            double outward = (0.08 + unit(seed, 1) * 0.42) * progress;
-            Vec3 center = node.position().subtract(impactPosition).add(
-                dx / length * outward,
-                0.08 + Math.sin(progress * Math.PI) * (0.12 + unit(seed, 2) * 0.45),
-                dz / length * outward);
-            float radius = (0.12F + unit(seed, 3) * 0.34F)
-                * (0.92F + (float) progress * 0.22F);
-            float alpha = (float) (0.92 * Math.pow(1.0 - progress, 0.70));
-            int green = 205 + Math.floorMod((int) (seed >>> 21), 44);
-            int blue = 128 + Math.floorMod((int) (seed >>> 34), 80);
-            addBillboard(pose, buffer, center, radius, unit(seed, 4) * Mth.TWO_PI,
-                255, Math.min(255, green), Math.min(235, blue), alpha, basis);
+            int puffs = lod == WarheadMesh.Lod.NEAR ? 2 : 1;
+            for (int puff = 0; puff < puffs; puff++) {
+                long puffSeed = mix(seed + puff * 0xD1B54A32D192ED03L);
+                double outward = (0.10 + unit(puffSeed, 1) * 0.58) * progress;
+                Vec3 center = node.position().subtract(impactPosition).add(
+                    dx / length * outward + signed(puffSeed, 2) * 0.28,
+                    0.10 + Math.sin(progress * Math.PI)
+                        * (0.18 + unit(puffSeed, 3) * 0.62),
+                    dz / length * outward + signed(puffSeed, 4) * 0.28);
+                float radius = (0.20F + unit(puffSeed, 5) * 0.52F)
+                    * (0.94F + (float) progress * 0.32F);
+                float alpha = (float) (0.96 * Math.pow(1.0 - progress, 0.58));
+                int green = 205 + Math.floorMod((int) (puffSeed >>> 21), 44);
+                int blue = 128 + Math.floorMod((int) (puffSeed >>> 34), 80);
+                addBillboard(pose, buffer, center, radius,
+                    unit(puffSeed, 6) * Mth.TWO_PI,
+                    255, Math.min(255, green), Math.min(235, blue), alpha, basis);
+            }
         }
     }
 
@@ -162,6 +172,11 @@ public final class GroundDustFrontRenderer {
                 new Vector3f(0.0F, 1.0F, 0.0F).rotate(camera),
                 new Vector3f(0.0F, 0.0F, 1.0F).rotate(camera));
         }
+    }
+
+    private static float smoothstep(final float value) {
+        float t = Mth.clamp(value, 0.0F, 1.0F);
+        return t * t * (3.0F - 2.0F * t);
     }
 
     private static long mix(long value) {
