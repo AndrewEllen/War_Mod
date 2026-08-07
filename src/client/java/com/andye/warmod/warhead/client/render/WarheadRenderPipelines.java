@@ -18,6 +18,20 @@ import net.minecraft.resources.Identifier;
 /** Minecraft 26.2 render pipelines for each visual layer. */
 public final class WarheadRenderPipelines {
     private static final boolean IRIS_SHADER_PACK_ACTIVE = detectActiveIrisShaderPack();
+    private static final boolean SODIUM_ACTIVE = FabricLoader.getInstance().isModLoaded("sodium");
+    /*
+     * Sodium is happy with Minecraft's packed particle pipeline and this is the
+     * path that fixed the previous colour/state corruption. Iris shader packs
+     * are different: TRANSLUCENT_PARTICLE is interpreted through Iris' particle
+     * g-buffer path and custom world geometry becomes screen-space quads. Keep
+     * Iris on world-space entity pipelines instead. If both mods are present,
+     * an active Iris shader pack always wins this choice.
+     */
+    private static final boolean SODIUM_PARTICLE_COMPAT =
+        SODIUM_ACTIVE && !IRIS_SHADER_PACK_ACTIVE;
+    private static final RenderPipeline EXTERNAL_PARTICLE_PIPELINE =
+        RenderPipelines.TRANSLUCENT_PARTICLE;
+
     private static final Identifier PARTICLE_MASK = Identifier.fromNamespaceAndPath(
         "minecraft", "textures/particle/big_smoke_2.png");
     private static final Identifier PLASMA_MASK = Identifier.fromNamespaceAndPath(
@@ -26,54 +40,71 @@ public final class WarheadRenderPipelines {
         "minecraft", "textures/particle/explosion_0.png");
 
     private static final RenderPipeline CONDENSATION_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_TRANSLUCENT : condensation();
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE : condensation();
     private static final RenderPipeline PRESSURE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_pressure_shell", false);
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : translucent("pipeline/war_mod_pressure_shell", false);
     private static final RenderPipeline SHOCKWAVE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_shockwave_ribbons", false);
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : translucent("pipeline/war_mod_shockwave_ribbons", false);
     private static final RenderPipeline GROUND_DUST_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_ground_dust", false);
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : translucent("pipeline/war_mod_ground_dust", false);
 
     /*
-     * Do not use ENTITY_CUTOUT here. Its entity shader consumes OverlaySampler
-     * and overlay coordinates; the custom particle vertices deliberately do not
-     * carry a meaningful entity overlay. On some render-state combinations that
-     * interpreted zero as the red hurt overlay. This dedicated opaque cutout
-     * shader ignores overlay state completely and writes depth for dense smoke.
+     * The normal renderer uses dedicated depth-writing smoke pipelines. Sodium
+     * uses its proven particle-compatible route. Iris cannot use that route for
+     * submitted custom geometry, so smoke joins the same world-space entity
+     * pipeline as the other translucent effects. This is intentionally the only
+     * Iris-specific smoke change; geometry and particle placement are untouched.
      */
-    private static final RenderPipeline HEAVY_SMOKE_PIPELINE =
-        smokeCutout("pipeline/war_mod_heavy_smoke", 0.055F);
-    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE =
-        smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
-    private static final RenderPipeline NUCLEAR_SMOKE_PIPELINE =
-        smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
+    private static final RenderPipeline HEAVY_SMOKE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : smokeCutout("pipeline/war_mod_heavy_smoke", 0.055F);
+    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
+    private static final RenderPipeline NUCLEAR_SMOKE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
+        ? RenderPipelines.ENTITY_TRANSLUCENT
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
 
     private static final RenderPipeline COOL_FIRE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
-        : emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
     private static final RenderPipeline FIREBALL_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT
-        : emissiveTranslucent("pipeline/war_mod_fireball_core", true, 0.065F);
+        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : emissiveTranslucent("pipeline/war_mod_fireball_core", true, 0.065F);
     private static final RenderPipeline PLASMA_CORE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT
-        : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
-            .withLocation("pipeline/war_mod_plasma_core")
-            .withShaderDefine("ALPHA_CUTOUT", 0.075F)
-            .withShaderDefine("NO_OVERLAY")
-            .withShaderDefine("NO_CARDINAL_LIGHTING")
-            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
-            .withCull(false).build());
+        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+                .withLocation("pipeline/war_mod_plasma_core")
+                .withShaderDefine("ALPHA_CUTOUT", 0.075F)
+                .withShaderDefine("NO_OVERLAY")
+                .withShaderDefine("NO_CARDINAL_LIGHTING")
+                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
+                .withCull(false).build());
     private static final RenderPipeline GROUND_RIPPLE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
-            .withLocation("pipeline/war_mod_ground_ripple")
-            .withVertexShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
-            .withFragmentShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
-            .withShaderDefine("NO_OVERLAY")
-            .withShaderDefine("NO_CARDINAL_LIGHTING")
-            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
-            .withCull(false).build());
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
+                .withLocation("pipeline/war_mod_ground_ripple")
+                .withVertexShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
+                .withFragmentShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
+                .withShaderDefine("NO_OVERLAY")
+                .withShaderDefine("NO_CARDINAL_LIGHTING")
+                .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+                .withCull(false).build());
     private static final RenderPipeline TERRAIN_DEFORMATION_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_CUTOUT
         : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
@@ -82,15 +113,16 @@ public final class WarheadRenderPipelines {
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
             .withCull(false).build());
     private static final RenderPipeline HOT_FIRE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
-        ? RenderPipelines.ENTITY_CUTOUT
-        : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
-            .withLocation("pipeline/war_mod_hot_fire")
-            .withShaderDefine("ALPHA_CUTOUT", 0.035F)
-            .withShaderDefine("NO_OVERLAY")
-            .withShaderDefine("NO_CARDINAL_LIGHTING")
-            .withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
-            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
-            .withCull(false).build());
+        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
+        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
+            : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+                .withLocation("pipeline/war_mod_hot_fire")
+                .withShaderDefine("ALPHA_CUTOUT", 0.035F)
+                .withShaderDefine("NO_OVERLAY")
+                .withShaderDefine("NO_CARDINAL_LIGHTING")
+                .withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
+                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
+                .withCull(false).build());
 
     public static final RenderType PROJECTILE = create("war_mod_projectile",
         RenderPipelines.ENTITY_CUTOUT, texture("warhead_albedo.png"), true, true, false);
@@ -139,7 +171,13 @@ public final class WarheadRenderPipelines {
 
     private WarheadRenderPipelines() { }
 
-    public static boolean compatibilityRendererActive() { return IRIS_SHADER_PACK_ACTIVE; }
+    public static boolean compatibilityRendererActive() {
+        return SODIUM_ACTIVE || IRIS_SHADER_PACK_ACTIVE;
+    }
+
+    public static boolean irisShaderPackActive() {
+        return IRIS_SHADER_PACK_ACTIVE;
+    }
 
     private static boolean detectActiveIrisShaderPack() {
         if (!FabricLoader.getInstance().isModLoaded("iris")) return false;
@@ -151,7 +189,7 @@ public final class WarheadRenderPipelines {
             return Boolean.TRUE.equals(active);
         } catch (ReflectiveOperationException | LinkageError exception) {
             WarMod.LOGGER.warn(
-                "Iris is installed but its shader state could not be queried; using safe entity pipelines",
+                "Iris is installed but its shader state could not be queried; using safe world-space entity pipelines",
                 exception);
             return true;
         }
@@ -163,7 +201,8 @@ public final class WarheadRenderPipelines {
             .withTexture("Sampler0", texture,
                 () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
             .setOutline(RenderSetup.OutlineProperty.NONE);
-        if (useLightmap) builder.useLightmap();
+        if (useLightmap || SODIUM_PARTICLE_COMPAT || IRIS_SHADER_PACK_ACTIVE) builder.useLightmap();
+        if (IRIS_SHADER_PACK_ACTIVE) builder.useOverlay();
         if (sortOnUpload) builder.sortOnUpload();
         return RenderType.create(name, builder.createRenderSetup());
     }
@@ -223,8 +262,8 @@ public final class WarheadRenderPipelines {
         RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline)
             .withTexture("Sampler0", texture)
             .setOutline(RenderSetup.OutlineProperty.NONE);
-        if (useLightmap) builder.useLightmap();
-        if (useOverlay) builder.useOverlay();
+        if (useLightmap || SODIUM_PARTICLE_COMPAT || IRIS_SHADER_PACK_ACTIVE) builder.useLightmap();
+        if (useOverlay || IRIS_SHADER_PACK_ACTIVE) builder.useOverlay();
         if (sortOnUpload) builder.sortOnUpload();
         return RenderType.create(name, builder.createRenderSetup());
     }
