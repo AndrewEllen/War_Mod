@@ -59,12 +59,12 @@ public final class TestExplosionService {
 				.orElseGet(() -> WarheadDebrisSourceSampler.sample(level, position, yield, seed));
 
 		/*
-		 * This explosion is about to mutate the region observed by other
-		 * speculative preparations. Drop overlapping caches before those world
-		 * changes begin so later impacts resample current terrain if necessary.
+		 * This explosion is about to mutate terrain observed by other in-flight
+		 * missiles. Invalidate only the affected shared cache volume and re-queue
+		 * overlapping preparations; deeper/untouched observations stay reusable.
 		 */
 		WarheadPreImpactPreparationManager.invalidateAround(
-			level, warheadId, position, preparationInvalidationRadius(yield));
+			level, warheadId, position, yield, preparationInvalidationRadius(yield));
 		WarheadExplosionWorkManager.detonateWithoutDebrisSample(level, source, warheadId, position, yield, seed);
 		return debris;
 	}
