@@ -1,6 +1,8 @@
 package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
+import com.andye.warmod.warhead.StrategicExplosionProfile;
+import com.andye.warmod.warhead.StrategicExplosionProfiles;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadDebrisSourceSampler;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
@@ -55,6 +57,14 @@ public final class TestExplosionService {
 		List<WarheadExplosionDropContext.DestroyedBlock> debris =
 			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed)
 				.orElseGet(() -> WarheadDebrisSourceSampler.sample(level, position, yield, seed));
+
+		/*
+		 * This explosion is about to mutate the region observed by other
+		 * speculative preparations. Drop overlapping caches before those world
+		 * changes begin so later impacts resample current terrain if necessary.
+		 */
+		WarheadPreImpactPreparationManager.invalidateAround(
+			level, warheadId, position, preparationInvalidationRadius(yield));
 		WarheadExplosionWorkManager.detonateWithoutDebrisSample(level, source, warheadId, position, yield, seed);
 		return debris;
 	}
@@ -84,8 +94,7 @@ public final class TestExplosionService {
 			throw new IllegalArgumentException("Invalid explosion arguments");
 		}
 		if (strength >= WarheadConstants.EXPLOSION_STRENGTH) {
-			WarheadYield yield = com.andye.warmod.warhead.StrategicExplosionProfiles
-				.fromLegacyStrength(strength).yield();
+			WarheadYield yield = StrategicExplosionProfiles.fromLegacyStrength(strength).yield();
 			return createExplosion(level, source, warheadId, position, yield, seed);
 		}
 		return createExplosion(level, source, position, strength);
@@ -116,5 +125,24 @@ public final class TestExplosionService {
 			WarheadExplosionDropContext.abort();
 			throw failure;
 		}
+	}
+
+	private static double preparationInvalidationRadius(final WarheadYield yield) {
+		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(yield);
+		double surfaceRadius = profile.horizontalRadius() * profile.aftermathRadiusScale();
+		float visualScale = Math.max(0.28F, Math.min(4.2F, yield.visualScale()));
+		double shockwaveRadius;
+		if (yield.nuclear()) {
+			shockwaveRadius = 72.0 + visualScale * 58.0;
+		} else if (visualScale < 0.49F) {
+			shockwaveRadius = 36.0;
+		} else if (visualScale < 0.82F) {
+			shockwaveRadius = 64.0;
+		} else if (visualScale < 1.19F) {
+			shockwaveRadius = 104.0;
+		} else {
+			shockwaveRadius = 152.0;
+		}
+		return Math.max(surfaceRadius, shockwaveRadius);
 	}
 }
