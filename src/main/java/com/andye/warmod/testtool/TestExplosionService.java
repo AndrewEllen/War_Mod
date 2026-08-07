@@ -2,6 +2,7 @@ package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadDebrisSourceSampler;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadYield;
@@ -45,7 +46,15 @@ public final class TestExplosionService {
 	) {
 		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid explosion arguments");
-		return WarheadExplosionWorkManager.detonate(level, source, warheadId, position, yield, seed);
+		/*
+		 * Capture the struck structure before staged crater removal begins. The
+		 * returned blocks are exact future crater intersections rather than
+		 * unrelated height-map samples around the blast.
+		 */
+		List<WarheadExplosionDropContext.DestroyedBlock> debris =
+			WarheadDebrisSourceSampler.sample(level, position, yield, seed);
+		WarheadExplosionWorkManager.detonate(level, source, warheadId, position, yield, seed);
+		return debris;
 	}
 
 	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
@@ -73,7 +82,9 @@ public final class TestExplosionService {
 			throw new IllegalArgumentException("Invalid explosion arguments");
 		}
 		if (strength >= WarheadConstants.EXPLOSION_STRENGTH) {
-			return WarheadExplosionWorkManager.detonate(level, source, warheadId, position, strength, seed);
+			WarheadYield yield = com.andye.warmod.warhead.StrategicExplosionProfiles
+				.fromLegacyStrength(strength).yield();
+			return createExplosion(level, source, warheadId, position, yield, seed);
 		}
 		return createExplosion(level, source, position, strength);
 	}

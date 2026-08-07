@@ -1,7 +1,5 @@
 package com.andye.warmod.warhead.client.render;
 
-import net.minecraft.util.Mth;
-
 /** Runtime client renderer selection and profiling controls. */
 public final class WarheadRenderSettings {
 	public enum ParticleRenderer {
@@ -9,7 +7,8 @@ public final class WarheadRenderSettings {
 		LEGACY
 	}
 
-	private static final float DEFAULT_PARTICLE_BUDGET_MULTIPLIER = 3.0F;
+	private static final float DEFAULT_PARTICLE_BUDGET_MULTIPLIER = 6.0F;
+	private static final int MAX_ARRAY_CAPACITY = Integer.MAX_VALUE - 8;
 	private static volatile ParticleRenderer particleRenderer = ParticleRenderer.PACKED;
 	private static volatile float particleBudgetMultiplier = DEFAULT_PARTICLE_BUDGET_MULTIPLIER;
 
@@ -34,16 +33,22 @@ public final class WarheadRenderSettings {
 	}
 
 	public static int conventionalParticleBudget() {
-		return Math.max(16_384, Math.round(65_536.0F * particleBudgetMultiplier));
+		return scaledCapacity(65_536);
 	}
 
 	public static int nuclearSupplementBudget() {
-		return Math.max(1_024, Math.round(4_096.0F * particleBudgetMultiplier));
+		return scaledCapacity(4_096);
 	}
 
+	/**
+	 * The multiplier deliberately has no arbitrary upper ceiling. Excessive
+	 * values can exhaust client memory; that profiling choice remains explicit.
+	 */
 	public static void setParticleBudgetMultiplier(final float multiplier) {
-		if (!Float.isFinite(multiplier)) throw new IllegalArgumentException("multiplier");
-		particleBudgetMultiplier = Mth.clamp(multiplier, 0.25F, 6.0F);
+		if (!Float.isFinite(multiplier) || multiplier <= 0.0F) {
+			throw new IllegalArgumentException("multiplier must be finite and greater than zero");
+		}
+		particleBudgetMultiplier = multiplier;
 		ConventionalBlastVisualV4.clear();
 	}
 
@@ -53,5 +58,13 @@ public final class WarheadRenderSettings {
 
 	public static String displayName() {
 		return particleRenderer == ParticleRenderer.PACKED ? "packed" : "legacy";
+	}
+
+	private static int scaledCapacity(final int baseCapacity) {
+		double scaled = baseCapacity * (double) particleBudgetMultiplier;
+		if (!Double.isFinite(scaled) || scaled >= MAX_ARRAY_CAPACITY) {
+			return MAX_ARRAY_CAPACITY;
+		}
+		return Math.max(1, (int) Math.ceil(scaled));
 	}
 }

@@ -29,7 +29,7 @@ public final class WarheadRenderCommands {
 						WarheadRenderSettings.ParticleRenderer.LEGACY)))
 					.then(literal("budget")
 						.then(literal("reset").executes(context -> resetBudget(context.getSource())))
-						.then(argument("multiplier", FloatArgumentType.floatArg(0.25F, 6.0F))
+						.then(argument("multiplier", FloatArgumentType.floatArg(0.01F))
 							.executes(context -> setBudget(context.getSource(),
 								FloatArgumentType.getFloat(context, "multiplier")))))
 					.then(literal("status").executes(context -> status(context.getSource())))
@@ -52,7 +52,8 @@ public final class WarheadRenderCommands {
 		WarheadRenderSettings.setParticleBudgetMultiplier(multiplier);
 		source.sendFeedback(Component.literal(
 			"War Mod particle budget: " + WarheadRenderSettings.particleBudgetMultiplier()
-				+ "x (conventional cap " + WarheadRenderSettings.conventionalParticleBudget() + ")"));
+				+ "x (conventional cap " + WarheadRenderSettings.conventionalParticleBudget()
+				+ "; very large values may exhaust client memory)"));
 		return 1;
 	}
 

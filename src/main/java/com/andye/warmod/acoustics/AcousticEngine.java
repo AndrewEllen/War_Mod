@@ -39,7 +39,7 @@ public final class AcousticEngine {
 		AcousticSoundDefinition definition = AcousticSoundRegistry.get(definitionId)
 			.orElseThrow(() -> new IllegalArgumentException("Unknown acoustic sound definition: " + definitionId));
 		float clampedVolume = Math.max(0.0F, Math.min(4.0F, volume));
-		float clampedPitch = Math.max(0.25F, Math.min(4.0F, pitch));
+		float clampedPitch = Math.max(0.10F, Math.min(4.0F, pitch));
 		UUID eventId = UUID.randomUUID();
 		ClientboundAcousticEventPayload payload = new ClientboundAcousticEventPayload(
 			eventId,
