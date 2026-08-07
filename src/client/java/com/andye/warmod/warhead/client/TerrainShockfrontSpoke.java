@@ -5,8 +5,8 @@ import java.util.List;
 
 /** Mutable build and emission state for one deterministic radial terrain path. */
 public final class TerrainShockfrontSpoke {
-	private static final double ACTIVE_DUST_DEPTH = 36.0;
-	private static final long ACTIVE_DUST_LIFETIME_TICKS = 100L;
+	private static final double ACTIVE_DUST_DEPTH = 52.0;
+	private static final long ACTIVE_DUST_LIFETIME_TICKS = 240L;
 
 	private final double angle;
 	private final List<TerrainShockfrontNode> nodes = new ArrayList<>();
@@ -89,7 +89,7 @@ public final class TerrainShockfrontSpoke {
 	synchronized List<TerrainShockfrontNode> activeDustNodesNearFrontier(final double pressureRadius,
 		final int maximumNodes, final long gameTime) {
 		if (maximumNodes <= 0 || this.reachedNodeCount <= 0) return List.of();
-		List<TerrainShockfrontNode> selected = new ArrayList<>(Math.min(maximumNodes, 16));
+		List<TerrainShockfrontNode> selected = new ArrayList<>(Math.min(maximumNodes, 24));
 		for (int index = this.reachedNodeCount - 1; index >= 0 && selected.size() < maximumNodes; index--) {
 			TerrainShockfrontNode node = this.nodes.get(index);
 			double behindFront = pressureRadius - node.cumulativePathDistance();
