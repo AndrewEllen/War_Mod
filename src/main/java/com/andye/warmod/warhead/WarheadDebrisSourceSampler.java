@@ -24,14 +24,28 @@ public final class WarheadDebrisSourceSampler {
 
     private WarheadDebrisSourceSampler() { }
 
+    /** Optional shared read-through cache used only by terminal-flight preparation. */
+    interface TerrainReadCache {
+        BlockState blockState(ServerLevel level, BlockPos position);
+    }
+
     public static IncrementalSample begin(
         final Vec3 center,
         final WarheadYield yield,
         final long seed
     ) {
+        return begin(center, yield, seed, null);
+    }
+
+    static IncrementalSample begin(
+        final Vec3 center,
+        final WarheadYield yield,
+        final long seed,
+        final TerrainReadCache terrainCache
+    ) {
         if (center == null || yield == null) throw new NullPointerException();
         if (!center.isFinite()) throw new IllegalArgumentException("center must be finite");
-        return new IncrementalSample(center, yield, seed);
+        return new IncrementalSample(center, yield, seed, terrainCache);
     }
 
     public static List<WarheadExplosionDropContext.DestroyedBlock> sample(
@@ -54,6 +68,7 @@ public final class WarheadDebrisSourceSampler {
         private final LongOpenHashSet sampled;
         private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         private final SplittableRandom random;
+        private final TerrainReadCache terrainCache;
         private final int centerX;
         private final int centerZ;
         private final int contactRadius;
@@ -78,13 +93,19 @@ public final class WarheadDebrisSourceSampler {
         private int patchDx;
         private boolean complete;
 
-        private IncrementalSample(final Vec3 center, final WarheadYield yield, final long seed) {
+        private IncrementalSample(
+            final Vec3 center,
+            final WarheadYield yield,
+            final long seed,
+            final TerrainReadCache terrainCache
+        ) {
             this.center = center;
             this.profile = StrategicExplosionProfiles.get(yield);
             this.target = Math.min(HARD_SAMPLE_LIMIT, yield.maximumDebris());
             this.result = new ArrayList<>(Math.max(0, target));
             this.sampled = new LongOpenHashSet(Math.max(16, target * 3));
             this.random = new SplittableRandom(seed ^ 0x4445425249535F37L);
+            this.terrainCache = terrainCache;
             this.centerX = Mth.floor(center.x);
             int centerY = Mth.floor(center.y);
             this.centerZ = Mth.floor(center.z);
@@ -157,7 +178,7 @@ public final class WarheadDebrisSourceSampler {
                 int dz = contactDz;
                 if (Math.max(Math.abs(dx), Math.abs(dz)) != contactRing) continue;
                 cursor.set(centerX + dx, contactY, centerZ + dz);
-                addIfDestroyed(level, center, profile, cursor, sampled, result, target);
+                addIfDestroyed(level, center, profile, cursor, sampled, result, target, terrainCache);
                 if (result.size() >= target) complete = true;
                 return true;
             }
@@ -174,6 +195,11 @@ public final class WarheadDebrisSourceSampler {
                     rootZ = Mth.floor(center.z + Math.sin(angle) * radial);
                     attempt++;
                     if (!level.getChunkSource().hasChunk(rootX >> 4, rootZ >> 4)) return true;
+                    /*
+                     * Height remains live. A heightmap lookup is cheap, and an
+                     * earlier crater can therefore move this patch downward
+                     * without invalidating unrelated cached depth observations.
+                     */
                     surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, rootX, rootZ) - 1;
                     patchDy = 2;
                     patchDz = -patchRadius;
@@ -198,7 +224,7 @@ public final class WarheadDebrisSourceSampler {
                     int dz = patchDz;
                     if (Math.abs(dx) + Math.abs(dz) > patchRadius + 1) continue;
                     cursor.set(rootX + dx, surfaceY + patchDy, rootZ + dz);
-                    addIfDestroyed(level, center, profile, cursor, sampled, result, target);
+                    addIfDestroyed(level, center, profile, cursor, sampled, result, target, terrainCache);
                     if (result.size() >= target) complete = true;
                     return true;
                 }
@@ -216,13 +242,16 @@ public final class WarheadDebrisSourceSampler {
         final BlockPos.MutableBlockPos cursor,
         final LongOpenHashSet sampled,
         final ArrayList<WarheadExplosionDropContext.DestroyedBlock> result,
-        final int target
+        final int target,
+        final TerrainReadCache terrainCache
     ) {
         if (result.size() >= target || !level.isInWorldBounds(cursor)) return;
         if (!level.getChunkSource().hasChunk(cursor.getX() >> 4, cursor.getZ() >> 4)) return;
         long packed = cursor.asLong();
         if (!sampled.add(packed)) return;
-        BlockState state = level.getBlockState(cursor);
+        BlockState state = terrainCache == null
+            ? level.getBlockState(cursor)
+            : terrainCache.blockState(level, cursor);
         FluidState fluid = state.getFluidState();
         if (state.isAir() && fluid.isEmpty()) return;
         if (state.getDestroySpeed(level, cursor) < 0.0F) return;
