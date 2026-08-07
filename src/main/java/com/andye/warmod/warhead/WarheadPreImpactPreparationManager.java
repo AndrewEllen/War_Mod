@@ -6,6 +6,7 @@ import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,6 +85,33 @@ public final class WarheadPreImpactPreparationManager {
         return Optional.of(debris);
     }
 
+    /**
+     * A live explosion can mutate terrain another in-flight sample observed.
+     * Discard overlapping speculative caches so the later impact uses current
+     * world state rather than stale debris material.
+     */
+    public static synchronized void invalidateAround(
+        final ServerLevel level,
+        final UUID exceptWarheadId,
+        final Vec3 center,
+        final double radius
+    ) {
+        if (level == null || center == null || !center.isFinite() || !Double.isFinite(radius) || radius <= 0.0) return;
+        LevelWork levelWork = LEVELS.get(level);
+        if (levelWork == null) return;
+        double radiusSqr = radius * radius;
+        Iterator<Map.Entry<UUID, Preparation>> iterator = levelWork.byId.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, Preparation> entry = iterator.next();
+            if (entry.getKey().equals(exceptWarheadId)) continue;
+            Vec3 target = entry.getValue().intendedTarget;
+            double dx = target.x - center.x;
+            double dz = target.z - center.z;
+            if (dx * dx + dz * dz <= radiusSqr) iterator.remove();
+        }
+        cleanupLevel(level, levelWork);
+    }
+
     private static synchronized void ensureRegistered() {
         if (registered) return;
         ServerTickEvents.END_LEVEL_TICK.register(WarheadPreImpactPreparationManager::tickLevel);
@@ -93,8 +121,31 @@ public final class WarheadPreImpactPreparationManager {
 
     private static synchronized void tickLevel(final ServerLevel level) {
         LevelWork levelWork = LEVELS.get(level);
-        if (levelWork == null || levelWork.queue.isEmpty()) return;
+        if (levelWork == null) return;
         long now = level.getGameTime();
+
+        /*
+         * Once a preparation has started, its entity must still exist. This
+         * drops completed/in-progress work immediately after interception,
+         * cancellation or other non-impact removal instead of retaining it for
+         * the full approach lease lifetime.
+         */
+        Iterator<Map.Entry<UUID, Preparation>> cleanup = levelWork.byId.entrySet().iterator();
+        while (cleanup.hasNext()) {
+            Map.Entry<UUID, Preparation> entry = cleanup.next();
+            Preparation preparation = entry.getValue();
+            if (now >= preparation.expiresAt
+                || (preparation.started()
+                    && IncomingWarheadRegistry.getByWarheadId(level, entry.getKey()).isEmpty())) {
+                cleanup.remove();
+            }
+        }
+        if (levelWork.byId.isEmpty()) {
+            LEVELS.remove(level);
+            return;
+        }
+        if (levelWork.queue.isEmpty()) return;
+
         long deadline = System.nanoTime() + LEVEL_WORK_BUDGET_NANOS;
         int checksRemaining = MAX_CHECKS_PER_LEVEL_TICK;
         int scheduled = levelWork.queue.size();
@@ -104,10 +155,6 @@ public final class WarheadPreImpactPreparationManager {
             UUID id = levelWork.queue.removeFirst();
             Preparation preparation = levelWork.byId.get(id);
             if (preparation == null) continue;
-            if (now >= preparation.expiresAt) {
-                levelWork.byId.remove(id);
-                continue;
-            }
 
             int used = preparation.advance(level, Math.min(WORK_SLICE, checksRemaining));
             checksRemaining -= Math.max(1, used);
@@ -169,6 +216,10 @@ public final class WarheadPreImpactPreparationManager {
 
         private boolean complete() {
             return sampler != null && sampler.complete();
+        }
+
+        private boolean started() {
+            return sampler != null;
         }
     }
 }
