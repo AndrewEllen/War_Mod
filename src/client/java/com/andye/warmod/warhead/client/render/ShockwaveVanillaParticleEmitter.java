@@ -21,11 +21,10 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Adds a bounded layer of the vanilla animated explosion emitter to terrain
- * nodes reached by the custom pressure-front simulation. The custom renderer
- * remains responsible for full coverage; these emitters supply the familiar
- * Minecraft animation without subjecting the vanilla particle engine to every
- * logical particle in a nuclear front.
+ * Adds the vanilla animated explosion emitter to sampled terrain nodes reached
+ * by the custom pressure-front simulation. The accompanying custom fleck layer
+ * gives complete front coverage while these emitters provide the full vanilla
+ * animation on a dense, deterministic subset that remains bounded per tick.
  */
 public final class ShockwaveVanillaParticleEmitter {
     private static final Map<UUID, Long> LAST_PROCESSED_TICK = new HashMap<>();
@@ -83,13 +82,12 @@ public final class ShockwaveVanillaParticleEmitter {
         int maximumNodes = nuclear ? 2_048 : 768;
         List<TerrainShockfrontNode> nodes = state.terrainShockfrontField().readyNodes(
             radius, nuclear ? 256 : 192, maximumNodes, gameTime);
-        int emitterLimit = nuclear ? 420 : 150;
+        int emitterLimit = nuclear ? 768 : 256;
         int emitted = 0;
-        int divisor = nuclear ? 3 : 6;
         for (TerrainShockfrontNode node : nodes) {
             if (node.state() != TerrainShockfrontNode.State.READY) continue;
             long hash = mix(state.visualSeed() ^ node.surfaceBlock().asLong());
-            if (Math.floorMod((int) hash, divisor) == 0 && emitted < emitterLimit) {
+            if (emitted < emitterLimit) {
                 spawn(level, node.position(), hash);
                 emitted++;
             }
@@ -106,7 +104,7 @@ public final class ShockwaveVanillaParticleEmitter {
         double outer = previousRadius + 2.5;
         double inner = Math.max(0.0, currentRadius - 2.5);
         int emitted = 0;
-        final int emitterLimit = 520;
+        final int emitterLimit = 896;
         for (TerrainShockfrontSpoke spoke
             : state.terrainShockfrontField().snapshotSpokes()) {
             List<TerrainShockfrontNode> nodes = spoke.snapshotNodes();
@@ -117,7 +115,6 @@ public final class ShockwaveVanillaParticleEmitter {
                 if (distance < inner) break;
                 long hash = mix(state.visualSeed() ^ node.surfaceBlock().asLong()
                     ^ 0x52455455524E4558L);
-                if (Math.floorMod((int) hash, 3) != 0) continue;
                 spawn(level, node.position(), hash);
                 if (++emitted >= emitterLimit) return;
             }
