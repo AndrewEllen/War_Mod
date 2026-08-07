@@ -10,6 +10,7 @@ import java.util.Map;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
@@ -29,6 +30,8 @@ public final class WarheadGlassShockwaveManager {
         WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
+    private static final int NUCLEAR_AFTERMATH_DELAY_TICKS = 80;
+    private static final int NUCLEAR_AFTERMATH_COLUMNS_PER_TICK = 2_048;
     private static final Map<ServerLevel, List<Wave>> WAVES = new IdentityHashMap<>();
     private static boolean registered;
 
@@ -57,7 +60,8 @@ public final class WarheadGlassShockwaveManager {
             ? 72.0 + visualScale * 58.0
             : conventionalGlassRadius(visualScale);
         WAVES.computeIfAbsent(level, ignored -> new ArrayList<>()).add(new Wave(
-            center, payload.impactGameTime(), payload.visualSeed(), maximumRadius, nuclear));
+            center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
+            visualScale, nuclear));
     }
 
     private static double conventionalGlassRadius(final float visualScale) {
@@ -82,23 +86,48 @@ public final class WarheadGlassShockwaveManager {
         private final long startGameTime;
         private final long seed;
         private final double maximumRadius;
+        private final float visualScale;
         private final boolean nuclear;
+        private final double craterRadius;
+        private final int aftermathRadius;
         private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        private final BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
         private double processedRadius;
+        private boolean pressureComplete;
+        private int aftermathX;
+        private int aftermathZ;
 
         private Wave(final Vec3 center, final long startGameTime, final long seed,
-            final double maximumRadius, final boolean nuclear) {
+            final double maximumRadius, final float visualScale, final boolean nuclear) {
             this.center = center;
             this.startGameTime = startGameTime;
             this.seed = seed;
             this.maximumRadius = maximumRadius;
+            this.visualScale = visualScale;
             this.nuclear = nuclear;
+            this.craterRadius = nuclear ? 12.0 + 13.0 * visualScale : 0.0;
+            this.aftermathRadius = nuclear
+                ? Mth.ceil(craterRadius * 1.55) : 0;
+            this.aftermathX = -aftermathRadius;
+            this.aftermathZ = -aftermathRadius;
         }
 
         private boolean advance(final ServerLevel level, final long gameTime) {
+            if (!pressureComplete) {
+                advancePressure(level, gameTime);
+                if (processedRadius + 0.01 < maximumRadius) return false;
+                pressureComplete = true;
+                if (!nuclear) return true;
+            }
+            if (!nuclear) return true;
+            if (gameTime - startGameTime < NUCLEAR_AFTERMATH_DELAY_TICKS) return false;
+            return advanceNuclearAftermath(level);
+        }
+
+        private void advancePressure(final ServerLevel level, final long gameTime) {
             double targetRadius = Math.min(maximumRadius,
                 Math.max(0.0, gameTime - startGameTime + 1.0) * SPEED_BLOCKS_PER_TICK);
-            if (targetRadius <= processedRadius + 0.01) return processedRadius >= maximumRadius;
+            if (targetRadius <= processedRadius + 0.01) return;
 
             double innerRadius = Math.max(0.0, processedRadius - 1.25);
             double annulusWidth = Math.max(0.75, targetRadius - innerRadius);
@@ -124,16 +153,14 @@ public final class WarheadGlassShockwaveManager {
                     int z = Mth.floor(center.z + Math.sin(angle) * radius);
                     long packedColumn = ((long) x << 32) ^ (z & 0xFFFFFFFFL);
                     if (!columns.add(packedColumn)) continue;
-                    processColumn(level, x, z, radius);
+                    processPressureColumn(level, x, z, radius);
                     processedColumns++;
                 }
             }
-
             processedRadius = targetRadius;
-            return processedRadius >= maximumRadius;
         }
 
-        private void processColumn(final ServerLevel level, final int x, final int z,
+        private void processPressureColumn(final ServerLevel level, final int x, final int z,
             final double radialDistance) {
             if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return;
             int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
@@ -193,15 +220,128 @@ public final class WarheadGlassShockwaveManager {
             }
         }
 
+        private boolean advanceNuclearAftermath(final ServerLevel level) {
+            int visited = 0;
+            while (aftermathX <= aftermathRadius
+                && visited < NUCLEAR_AFTERMATH_COLUMNS_PER_TICK) {
+                int dx = aftermathX;
+                int dz = aftermathZ;
+                aftermathZ++;
+                if (aftermathZ > aftermathRadius) {
+                    aftermathZ = -aftermathRadius;
+                    aftermathX++;
+                }
+                if ((double) dx * dx + (double) dz * dz
+                    > (double) aftermathRadius * aftermathRadius) continue;
+                int x = Mth.floor(center.x) + dx;
+                int z = Mth.floor(center.z) + dz;
+                if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
+                transformNuclearColumn(level, x, z, Math.sqrt((double) dx * dx + (double) dz * dz));
+                visited++;
+            }
+            return aftermathX > aftermathRadius;
+        }
+
+        private void transformNuclearColumn(final ServerLevel level, final int x,
+            final int z, final double radialDistance) {
+            double craterNormalized = radialDistance / Math.max(1.0, craterRadius);
+            int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+            if (surfaceY < level.dimensionType().minY()) return;
+            long columnHash = seed ^ ((long) x << 32) ^ (z & 0xFFFFFFFFL)
+                ^ 0x4E55434C45415235L;
+
+            for (int depth = 0; depth <= 6; depth++) {
+                cursor.set(x, surfaceY - depth, z);
+                if (!level.isInWorldBounds(cursor)) continue;
+                BlockState state = level.getBlockState(cursor);
+                if (state.isAir()) continue;
+                long hash = columnHash ^ cursor.asLong() ^ depth * 0x9E3779B97F4A7C15L;
+
+                if (state.is(Blocks.SAND)) {
+                    level.setBlock(cursor, fusedSand(hash, false, craterNormalized), UPDATE_FLAGS);
+                    continue;
+                }
+                if (state.is(Blocks.RED_SAND)) {
+                    level.setBlock(cursor, fusedSand(hash, true, craterNormalized), UPDATE_FLAGS);
+                    continue;
+                }
+
+                if (isSoil(state) && craterNormalized <= 1.52) {
+                    level.setBlock(cursor, scorchedSoil(hash, craterNormalized), UPDATE_FLAGS);
+                    continue;
+                }
+
+                if (craterNormalized <= 0.98 && isCommonRock(state)
+                    && (depth == 0 || exposedToAir(level, cursor))) {
+                    level.setBlock(cursor, darkCraterRock(hash, craterNormalized), UPDATE_FLAGS);
+                }
+            }
+
+            if (craterNormalized <= 1.36 && unit(columnHash ^ 0x464952455F414654L)
+                < Math.max(0.0, 0.13 - craterNormalized * 0.055)) {
+                cursor.set(x, surfaceY + 1, z);
+                if (level.isInWorldBounds(cursor) && level.getBlockState(cursor).isAir()) {
+                    level.setBlock(cursor, Blocks.FIRE.defaultBlockState(), UPDATE_FLAGS);
+                }
+            }
+        }
+
+        private BlockState fusedSand(final long hash, final boolean redSand,
+            final double craterNormalized) {
+            double selector = unit(hash ^ 0x46555345445F534EL);
+            double innerHeat = Mth.clamp(1.25 - craterNormalized, 0.0, 1.0);
+            if (!redSand) {
+                if (selector < 0.20 + innerHeat * 0.28) return Blocks.GLASS.defaultBlockState();
+                if (selector < 0.50 + innerHeat * 0.18) return Blocks.WHITE_TERRACOTTA.defaultBlockState();
+                if (selector < 0.78) return Blocks.GRAVEL.defaultBlockState();
+                return Blocks.TERRACOTTA.defaultBlockState();
+            }
+            if (selector < 0.46 + innerHeat * 0.20) return Blocks.RED_TERRACOTTA.defaultBlockState();
+            if (selector < 0.78) return Blocks.TERRACOTTA.defaultBlockState();
+            return Blocks.GRAVEL.defaultBlockState();
+        }
+
+        private BlockState scorchedSoil(final long hash, final double craterNormalized) {
+            double selector = unit(hash ^ 0x53434F524348534FL);
+            if (craterNormalized < 0.82) {
+                if (selector < 0.50) return Blocks.COARSE_DIRT.defaultBlockState();
+                if (selector < 0.78) return Blocks.ROOTED_DIRT.defaultBlockState();
+                return Blocks.PODZOL.defaultBlockState();
+            }
+            if (selector < 0.42) return Blocks.PODZOL.defaultBlockState();
+            if (selector < 0.74) return Blocks.COARSE_DIRT.defaultBlockState();
+            return Blocks.ROOTED_DIRT.defaultBlockState();
+        }
+
+        private BlockState darkCraterRock(final long hash, final double craterNormalized) {
+            double selector = unit(hash ^ 0x4441524B5F524F43L);
+            if (craterNormalized < 0.58) {
+                return selector < 0.62
+                    ? Blocks.DEEPSLATE.defaultBlockState()
+                    : Blocks.COBBLED_DEEPSLATE.defaultBlockState();
+            }
+            if (selector < 0.46) return Blocks.COBBLED_DEEPSLATE.defaultBlockState();
+            if (selector < 0.80) return Blocks.DEEPSLATE.defaultBlockState();
+            return Blocks.TUFF.defaultBlockState();
+        }
+
+        private boolean exposedToAir(final ServerLevel level, final BlockPos position) {
+            for (Direction direction : Direction.values()) {
+                neighbour.setWithOffset(position, direction);
+                if (level.isInWorldBounds(neighbour) && level.getBlockState(neighbour).isAir()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private void scorchGround(final ServerLevel level, final int x, final int surfaceY,
             final int z, final double intensity) {
             if (intensity <= 0.0) return;
             cursor.set(x, surfaceY, z);
             if (!level.isInWorldBounds(cursor)) return;
             BlockState state = level.getBlockState(cursor);
-            if (!(state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.DIRT)
-                || state.is(Blocks.COARSE_DIRT) || state.is(Blocks.ROOTED_DIRT)
-                || state.is(Blocks.MYCELIUM) || state.is(Blocks.PODZOL))) return;
+            if (!isSoil(state)) return;
             long hash = seed ^ cursor.asLong() ^ 0x53434F5243484544L;
             double replaceChance = Mth.clamp(0.18 + intensity * 0.82, 0.0, 1.0);
             if (unit(hash) >= replaceChance) return;
@@ -209,6 +349,20 @@ public final class WarheadGlassShockwaveManager {
                 ? Blocks.PODZOL.defaultBlockState()
                 : Blocks.COARSE_DIRT.defaultBlockState();
             level.setBlock(cursor, replacement, UPDATE_FLAGS);
+        }
+
+        private static boolean isSoil(final BlockState state) {
+            return state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.DIRT)
+                || state.is(Blocks.COARSE_DIRT) || state.is(Blocks.ROOTED_DIRT)
+                || state.is(Blocks.MYCELIUM) || state.is(Blocks.PODZOL);
+        }
+
+        private static boolean isCommonRock(final BlockState state) {
+            return state.is(Blocks.STONE) || state.is(Blocks.COBBLESTONE)
+                || state.is(Blocks.ANDESITE) || state.is(Blocks.DIORITE)
+                || state.is(Blocks.GRANITE) || state.is(Blocks.TUFF)
+                || state.is(Blocks.DEEPSLATE) || state.is(Blocks.COBBLED_DEEPSLATE)
+                || state.is(Blocks.SANDSTONE) || state.is(Blocks.RED_SANDSTONE);
         }
 
         private static boolean isGlass(final BlockState state) {
