@@ -10,9 +10,9 @@ import org.joml.Vector3f;
 
 /**
  * Compatibility facade for the active analytical conventional renderer plus
- * bounded ground-front effects. The nuclear return front is evaluated from
- * particle birth time, so every puff rises briefly, falls, lands and fades
- * instead of being frozen at one analytical age above the terrain.
+ * bounded ground-front effects. Overlapping conventional impacts share one
+ * analytical volumetric field per frame so identical clouds are not rebuilt
+ * several times behind one another.
  */
 public final class ConventionalBlastParticleRenderer {
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
@@ -28,6 +28,7 @@ public final class ConventionalBlastParticleRenderer {
                 visualScale, profile, seed, lod, camera);
             return;
         }
+        if (!allowPackedCloud(pose, visualScale, seed)) return;
         ConventionalBlastVisualV5.renderFireCore(pose, buffer, age, visualScale,
             profile, seed, lod, camera);
     }
@@ -41,6 +42,7 @@ public final class ConventionalBlastParticleRenderer {
                 visualScale, profile, seed, lod, camera);
             return;
         }
+        if (!allowPackedCloud(pose, visualScale, seed)) return;
         ConventionalBlastVisualV5.renderHot(pose, buffer, age, visualScale,
             profile, seed, lod, camera);
     }
@@ -54,6 +56,7 @@ public final class ConventionalBlastParticleRenderer {
                 visualScale, profile, seed, lod, camera);
             return;
         }
+        if (!allowPackedCloud(pose, visualScale, seed)) return;
         ConventionalBlastVisualV5.renderCooling(pose, buffer, age, visualScale,
             profile, seed, lod, camera);
     }
@@ -67,6 +70,7 @@ public final class ConventionalBlastParticleRenderer {
                 visualScale, profile, seed, lod, camera);
             return;
         }
+        if (!allowPackedCloud(pose, visualScale, seed)) return;
         ConventionalBlastVisualV5.renderSmokeCore(pose, buffer, age, visualScale,
             profile, seed, lod, camera);
     }
@@ -80,8 +84,17 @@ public final class ConventionalBlastParticleRenderer {
                 visualScale, profile, seed, lod, camera);
             return;
         }
+        if (!allowPackedCloud(pose, visualScale, seed)) return;
         ConventionalBlastVisualV5.renderSmoke(pose, buffer, age, visualScale,
             profile, seed, lod, camera);
+    }
+
+    private static boolean allowPackedCloud(final PoseStack.Pose pose,
+        final float visualScale, final long seed) {
+        double mergeRadius = 18.0 + Mth.clamp(visualScale, 0.28F, 1.75F) * 18.0;
+        return WarheadParticleVisibility.claimPoseClusterOwner(pose,
+            WarheadParticleVisibility.CHANNEL_CONVENTIONAL_CLOUD,
+            mergeRadius, seed);
     }
 
     public static void renderSurfaceFront(final PoseStack.Pose pose,
@@ -239,7 +252,7 @@ public final class ConventionalBlastParticleRenderer {
 
     public static String backendDescription() {
         return WarheadRenderSettings.usePackedParticles()
-            ? "analytical_v5_ballistic_return_front"
+            ? "analytical_v5_clustered_ballistic_return_front"
             : "legacy_analytical_custom_geometry";
     }
 
