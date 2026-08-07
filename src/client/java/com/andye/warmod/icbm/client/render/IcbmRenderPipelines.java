@@ -1,12 +1,12 @@
 package com.andye.warmod.icbm.client.render;
 
 import com.andye.warmod.WarMod;
-import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -18,8 +18,9 @@ public final class IcbmRenderPipelines {
 	private static final Identifier EXHAUST_CORE_TEXTURE = texture("icbm_exhaust_core.png");
 	private static final Identifier EXHAUST_FRINGE_TEXTURE = texture("icbm_exhaust_fringe.png");
 	private static final Identifier SMOKE_TEXTURE = texture("icbm_smoke.png");
-	private static final boolean EXTERNAL_RENDERER =
-		WarheadRenderPipelines.compatibilityRendererActive();
+	private static final boolean IRIS_PRESENT = FabricLoader.getInstance().isModLoaded("iris");
+	private static final boolean SODIUM_PARTICLE_COMPAT =
+		FabricLoader.getInstance().isModLoaded("sodium") && !IRIS_PRESENT;
 
 	private static final RenderPipeline CUSTOM_SMOKE_PIPELINE = RenderPipelines.register(
 		RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
@@ -46,16 +47,18 @@ public final class IcbmRenderPipelines {
 			.build());
 
 	/*
-	 * Sodium/Iris receive Minecraft's particle pipeline for smoke rather than an
-	 * entity pipeline. The entity fallback consumed hurt-overlay state and could
-	 * tint a perfectly neutral smoke vertex red. Exhaust deliberately stays on
-	 * the additive emissive pipeline so its full-bright orange core remains a
-	 * visible light source at long range instead of becoming ordinary fogged
-	 * translucent geometry.
+	 * Sodium-only keeps the particle-compatible smoke path that fixed its colour
+	 * corruption. Iris always receives world-space entity geometry so enabling a
+	 * shader pack at runtime cannot reinterpret custom smoke/exhaust as screen
+	 * space particle quads. The vertex writers provide explicit no-overlay and
+	 * light values for the entity contract.
 	 */
-	private static final RenderPipeline SMOKE_PIPELINE = EXTERNAL_RENDERER
-		? RenderPipelines.TRANSLUCENT_PARTICLE : CUSTOM_SMOKE_PIPELINE;
-	private static final RenderPipeline EXHAUST_PIPELINE = CUSTOM_EXHAUST_PIPELINE;
+	private static final RenderPipeline SMOKE_PIPELINE = IRIS_PRESENT
+		? RenderPipelines.ENTITY_TRANSLUCENT
+		: SODIUM_PARTICLE_COMPAT ? RenderPipelines.TRANSLUCENT_PARTICLE
+			: CUSTOM_SMOKE_PIPELINE;
+	private static final RenderPipeline EXHAUST_PIPELINE = IRIS_PRESENT
+		? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE : CUSTOM_EXHAUST_PIPELINE;
 
 	public static final RenderType MISSILE = RenderType.create("war_mod_icbm",
 		RenderSetup.builder(RenderPipelines.ENTITY_CUTOUT)
@@ -75,14 +78,16 @@ public final class IcbmRenderPipelines {
 	private IcbmRenderPipelines() { }
 
 	private static RenderType exhaustType(final String name, final Identifier texture) {
-		return RenderType.create(name, RenderSetup.builder(EXHAUST_PIPELINE)
-			.withTexture("Sampler0", texture)
-			.createRenderSetup());
+		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(EXHAUST_PIPELINE)
+			.withTexture("Sampler0", texture);
+		if (IRIS_PRESENT) builder.useLightmap().useOverlay();
+		return RenderType.create(name, builder.createRenderSetup());
 	}
 
 	private static RenderType smokeType() {
 		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(SMOKE_PIPELINE)
 			.withTexture("Sampler0", SMOKE_TEXTURE).useLightmap().sortOnUpload();
+		if (IRIS_PRESENT) builder.useOverlay();
 		return RenderType.create("war_mod_icbm_smoke", builder.createRenderSetup());
 	}
 
