@@ -55,7 +55,7 @@ public final class TestExplosionService {
 		List<WarheadExplosionDropContext.DestroyedBlock> debris =
 			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed)
 				.orElseGet(() -> WarheadDebrisSourceSampler.sample(level, position, yield, seed));
-		WarheadExplosionWorkManager.detonate(level, source, warheadId, position, yield, seed);
+		WarheadExplosionWorkManager.detonateWithoutDebrisSample(level, source, warheadId, position, yield, seed);
 		return debris;
 	}
 
