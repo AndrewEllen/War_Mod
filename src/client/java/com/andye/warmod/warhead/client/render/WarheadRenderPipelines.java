@@ -33,9 +33,21 @@ public final class WarheadRenderPipelines {
         ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_shockwave_ribbons", false);
     private static final RenderPipeline GROUND_DUST_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT : translucent("pipeline/war_mod_ground_dust", false);
-    /* Smoke uses an opaque cutout pass: texture alpha shapes it, layers do not tint each other. */
-    private static final RenderPipeline HEAVY_SMOKE_PIPELINE = RenderPipelines.ENTITY_CUTOUT;
-    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = RenderPipelines.ENTITY_CUTOUT;
+
+    /*
+     * Do not use ENTITY_CUTOUT here. Its entity shader consumes OverlaySampler
+     * and overlay coordinates; the custom particle vertices deliberately do not
+     * carry a meaningful entity overlay. On some render-state combinations that
+     * interpreted zero as the red hurt overlay. This dedicated opaque cutout
+     * shader ignores overlay state completely and writes depth for dense smoke.
+     */
+    private static final RenderPipeline HEAVY_SMOKE_PIPELINE =
+        smokeCutout("pipeline/war_mod_heavy_smoke", 0.055F);
+    private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE =
+        smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
+    private static final RenderPipeline NUCLEAR_SMOKE_PIPELINE =
+        smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
+
     private static final RenderPipeline COOL_FIRE_PIPELINE = IRIS_SHADER_PACK_ACTIVE
         ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
         : emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
@@ -96,13 +108,12 @@ public final class WarheadRenderPipelines {
         texture("shockwave_strip.png"), true, false, true);
     public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE,
         PARTICLE_MASK, true, false, true);
-    /* ENTITY_CUTOUT consumes OverlaySampler; binding it prevents held-item/distance red tinting. */
     public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE,
-        PARTICLE_MASK, true, true, false);
+        PARTICLE_MASK, true, false, false);
     public static final RenderType HEAVY_SMOKE_CORE = create("war_mod_heavy_smoke_core",
-        HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, true, false);
+        HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, false, false);
     public static final RenderType NUCLEAR_SMOKE = create("war_mod_nuclear_smoke",
-        RenderPipelines.ENTITY_CUTOUT, PARTICLE_MASK, true, true, false);
+        NUCLEAR_SMOKE_PIPELINE, PARTICLE_MASK, true, false, false);
     public static final RenderType FIREBALL_CORE = createClamped("war_mod_fireball_core",
         FIREBALL_CORE_PIPELINE, PARTICLE_MASK, false, false);
     public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool",
@@ -165,6 +176,17 @@ public final class WarheadRenderPipelines {
             .withShaderDefine("NO_CARDINAL_LIGHTING")
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+            .withCull(false).build());
+    }
+
+    private static RenderPipeline smokeCutout(final String location,
+        final float alphaCutout) {
+        return RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
+            .withLocation(location)
+            .withShaderDefine("ALPHA_CUTOUT", alphaCutout)
+            .withShaderDefine("NO_OVERLAY")
+            .withShaderDefine("NO_CARDINAL_LIGHTING")
+            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
             .withCull(false).build());
     }
 
