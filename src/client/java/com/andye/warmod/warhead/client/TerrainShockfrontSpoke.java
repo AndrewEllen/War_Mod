@@ -27,6 +27,24 @@ public final class TerrainShockfrontSpoke {
 		return List.copyOf(this.nodes);
 	}
 
+	/** Append only the terrain nodes crossed by a shrinking return-wave band. */
+	public synchronized int appendNodesInDistanceBandDescending(final double outerDistance,
+		final double innerDistance, final List<TerrainShockfrontNode> destination,
+		final int maximumNodes) {
+		if (destination == null || maximumNodes <= 0 || this.nodes.isEmpty()
+			|| !Double.isFinite(outerDistance) || !Double.isFinite(innerDistance)) return 0;
+		int added = 0;
+		for (int index = this.nodes.size() - 1; index >= 0 && added < maximumNodes; index--) {
+			TerrainShockfrontNode node = this.nodes.get(index);
+			double distance = node.cumulativePathDistance();
+			if (distance > outerDistance) continue;
+			if (distance < innerDistance) break;
+			destination.add(node);
+			added++;
+		}
+		return added;
+	}
+
 	synchronized int nextSampleIndex() {
 		return this.nextSampleIndex;
 	}

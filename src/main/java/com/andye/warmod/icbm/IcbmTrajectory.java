@@ -8,6 +8,8 @@ public final class IcbmTrajectory {
     private static final double COAST_INITIAL_HORIZONTAL_FRACTION = 0.14;
     private static final double COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD = 24.0;
     private static final double COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD = 192.0;
+    private static final double BOOST_CURVE_MINIMUM_FRACTION = 0.18;
+    private static final double BOOST_CURVE_MAXIMUM_FRACTION = 0.62;
 
     private IcbmTrajectory() { }
 
@@ -56,32 +58,98 @@ public final class IcbmTrajectory {
     }
 
     private static Vec3 powered(final IcbmFlightPlan plan, final double raw) {
-        double u = Mth.clamp(raw, 0, 1);
-        double u2 = u * u;
-        double u3 = u2 * u;
+        double u = Mth.clamp(raw, 0.0, 1.0);
         Vec3 start = plan.launchPosition().add(0, .5, 0);
         Vec3 burnout = plan.burnoutPosition();
-        Vec3 launchTangent = new Vec3(0, .55 * plan.boostTicks(), 0);
-        /* Match the diagonal coast tangent so the missile begins banking before burnout. */
-        Vec3 burnoutTangent = coastInitialVelocity(plan).scale(plan.boostTicks());
-        return start.scale(2 * u3 - 3 * u2 + 1)
-            .add(launchTangent.scale(u3 - 2 * u2 + u))
-            .add(burnout.scale(-2 * u3 + 3 * u2))
-            .add(burnoutTangent.scale(u3 - u2));
+        double curveStartFraction = boostCurveStartFraction(plan, start, burnout);
+        Vec3 curveStart = new Vec3(start.x,
+            Mth.lerp(curveStartFraction, start.y, burnout.y), start.z);
+        double curveStartTicks = Math.max(1.0, plan.boostTicks() * curveStartFraction);
+        double curvedTicks = Math.max(1.0, plan.boostTicks() - curveStartTicks);
+        Vec3 curveStartVelocity = boostCurveStartVelocity(plan, curveStart, burnout, curvedTicks);
+
+        if (u <= curveStartFraction) {
+            double local = curveStartFraction <= 1.0E-8 ? 1.0 : u / curveStartFraction;
+            double secant = Math.max(0.01, (curveStart.y - start.y) / curveStartTicks);
+            Vec3 launchVelocity = new Vec3(0.0, Mth.clamp(secant * 0.45, 0.35, 1.20), 0.0);
+            return hermitePosition(start, curveStart,
+                launchVelocity.scale(curveStartTicks),
+                curveStartVelocity.scale(curveStartTicks), local);
+        }
+
+        double local = (u - curveStartFraction) / Math.max(1.0E-8, 1.0 - curveStartFraction);
+        Vec3 burnoutVelocity = coastInitialVelocity(plan);
+        return hermitePosition(curveStart, burnout,
+            curveStartVelocity.scale(curvedTicks),
+            burnoutVelocity.scale(curvedTicks), local);
     }
 
     private static Vec3 poweredVelocity(final IcbmFlightPlan plan, final double raw) {
-        double u = Mth.clamp(raw, 0, 1);
-        double u2 = u * u;
+        double u = Mth.clamp(raw, 0.0, 1.0);
         Vec3 start = plan.launchPosition().add(0, .5, 0);
         Vec3 burnout = plan.burnoutPosition();
-        Vec3 launchTangent = new Vec3(0, .55 * plan.boostTicks(), 0);
-        Vec3 burnoutTangent = coastInitialVelocity(plan).scale(plan.boostTicks());
-        return start.scale(6 * u2 - 6 * u)
-            .add(launchTangent.scale(3 * u2 - 4 * u + 1))
-            .add(burnout.scale(-6 * u2 + 6 * u))
-            .add(burnoutTangent.scale(3 * u2 - 2 * u))
-            .scale(1.0 / plan.boostTicks());
+        double curveStartFraction = boostCurveStartFraction(plan, start, burnout);
+        Vec3 curveStart = new Vec3(start.x,
+            Mth.lerp(curveStartFraction, start.y, burnout.y), start.z);
+        double curveStartTicks = Math.max(1.0, plan.boostTicks() * curveStartFraction);
+        double curvedTicks = Math.max(1.0, plan.boostTicks() - curveStartTicks);
+        Vec3 curveStartVelocity = boostCurveStartVelocity(plan, curveStart, burnout, curvedTicks);
+
+        if (u <= curveStartFraction) {
+            double local = curveStartFraction <= 1.0E-8 ? 1.0 : u / curveStartFraction;
+            double secant = Math.max(0.01, (curveStart.y - start.y) / curveStartTicks);
+            Vec3 launchVelocity = new Vec3(0.0, Mth.clamp(secant * 0.45, 0.35, 1.20), 0.0);
+            return hermiteDerivative(start, curveStart,
+                launchVelocity.scale(curveStartTicks),
+                curveStartVelocity.scale(curveStartTicks), local)
+                .scale(1.0 / curveStartTicks);
+        }
+
+        double local = (u - curveStartFraction) / Math.max(1.0E-8, 1.0 - curveStartFraction);
+        Vec3 burnoutVelocity = coastInitialVelocity(plan);
+        return hermiteDerivative(curveStart, burnout,
+            curveStartVelocity.scale(curvedTicks),
+            burnoutVelocity.scale(curvedTicks), local)
+            .scale(1.0 / curvedTicks);
+    }
+
+    private static double boostCurveStartFraction(final IcbmFlightPlan plan,
+        final Vec3 start, final Vec3 burnout) {
+        double verticalGain = Math.max(1.0, burnout.y - start.y);
+        double desiredStartY = Math.max(
+            IcbmConstants.BOOST_CURVE_START_MINIMUM_WORLD_Y,
+            plan.launchPosition().y + IcbmConstants.BOOST_CURVE_START_MINIMUM_HEIGHT_ABOVE_LAUNCH);
+        double rawFraction = (desiredStartY - start.y) / verticalGain;
+        return Mth.clamp(rawFraction, BOOST_CURVE_MINIMUM_FRACTION,
+            BOOST_CURVE_MAXIMUM_FRACTION);
+    }
+
+    private static Vec3 boostCurveStartVelocity(final IcbmFlightPlan plan,
+        final Vec3 curveStart, final Vec3 burnout, final double curvedTicks) {
+        double verticalSecant = Math.max(0.01, (burnout.y - curveStart.y) / curvedTicks);
+        double verticalVelocity = Mth.clamp(verticalSecant * 1.30, 0.70, 4.50);
+        return new Vec3(0.0, verticalVelocity, 0.0);
+    }
+
+    private static Vec3 hermitePosition(final Vec3 p0, final Vec3 p1,
+        final Vec3 m0, final Vec3 m1, final double rawU) {
+        double u = Mth.clamp(rawU, 0.0, 1.0);
+        double u2 = u * u;
+        double u3 = u2 * u;
+        return p0.scale(2 * u3 - 3 * u2 + 1)
+            .add(m0.scale(u3 - 2 * u2 + u))
+            .add(p1.scale(-2 * u3 + 3 * u2))
+            .add(m1.scale(u3 - u2));
+    }
+
+    private static Vec3 hermiteDerivative(final Vec3 p0, final Vec3 p1,
+        final Vec3 m0, final Vec3 m1, final double rawU) {
+        double u = Mth.clamp(rawU, 0.0, 1.0);
+        double u2 = u * u;
+        return p0.scale(6 * u2 - 6 * u)
+            .add(m0.scale(3 * u2 - 4 * u + 1))
+            .add(p1.scale(-6 * u2 + 6 * u))
+            .add(m1.scale(3 * u2 - 2 * u));
     }
 
     private static Vec3 coast(final IcbmFlightPlan plan, final double raw) {
@@ -111,10 +179,8 @@ public final class IcbmTrajectory {
     }
 
     /**
-     * The old first control point was directly above burnout. That kept the
-     * carrier vertical until near the apex and then forced a visibly sharp
-     * turn. A bounded forward lead starts the down-range arc while the carrier
-     * is still climbing above the cloud layer.
+     * Keep the coast tangent moving down-range while it is still climbing, so
+     * burnout joins the ballistic arc without a second visible corner.
      */
     private static Vec3 coastControlOne(final Vec3 burnout, final Vec3 separation) {
         Vec3 delta = separation.subtract(burnout);
