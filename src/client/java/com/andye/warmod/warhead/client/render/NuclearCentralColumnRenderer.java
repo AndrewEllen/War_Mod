@@ -100,6 +100,75 @@ public final class NuclearCentralColumnRenderer {
                     + localAge * signed(random, 12) * 0.006F,
                 colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
         }
+
+        renderCapReheat(pose, buffer, age, scale, seed, lod, hotPass,
+            craterFloor, columnHeight, basis);
+    }
+
+    /**
+     * Particles curling under the cap are reheated in the hidden inner column,
+     * producing a hot centre while the outer mushroom remains smoke. They cool
+     * sharply as they reach the cap top so the glow does not escape as a spire.
+     */
+    private static void renderCapReheat(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final double age, final float scale,
+        final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
+        final float craterFloor, final float columnHeight, final Basis basis) {
+        if (age < 120.0 || age >= 2_200.0) return;
+        int baseCount = switch (lod) {
+            case NEAR -> 2_100;
+            case MEDIUM -> 1_020;
+            case FAR -> 390;
+        };
+        int count = Math.max(160, Math.round(baseCount * densityMultiplier()));
+        float innerRadius = 5.8F + 2.45F * scale;
+        float capBase = craterFloor + columnHeight * 0.72F;
+        float capDepth = 15.0F + 3.0F * scale;
+        float lateFade = age < 1_850.0 ? 1.0F
+            : smoothstep(Mth.clamp((float) ((2_200.0 - age) / 350.0),
+                0.0F, 1.0F));
+
+        for (int index = 0; index < count; index++) {
+            long random = mix(seed ^ 0x4341505F52454854L
+                ^ index * 0xD1B54A32D192ED03L);
+            float cycle = (float) (age * (0.0065 + unit(random, 0) * 0.0030)
+                + unit(random, 1));
+            cycle -= Mth.floor(cycle);
+            float rise = smoothstep(cycle);
+            float heatUp = smoothstep(Mth.clamp((cycle - 0.08F) / 0.42F,
+                0.0F, 1.0F));
+            float rapidTopCooling = 1.0F - smoothstep(Mth.clamp(
+                (cycle - 0.76F) / 0.18F, 0.0F, 1.0F));
+            float heat = Mth.clamp(heatUp * rapidTopCooling
+                * (0.82F + unit(random, 2) * 0.22F), 0.0F, 1.0F);
+            boolean hot = heat >= 0.58F;
+            if (hot != hotPass || heat < 0.08F) continue;
+
+            float angle = unit(random, 3) * Mth.TWO_PI
+                + (float) age * signed(random, 4) * 0.0065F;
+            float inward = 1.0F - rise;
+            float radial = Mth.sqrt(unit(random, 5)) * innerRadius
+                * (0.28F + 0.72F * inward);
+            float corkscrew = Mth.sin(cycle * Mth.TWO_PI
+                + unit(random, 6) * Mth.TWO_PI) * innerRadius * 0.10F;
+            float px = Mth.cos(angle) * radial
+                + Mth.cos(angle + Mth.HALF_PI) * corkscrew;
+            float pz = Mth.sin(angle) * radial
+                + Mth.sin(angle + Mth.HALF_PI) * corkscrew;
+            float py = capBase + rise * capDepth
+                + signed(random, 7) * (0.7F + scale * 0.18F);
+            float particleRadius = (0.78F + unit(random, 8) * 2.10F)
+                * (0.94F + scale * 0.10F)
+                * (0.86F + heat * 0.28F);
+            float alpha = (hotPass ? 0.94F : 0.78F)
+                * smoothstep(Mth.clamp(heat / 0.18F, 0.0F, 1.0F))
+                * lateFade;
+            Colour colour = fireColour(heat);
+            billboard(pose, buffer, px, py, pz, particleRadius,
+                unit(random, 9) * Mth.TWO_PI
+                    + (float) age * signed(random, 10) * 0.005F,
+                colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
+        }
     }
 
     public static void renderSmoke(final PoseStack.Pose pose,
