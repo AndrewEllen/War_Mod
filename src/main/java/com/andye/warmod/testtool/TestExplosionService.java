@@ -5,6 +5,7 @@ import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadDebrisSourceSampler;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
 import com.andye.warmod.warhead.WarheadYield;
 import java.util.List;
 import java.util.UUID;
@@ -47,12 +48,13 @@ public final class TestExplosionService {
 		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid explosion arguments");
 		/*
-		 * Capture the struck structure before staged crater removal begins. The
-		 * returned blocks are exact future crater intersections rather than
-		 * unrelated height-map samples around the blast.
+		 * Capture the struck structure before staged crater removal begins. When
+		 * terminal flight already prepared this exact impact, reuse that sample;
+		 * otherwise preserve the original synchronous fallback.
 		 */
 		List<WarheadExplosionDropContext.DestroyedBlock> debris =
-			WarheadDebrisSourceSampler.sample(level, position, yield, seed);
+			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed)
+				.orElseGet(() -> WarheadDebrisSourceSampler.sample(level, position, yield, seed));
 		WarheadExplosionWorkManager.detonate(level, source, warheadId, position, yield, seed);
 		return debris;
 	}
