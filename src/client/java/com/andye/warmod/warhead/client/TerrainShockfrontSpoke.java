@@ -27,6 +27,30 @@ public final class TerrainShockfrontSpoke {
 		return List.copyOf(this.nodes);
 	}
 
+	/**
+	 * Appends nodes already stored on this spoke that fall inside a cumulative
+	 * distance band. This avoids allocating a full immutable spoke snapshot when
+	 * a renderer only needs the narrow strip currently crossed by a wave front.
+	 */
+	public synchronized int appendNodesInDistanceBand(final double innerDistance,
+		final double outerDistance, final int maximumNodes,
+		final List<TerrainShockfrontNode> output) {
+		if (maximumNodes <= 0 || output == null || this.nodes.isEmpty()
+			|| !Double.isFinite(innerDistance) || !Double.isFinite(outerDistance)
+			|| outerDistance < innerDistance) return 0;
+		int added = 0;
+		for (int index = this.nodes.size() - 1;
+			index >= 0 && added < maximumNodes; index--) {
+			TerrainShockfrontNode node = this.nodes.get(index);
+			double distance = node.cumulativePathDistance();
+			if (distance > outerDistance) continue;
+			if (distance < innerDistance) break;
+			output.add(node);
+			added++;
+		}
+		return added;
+	}
+
 	synchronized int nextSampleIndex() {
 		return this.nextSampleIndex;
 	}
