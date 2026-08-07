@@ -12,7 +12,7 @@ import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.resources.Identifier;
 
-/** ICBM render types with renderer-safe smoke and emissive exhaust paths. */
+/** ICBM render types with neutral smoke and a full-bright additive exhaust. */
 public final class IcbmRenderPipelines {
 	private static final Identifier ALBEDO = texture("icbm_albedo.png");
 	private static final Identifier EXHAUST_CORE_TEXTURE = texture("icbm_exhaust_core.png");
@@ -45,10 +45,17 @@ public final class IcbmRenderPipelines {
 			.withCull(false)
 			.build());
 
+	/*
+	 * Sodium/Iris receive Minecraft's particle pipeline for smoke rather than an
+	 * entity pipeline. The entity fallback consumed hurt-overlay state and could
+	 * tint a perfectly neutral smoke vertex red. Exhaust deliberately stays on
+	 * the additive emissive pipeline so its full-bright orange core remains a
+	 * visible light source at long range instead of becoming ordinary fogged
+	 * translucent geometry.
+	 */
 	private static final RenderPipeline SMOKE_PIPELINE = EXTERNAL_RENDERER
-		? RenderPipelines.ENTITY_TRANSLUCENT : CUSTOM_SMOKE_PIPELINE;
-	private static final RenderPipeline EXHAUST_PIPELINE = EXTERNAL_RENDERER
-		? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE : CUSTOM_EXHAUST_PIPELINE;
+		? RenderPipelines.TRANSLUCENT_PARTICLE : CUSTOM_SMOKE_PIPELINE;
+	private static final RenderPipeline EXHAUST_PIPELINE = CUSTOM_EXHAUST_PIPELINE;
 
 	public static final RenderType MISSILE = RenderType.create("war_mod_icbm",
 		RenderSetup.builder(RenderPipelines.ENTITY_CUTOUT)
@@ -68,16 +75,14 @@ public final class IcbmRenderPipelines {
 	private IcbmRenderPipelines() { }
 
 	private static RenderType exhaustType(final String name, final Identifier texture) {
-		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(EXHAUST_PIPELINE)
-			.withTexture("Sampler0", texture);
-		if (EXTERNAL_RENDERER) builder.useOverlay();
-		return RenderType.create(name, builder.createRenderSetup());
+		return RenderType.create(name, RenderSetup.builder(EXHAUST_PIPELINE)
+			.withTexture("Sampler0", texture)
+			.createRenderSetup());
 	}
 
 	private static RenderType smokeType() {
 		RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(SMOKE_PIPELINE)
 			.withTexture("Sampler0", SMOKE_TEXTURE).useLightmap().sortOnUpload();
-		if (EXTERNAL_RENDERER) builder.useOverlay();
 		return RenderType.create("war_mod_icbm_smoke", builder.createRenderSetup());
 	}
 
