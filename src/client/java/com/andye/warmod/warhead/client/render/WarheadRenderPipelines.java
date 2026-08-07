@@ -18,18 +18,6 @@ import net.minecraft.resources.Identifier;
 /** Minecraft 26.2 render pipelines for each visual layer. */
 public final class WarheadRenderPipelines {
     private static final boolean IRIS_PRESENT = FabricLoader.getInstance().isModLoaded("iris");
-    private static final boolean SODIUM_ACTIVE = FabricLoader.getInstance().isModLoaded("sodium");
-    /*
-     * RenderType/pipeline objects are static once created, while Iris shader packs
-     * can be enabled and disabled at runtime. Selecting a particle pipeline from
-     * the shader state at class-load time therefore leaves stale screen-space
-     * state after a shader toggle. If Iris is installed we always use the safe
-     * world-space entity contract. Sodium keeps its proven particle-compatible
-     * route only when Iris is absent.
-     */
-    private static final boolean SODIUM_PARTICLE_COMPAT = SODIUM_ACTIVE && !IRIS_PRESENT;
-    private static final RenderPipeline EXTERNAL_PARTICLE_PIPELINE =
-        RenderPipelines.TRANSLUCENT_PARTICLE;
 
     private static final Identifier PARTICLE_MASK = Identifier.fromNamespaceAndPath(
         "minecraft", "textures/particle/big_smoke_2.png");
@@ -38,71 +26,67 @@ public final class WarheadRenderPipelines {
     private static final Identifier EXPLOSION_MASK = Identifier.fromNamespaceAndPath(
         "minecraft", "textures/particle/explosion_0.png");
 
+    /*
+     * Sodium does not need a separate render contract here. Custom geometry is
+     * submitted through the same Minecraft entity-derived pipelines as the
+     * normal renderer, which preserves the tested colours, alpha cutouts and
+     * mesh visibility. Iris is the only compatibility branch because shader
+     * packs replace the world rendering program contracts.
+     */
     private static final RenderPipeline CONDENSATION_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE : condensation();
+        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE : condensation();
     private static final RenderPipeline PRESSURE_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : translucent("pipeline/war_mod_pressure_shell", false);
+        : translucent("pipeline/war_mod_pressure_shell", false);
     private static final RenderPipeline SHOCKWAVE_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : translucent("pipeline/war_mod_shockwave_ribbons", false);
+        : translucent("pipeline/war_mod_shockwave_ribbons", false);
     private static final RenderPipeline GROUND_DUST_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : translucent("pipeline/war_mod_ground_dust", false);
+        : translucent("pipeline/war_mod_ground_dust", false);
 
     /*
-     * The normal renderer uses dedicated depth-writing smoke pipelines. Sodium
-     * uses its tested particle-compatible route. Iris cannot use that particle
-     * route for submitted custom geometry, so smoke uses the same world-space
-     * entity contract as the other translucent effects.
+     * Dense smoke keeps Iris' known-good world-space entity contract. Outside
+     * Iris it uses the original depth-writing, overlay-free cutout pipeline.
      */
     private static final RenderPipeline HEAVY_SMOKE_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : smokeCutout("pipeline/war_mod_heavy_smoke", 0.055F);
+        : smokeCutout("pipeline/war_mod_heavy_smoke", 0.055F);
     private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
+        : smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
     private static final RenderPipeline NUCLEAR_SMOKE_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
+        : smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
 
-    private static final RenderPipeline COOL_FIRE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
-    private static final RenderPipeline FIREBALL_CORE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : emissiveTranslucent("pipeline/war_mod_fireball_core", true, 0.065F);
-    private static final RenderPipeline PLASMA_CORE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
-                .withLocation("pipeline/war_mod_plasma_core")
-                .withShaderDefine("ALPHA_CUTOUT", 0.075F)
-                .withShaderDefine("NO_OVERLAY")
-                .withShaderDefine("NO_CARDINAL_LIGHTING")
-                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
-                .withCull(false).build());
+    /*
+     * Fire is entity-derived custom geometry even under Iris. This retains the
+     * normal renderer's full-bright colour and, importantly, the depth-writing
+     * hot/core passes so water and ice cannot draw through the first fire layer.
+     */
+    private static final RenderPipeline COOL_FIRE_PIPELINE =
+        emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
+    private static final RenderPipeline FIREBALL_CORE_PIPELINE =
+        emissiveTranslucent("pipeline/war_mod_fireball_core", true, 0.065F);
+    private static final RenderPipeline PLASMA_CORE_PIPELINE = RenderPipelines.register(
+        RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+            .withLocation("pipeline/war_mod_plasma_core")
+            .withShaderDefine("ALPHA_CUTOUT", 0.075F)
+            .withShaderDefine("NO_OVERLAY")
+            .withShaderDefine("NO_CARDINAL_LIGHTING")
+            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
+            .withCull(false).build());
     private static final RenderPipeline GROUND_RIPPLE_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_TRANSLUCENT
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
-                .withLocation("pipeline/war_mod_ground_ripple")
-                .withVertexShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
-                .withFragmentShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
-                .withShaderDefine("NO_OVERLAY")
-                .withShaderDefine("NO_CARDINAL_LIGHTING")
-                .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
-                .withCull(false).build());
+        : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
+            .withLocation("pipeline/war_mod_ground_ripple")
+            .withVertexShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
+            .withFragmentShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/ground_ripple"))
+            .withShaderDefine("NO_OVERLAY")
+            .withShaderDefine("NO_CARDINAL_LIGHTING")
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+            .withCull(false).build());
     private static final RenderPipeline TERRAIN_DEFORMATION_PIPELINE = IRIS_PRESENT
         ? RenderPipelines.ENTITY_CUTOUT
         : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
@@ -110,17 +94,15 @@ public final class WarheadRenderPipelines {
             .withShaderDefine("NO_OVERLAY")
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
             .withCull(false).build());
-    private static final RenderPipeline HOT_FIRE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE
-        : SODIUM_PARTICLE_COMPAT ? EXTERNAL_PARTICLE_PIPELINE
-            : RenderPipelines.register(RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
-                .withLocation("pipeline/war_mod_hot_fire")
-                .withShaderDefine("ALPHA_CUTOUT", 0.035F)
-                .withShaderDefine("NO_OVERLAY")
-                .withShaderDefine("NO_CARDINAL_LIGHTING")
-                .withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
-                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
-                .withCull(false).build());
+    private static final RenderPipeline HOT_FIRE_PIPELINE = RenderPipelines.register(
+        RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+            .withLocation("pipeline/war_mod_hot_fire")
+            .withShaderDefine("ALPHA_CUTOUT", 0.035F)
+            .withShaderDefine("NO_OVERLAY")
+            .withShaderDefine("NO_CARDINAL_LIGHTING")
+            .withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
+            .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
+            .withCull(false).build());
 
     public static final RenderType PROJECTILE = create("war_mod_projectile",
         RenderPipelines.ENTITY_CUTOUT, texture("warhead_albedo.png"), true, true, false);
@@ -170,7 +152,7 @@ public final class WarheadRenderPipelines {
     private WarheadRenderPipelines() { }
 
     public static boolean compatibilityRendererActive() {
-        return SODIUM_ACTIVE || IRIS_PRESENT;
+        return IRIS_PRESENT;
     }
 
     /** Diagnostic only; pipeline selection deliberately does not depend on this mutable state. */
@@ -198,7 +180,7 @@ public final class WarheadRenderPipelines {
             .withTexture("Sampler0", texture,
                 () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
             .setOutline(RenderSetup.OutlineProperty.NONE);
-        if (useLightmap || SODIUM_PARTICLE_COMPAT || IRIS_PRESENT) builder.useLightmap();
+        if (useLightmap || IRIS_PRESENT) builder.useLightmap();
         if (IRIS_PRESENT) builder.useOverlay();
         if (sortOnUpload) builder.sortOnUpload();
         return RenderType.create(name, builder.createRenderSetup());
@@ -259,7 +241,7 @@ public final class WarheadRenderPipelines {
         RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline)
             .withTexture("Sampler0", texture)
             .setOutline(RenderSetup.OutlineProperty.NONE);
-        if (useLightmap || SODIUM_PARTICLE_COMPAT || IRIS_PRESENT) builder.useLightmap();
+        if (useLightmap || IRIS_PRESENT) builder.useLightmap();
         if (useOverlay || IRIS_PRESENT) builder.useOverlay();
         if (sortOnUpload) builder.sortOnUpload();
         return RenderType.create(name, builder.createRenderSetup());
