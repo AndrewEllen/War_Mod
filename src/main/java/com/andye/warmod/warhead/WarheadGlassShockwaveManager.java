@@ -15,6 +15,8 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
@@ -185,45 +187,60 @@ public final class WarheadGlassShockwaveManager {
 
             scorchGround(level, x, surfaceY, z, scorchIntensity);
 
-            for (int y = surfaceY - belowSurface; y <= surfaceY + aboveSurface; y++) {
-                cursor.set(x, y, z);
-                if (!level.isInWorldBounds(cursor)) continue;
-                BlockState state = level.getBlockState(cursor);
-                if (state.isAir()) continue;
-
-                if (isGlass(state)) {
-                    long hash = seed ^ cursor.asLong() ^ 0x474C4153535F5634L;
-                    if (unit(hash) <= glassChance) {
-                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
-                    }
+            int minimumY = Math.max(level.dimensionType().minY(), surfaceY - belowSurface);
+            int maximumY = Math.min(
+                level.dimensionType().minY() + level.dimensionType().height() - 1,
+                surfaceY + aboveSurface
+            );
+            LevelChunk chunk = level.getChunk(x >> 4, z >> 4);
+            int y = minimumY;
+            while (y <= maximumY) {
+                int sectionEnd = Math.min(maximumY, (y & ~15) + 15);
+                LevelChunkSection section = chunk.getSection(level.getSectionIndex(y));
+                if (section.hasOnlyAir()) {
+                    y = sectionEnd + 1;
                     continue;
                 }
+                for (; y <= sectionEnd; y++) {
+                    cursor.set(x, y, z);
+                    if (!level.isInWorldBounds(cursor)) continue;
+                    BlockState state = level.getBlockState(cursor);
+                    if (state.isAir()) continue;
 
-                if (scorchIntensity > 0.0) {
-                    long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
-                    if (state.is(BlockTags.LEAVES)) {
-                        double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92,
-                            0.0, 1.0);
-                        if (unit(hash) < stripChance) {
+                    if (isGlass(state)) {
+                        long hash = seed ^ cursor.asLong() ^ 0x474C4153535F5634L;
+                        if (unit(hash) <= glassChance) {
                             level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
                         }
                         continue;
                     }
-                    if (state.is(BlockTags.LOGS)) {
-                        double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18,
-                            0.0, 0.92);
-                        if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
-                            level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(),
-                                UPDATE_FLAGS);
-                        }
-                        continue;
-                    }
-                }
 
-                if (nuclear && normalizedDistance < 0.82 && isFragileSurface(state)) {
-                    double chance = (1.0 - normalizedDistance / 0.82) * 0.82;
-                    if (unit(seed ^ cursor.asLong() ^ 0x5355524641434556L) < chance) {
-                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                    if (scorchIntensity > 0.0) {
+                        long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
+                        if (state.is(BlockTags.LEAVES)) {
+                            double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92,
+                                0.0, 1.0);
+                            if (unit(hash) < stripChance) {
+                                level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                            }
+                            continue;
+                        }
+                        if (state.is(BlockTags.LOGS)) {
+                            double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18,
+                                0.0, 0.92);
+                            if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
+                                level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(),
+                                    UPDATE_FLAGS);
+                            }
+                            continue;
+                        }
+                    }
+
+                    if (nuclear && normalizedDistance < 0.82 && isFragileSurface(state)) {
+                        double chance = (1.0 - normalizedDistance / 0.82) * 0.82;
+                        if (unit(seed ^ cursor.asLong() ^ 0x5355524641434556L) < chance) {
+                            level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                        }
                     }
                 }
             }
