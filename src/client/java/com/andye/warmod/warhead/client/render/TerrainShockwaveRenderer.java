@@ -6,7 +6,6 @@ import com.andye.warmod.warhead.client.TerrainShockfrontSpoke;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
@@ -123,7 +122,7 @@ public final class TerrainShockwaveRenderer {
 		buffer.addVertex(pose, (float) (x - center.x), (float) (y - center.y), (float) (z - center.z))
 			.setColor(red, green, blue, alpha)
 			.setUv(u, v)
-			.setOverlay(OverlayTexture.NO_OVERLAY)
+			.setOverlay(0)
 			.setLight(0xF000F0)
 			.setNormal(pose, 0.0F, 1.0F, 0.0F);
 	}

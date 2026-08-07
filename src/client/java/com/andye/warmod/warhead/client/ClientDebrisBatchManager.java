@@ -1,6 +1,5 @@
 package com.andye.warmod.warhead.client;
 
-import com.andye.warmod.warhead.client.render.WarheadParticleVisibility;
 import com.andye.warmod.warhead.network.ClientboundWarheadDebrisPayload;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import java.util.ArrayList;
@@ -152,8 +151,6 @@ public final class ClientDebrisBatchManager {
                         (float) part.offset.y, (float) part.offset.z)
                         .mul(piece.scale).rotate(quaternion);
                     Vec3 position = worldRoot.add(local.x, local.y, local.z);
-                    if (!WarheadParticleVisibility.visibleWorld(position,
-                        Math.max(0.55F, piece.scale * 0.75F))) continue;
                     result.add(new RenderSample(batchEntry.getKey(), pieceIndex,
                         partIndex, part.state, position, piece.velocity, effectiveSpin,
                         renderedAge, piece.scale, piece.settled, trail));

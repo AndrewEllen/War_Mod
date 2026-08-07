@@ -2,7 +2,6 @@ package com.andye.warmod.warhead.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -107,15 +106,15 @@ public final class NuclearCentralColumnRenderer {
     }
 
     /**
-     * Particles curling under the cap are reheated in the hidden inner column.
-     * The reheated section is delayed and confined below the cap so it cannot
-     * appear as an isolated light pillar above the forming mushroom cloud.
+     * Particles curling under the cap are reheated in the hidden inner column,
+     * producing a hot centre while the outer mushroom remains smoke. They cool
+     * sharply as they reach the cap top so the glow does not escape as a spire.
      */
     private static void renderCapReheat(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double age, final float scale,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
         final float craterFloor, final float columnHeight, final Basis basis) {
-        if (age < 260.0 || age >= 2_200.0) return;
+        if (age < 120.0 || age >= 2_200.0) return;
         int baseCount = switch (lod) {
             case NEAR -> 2_100;
             case MEDIUM -> 1_020;
@@ -123,8 +122,8 @@ public final class NuclearCentralColumnRenderer {
         };
         int count = Math.max(160, Math.round(baseCount * densityMultiplier()));
         float innerRadius = 5.8F + 2.45F * scale;
-        float capBase = craterFloor + columnHeight * 0.60F;
-        float capDepth = 8.0F + 1.8F * scale;
+        float capBase = craterFloor + columnHeight * 0.72F;
+        float capDepth = 15.0F + 3.0F * scale;
         float lateFade = age < 1_850.0 ? 1.0F
             : smoothstep(Mth.clamp((float) ((2_200.0 - age) / 350.0),
                 0.0F, 1.0F));
@@ -139,7 +138,7 @@ public final class NuclearCentralColumnRenderer {
             float heatUp = smoothstep(Mth.clamp((cycle - 0.08F) / 0.42F,
                 0.0F, 1.0F));
             float rapidTopCooling = 1.0F - smoothstep(Mth.clamp(
-                (cycle - 0.62F) / 0.14F, 0.0F, 1.0F));
+                (cycle - 0.76F) / 0.18F, 0.0F, 1.0F));
             float heat = Mth.clamp(heatUp * rapidTopCooling
                 * (0.82F + unit(random, 2) * 0.22F), 0.0F, 1.0F);
             boolean hot = heat >= 0.58F;
@@ -266,12 +265,10 @@ public final class NuclearCentralColumnRenderer {
     }
 
     private static float columnHeight(final double age, final float scale) {
-        float initial = 10.0F + 3.0F * scale;
-        float target = 58.0F + 18.0F * scale
-            + Mth.sqrt((float) Math.max(0.0, age)) * 1.25F;
+        float growing = 58.0F + 18.0F * scale
+            + Mth.sqrt((float) Math.max(0.0, age)) * 1.55F;
         float cap = 142.0F + 17.0F * scale;
-        float growth = smoothstep(Mth.clamp((float) age / 260.0F, 0.0F, 1.0F));
-        return Mth.lerp(growth, initial, Math.min(target, cap));
+        return Math.min(growing, cap);
     }
 
     private static float densityMultiplier() {
@@ -345,7 +342,7 @@ public final class NuclearCentralColumnRenderer {
                 centerZ + offsetZ)
             .setColor(red, green, blue,
                 Mth.clamp((int) (alpha * 255.0F), 0, 255))
-            .setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light)
+            .setUv(u, v).setOverlay(0).setLight(light)
             .setNormal(pose, basis.normal.x, basis.normal.y, basis.normal.z);
     }
 

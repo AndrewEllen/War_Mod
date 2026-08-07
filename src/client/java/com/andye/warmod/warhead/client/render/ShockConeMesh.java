@@ -4,7 +4,6 @@ import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
@@ -23,8 +22,7 @@ public final class ShockConeMesh {
 		final long visualSeed,
 		final int flightTicks
 	) {
-		double speed = WarheadVisualMath.normalizedSpeed(velocity,
-			WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
+		double speed = WarheadVisualMath.normalizedSpeed(velocity, WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
 		double speedActivation = WarheadVisualMath.coneActivation(speed);
 		double attack = WarheadVisualMath.coneAttack(elapsedTicks - flightTicks * 0.20);
 		double fade = WarheadVisualMath.coneFade(remainingTicks);
@@ -34,16 +32,12 @@ public final class ShockConeMesh {
 		}
 
 		double pulse = WarheadVisualMath.conePulse(elapsedTicks, visualSeed);
-		float compression = (float) WarheadVisualMath.terminalConeCompression(progress);
-		float length = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0),
-			3.0F, 25.0F) * pulse * Mth.lerp(compression, 1.0F, .52F));
-		float rearRadius = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0),
-			0.5F, 5.2F) * pulse * Mth.lerp(compression, 1.0F, 1.20F));
-		float frontRadius = Mth.lerp(compression, .22F, .44F);
-		int segments = lod == WarheadMesh.Lod.NEAR ? 16
-			: lod == WarheadMesh.Lod.MEDIUM ? 10 : 6;
-		float alpha = (float) (0.22 * activation * (0.96 + 0.04 * pulse)
-			* Mth.lerp(compression, 1.0F, 1.22F));
+		float compression=(float)WarheadVisualMath.terminalConeCompression(progress);
+		float length = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 3.0F, 25.0F) * pulse * Mth.lerp(compression,1.0F,.52F));
+		float rearRadius = (float) (Mth.lerp((float) WarheadVisualMath.clamp(activation, 0.0, 1.0), 0.5F, 5.2F) * pulse * Mth.lerp(compression,1.0F,1.20F));
+		float frontRadius = Mth.lerp(compression,.22F,.44F);
+		int segments = lod == WarheadMesh.Lod.NEAR ? 16 : lod == WarheadMesh.Lod.MEDIUM ? 10 : 6;
+		float alpha = (float) (0.22 * activation * (0.96 + 0.04 * pulse) * Mth.lerp(compression,1.0F,1.22F));
 		float rearY = -length;
 		float frontY = -0.55F;
 
@@ -61,10 +55,8 @@ public final class ShockConeMesh {
 			float nextFrontZ = frontRadius * Mth.sin(nextAngle);
 			coneVertex(pose, buffer, rearX, rearY, rearZ, angle, 0.0F, alpha);
 			coneVertex(pose, buffer, frontX, frontY, frontZ, angle, 1.0F, alpha);
-			coneVertex(pose, buffer, nextFrontX, frontY, nextFrontZ,
-				nextAngle, 1.0F, alpha);
-			coneVertex(pose, buffer, nextRearX, rearY, nextRearZ,
-				nextAngle, 0.0F, alpha);
+			coneVertex(pose, buffer, nextFrontX, frontY, nextFrontZ, nextAngle, 1.0F, alpha);
+			coneVertex(pose, buffer, nextRearX, rearY, nextRearZ, nextAngle, 0.0F, alpha);
 		}
 	}
 
@@ -82,7 +74,7 @@ public final class ShockConeMesh {
 		buffer.addVertex(pose, x, y, z)
 			.setColor(232, 242, 249, alphaByte)
 			.setUv(u, y * 0.045F)
-			.setOverlay(OverlayTexture.NO_OVERLAY)
+			.setOverlay(0)
 			.setLight(0xF000F0)
 			.setNormal(pose, Mth.cos(angle), 0.20F, Mth.sin(angle));
 	}
