@@ -11,21 +11,23 @@ public final class IcbmExhaustRenderer {
 	public static void renderCore(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed);
-		plume(pose, buffer, -2.55F, 0.46F, (float) (4.65 * flicker), 255, 255, 238, 255, 3);
+		float visibility = visibilityScale(lod);
+		plume(pose, buffer, -2.55F, 0.46F * visibility, (float) (4.65 * flicker), 255, 255, 238, 255, 3);
 		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.58F, 0.63F, (float) (6.35 * flicker), 255, 232, 146, 228, 3);
+			plume(pose, buffer, -2.58F, 0.63F * visibility, (float) (6.35 * flicker), 255, 232, 146, 228, 3);
 		}
 	}
 
 	public static void renderFringe(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed);
-		plume(pose, buffer, -2.60F, 0.82F, (float) (8.55 * flicker), 255, 174, 54, 216, 4);
+		float visibility = visibilityScale(lod);
+		plume(pose, buffer, -2.60F, 0.82F * visibility, (float) (8.55 * flicker), 255, 174, 54, 216, 4);
 		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.64F, 1.08F, (float) (11.25 * flicker), 255, 108, 24, 150, 4);
+			plume(pose, buffer, -2.64F, 1.08F * visibility, (float) (11.25 * flicker), 255, 108, 24, 150, 4);
 		}
 		if (lod == IcbmLongRangeRenderContext.Lod.NEAR || lod == IcbmLongRangeRenderContext.Lod.MEDIUM) {
-			plume(pose, buffer, -2.68F, 1.38F, (float) (14.0 * flicker), 238, 76, 18, 82, 5);
+			plume(pose, buffer, -2.68F, 1.38F * visibility, (float) (14.0 * flicker), 238, 76, 18, 82, 5);
 		}
 	}
 
@@ -34,6 +36,21 @@ public final class IcbmExhaustRenderer {
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		renderCore(pose, buffer, seed, elapsed, lod);
 		renderFringe(pose, buffer, seed, elapsed, lod);
+	}
+
+	/*
+	 * The long-range world transform preserves physical angular size. Once the
+	 * plume is only a few pixels across that can make an otherwise full-bright
+	 * flame disappear into sampling. Inflate only its radius at distant LODs;
+	 * near and medium launches retain their authored dimensions and plume length.
+	 */
+	private static float visibilityScale(final IcbmLongRangeRenderContext.Lod lod) {
+		return switch (lod) {
+			case NEAR -> 1.0F;
+			case MEDIUM -> 1.08F;
+			case FAR -> 1.45F;
+			case EXTREME -> 2.35F;
+		};
 	}
 
 	private static double flicker(final long seed, final double elapsed) {
