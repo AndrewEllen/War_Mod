@@ -292,11 +292,11 @@ public final class WarheadGlassShockwaveManager {
             double innerHeat = Mth.clamp(1.25 - craterNormalized, 0.0, 1.0);
             if (!redSand) {
                 if (selector < 0.20 + innerHeat * 0.28) return Blocks.GLASS.defaultBlockState();
-                if (selector < 0.50 + innerHeat * 0.18) return Blocks.WHITE_TERRACOTTA.defaultBlockState();
+                if (selector < 0.50 + innerHeat * 0.18) return Blocks.CALCITE.defaultBlockState();
                 if (selector < 0.78) return Blocks.GRAVEL.defaultBlockState();
                 return Blocks.TERRACOTTA.defaultBlockState();
             }
-            if (selector < 0.46 + innerHeat * 0.20) return Blocks.RED_TERRACOTTA.defaultBlockState();
+            if (selector < 0.46 + innerHeat * 0.20) return Blocks.TERRACOTTA.defaultBlockState();
             if (selector < 0.78) return Blocks.TERRACOTTA.defaultBlockState();
             return Blocks.GRAVEL.defaultBlockState();
         }
