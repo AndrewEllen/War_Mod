@@ -10,9 +10,9 @@ import org.joml.Vector3f;
 
 /**
  * Compatibility facade for the active analytical conventional renderer plus
- * bounded ground-front effects. The former persistent return-wave field kept
- * thousands of particles suspended above the ground; the return front is now
- * evaluated ballistically so every particle falls, lands and fades.
+ * bounded ground-front effects. The nuclear return front is evaluated from
+ * particle birth time, so every puff rises briefly, falls, lands and fades
+ * instead of being frozen at one analytical age above the terrain.
  */
 public final class ConventionalBlastParticleRenderer {
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
@@ -121,30 +121,32 @@ public final class ConventionalBlastParticleRenderer {
 
         Basis basis = Basis.from(camera);
         float scale = Mth.clamp(yieldScale, 0.35F, 4.2F);
+        float sqrtScale = Mth.sqrt(scale);
         int baseCount = switch (lod) {
             case NEAR -> 1_360;
             case MEDIUM -> 680;
             case FAR -> 260;
         };
         int count = Math.min(2_600,
-            Math.round(baseCount * (0.72F + Mth.sqrt(scale) * 0.48F)));
+            Math.round(baseCount * (0.72F + sqrtScale * 0.48F)));
         float gravity = 0.0125F;
         long stableSeed = seed ^ NUCLEAR_KEY_MASK;
+        float globalAge = (float) age;
 
         for (int index = 0; index < count; index++) {
             long random = mix(stableSeed
                 ^ index * 0x9E3779B97F4A7C15L);
-            float localAge = unit(random, 0) * 112.0F;
+            float spawnAge = unit(random, 0) * 112.0F;
+            float localAge = globalAge - spawnAge;
+            if (localAge < 0.0F) continue;
             float life = 108.0F + unit(random, 1) * 92.0F;
-            if (localAge >= life || age < localAge) continue;
+            if (localAge >= life) continue;
 
             float angle = (index + unit(random, 2)) / count * Mth.TWO_PI;
             float inwardSpeed = 0.13F + unit(random, 3)
-                * (0.20F + 0.055F * Mth.sqrt(scale));
-            float birthRadius = (float) returnRadius
-                + localAge * inwardSpeed
-                + signed(random, 4) * (1.0F + 1.7F * scale);
-            float radial = Math.max(0.0F, birthRadius - inwardSpeed * localAge);
+                * (0.20F + 0.055F * sqrtScale);
+            float radialJitter = signed(random, 4) * (1.0F + 1.7F * scale);
+            float radial = Math.max(0.0F, (float) returnRadius + radialJitter);
             float tangential = signed(random, 5) * localAge * 0.018F;
             float cosine = Mth.cos(angle);
             float sine = Mth.sin(angle);
@@ -152,7 +154,7 @@ public final class ConventionalBlastParticleRenderer {
             float pz = sine * radial + cosine * tangential;
 
             float initialY = 0.18F + unit(random, 6)
-                * (2.2F + 1.5F * Mth.sqrt(scale));
+                * (2.2F + 1.5F * sqrtScale);
             float initialVy = 0.025F + unit(random, 7)
                 * (0.075F + 0.018F * scale);
             float py = initialY + initialVy * localAge
@@ -164,8 +166,10 @@ public final class ConventionalBlastParticleRenderer {
             float fadeIn = smoothstep(Mth.clamp(localAge / 5.0F, 0.0F, 1.0F));
             float fadeOut = (float) Math.pow(
                 Mth.clamp(1.0F - progress, 0.0F, 1.0F), 0.72F);
-            float alpha = 0.72F * fadeIn * fadeOut
-                * (landed ? Mth.clamp((life - localAge) / 28.0F, 0.0F, 1.0F) : 1.0F);
+            float landingFade = landed
+                ? Mth.clamp((life - localAge) / 30.0F, 0.0F, 1.0F)
+                : 1.0F;
+            float alpha = 0.72F * fadeIn * fadeOut * landingFade;
             if (alpha <= 0.004F) continue;
 
             int tone = 170 + Math.floorMod((int) (random >>> 24), 66);
