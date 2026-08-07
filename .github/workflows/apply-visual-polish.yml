@@ -1,0 +1,102 @@
+name: Apply visual polish
+
+on:
+  push:
+    branches:
+      - fix/icbm-flight-vfx-wave-polish
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[visual-polish-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/icbm-flight-vfx-wave-polish
+          fetch-depth: 0
+
+      - name: Apply guarded source edits
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} matches, found {count}")
+              p.write_text(text.replace(old, new))
+
+          launch = "src/main/java/com/andye/warmod/icbm/IcbmLaunchService.java"
+          replace_exact(
+              launch,
+              "\t\tVec3 burnout = new Vec3(launch.x, burnoutY, launch.z);",
+              "\t\tdouble boostHorizontalLead = Mth.clamp(horizontalDistance * 0.08, 96.0, 320.0);\n"
+              "\t\tVec3 burnout = new Vec3(\n"
+              "\t\t\tlaunch.x + horizontal.x * boostHorizontalLead, burnoutY,\n"
+              "\t\t\tlaunch.z + horizontal.z * boostHorizontalLead);",
+              expected=2,
+          )
+          replace_exact(
+              launch,
+              "\t\t// Boost geometry is target-independent: lateral steering starts only after burnout.",
+              "\t\t// Upper boost carries a bounded down-range lead so the bank begins before burnout.",
+          )
+
+          particles = "src/client/java/com/andye/warmod/warhead/client/render/ConventionalBlastParticleRenderer.java"
+          replace_exact(
+              particles,
+              "                    case MATERIAL_RETURN -> {\n"
+              "                        velocityX[index] *= 0.994F;\n"
+              "                        velocityZ[index] *= 0.994F;\n"
+              "                        velocityY[index] = velocityY[index] * 0.94F - 0.0010F;\n"
+              "                        radius[index] *= 1.006F;\n"
+              "                    }",
+              "                    case MATERIAL_RETURN -> {\n"
+              "                        if ((flags[index] & FLAG_LANDED) == 0) {\n"
+              "                            velocityX[index] *= 0.992F;\n"
+              "                            velocityZ[index] *= 0.992F;\n"
+              "                            velocityY[index] = velocityY[index] * 0.982F - 0.018F;\n"
+              "                            radius[index] *= 1.006F;\n"
+              "                        } else {\n"
+              "                            velocityX[index] *= 0.78F;\n"
+              "                            velocityZ[index] *= 0.78F;\n"
+              "                            velocityY[index] = 0.0F;\n"
+              "                            radius[index] *= 1.004F;\n"
+              "                        }\n"
+              "                    }",
+          )
+          replace_exact(
+              particles,
+              "            if (material[index] == MATERIAL_SMOKE || material[index] == MATERIAL_DUST) {",
+              "            if (material[index] == MATERIAL_RETURN) {\n"
+              "                if (y[index] < 0.055F) {\n"
+              "                    y[index] = 0.055F;\n"
+              "                    velocityY[index] = 0.0F;\n"
+              "                    velocityX[index] *= 0.55F;\n"
+              "                    velocityZ[index] *= 0.55F;\n"
+              "                    flags[index] |= FLAG_LANDED;\n"
+              "                }\n"
+              "                return;\n"
+              "            }\n\n"
+              "            if (material[index] == MATERIAL_SMOKE || material[index] == MATERIAL_DUST) {",
+          )
+          PY
+
+      - name: Compile main and client sources
+        run: ./gradlew compileJava compileClientJava
+
+      - name: Commit verified edits
+        shell: bash
+        run: |
+          rm .github/workflows/apply-visual-polish.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: finish ICBM and return-wave polish [visual-polish-applied]"
+          git push origin HEAD:fix/icbm-flight-vfx-wave-polish
