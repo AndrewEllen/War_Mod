@@ -27,6 +27,7 @@ public final class ClientDebrisBatchManager {
     private static final int TRAIL_SAMPLES = 64;
     private static final int MAX_CATCH_UP_STEPS = 6;
     private static final int SETTLED_LIFETIME_TICKS = 40;
+    private static final int HARD_LIFETIME_TICKS = 200;
     private static final int MINIMUM_AIRBORNE_TICKS = 9;
     private static final double GRAVITY = -0.052;
     private static final double AIR_DRAG = 0.992;
@@ -85,10 +86,10 @@ public final class ClientDebrisBatchManager {
                 .scale(Math.min(0.72, 2.2 / Math.sqrt(mass)));
             float visualScale = Mth.clamp(entry.scale()
                 * (1.36F + (float) Math.sqrt(parts.size()) * 0.11F), 1.30F, 2.85F);
-            int lifetime = Math.max(160, entry.lifetime());
+            /* Airborne until impact, then exactly two seconds; ten seconds is the hard fail-safe. */
+            int lifetime = Mth.clamp(entry.lifetime(), 160, HARD_LIFETIME_TICKS);
             int collisionGrace = MINIMUM_AIRBORNE_TICKS
                 + Math.min(8, Math.round(visualScale * 2.0F));
-            /* Collision uses physical block extent, not the enlarged display scale. */
             double collisionExtent = Math.max(0.34,
                 maximumOffset * Mth.clamp(entry.scale(), 0.46F, 1.10F));
             pieces.add(new Piece(
