@@ -108,7 +108,7 @@ public final class WarheadDebrisSourceSampler {
         long packed = cursor.asLong();
         if (!sampled.add(packed)) return;
         BlockState state = level.getBlockState(cursor);
-        FluidState fluid = level.getFluidState(cursor);
+        FluidState fluid = state.getFluidState();
         if (state.isAir() && fluid.isEmpty()) return;
         if (state.getDestroySpeed(level, cursor) < 0.0F) return;
 
@@ -122,11 +122,13 @@ public final class WarheadDebrisSourceSampler {
         double normalized = Math.sqrt(horizontal * horizontal + vertical * vertical);
         if (normalized > 1.0) return;
 
-        float resistance = Math.max(state.getBlock().getExplosionResistance(),
-            fluid.getExplosionResistance());
-        float threshold = profile.maximumDestroyResistance()
-            * (float) Math.max(0.08, 1.0 - normalized * profile.edgeResistanceScale());
-        if (normalized > profile.guaranteedVoidScale() && resistance > threshold) return;
+        if (normalized > profile.guaranteedVoidScale()) {
+            float resistance = Math.max(state.getBlock().getExplosionResistance(),
+                fluid.getExplosionResistance());
+            float threshold = profile.maximumDestroyResistance()
+                * (float) Math.max(0.08, 1.0 - normalized * profile.edgeResistanceScale());
+            if (resistance > threshold) return;
+        }
         result.add(new WarheadExplosionDropContext.DestroyedBlock(
             BlockPos.of(packed), state));
     }
