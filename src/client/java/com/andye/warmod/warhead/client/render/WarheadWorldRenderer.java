@@ -351,10 +351,10 @@ public final class WarheadWorldRenderer {
             if (returnRadius > 0.0) {
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
                     WarheadRenderPipelines.GROUND_DUST,
-                    (pose, buffer) -> ConventionalBlastParticleRenderer
-                        .renderNuclearReturnFront(pose, buffer, impact.ageTicks(),
-                            returnRadius, yieldRadiusScale, impact.visualSeed(), impact.lod(),
-                            frame.cameraOrientation()));
+                    (pose, buffer) -> TerrainReturnFrontRenderer.render(
+                        pose, buffer, impact.shockfrontSpokes(), impact.position(),
+                        returnRadius, yieldRadiusScale, impact.visualSeed(), impact.lod(),
+                        frame.cameraOrientation()));
             }
             if (renderCloud || cloud.sources().size() == 1) {
                 context.submitNodeCollector().submitCustomGeometry(poseStack,

@@ -127,7 +127,11 @@ public final class IcbmLaunchService {
 		double burnoutY = Math.min(ceiling - 80.0, Math.max(launch.y + IcbmConstants.PREFERRED_BURNOUT_HEIGHT_ABOVE_LAUNCH,
 			Math.max(target.y + 420.0, cloudHeight + 96.0)));
 		double separationY = Math.min(ceiling - 40.0, target.y + IcbmConstants.PREFERRED_SEPARATION_HEIGHT_ABOVE_TARGET);
-		Vec3 burnout = new Vec3(launch.x, burnoutY, launch.z);
+		double boostHorizontalLead = Math.min(horizontalDistance * 0.20,
+			Mth.clamp(horizontalDistance * 0.08, 24.0, 320.0));
+		Vec3 burnout = new Vec3(
+			launch.x + horizontal.x * boostHorizontalLead, burnoutY,
+			launch.z + horizontal.z * boostHorizontalLead);
 		double terminalVertical = Math.max(0.0, separationY - target.y);
 		double terminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS * WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
 		double maxOffset = Math.sqrt(Math.max(0.0, terminalTravel * terminalTravel - terminalVertical * terminalVertical));
@@ -172,8 +176,12 @@ public final class IcbmLaunchService {
 		if (!Double.isFinite(burnoutY) || !Double.isFinite(separationY)
 			|| burnoutY < launch.y + IcbmConstants.MINIMUM_BURNOUT_HEIGHT_ABOVE_LAUNCH
 			|| separationY < target.y + IcbmConstants.MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET) return Optional.empty();
-		// Boost geometry is target-independent: lateral steering starts only after burnout.
-		Vec3 burnout = new Vec3(launch.x, burnoutY, launch.z);
+		// Upper boost carries a bounded down-range lead so the bank begins before burnout.
+		double boostHorizontalLead = Math.min(horizontalDistance * 0.20,
+			Mth.clamp(horizontalDistance * 0.08, 24.0, 320.0));
+		Vec3 burnout = new Vec3(
+			launch.x + horizontal.x * boostHorizontalLead, burnoutY,
+			launch.z + horizontal.z * boostHorizontalLead);
 		double verticalTravel = Math.max(0.0, separationY - target.y);
 		double maximumTerminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS
 			* WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
