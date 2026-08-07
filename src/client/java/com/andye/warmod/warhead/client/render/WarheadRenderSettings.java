@@ -7,7 +7,7 @@ public final class WarheadRenderSettings {
 		LEGACY
 	}
 
-	private static final float DEFAULT_PARTICLE_BUDGET_MULTIPLIER = 6.0F;
+	private static final float DEFAULT_PARTICLE_BUDGET_MULTIPLIER = 10.0F;
 	private static final int MAX_ARRAY_CAPACITY = Integer.MAX_VALUE - 8;
 	private static volatile ParticleRenderer particleRenderer = ParticleRenderer.PACKED;
 	private static volatile float particleBudgetMultiplier = DEFAULT_PARTICLE_BUDGET_MULTIPLIER;
