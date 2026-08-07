@@ -2,11 +2,10 @@ package com.andye.warmod.warhead;
 
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
@@ -17,6 +16,8 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
@@ -32,7 +33,13 @@ public final class WarheadGlassShockwaveManager {
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final int NUCLEAR_AFTERMATH_DELAY_TICKS = 80;
     private static final int NUCLEAR_AFTERMATH_COLUMNS_PER_TICK = 2_048;
-    private static final Map<ServerLevel, List<Wave>> WAVES = new IdentityHashMap<>();
+    private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
+    private static final Direction[] DIRECTIONS = Direction.values();
+    private static final Map<Block, Boolean> GLASS_BLOCK_CACHE = new IdentityHashMap<>();
+    private static final Predicate<BlockState> PRESSURE_RELEVANT = state ->
+        Wave.isGlass(state) || state.is(BlockTags.LEAVES) || state.is(BlockTags.LOGS)
+            || Wave.isFragileSurface(state);
+    private static final Map<ServerLevel, ArrayDeque<Wave>> WAVES = new IdentityHashMap<>();
     private static boolean registered;
 
     private WarheadGlassShockwaveManager() { }
@@ -59,7 +66,7 @@ public final class WarheadGlassShockwaveManager {
         double maximumRadius = nuclear
             ? 72.0 + visualScale * 58.0
             : conventionalGlassRadius(visualScale);
-        WAVES.computeIfAbsent(level, ignored -> new ArrayList<>()).add(new Wave(
+        WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(new Wave(
             center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
             visualScale, nuclear));
     }
@@ -72,11 +79,15 @@ public final class WarheadGlassShockwaveManager {
     }
 
     private static synchronized void tick(final ServerLevel level) {
-        List<Wave> waves = WAVES.get(level);
+        ArrayDeque<Wave> waves = WAVES.get(level);
         if (waves == null || waves.isEmpty()) return;
-        Iterator<Wave> iterator = waves.iterator();
-        while (iterator.hasNext()) {
-            if (iterator.next().advance(level, level.getGameTime())) iterator.remove();
+        long gameTime = level.getGameTime();
+        long deadline = System.nanoTime() + LEVEL_WORK_BUDGET_NANOS;
+        int scheduledWaves = waves.size();
+        for (int index = 0; index < scheduledWaves; index++) {
+            if (index > 0 && System.nanoTime() >= deadline) break;
+            Wave wave = waves.removeFirst();
+            if (!wave.advance(level, gameTime)) waves.addLast(wave);
         }
         if (waves.isEmpty()) WAVES.remove(level);
     }
@@ -92,6 +103,8 @@ public final class WarheadGlassShockwaveManager {
         private final int aftermathRadius;
         private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         private final BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
+        private final LongOpenHashSet pressureColumns = new LongOpenHashSet(MAX_COLUMNS_PER_WAVE_TICK * 2);
+        private long lastPressureGameTime;
         private double processedRadius;
         private boolean pressureComplete;
         private int aftermathX;
@@ -110,11 +123,14 @@ public final class WarheadGlassShockwaveManager {
                 ? Mth.ceil(craterRadius * 1.55) : 0;
             this.aftermathX = -aftermathRadius;
             this.aftermathZ = -aftermathRadius;
+            this.lastPressureGameTime = startGameTime - 1L;
         }
 
         private boolean advance(final ServerLevel level, final long gameTime) {
             if (!pressureComplete) {
-                advancePressure(level, gameTime);
+                long pressureGameTime = Math.min(gameTime, lastPressureGameTime + 1L);
+                advancePressure(level, pressureGameTime);
+                lastPressureGameTime = pressureGameTime;
                 if (processedRadius + 0.01 < maximumRadius) return false;
                 pressureComplete = true;
                 if (!nuclear) return true;
@@ -137,8 +153,7 @@ public final class WarheadGlassShockwaveManager {
                 72,
                 Math.max(72, MAX_COLUMNS_PER_WAVE_TICK / radialBands));
 
-            LongOpenHashSet columns = new LongOpenHashSet(
-                Math.min(MAX_COLUMNS_PER_WAVE_TICK * 2, angularSamples * radialBands * 2));
+            pressureColumns.clear();
             int processedColumns = 0;
             for (int band = 0; band < radialBands
                 && processedColumns < MAX_COLUMNS_PER_WAVE_TICK; band++) {
@@ -152,7 +167,7 @@ public final class WarheadGlassShockwaveManager {
                     int x = Mth.floor(center.x + Math.cos(angle) * radius);
                     int z = Mth.floor(center.z + Math.sin(angle) * radius);
                     long packedColumn = ((long) x << 32) ^ (z & 0xFFFFFFFFL);
-                    if (!columns.add(packedColumn)) continue;
+                    if (!pressureColumns.add(packedColumn)) continue;
                     processPressureColumn(level, x, z, radius);
                     processedColumns++;
                 }
@@ -176,45 +191,60 @@ public final class WarheadGlassShockwaveManager {
 
             scorchGround(level, x, surfaceY, z, scorchIntensity);
 
-            for (int y = surfaceY - belowSurface; y <= surfaceY + aboveSurface; y++) {
-                cursor.set(x, y, z);
-                if (!level.isInWorldBounds(cursor)) continue;
-                BlockState state = level.getBlockState(cursor);
-                if (state.isAir()) continue;
-
-                if (isGlass(state)) {
-                    long hash = seed ^ cursor.asLong() ^ 0x474C4153535F5634L;
-                    if (unit(hash) <= glassChance) {
-                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
-                    }
+            int minimumY = Math.max(level.dimensionType().minY(), surfaceY - belowSurface);
+            int maximumY = Math.min(
+                level.dimensionType().minY() + level.dimensionType().height() - 1,
+                surfaceY + aboveSurface
+            );
+            LevelChunk chunk = level.getChunk(x >> 4, z >> 4);
+            int y = minimumY;
+            while (y <= maximumY) {
+                int sectionEnd = Math.min(maximumY, (y & ~15) + 15);
+                LevelChunkSection section = chunk.getSection(level.getSectionIndex(y));
+                if (!section.maybeHas(PRESSURE_RELEVANT)) {
+                    y = sectionEnd + 1;
                     continue;
                 }
+                for (; y <= sectionEnd; y++) {
+                    cursor.set(x, y, z);
+                    if (!level.isInWorldBounds(cursor)) continue;
+                    BlockState state = level.getBlockState(cursor);
+                    if (state.isAir()) continue;
 
-                if (scorchIntensity > 0.0) {
-                    long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
-                    if (state.is(BlockTags.LEAVES)) {
-                        double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92,
-                            0.0, 1.0);
-                        if (unit(hash) < stripChance) {
+                    if (isGlass(state)) {
+                        long hash = seed ^ cursor.asLong() ^ 0x474C4153535F5634L;
+                        if (unit(hash) <= glassChance) {
                             level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
                         }
                         continue;
                     }
-                    if (state.is(BlockTags.LOGS)) {
-                        double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18,
-                            0.0, 0.92);
-                        if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
-                            level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(),
-                                UPDATE_FLAGS);
-                        }
-                        continue;
-                    }
-                }
 
-                if (nuclear && normalizedDistance < 0.82 && isFragileSurface(state)) {
-                    double chance = (1.0 - normalizedDistance / 0.82) * 0.82;
-                    if (unit(seed ^ cursor.asLong() ^ 0x5355524641434556L) < chance) {
-                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                    if (scorchIntensity > 0.0) {
+                        long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
+                        if (state.is(BlockTags.LEAVES)) {
+                            double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92,
+                                0.0, 1.0);
+                            if (unit(hash) < stripChance) {
+                                level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                            }
+                            continue;
+                        }
+                        if (state.is(BlockTags.LOGS)) {
+                            double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18,
+                                0.0, 0.92);
+                            if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
+                                level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(),
+                                    UPDATE_FLAGS);
+                            }
+                            continue;
+                        }
+                    }
+
+                    if (nuclear && normalizedDistance < 0.82 && isFragileSurface(state)) {
+                        double chance = (1.0 - normalizedDistance / 0.82) * 0.82;
+                        if (unit(seed ^ cursor.asLong() ^ 0x5355524641434556L) < chance) {
+                            level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                        }
                     }
                 }
             }
@@ -326,7 +356,7 @@ public final class WarheadGlassShockwaveManager {
         }
 
         private boolean exposedToAir(final ServerLevel level, final BlockPos position) {
-            for (Direction direction : Direction.values()) {
+            for (Direction direction : DIRECTIONS) {
                 neighbour.setWithOffset(position, direction);
                 if (level.isInWorldBounds(neighbour) && level.getBlockState(neighbour).isAir()) {
                     return true;
@@ -366,7 +396,9 @@ public final class WarheadGlassShockwaveManager {
         }
 
         private static boolean isGlass(final BlockState state) {
-            return state.getBlock().getDescriptionId().contains("glass");
+            Block block = state.getBlock();
+            return GLASS_BLOCK_CACHE.computeIfAbsent(block,
+                candidate -> candidate.getDescriptionId().contains("glass"));
         }
 
         private static boolean isFragileSurface(final BlockState state) {

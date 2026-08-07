@@ -9,12 +9,11 @@ import com.andye.warmod.testtool.WarheadExplosionDropContext;
 import com.andye.warmod.warhead.network.ClientboundWarheadDebrisPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.SplittableRandom;
@@ -26,11 +25,15 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 public final class WarheadImpactService {
+	private static final int[][] DEBRIS_NEIGHBOURS = {
+		{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+		{1, 1, 0}, {-1, 1, 0}, {0, 1, 1}, {0, 1, -1}
+	};
+
 	private WarheadImpactService() {
 	}
 
@@ -180,7 +183,8 @@ public final class WarheadImpactService {
 		}
 		List<RankedDestroyedBlock> ranked = new ArrayList<>(selected);
 		ranked.sort(Comparator.comparingLong(RankedDestroyedBlock::rank));
-		Map<Long, WarheadExplosionDropContext.DestroyedBlock> available = new HashMap<>();
+		Long2ObjectOpenHashMap<WarheadExplosionDropContext.DestroyedBlock> available =
+			new Long2ObjectOpenHashMap<>(Math.max(16, ranked.size() * 2));
 		for (RankedDestroyedBlock entry : ranked) available.put(entry.block().position().asLong(), entry.block());
 
 		List<ClientboundWarheadDebrisPayload.Entry> entries = new ArrayList<>();
@@ -205,13 +209,9 @@ public final class WarheadImpactService {
 			consumedBlocks++;
 			while (!frontier.isEmpty() && parts.size() < desiredParts) {
 				BlockPos current = frontier.removeFirst();
-				int[][] neighbours = {
-					{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1},
-					{1,1,0},{-1,1,0},{0,1,1},{0,1,-1}
-				};
-				int phase = random.nextInt(neighbours.length);
-				for (int index = 0; index < neighbours.length && parts.size() < desiredParts; index++) {
-					int[] offset = neighbours[(index + phase) % neighbours.length];
+				int phase = random.nextInt(DEBRIS_NEIGHBOURS.length);
+				for (int index = 0; index < DEBRIS_NEIGHBOURS.length && parts.size() < desiredParts; index++) {
+					int[] offset = DEBRIS_NEIGHBOURS[(index + phase) % DEBRIS_NEIGHBOURS.length];
 					BlockPos candidatePos = current.offset(offset[0], offset[1], offset[2]);
 					int dx = candidatePos.getX() - rootPos.getX();
 					int dy = candidatePos.getY() - rootPos.getY();
