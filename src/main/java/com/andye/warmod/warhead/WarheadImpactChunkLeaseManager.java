@@ -83,6 +83,7 @@ public final class WarheadImpactChunkLeaseManager {
         }
 
         extend(level, effectId, chunks, ticks);
+        WarheadPreImpactPreparationManager.schedule(level, effectId, impact, ticks);
     }
 
     /**
