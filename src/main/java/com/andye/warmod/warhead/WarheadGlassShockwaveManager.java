@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.function.Predicate;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
@@ -35,6 +36,9 @@ public final class WarheadGlassShockwaveManager {
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static final Map<Block, Boolean> GLASS_BLOCK_CACHE = new IdentityHashMap<>();
+    private static final Predicate<BlockState> PRESSURE_RELEVANT = state ->
+        Wave.isGlass(state) || state.is(BlockTags.LEAVES) || state.is(BlockTags.LOGS)
+            || Wave.isFragileSurface(state);
     private static final Map<ServerLevel, ArrayDeque<Wave>> WAVES = new IdentityHashMap<>();
     private static boolean registered;
 
@@ -197,7 +201,7 @@ public final class WarheadGlassShockwaveManager {
             while (y <= maximumY) {
                 int sectionEnd = Math.min(maximumY, (y & ~15) + 15);
                 LevelChunkSection section = chunk.getSection(level.getSectionIndex(y));
-                if (section.hasOnlyAir()) {
+                if (!section.maybeHas(PRESSURE_RELEVANT)) {
                     y = sectionEnd + 1;
                     continue;
                 }
