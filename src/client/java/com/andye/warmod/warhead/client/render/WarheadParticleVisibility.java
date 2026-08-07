@@ -13,43 +13,59 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
- * Shared visibility gate for War Mod's custom particle billboards and debris.
+ * Shared visibility and overlap gate for War Mod custom world effects.
  *
- * <p>The renderer already rejects whole effects outside the view. This class
- * handles the expensive case where a partly-visible blast still contains many
- * particles/fragments behind terrain. Frustum rejection is per item and
- * allocation free. Terrain visibility is cached per 8x8x8 world cell and
- * shared by every simultaneous explosion, so it never performs block ray tests
- * per particle. Transparent, fluid and non-full blocks never occlude. Large
- * smoke billboards intentionally skip coarse terrain LOS culling so a lobe
- * peeking around an edge cannot disappear because its centre cell is hidden.</p>
+ * <p>Screen rejection is intentionally much wider than the real player FOV so
+ * particles cannot pop at the edge of the display. Terrain rejection is split
+ * into a cheap fully-buried test and a cached coarse line-of-sight test. Only
+ * full opaque collision cubes occlude; glass, fluids, leaves and partial blocks
+ * remain transparent to this culler.</p>
  */
 public final class WarheadParticleVisibility {
-    private static final int CELL_SHIFT = 3;
+    public static final int CHANNEL_CONVENTIONAL_CLOUD = 1;
+    public static final int CHANNEL_GROUND_DUST = 2;
+    public static final int CHANNEL_GROUND_EXPLOSION = 3;
+    public static final int CHANNEL_SETTLED_SMOKE = 4;
+
+    private static final int CELL_SHIFT = 2;
     private static final int CELL_SIZE = 1 << CELL_SHIFT;
     private static final double CELL_HALF = CELL_SIZE * 0.5;
-    private static final int MAX_NEW_LOS_CELLS = 96;
+    private static final int MAX_NEW_LOS_CELLS = 192;
+    private static final int CACHE_TTL_TICKS = 4;
     private static final double MAX_LOS_DISTANCE = 512.0;
+    private static final double VIEW_COSINE_LIMIT = -0.55;
+    private static final int MAX_CLUSTER_CLAIMS = 96;
+
     private static final byte UNKNOWN = 0;
     private static final byte VISIBLE = 1;
     private static final byte OCCLUDED = 2;
+    private static final byte NOT_OPAQUE = 1;
+    private static final byte FULL_OPAQUE = 2;
 
     private static final Long2ByteOpenHashMap CELL_VISIBILITY = new Long2ByteOpenHashMap();
+    private static final Long2ByteOpenHashMap BLOCK_OPACITY = new Long2ByteOpenHashMap();
     private static final ThreadLocal<Vector3f> TRANSFORMED =
         ThreadLocal.withInitial(Vector3f::new);
     private static final BlockPos.MutableBlockPos BLOCK_CURSOR = new BlockPos.MutableBlockPos();
 
+    private static final double[] CLAIM_X = new double[MAX_CLUSTER_CLAIMS];
+    private static final double[] CLAIM_Z = new double[MAX_CLUSTER_CLAIMS];
+    private static final int[] CLAIM_CHANNEL = new int[MAX_CLUSTER_CLAIMS];
+    private static final long[] CLAIM_OWNER = new long[MAX_CLUSTER_CLAIMS];
+    private static final boolean[] CLAIM_OWNER_AWARE = new boolean[MAX_CLUSTER_CLAIMS];
+
     private static ClientLevel level;
     private static Vec3 cameraPosition = Vec3.ZERO;
     private static final Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F);
-    private static final Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F);
-    private static final Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F);
-    private static long cacheGameTime = Long.MIN_VALUE;
+    private static long cacheEpoch = Long.MIN_VALUE;
+    private static long frameSequence;
     private static int newLosCells;
+    private static int claimCount;
     private static boolean registered;
 
     static {
         CELL_VISIBILITY.defaultReturnValue(UNKNOWN);
+        BLOCK_OPACITY.defaultReturnValue(UNKNOWN);
     }
 
     private WarheadParticleVisibility() { }
@@ -70,6 +86,10 @@ public final class WarheadParticleVisibility {
         registered = true;
     }
 
+    public static long frameSequence() {
+        return frameSequence;
+    }
+
     public static boolean visible(final PoseStack.Pose pose,
         final float localX, final float localY, final float localZ,
         final float radius) {
@@ -84,7 +104,7 @@ public final class WarheadParticleVisibility {
         double distanceSquared = rx * rx + ry * ry + rz * rz;
         if (!Double.isFinite(distanceSquared)) return false;
         double safeRadius = Math.max(0.05, radius);
-        if (!insideGenerousFrustum(rx, ry, rz, distanceSquared, safeRadius)) return false;
+        if (!insideWideView(rx, ry, rz, distanceSquared, safeRadius)) return false;
         return terrainVisible(currentLevel, cameraPosition.x + rx,
             cameraPosition.y + ry, cameraPosition.z + rz,
             distanceSquared, safeRadius);
@@ -100,16 +120,69 @@ public final class WarheadParticleVisibility {
         double distanceSquared = rx * rx + ry * ry + rz * rz;
         if (!Double.isFinite(distanceSquared)) return false;
         double safeRadius = Math.max(0.05, radius);
-        if (!insideGenerousFrustum(rx, ry, rz, distanceSquared, safeRadius)) return false;
+        if (!insideWideView(rx, ry, rz, distanceSquared, safeRadius)) return false;
         return terrainVisible(currentLevel, worldPosition.x, worldPosition.y,
             worldPosition.z, distanceSquared, safeRadius);
+    }
+
+    /**
+     * Reserves one expensive effect for a spatial cluster during this frame.
+     * Used for terrain-front layers where several impacts at almost the same
+     * location would otherwise submit the same thousands of billboards.
+     */
+    public static boolean claimWorldClusterOnce(final Vec3 worldPosition,
+        final int channel, final double mergeRadius) {
+        if (worldPosition == null || !worldPosition.isFinite()) return true;
+        return claim(worldPosition.x, worldPosition.z, channel,
+            Math.max(1.0, mergeRadius), 0L, false);
+    }
+
+    /**
+     * Owner-aware cluster reservation. Repeated passes from the same explosion
+     * are allowed, while a second overlapping explosion is demoted for that
+     * frame. This preserves all fire/smoke passes of the selected explosion.
+     */
+    public static boolean claimPoseClusterOwner(final PoseStack.Pose pose,
+        final int channel, final double mergeRadius, final long owner) {
+        if (pose == null || level == null) return true;
+        Vector3f relative = TRANSFORMED.get().set(0.0F, 0.0F, 0.0F);
+        pose.pose().transformPosition(relative);
+        return claim(cameraPosition.x + relative.x,
+            cameraPosition.z + relative.z, channel,
+            Math.max(1.0, mergeRadius), owner, true);
+    }
+
+    private static boolean claim(final double x, final double z,
+        final int channel, final double radius, final long owner,
+        final boolean ownerAware) {
+        double radiusSquared = radius * radius;
+        for (int index = 0; index < claimCount; index++) {
+            if (CLAIM_CHANNEL[index] != channel) continue;
+            double dx = x - CLAIM_X[index];
+            double dz = z - CLAIM_Z[index];
+            if (dx * dx + dz * dz > radiusSquared) continue;
+            if (ownerAware && CLAIM_OWNER_AWARE[index]
+                && CLAIM_OWNER[index] == owner) return true;
+            return false;
+        }
+        if (claimCount < MAX_CLUSTER_CLAIMS) {
+            CLAIM_X[claimCount] = x;
+            CLAIM_Z[claimCount] = z;
+            CLAIM_CHANNEL[claimCount] = channel;
+            CLAIM_OWNER[claimCount] = owner;
+            CLAIM_OWNER_AWARE[claimCount] = ownerAware;
+            claimCount++;
+        }
+        return true;
     }
 
     private static boolean terrainVisible(final ClientLevel currentLevel,
         final double worldX, final double worldY, final double worldZ,
         final double distanceSquared, final double safeRadius) {
+        if (fullyBuried(currentLevel, worldX, worldY, worldZ, safeRadius)) return false;
+
         double distance = Math.sqrt(distanceSquared);
-        if (distance < 24.0 || distance > MAX_LOS_DISTANCE || safeRadius > 4.0) return true;
+        if (distance < 16.0 || distance > MAX_LOS_DISTANCE || safeRadius > 4.5) return true;
 
         int cellX = Mth.floor(worldX) >> CELL_SHIFT;
         int cellY = Mth.floor(worldY) >> CELL_SHIFT;
@@ -129,68 +202,82 @@ public final class WarheadParticleVisibility {
         return !occluded;
     }
 
+    /** Reject only when the centre and every sampled extent lie in opaque cubes. */
+    private static boolean fullyBuried(final ClientLevel currentLevel,
+        final double x, final double y, final double z, final double radius) {
+        if (radius > 6.0) return false;
+        if (!fullOpaqueAt(currentLevel, Mth.floor(x), Mth.floor(y), Mth.floor(z))) return false;
+        double sample = Math.max(0.35, radius * 0.92);
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sy = -1; sy <= 1; sy += 2) {
+                for (int sz = -1; sz <= 1; sz += 2) {
+                    if (!fullOpaqueAt(currentLevel,
+                        Mth.floor(x + sx * sample),
+                        Mth.floor(y + sy * sample),
+                        Mth.floor(z + sz * sample))) return false;
+                }
+            }
+        }
+        return true;
+    }
+
     public static void clear() {
         level = null;
         cameraPosition = Vec3.ZERO;
         CELL_VISIBILITY.clear();
-        cacheGameTime = Long.MIN_VALUE;
+        BLOCK_OPACITY.clear();
+        cacheEpoch = Long.MIN_VALUE;
         newLosCells = 0;
+        claimCount = 0;
+        frameSequence++;
     }
 
     private static void beginFrame(final ClientLevel currentLevel,
         final Vec3 currentCamera, final Quaternionf orientation) {
         Vector3f nextForward = new Vector3f(0.0F, 0.0F, -1.0F).rotate(orientation);
-        Vector3f nextRight = new Vector3f(1.0F, 0.0F, 0.0F).rotate(orientation);
-        Vector3f nextUp = new Vector3f(0.0F, 1.0F, 0.0F).rotate(orientation);
         if (nextForward.lengthSquared() > 1.0E-6F) nextForward.normalize();
-        if (nextRight.lengthSquared() > 1.0E-6F) nextRight.normalize();
-        if (nextUp.lengthSquared() > 1.0E-6F) nextUp.normalize();
 
         long gameTime = currentLevel.getGameTime();
+        long nextEpoch = Math.floorDiv(gameTime, CACHE_TTL_TICKS);
         boolean levelChanged = level != currentLevel;
-        boolean cameraMoved = cameraPosition.distanceToSqr(currentCamera) > 0.35 * 0.35;
-        boolean cameraTurned = forward.dot(nextForward) < 0.996F;
-        if (levelChanged || gameTime != cacheGameTime || cameraMoved || cameraTurned) {
+        boolean cameraMoved = cameraPosition.distanceToSqr(currentCamera) > 0.75 * 0.75;
+        boolean cameraTurned = forward.dot(nextForward) < 0.985F;
+        if (levelChanged || nextEpoch != cacheEpoch || cameraMoved || cameraTurned) {
             CELL_VISIBILITY.clear();
+            BLOCK_OPACITY.clear();
             newLosCells = 0;
-            cacheGameTime = gameTime;
+            cacheEpoch = nextEpoch;
         }
         level = currentLevel;
         cameraPosition = currentCamera;
         forward.set(nextForward);
-        right.set(nextRight);
-        up.set(nextUp);
-    }
-
-    private static boolean insideGenerousFrustum(final double x, final double y,
-        final double z, final double distanceSquared, final double radius) {
-        double distance = Math.sqrt(distanceSquared);
-        if (distance <= radius + 10.0) return true;
-        double front = x * forward.x + y * forward.y + z * forward.z;
-        if (front < -radius - 6.0) return false;
-        if (front <= 0.0) return true;
-        double horizontal = x * right.x + y * right.y + z * right.z;
-        double vertical = x * up.x + y * up.y + z * up.z;
-        double margin = radius + 12.0;
-        /* Intentionally wider than normal Minecraft FOV to avoid edge popping. */
-        return Math.abs(horizontal) <= front * 1.80 + margin
-            && Math.abs(vertical) <= front * 1.45 + margin;
+        claimCount = 0;
+        frameSequence++;
     }
 
     /**
-     * A cell is rejected only when its centre and all eight corners are hidden.
-     * The sampled volume is larger than any billboard allowed through this LOS
-     * path, so an item near a terrain silhouette remains visible whenever a
-     * representative edge/corner line can reach the camera.
+     * Roughly 123 degrees either side of forward. This is intentionally much
+     * wider than any normal Minecraft FOV plus a large safety margin.
      */
-    private static boolean fullyOccludedCell(final ClientLevel level,
+    private static boolean insideWideView(final double x, final double y,
+        final double z, final double distanceSquared, final double radius) {
+        double distance = Math.sqrt(distanceSquared);
+        if (distance <= radius + 12.0) return true;
+        double facing = (x * forward.x + y * forward.y + z * forward.z)
+            / Math.max(1.0E-6, distance);
+        double angularAllowance = Math.min(0.32, radius / Math.max(1.0, distance));
+        return facing + angularAllowance >= VIEW_COSINE_LIMIT;
+    }
+
+    /** A 4x4x4 cell is hidden only when centre and all eight corners are blocked. */
+    private static boolean fullyOccludedCell(final ClientLevel currentLevel,
         final double x, final double y, final double z) {
-        double extent = CELL_HALF + 1.0;
-        if (!blockedRay(level, x, y, z)) return false;
+        if (!blockedRay(currentLevel, x, y, z)) return false;
+        double extent = CELL_HALF + 0.75;
         for (int sx = -1; sx <= 1; sx += 2) {
             for (int sy = -1; sy <= 1; sy += 2) {
                 for (int sz = -1; sz <= 1; sz += 2) {
-                    if (!blockedRay(level,
+                    if (!blockedRay(currentLevel,
                         x + sx * extent, y + sy * extent, z + sz * extent)) return false;
                 }
             }
@@ -198,7 +285,7 @@ public final class WarheadParticleVisibility {
         return true;
     }
 
-    private static boolean blockedRay(final ClientLevel level,
+    private static boolean blockedRay(final ClientLevel currentLevel,
         final double targetX, final double targetY, final double targetZ) {
         double startX = cameraPosition.x;
         double startY = cameraPosition.y;
@@ -207,9 +294,8 @@ public final class WarheadParticleVisibility {
         double dy = targetY - startY;
         double dz = targetZ - startZ;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (!Double.isFinite(distance) || distance < 3.0 || distance > MAX_LOS_DISTANCE + 16.0) {
-            return false;
-        }
+        if (!Double.isFinite(distance) || distance < 3.0
+            || distance > MAX_LOS_DISTANCE + 16.0) return false;
 
         int x = Mth.floor(startX);
         int y = Mth.floor(startY);
@@ -232,7 +318,7 @@ public final class WarheadParticleVisibility {
             Math.abs(endX - x) + Math.abs(endY - y) + Math.abs(endZ - z) + 4);
         for (int step = 0; step < maximumSteps; step++) {
             if (x == endX && y == endY && z == endZ) {
-                return fullOpaqueAt(level, x, y, z);
+                return fullOpaqueAt(currentLevel, x, y, z);
             }
             if (tMaxX <= tMaxY && tMaxX <= tMaxZ) {
                 x += stepX;
@@ -244,9 +330,8 @@ public final class WarheadParticleVisibility {
                 z += stepZ;
                 tMaxZ += tDeltaZ;
             }
-            /* Ignore the first two voxels around the camera/player. */
             if (step < 2) continue;
-            if (fullOpaqueAt(level, x, y, z)) return true;
+            if (fullOpaqueAt(currentLevel, x, y, z)) return true;
         }
         return false;
     }
@@ -258,12 +343,23 @@ public final class WarheadParticleVisibility {
         return (boundary - start) / delta;
     }
 
-    private static boolean fullOpaqueAt(final ClientLevel level,
+    private static boolean fullOpaqueAt(final ClientLevel currentLevel,
         final int x, final int y, final int z) {
+        long key = BlockPos.asLong(x, y, z);
+        byte cached = BLOCK_OPACITY.get(key);
+        if (cached == FULL_OPAQUE) return true;
+        if (cached == NOT_OPAQUE) return false;
+
         BLOCK_CURSOR.set(x, y, z);
-        if (!level.hasChunkAt(BLOCK_CURSOR)) return false;
-        BlockState state = level.getBlockState(BLOCK_CURSOR);
-        return !state.isAir() && state.getFluidState().isEmpty()
-            && state.canOcclude() && state.isCollisionShapeFullBlock(level, BLOCK_CURSOR);
+        if (!currentLevel.hasChunkAt(BLOCK_CURSOR)) {
+            BLOCK_OPACITY.put(key, NOT_OPAQUE);
+            return false;
+        }
+        BlockState state = currentLevel.getBlockState(BLOCK_CURSOR);
+        boolean opaque = !state.isAir() && state.getFluidState().isEmpty()
+            && state.canOcclude()
+            && state.isCollisionShapeFullBlock(currentLevel, BLOCK_CURSOR);
+        BLOCK_OPACITY.put(key, opaque ? FULL_OPAQUE : NOT_OPAQUE);
+        return opaque;
     }
 }
