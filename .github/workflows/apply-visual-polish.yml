@@ -89,7 +89,9 @@ jobs:
           PY
 
       - name: Compile main and client sources
-        run: ./gradlew compileJava compileClientJava
+        run: |
+          chmod +x gradlew
+          ./gradlew compileJava compileClientJava
 
       - name: Commit verified edits
         shell: bash
