@@ -8,6 +8,7 @@ import com.andye.warmod.warhead.client.ClientWarheadVisualManager;
 import com.andye.warmod.warhead.client.ImpactVisualState;
 import com.andye.warmod.warhead.client.TerrainShockfrontNode;
 import com.andye.warmod.warhead.client.TerrainShockfrontSpoke;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -27,7 +28,11 @@ import net.minecraft.world.phys.Vec3;
  * animation on a dense, deterministic subset that remains bounded per tick.
  */
 public final class ShockwaveVanillaParticleEmitter {
+    private static final int RETURN_EMITTER_LIMIT = 896;
     private static final Map<UUID, Long> LAST_PROCESSED_TICK = new HashMap<>();
+    private static final Set<UUID> ACTIVE_IDS = new HashSet<>();
+    private static final List<TerrainShockfrontNode> RETURN_NODE_BUFFER =
+        new ArrayList<>(RETURN_EMITTER_LIMIT);
     private static boolean registered;
 
     private ShockwaveVanillaParticleEmitter() { }
@@ -42,15 +47,17 @@ public final class ShockwaveVanillaParticleEmitter {
         ClientLevel level = client.level;
         if (level == null) {
             LAST_PROCESSED_TICK.clear();
+            ACTIVE_IDS.clear();
+            RETURN_NODE_BUFFER.clear();
             return;
         }
         long gameTime = level.getGameTime();
         ClientWarheadVisualManager.Snapshot snapshot =
             ClientWarheadVisualManager.INSTANCE.snapshot(level);
-        Set<UUID> active = new HashSet<>();
+        ACTIVE_IDS.clear();
         for (ImpactVisualState state : snapshot.impacts()) {
             UUID id = state.warheadId();
-            active.add(id);
+            ACTIVE_IDS.add(id);
             if (LAST_PROCESSED_TICK.getOrDefault(id, Long.MIN_VALUE) == gameTime) continue;
             LAST_PROCESSED_TICK.put(id, gameTime);
             if (!groundEffects(state.effectProfile())) continue;
@@ -72,7 +79,7 @@ public final class ShockwaveVanillaParticleEmitter {
                 emitReturn(level, state, previousReturn, currentReturn);
             }
         }
-        LAST_PROCESSED_TICK.keySet().retainAll(active);
+        LAST_PROCESSED_TICK.keySet().retainAll(ACTIVE_IDS);
     }
 
     private static void emitOutward(final ClientLevel level,
@@ -103,22 +110,20 @@ public final class ShockwaveVanillaParticleEmitter {
             || currentRadius >= previousRadius) return;
         double outer = previousRadius + 2.5;
         double inner = Math.max(0.0, currentRadius - 2.5);
-        int emitted = 0;
-        final int emitterLimit = 896;
+        RETURN_NODE_BUFFER.clear();
         for (TerrainShockfrontSpoke spoke
             : state.terrainShockfrontField().snapshotSpokes()) {
-            List<TerrainShockfrontNode> nodes = spoke.snapshotNodes();
-            for (int index = nodes.size() - 1; index >= 0; index--) {
-                TerrainShockfrontNode node = nodes.get(index);
-                double distance = node.cumulativePathDistance();
-                if (distance > outer) continue;
-                if (distance < inner) break;
-                long hash = mix(state.visualSeed() ^ node.surfaceBlock().asLong()
-                    ^ 0x52455455524E4558L);
-                spawn(level, node.position(), hash);
-                if (++emitted >= emitterLimit) return;
-            }
+            int remaining = RETURN_EMITTER_LIMIT - RETURN_NODE_BUFFER.size();
+            if (remaining <= 0) break;
+            spoke.appendNodesInDistanceBand(inner, outer, remaining,
+                RETURN_NODE_BUFFER);
         }
+        for (TerrainShockfrontNode node : RETURN_NODE_BUFFER) {
+            long hash = mix(state.visualSeed() ^ node.surfaceBlock().asLong()
+                ^ 0x52455455524E4558L);
+            spawn(level, node.position(), hash);
+        }
+        RETURN_NODE_BUFFER.clear();
     }
 
     private static void spawn(final ClientLevel level, final Vec3 position,
