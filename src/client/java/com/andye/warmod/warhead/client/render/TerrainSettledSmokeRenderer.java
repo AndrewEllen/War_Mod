@@ -16,7 +16,7 @@ import org.joml.Vector3f;
 
 /** Ground smoke anchored to sampled terrain rather than an impact-height disc. */
 public final class TerrainSettledSmokeRenderer {
-    private static final double NUCLEAR_GROUND_LIFETIME = 5_600.0;
+    private static final double NUCLEAR_GROUND_LIFETIME = 5_900.0;
     private static final double NUCLEAR_FLOW_SPEED = 0.48;
     private static final double NUCLEAR_UPHILL_TOLERANCE = 1.35;
 
