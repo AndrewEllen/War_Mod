@@ -46,17 +46,19 @@ public final class WarheadRenderPipelines {
         : translucent("pipeline/war_mod_ground_dust", false);
 
     /*
-     * Dense smoke keeps Iris' known-good world-space entity contract. Outside
-     * Iris it uses the original depth-writing, overlay-free cutout pipeline.
+     * Normal rendering uses depth-writing alpha cutouts for dense smoke. Iris
+     * receives ENTITY_CUTOUT, the equivalent world-space shader contract, so
+     * its mushroom/base smoke has the same solid layering instead of becoming
+     * a different translucent effect.
      */
     private static final RenderPipeline HEAVY_SMOKE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT
+        ? RenderPipelines.ENTITY_CUTOUT
         : smokeCutout("pipeline/war_mod_heavy_smoke", 0.055F);
     private static final RenderPipeline HEAVY_SMOKE_CORE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT
+        ? RenderPipelines.ENTITY_CUTOUT
         : smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
     private static final RenderPipeline NUCLEAR_SMOKE_PIPELINE = IRIS_PRESENT
-        ? RenderPipelines.ENTITY_TRANSLUCENT
+        ? RenderPipelines.ENTITY_CUTOUT
         : smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
 
     /*
