@@ -3,7 +3,6 @@ package com.andye.warmod.warhead.client.render;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -158,14 +157,11 @@ public final class ConventionalBlastVisualV5 {
                 * smoothstep(Mth.clamp(localAge / 5.0F, 0.0F, 1.0F))
                 * (float) Math.pow(remaining, 0.28F) * individualFade;
             Colour colour = fireColour(temperature, random);
-            if (billboard(pose, buffer, px, py, pz, particleSize,
+            billboard(pose, buffer, px, py, pz, particleSize,
                 unit(random, 14) * Mth.TWO_PI
                     + localAge * signed(random, 15) * 0.0055F,
-                colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis)) {
-                active++;
-            } else {
-                culled++;
-            }
+                colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
+            active++;
         }
         lastActive = active;
         lastCulled = culled;
@@ -497,12 +493,11 @@ public final class ConventionalBlastVisualV5 {
         }
     }
 
-    private static boolean billboard(final PoseStack.Pose pose,
+    private static void billboard(final PoseStack.Pose pose,
         final VertexConsumer buffer, final float centerX, final float centerY,
         final float centerZ, final float radius, final float rotation,
         final int red, final int green, final int blue, final float alpha,
         final int light, final Basis basis) {
-        if (!WarheadParticleVisibility.visible(pose, centerX, centerY, centerZ, radius)) return false;
         float cosine = Mth.cos(rotation);
         float sine = Mth.sin(rotation);
         vertex(pose, buffer, centerX, centerY, centerZ, -radius, -radius,
@@ -513,7 +508,6 @@ public final class ConventionalBlastVisualV5 {
             cosine, sine, 1.0F, 0.0F, red, green, blue, alpha, light, basis);
         vertex(pose, buffer, centerX, centerY, centerZ, radius, -radius,
             cosine, sine, 1.0F, 1.0F, red, green, blue, alpha, light, basis);
-        return true;
     }
 
     private static void vertex(final PoseStack.Pose pose,
@@ -531,7 +525,7 @@ public final class ConventionalBlastVisualV5 {
                 centerZ + offsetZ)
             .setColor(red, green, blue,
                 Mth.clamp((int) (alpha * 255.0F), 0, 255))
-            .setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light)
+            .setUv(u, v).setOverlay(0).setLight(light)
             .setNormal(pose, basis.normal.x, basis.normal.y, basis.normal.z);
     }
 

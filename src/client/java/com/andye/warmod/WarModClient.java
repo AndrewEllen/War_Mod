@@ -31,7 +31,6 @@ import com.andye.warmod.radar.client.ClientRadarNetworking;
 import com.andye.warmod.radar.client.RadarKeyBindings;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
 import com.andye.warmod.warhead.client.render.ShockwaveVanillaParticleEmitter;
-import com.andye.warmod.warhead.client.render.WarheadParticleVisibility;
 import com.andye.warmod.warhead.client.render.WarheadRenderCommands;
 import com.andye.warmod.warhead.client.render.WarheadWorldRenderer;
 import com.andye.warmod.warhead.client.render.NuclearFlashOverlay;
@@ -64,7 +63,6 @@ public final class WarModClient implements ClientModInitializer {
 		MenuScreens.register(ModMenus.PHALANX, PhalanxScreen::new);
 		WarheadParticleClient.register();
 		WarheadRenderCommands.register();
-		WarheadParticleVisibility.register();
 		ShockwaveVanillaParticleEmitter.register();
 		WarheadWorldRenderer.register();
 		IcbmWorldRenderer.register();

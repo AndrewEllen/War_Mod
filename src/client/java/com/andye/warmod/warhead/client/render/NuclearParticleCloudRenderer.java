@@ -9,7 +9,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -171,8 +170,7 @@ public final class NuclearParticleCloudRenderer {
         buffer.addVertex(pose, centerX + nx * radius, centerY + ny * radius,
                 centerZ + nz * radius)
             .setColor(red, green, blue, alpha).setUv(u, v)
-            .setOverlay(OverlayTexture.NO_OVERLAY).setLight(0xF000F0)
-            .setNormal(pose, nx, ny, nz);
+            .setOverlay(0).setLight(0xF000F0).setNormal(pose, nx, ny, nz);
     }
 
     private static void renderPlasmaHalo(final PoseStack.Pose pose,
@@ -768,15 +766,12 @@ public final class NuclearParticleCloudRenderer {
                 case SMOKE -> { bucket = smokeBucket; count = smokeCount; }
                 default -> throw new IllegalStateException("Unknown nuclear pass " + pass);
             }
-            float globalTailFade = renderedAge <= 5_500.0 ? 1.0F
-                : smoothstep(Mth.clamp((float) ((5_900.0 - renderedAge) / 400.0), 0.0F, 1.0F));
-            if (globalTailFade <= 0.004F) return;
             int orderedCount = depthOrder(bucket, count, basis.normal);
             for (int position = 0; position < orderedCount; position++) {
                 int index = ordered[position];
                 int life = lifetime[index] & 0xFFFF;
                 float progress = (particleAge[index] & 0xFFFF) / (float) Math.max(1, life);
-                float alpha = alpha(pass, progress, temperature[index]) * globalTailFade;
+                float alpha = alpha(pass, progress, temperature[index]);
                 if (alpha <= 0.004F) continue;
                 float px = Mth.lerp(partial, previousX[index], x[index]);
                 float py = Mth.lerp(partial, previousY[index], y[index]);
@@ -785,10 +780,6 @@ public final class NuclearParticleCloudRenderer {
                     region[index]);
                 float drawRadius = radius[index] * renderScale(index, tick, pass);
                 int light = pass == Pass.SMOKE ? 0x900090 : 0xF000F0;
-                if (!WarheadParticleVisibility.visible(pose, px, py, pz, drawRadius)) {
-                    culledLastRender++;
-                    continue;
-                }
                 billboard(pose, buffer, px, py, pz, drawRadius, rotation[index],
                     colour.red, colour.green, colour.blue, alpha, light, basis);
             }
@@ -935,7 +926,6 @@ public final class NuclearParticleCloudRenderer {
         final float centerZ, final float radius, final float rotation,
         final int red, final int green, final int blue,
         final float alpha, final int light, final Basis basis) {
-        if (!WarheadParticleVisibility.visible(pose, centerX, centerY, centerZ, radius)) return;
         float cosine = Mth.cos(rotation);
         float sine = Mth.sin(rotation);
         vertex(pose, buffer, centerX, centerY, centerZ, -radius, -radius,
@@ -961,7 +951,7 @@ public final class NuclearParticleCloudRenderer {
         float offsetZ = basis.right.z * rotatedX + basis.up.z * rotatedY;
         buffer.addVertex(pose, centerX + offsetX, centerY + offsetY, centerZ + offsetZ)
             .setColor(red, green, blue, Mth.clamp((int) (alpha * 255.0F), 0, 255))
-            .setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light)
+            .setUv(u, v).setOverlay(0).setLight(light)
             .setNormal(pose, basis.normal.x, basis.normal.y, basis.normal.z);
     }
 
