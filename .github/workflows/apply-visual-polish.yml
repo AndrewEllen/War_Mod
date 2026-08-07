@@ -41,7 +41,8 @@ jobs:
           replace_exact(
               launch,
               "\t\tVec3 burnout = new Vec3(launch.x, burnoutY, launch.z);",
-              "\t\tdouble boostHorizontalLead = Mth.clamp(horizontalDistance * 0.08, 96.0, 320.0);\n"
+              "\t\tdouble boostHorizontalLead = Math.min(horizontalDistance * 0.20,\n"
+              "\t\t\tMth.clamp(horizontalDistance * 0.08, 24.0, 320.0));\n"
               "\t\tVec3 burnout = new Vec3(\n"
               "\t\t\tlaunch.x + horizontal.x * boostHorizontalLead, burnoutY,\n"
               "\t\t\tlaunch.z + horizontal.z * boostHorizontalLead);",
