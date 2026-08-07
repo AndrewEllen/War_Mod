@@ -3,6 +3,7 @@ package com.andye.warmod.radar.display.client;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.world.phys.Vec3;
 
 public final class RadarDisplayPrimitiveBuilder {
@@ -408,7 +409,7 @@ public final class RadarDisplayPrimitiveBuilder {
             0.5F,
             0.5F
         ).setOverlay(
-            0
+            OverlayTexture.NO_OVERLAY
         ).setLight(
             0xF000F0
         ).setNormal(

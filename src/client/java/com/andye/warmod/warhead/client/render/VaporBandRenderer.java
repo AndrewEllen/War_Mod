@@ -3,6 +3,7 @@ package com.andye.warmod.warhead.client.render;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 
 /** Repeating, deterministic compression rings in the projectile wake. */
@@ -20,13 +21,18 @@ public final class VaporBandRenderer {
 		final float activation,
 		final float fade
 	) {
-		double compression=WarheadVisualMath.terminalConeCompression(progress);
-		int bandCount = lod == WarheadMesh.Lod.NEAR ? 4 : lod == WarheadMesh.Lod.MEDIUM ? 3 : 2;
+		double compression = WarheadVisualMath.terminalConeCompression(progress);
+		int bandCount = lod == WarheadMesh.Lod.NEAR ? 4
+			: lod == WarheadMesh.Lod.MEDIUM ? 3 : 2;
 		for (int band = 0; band < bandCount; band++) {
-			double phase = WarheadVisualMath.vaporBandPhase(elapsedTicks*(1.0+.18*compression), band, bandCount, visualSeed);
-			float distance = (float) (2.0 + phase * Mth.lerp((float)compression,16.0F,13.0F));
-			float radius = (float) ((0.4 + phase * 4.0)*Mth.lerp((float)compression,1.0F,1.30F));
-			float alpha = (float) (activation * fade * Math.sin(phase * Math.PI) * Mth.lerp((float)compression,.18F,.27F));
+			double phase = WarheadVisualMath.vaporBandPhase(
+				elapsedTicks * (1.0 + .18 * compression), band, bandCount, visualSeed);
+			float distance = (float) (2.0 + phase
+				* Mth.lerp((float) compression, 16.0F, 13.0F));
+			float radius = (float) ((0.4 + phase * 4.0)
+				* Mth.lerp((float) compression, 1.0F, 1.30F));
+			float alpha = (float) (activation * fade * Math.sin(phase * Math.PI)
+				* Mth.lerp((float) compression, .18F, .27F));
 			renderBand(pose, buffer, distance, radius, alpha, (float) (phase * 2.0));
 		}
 	}
@@ -49,10 +55,14 @@ public final class VaporBandRenderer {
 			int next = (index + 1) % segments;
 			float angle = Mth.TWO_PI * index / segments;
 			float nextAngle = Mth.TWO_PI * next / segments;
-			vertex(pose, buffer, innerRadius * Mth.cos(angle), -distance, innerRadius * Mth.sin(angle), 0.0F + uOffset, 0.0F, alphaByte);
-			vertex(pose, buffer, radius * Mth.cos(angle), -distance, radius * Mth.sin(angle), 0.5F + uOffset, 0.0F, alphaByte);
-			vertex(pose, buffer, radius * Mth.cos(nextAngle), -distance, radius * Mth.sin(nextAngle), 0.5F + uOffset, 1.0F, alphaByte);
-			vertex(pose, buffer, innerRadius * Mth.cos(nextAngle), -distance, innerRadius * Mth.sin(nextAngle), 0.0F + uOffset, 1.0F, alphaByte);
+			vertex(pose, buffer, innerRadius * Mth.cos(angle), -distance,
+				innerRadius * Mth.sin(angle), uOffset, 0.0F, alphaByte);
+			vertex(pose, buffer, radius * Mth.cos(angle), -distance,
+				radius * Mth.sin(angle), 0.5F + uOffset, 0.0F, alphaByte);
+			vertex(pose, buffer, radius * Mth.cos(nextAngle), -distance,
+				radius * Mth.sin(nextAngle), 0.5F + uOffset, 1.0F, alphaByte);
+			vertex(pose, buffer, innerRadius * Mth.cos(nextAngle), -distance,
+				innerRadius * Mth.sin(nextAngle), uOffset, 1.0F, alphaByte);
 		}
 	}
 
@@ -72,7 +82,7 @@ public final class VaporBandRenderer {
 		buffer.addVertex(pose, x, y, z)
 			.setColor(230, 242, 250, alpha)
 			.setUv(u, v)
-			.setOverlay(0)
+			.setOverlay(OverlayTexture.NO_OVERLAY)
 			.setLight(0xF000F0)
 			.setNormal(pose, normalX / normalLength, 0.12F, normalZ / normalLength);
 	}
