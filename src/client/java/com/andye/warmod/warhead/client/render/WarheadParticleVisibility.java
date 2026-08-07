@@ -13,16 +13,16 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
- * Shared visibility gate for War Mod's custom particle billboards.
+ * Shared visibility gate for War Mod's custom particle billboards and debris.
  *
  * <p>The renderer already rejects whole effects outside the view. This class
  * handles the expensive case where a partly-visible blast still contains many
- * particles behind terrain. Frustum rejection is per billboard and allocation
- * free. Terrain visibility is cached per 8x8x8 world cell and shared by every
- * simultaneous explosion, so it never performs block ray tests per particle.
- * Transparent, fluid and non-full blocks never occlude. Large smoke billboards
- * intentionally skip coarse terrain LOS culling so a lobe peeking around an
- * edge cannot disappear because its centre cell is hidden.</p>
+ * particles/fragments behind terrain. Frustum rejection is per item and
+ * allocation free. Terrain visibility is cached per 8x8x8 world cell and
+ * shared by every simultaneous explosion, so it never performs block ray tests
+ * per particle. Transparent, fluid and non-full blocks never occlude. Large
+ * smoke billboards intentionally skip coarse terrain LOS culling so a lobe
+ * peeking around an edge cannot disappear because its centre cell is hidden.</p>
  */
 public final class WarheadParticleVisibility {
     private static final int CELL_SHIFT = 3;
@@ -85,13 +85,32 @@ public final class WarheadParticleVisibility {
         if (!Double.isFinite(distanceSquared)) return false;
         double safeRadius = Math.max(0.05, radius);
         if (!insideGenerousFrustum(rx, ry, rz, distanceSquared, safeRadius)) return false;
+        return terrainVisible(currentLevel, cameraPosition.x + rx,
+            cameraPosition.y + ry, cameraPosition.z + rz,
+            distanceSquared, safeRadius);
+    }
 
+    /** World-space variant used before moving-block debris is submitted. */
+    public static boolean visibleWorld(final Vec3 worldPosition, final float radius) {
+        ClientLevel currentLevel = level;
+        if (currentLevel == null || worldPosition == null || !worldPosition.isFinite()) return true;
+        double rx = worldPosition.x - cameraPosition.x;
+        double ry = worldPosition.y - cameraPosition.y;
+        double rz = worldPosition.z - cameraPosition.z;
+        double distanceSquared = rx * rx + ry * ry + rz * rz;
+        if (!Double.isFinite(distanceSquared)) return false;
+        double safeRadius = Math.max(0.05, radius);
+        if (!insideGenerousFrustum(rx, ry, rz, distanceSquared, safeRadius)) return false;
+        return terrainVisible(currentLevel, worldPosition.x, worldPosition.y,
+            worldPosition.z, distanceSquared, safeRadius);
+    }
+
+    private static boolean terrainVisible(final ClientLevel currentLevel,
+        final double worldX, final double worldY, final double worldZ,
+        final double distanceSquared, final double safeRadius) {
         double distance = Math.sqrt(distanceSquared);
         if (distance < 24.0 || distance > MAX_LOS_DISTANCE || safeRadius > 4.0) return true;
 
-        double worldX = cameraPosition.x + rx;
-        double worldY = cameraPosition.y + ry;
-        double worldZ = cameraPosition.z + rz;
         int cellX = Mth.floor(worldX) >> CELL_SHIFT;
         int cellY = Mth.floor(worldY) >> CELL_SHIFT;
         int cellZ = Mth.floor(worldZ) >> CELL_SHIFT;
@@ -161,7 +180,7 @@ public final class WarheadParticleVisibility {
     /**
      * A cell is rejected only when its centre and all eight corners are hidden.
      * The sampled volume is larger than any billboard allowed through this LOS
-     * path, so a particle near a terrain silhouette remains visible whenever a
+     * path, so an item near a terrain silhouette remains visible whenever a
      * representative edge/corner line can reach the camera.
      */
     private static boolean fullyOccludedCell(final ClientLevel level,
