@@ -96,12 +96,13 @@ public final class WarheadRenderPipelines {
         texture("shockwave_strip.png"), true, false, true);
     public static final RenderType GROUND_DUST = create("war_mod_ground_dust", GROUND_DUST_PIPELINE,
         PARTICLE_MASK, true, false, true);
+    /* ENTITY_CUTOUT consumes OverlaySampler; binding it prevents held-item/distance red tinting. */
     public static final RenderType HEAVY_SMOKE = create("war_mod_heavy_smoke", HEAVY_SMOKE_PIPELINE,
-        PARTICLE_MASK, true, false, false);
+        PARTICLE_MASK, true, true, false);
     public static final RenderType HEAVY_SMOKE_CORE = create("war_mod_heavy_smoke_core",
-        HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, false, false);
+        HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, true, false);
     public static final RenderType NUCLEAR_SMOKE = create("war_mod_nuclear_smoke",
-        RenderPipelines.ENTITY_CUTOUT, PARTICLE_MASK, true, false, false);
+        RenderPipelines.ENTITY_CUTOUT, PARTICLE_MASK, true, true, false);
     public static final RenderType FIREBALL_CORE = createClamped("war_mod_fireball_core",
         FIREBALL_CORE_PIPELINE, PARTICLE_MASK, false, false);
     public static final RenderType FIREBALL_COOL = createClamped("war_mod_fireball_cool",
