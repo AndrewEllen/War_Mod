@@ -119,7 +119,7 @@ public final class WarheadExplosionWorkManager {
 				SectionPos.blockToSectionCoord(cursor.getZ()))) break;
 			if (levelWork.isVirtualAir(cursor)) continue;
 			BlockState state = level.getBlockState(cursor);
-			FluidState fluid = level.getFluidState(cursor);
+			FluidState fluid = state.getFluidState();
 			if (!state.isAir() || !fluid.isEmpty()) {
 				return descent == 0 ? requested : new Vec3(requested.x, y + 0.98, requested.z);
 			}
@@ -143,12 +143,39 @@ public final class WarheadExplosionWorkManager {
 		final WarheadYield yield,
 		final long seed
 	) {
+		ExplosionWork work = scheduleDetonation(level, source, warheadId, position, yield, seed);
+		return work == null ? List.of() : work.sampleInitialDebris(level);
+	}
+
+	/**
+	 * Schedules the normal crater/entity work without performing the legacy
+	 * debris sample. Callers that already captured debris should use this path.
+	 */
+	public static synchronized void detonateWithoutDebrisSample(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadYield yield,
+		final long seed
+	) {
+		scheduleDetonation(level, source, warheadId, position, yield, seed);
+	}
+
+	private static ExplosionWork scheduleDetonation(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadYield yield,
+		final long seed
+	) {
 		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid staged explosion position");
 		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(yield);
 		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
 		ExplosionWork existing = levelWork.byWarhead.get(warheadId);
-		if (existing != null && !existing.finished) return List.of();
+		if (existing != null && !existing.finished) return null;
 
 		ExplosionWork work = new ExplosionWork(
 			warheadId,
@@ -163,7 +190,7 @@ public final class WarheadExplosionWorkManager {
 		levelWork.addVoidVolume(work.voidVolume);
 		applyImmediateEntityEffects(level, source, position, profile.entityBlastRadius());
 		work.explosionContext = new FastExplosion(level, source, position, profile.entityBlastRadius());
-		return work.sampleInitialDebris(level);
+		return work;
 	}
 
 	public static List<WarheadExplosionDropContext.DestroyedBlock> detonate(
@@ -380,6 +407,12 @@ public final class WarheadExplosionWorkManager {
 		private final VoidVolume voidVolume;
 		private final long detonationGameTime;
 		private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+		private final BlockPos.MutableBlockPos surfaceScan = new BlockPos.MutableBlockPos();
+		private final BlockPos.MutableBlockPos supportScan = new BlockPos.MutableBlockPos();
+		private final BlockPos.MutableBlockPos structuralScan = new BlockPos.MutableBlockPos();
+		private final int centerX;
+		private final int centerY;
+		private final int centerZ;
 		private ShapeTemplate template;
 		private int columnIndex;
 		private int surfaceIndex;
@@ -416,6 +449,9 @@ public final class WarheadExplosionWorkManager {
 			this.templateFuture = templateFuture;
 			this.voidVolume = new VoidVolume(center, profile);
 			this.detonationGameTime = gameTime;
+			this.centerX = Mth.floor(center.x);
+			this.centerY = Mth.floor(center.y);
+			this.centerZ = Mth.floor(center.z);
 			this.rotation = (int) (mix(seed ^ 0x524F544154494F4EL) & 3L);
 			this.mirror = (mix(seed ^ 0x4D4952524F525F34L) & 1L) != 0L;
 			this.aftermathStep = profile.yield().nuclear() ? 2 : 1;
@@ -454,7 +490,7 @@ public final class WarheadExplosionWorkManager {
 						int top = currentColumn.topY;
 						if (level.getChunkSource().hasChunk(currentWorldX >> 4, currentWorldZ >> 4)) {
 							int surfaceOffset = level.getHeight(Heightmap.Types.MOTION_BLOCKING, currentWorldX, currentWorldZ)
-								- 1 - Mth.floor(center.y);
+								- 1 - centerY;
 							top = Math.min(top, Math.max(currentColumn.bottomY, surfaceOffset));
 						}
 						currentTopY = top;
@@ -465,11 +501,7 @@ public final class WarheadExplosionWorkManager {
 						currentColumn = null;
 						continue;
 					}
-					cursor.set(
-						currentWorldX,
-						Mth.floor(center.y) + currentY,
-						currentWorldZ
-					);
+					cursor.set(currentWorldX, centerY + currentY, currentWorldZ);
 					int yOffset = currentY--;
 					boolean topOfColumn = yOffset == currentTopY;
 					visited++;
@@ -511,20 +543,22 @@ public final class WarheadExplosionWorkManager {
 			if (!levelWork.claim(packed)) return false;
 			try {
 				BlockState state = level.getBlockState(position);
-				FluidState fluid = level.getFluidState(position);
+				FluidState fluid = state.getFluidState();
 				if (state.isAir() && fluid.isEmpty()) return false;
 				float destroySpeed = state.getDestroySpeed(level, position);
 				if (destroySpeed < 0.0F) return false;
 				double verticalRadius = yOffset < 0 ? profile.downwardRadius() : profile.upwardRadius();
 				double vertical = Math.abs(yOffset) / Math.max(1.0, verticalRadius);
 				double normalized = Math.sqrt(Math.min(1.0, radial * radial + vertical * vertical));
-				float resistance = Math.max(
-					state.getBlock().getExplosionResistance(),
-					fluid.getExplosionResistance()
-				);
-				float threshold = profile.maximumDestroyResistance()
-					* (float) Math.max(0.08, 1.0 - normalized * profile.edgeResistanceScale());
-				if (normalized > profile.guaranteedVoidScale() && resistance > threshold) return false;
+				if (normalized > profile.guaranteedVoidScale()) {
+					float resistance = Math.max(
+						state.getBlock().getExplosionResistance(),
+						fluid.getExplosionResistance()
+					);
+					float threshold = profile.maximumDestroyResistance()
+						* (float) Math.max(0.08, 1.0 - normalized * profile.edgeResistanceScale());
+					if (resistance > threshold) return false;
+				}
 
 				if (state.is(Blocks.TNT)) {
 					FastExplosion explosion = explosionContext == null
@@ -541,33 +575,31 @@ public final class WarheadExplosionWorkManager {
 			}
 		}
 
-
 		private int advanceSurfaceWave(final ServerLevel level, final int budget, final long deadline) {
 			if (template == null || surfaceIndex >= template.surfacePoints.length || budget <= 0) return 0;
 			double age = Math.max(0.0, level.getGameTime() - detonationGameTime);
-			double currentRadius = Math.min(profile.horizontalRadius() * profile.aftermathRadiusScale(),
+			double maximumRadius = Math.max(1.0, profile.horizontalRadius() * profile.aftermathRadiusScale());
+			double currentRadius = Math.min(maximumRadius,
 				age * WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK);
 			int changed = 0;
 			int visited = 0;
+			int scanHeight = profile.yield().nuclear() ? 22 : 10;
 			while (surfaceIndex < template.surfacePoints.length && visited < budget && System.nanoTime() < deadline) {
 				SurfacePoint point = template.surfacePoints[surfaceIndex];
 				if (point.radial > currentRadius) break;
 				surfaceIndex++;
 				visited++;
-				int worldX = Mth.floor(center.x) + point.dx;
-				int worldZ = Mth.floor(center.z) + point.dz;
+				int worldX = centerX + point.dx;
+				int worldZ = centerZ + point.dz;
 				if (!level.getChunkSource().hasChunk(worldX >> 4, worldZ >> 4)) continue;
 				int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, worldX, worldZ) - 1;
-				double maximumRadius = Math.max(1.0, profile.horizontalRadius() * profile.aftermathRadiusScale());
 				double normalized = point.radial / maximumRadius;
 				double pressure = Math.max(0.0, 1.0 - normalized);
 				long hash = mix(seed ^ ((long) point.dx << 32) ^ (point.dz & 0xFFFFFFFFL) ^ 0x5355524641434557L);
-				BlockPos.MutableBlockPos scan = new BlockPos.MutableBlockPos();
-				int scanHeight = profile.yield().nuclear() ? 22 : 10;
 				for (int up = 1; up <= scanHeight; up++) {
-					scan.set(worldX, groundY + up, worldZ);
-					if (!level.isInWorldBounds(scan)) break;
-					BlockState state = level.getBlockState(scan);
+					surfaceScan.set(worldX, groundY + up, worldZ);
+					if (!level.isInWorldBounds(surfaceScan)) break;
+					BlockState state = level.getBlockState(surfaceScan);
 					if (state.isAir()) continue;
 					boolean leaves = state.is(BlockTags.LEAVES);
 					boolean fragile = isFragileSurface(state);
@@ -575,26 +607,26 @@ public final class WarheadExplosionWorkManager {
 					double removalChance = fragile ? 0.35 + pressure * 0.65
 						: leaves ? (profile.yield().nuclear() ? 0.18 + pressure * 0.88 : pressure * 0.42)
 						: glass ? (profile.yield().nuclear() ? pressure * 1.15 : pressure * 0.54) : 0.0;
-					if (unit(hash ^ scan.asLong() ^ up) < Math.min(1.0, removalChance)) {
-						if (level.setBlock(scan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS)) changed++;
+					if (unit(hash ^ surfaceScan.asLong() ^ up) < Math.min(1.0, removalChance)) {
+						if (level.setBlock(surfaceScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS)) changed++;
 					}
 				}
-				scan.set(worldX, groundY, worldZ);
-				if (!level.isInWorldBounds(scan)) continue;
-				BlockState surface = level.getBlockState(scan);
+				surfaceScan.set(worldX, groundY, worldZ);
+				if (!level.isInWorldBounds(surfaceScan)) continue;
+				BlockState surface = level.getBlockState(surfaceScan);
 				if (profile.yield().nuclear() && unit(hash ^ 0x53434F524348L) < pressure * 0.52) {
 					if (surface.is(Blocks.GRASS_BLOCK) || surface.is(Blocks.DIRT)
 						|| surface.is(Blocks.PODZOL) || surface.is(Blocks.MYCELIUM)) {
 						BlockState replacement = pressure > 0.62
 							? Blocks.COARSE_DIRT.defaultBlockState() : Blocks.PODZOL.defaultBlockState();
-						if (level.setBlock(scan, replacement, FAST_REMOVE_FLAGS)) changed++;
+						if (level.setBlock(surfaceScan, replacement, FAST_REMOVE_FLAGS)) changed++;
 					} else if (surface.is(Blocks.SAND) || surface.is(Blocks.RED_SAND)) {
-						if (level.setBlock(scan, Blocks.GRAVEL.defaultBlockState(), FAST_REMOVE_FLAGS)) changed++;
+						if (level.setBlock(surfaceScan, Blocks.GRAVEL.defaultBlockState(), FAST_REMOVE_FLAGS)) changed++;
 					}
 					if (pressure > 0.44 && unit(hash ^ 0x464952455F574156L) < pressure * 0.10) {
-						scan.set(worldX, groundY + 1, worldZ);
-						if (level.isInWorldBounds(scan) && level.getBlockState(scan).isAir()) {
-							if (level.setBlock(scan, Blocks.FIRE.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE)) changed++;
+						surfaceScan.set(worldX, groundY + 1, worldZ);
+						if (level.isInWorldBounds(surfaceScan) && level.getBlockState(surfaceScan).isAir()) {
+							if (level.setBlock(surfaceScan, Blocks.FIRE.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE)) changed++;
 						}
 					}
 				}
@@ -603,18 +635,17 @@ public final class WarheadExplosionWorkManager {
 		}
 
 		private void removeUnsupportedAbove(final ServerLevel level, final BlockPos removedSupport) {
-			BlockPos.MutableBlockPos above = new BlockPos.MutableBlockPos();
 			for (int offset = 1; offset <= IMMEDIATE_SUPPORT_SCAN_HEIGHT; offset++) {
-				above.set(removedSupport.getX(), removedSupport.getY() + offset, removedSupport.getZ());
-				if (!level.isInWorldBounds(above)) break;
-				BlockState state = level.getBlockState(above);
+				supportScan.set(removedSupport.getX(), removedSupport.getY() + offset, removedSupport.getZ());
+				if (!level.isInWorldBounds(supportScan)) break;
+				BlockState state = level.getBlockState(supportScan);
 				if (state.isAir()) continue;
 				if (state.is(BlockTags.LEAVES)) {
-					level.setBlock(above, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+					level.setBlock(supportScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 					continue;
 				}
-				if (isFragileSurface(state) || !state.canSurvive(level, above)) {
-					level.setBlock(above, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				if (isFragileSurface(state) || !state.canSurvive(level, supportScan)) {
+					level.setBlock(supportScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 				}
 			}
 		}
@@ -630,12 +661,12 @@ public final class WarheadExplosionWorkManager {
 					structuralX += structuralStep;
 				}
 				if ((double) dx * dx + (double) dz * dz > (double) radius * radius) return true;
-				int x = Mth.floor(center.x) + dx;
-				int z = Mth.floor(center.z) + dz;
+				int x = centerX + dx;
+				int z = centerZ + dz;
 				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return true;
 
 				int craterFloor = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
-				int originalBandStart = Mth.floor(center.y) - 10;
+				int originalBandStart = centerY - 10;
 				int scanStart = Math.max(level.dimensionType().minY(), Math.min(craterFloor + 1, originalBandStart));
 				int scanEnd = Math.min(
 					level.dimensionType().minY() + level.dimensionType().height() - 1,
@@ -654,17 +685,16 @@ public final class WarheadExplosionWorkManager {
 			final int minimumY,
 			final int maximumY
 		) {
-			BlockPos.MutableBlockPos scan = new BlockPos.MutableBlockPos();
 			for (int y = minimumY; y <= maximumY; y++) {
-				scan.set(x, y, z);
-				BlockState state = level.getBlockState(scan);
+				structuralScan.set(x, y, z);
+				BlockState state = level.getBlockState(structuralScan);
 				if (state.isAir()) continue;
 				if (state.is(BlockTags.LEAVES)) {
-					level.setBlock(scan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+					level.setBlock(structuralScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 					continue;
 				}
-				if (isFragileSurface(state) || !state.canSurvive(level, scan)) {
-					level.setBlock(scan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+				if (isFragileSurface(state) || !state.canSurvive(level, structuralScan)) {
+					level.setBlock(structuralScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 				}
 			}
 		}
@@ -699,8 +729,8 @@ public final class WarheadExplosionWorkManager {
 					/ Math.max(1.0, radius - profile.horizontalRadius() * 0.72));
 				long hash = seed ^ ((long) dx << 32) ^ (dz & 0xFFFFFFFFL) ^ 0x41465445524D4154L;
 				if (unit(hash) > chance) return true;
-				int x = Mth.floor(center.x) + dx;
-				int z = Mth.floor(center.z) + dz;
+				int x = centerX + dx;
+				int z = centerZ + dz;
 				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return true;
 				int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
 				cursor.set(x, groundY, z);
@@ -744,8 +774,8 @@ public final class WarheadExplosionWorkManager {
 				case 3 -> { transformedX = z; transformedZ = -tx; }
 				default -> { transformedX = tx; transformedZ = z; }
 			}
-			currentWorldX = Mth.floor(center.x) + transformedX;
-			currentWorldZ = Mth.floor(center.z) + transformedZ;
+			currentWorldX = centerX + transformedX;
+			currentWorldZ = centerZ + transformedZ;
 		}
 
 		private List<WarheadExplosionDropContext.DestroyedBlock> sampleInitialDebris(final ServerLevel level) {
@@ -779,7 +809,6 @@ public final class WarheadExplosionWorkManager {
 			}
 			return List.copyOf(result);
 		}
-
 	}
 
 	private static final class ShapeTemplate {
