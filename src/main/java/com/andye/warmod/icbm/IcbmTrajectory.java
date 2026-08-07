@@ -5,9 +5,9 @@ import net.minecraft.world.phys.Vec3;
 
 /** Authoritative carrier route with a continuous powered-ascent-to-coast arc. */
 public final class IcbmTrajectory {
-    private static final double COAST_INITIAL_HORIZONTAL_FRACTION = 0.14;
-    private static final double COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD = 24.0;
-    private static final double COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD = 192.0;
+    private static final double COAST_INITIAL_HORIZONTAL_FRACTION = 0.24;
+    private static final double COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD = 80.0;
+    private static final double COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD = 360.0;
 
     private IcbmTrajectory() { }
 
@@ -61,8 +61,8 @@ public final class IcbmTrajectory {
         double u3 = u2 * u;
         Vec3 start = plan.launchPosition().add(0, .5, 0);
         Vec3 burnout = plan.burnoutPosition();
-        Vec3 launchTangent = new Vec3(0, .55 * plan.boostTicks(), 0);
-        /* Match the diagonal coast tangent so the missile begins banking before burnout. */
+        Vec3 launchTangent = poweredLaunchTangent(plan);
+        /* Match the diagonal coast tangent so there is no kink at burnout. */
         Vec3 burnoutTangent = coastInitialVelocity(plan).scale(plan.boostTicks());
         return start.scale(2 * u3 - 3 * u2 + 1)
             .add(launchTangent.scale(u3 - 2 * u2 + u))
@@ -75,13 +75,28 @@ public final class IcbmTrajectory {
         double u2 = u * u;
         Vec3 start = plan.launchPosition().add(0, .5, 0);
         Vec3 burnout = plan.burnoutPosition();
-        Vec3 launchTangent = new Vec3(0, .55 * plan.boostTicks(), 0);
+        Vec3 launchTangent = poweredLaunchTangent(plan);
         Vec3 burnoutTangent = coastInitialVelocity(plan).scale(plan.boostTicks());
         return start.scale(6 * u2 - 6 * u)
             .add(launchTangent.scale(3 * u2 - 4 * u + 1))
             .add(burnout.scale(-6 * u2 + 6 * u))
             .add(burnoutTangent.scale(3 * u2 - 2 * u))
             .scale(1.0 / plan.boostTicks());
+    }
+
+    /**
+     * Establish altitude before the down-range bank becomes visually strong.
+     * The larger vertical launch tangent lifts a silo launch clear of terrain
+     * early, while the widened burnout/coast geometry spreads the turn over
+     * the rest of powered ascent instead of concentrating it near the top.
+     */
+    private static Vec3 poweredLaunchTangent(final IcbmFlightPlan plan) {
+        double verticalTravel = Math.max(1.0,
+            plan.burnoutPosition().y - plan.launchPosition().y);
+        double tangentY = Math.min(verticalTravel * 0.65,
+            plan.boostTicks() * 1.80);
+        tangentY = Math.max(tangentY, Math.min(verticalTravel * 0.50, 144.0));
+        return new Vec3(0.0, tangentY, 0.0);
     }
 
     private static Vec3 coast(final IcbmFlightPlan plan, final double raw) {
@@ -111,10 +126,9 @@ public final class IcbmTrajectory {
     }
 
     /**
-     * The old first control point was directly above burnout. That kept the
-     * carrier vertical until near the apex and then forced a visibly sharp
-     * turn. A bounded forward lead starts the down-range arc while the carrier
-     * is still climbing above the cloud layer.
+     * Carry a much stronger down-range component through burnout. The powered
+     * Hermite tangent is matched to this control point, so the carrier already
+     * has the coast heading before thrust cuts out rather than snapping into it.
      */
     private static Vec3 coastControlOne(final Vec3 burnout, final Vec3 separation) {
         Vec3 delta = separation.subtract(burnout);

@@ -10,6 +10,12 @@ public final class TerrainShockfrontSpoke {
 
 	private final double angle;
 	private final List<TerrainShockfrontNode> nodes = new ArrayList<>();
+	/*
+	 * Rendering can query a spoke several times in one frame (shock front,
+	 * settled smoke and nuclear wall). Cache the immutable view when topology
+	 * changes instead of allocating List.copyOf(nodes) for every pass.
+	 */
+	private volatile List<TerrainShockfrontNode> nodeSnapshot = List.of();
 	private int nextSampleIndex = 1;
 	private int reachedNodeCount;
 	private int frontierIndex = -1;
@@ -23,8 +29,8 @@ public final class TerrainShockfrontSpoke {
 		return this.angle;
 	}
 
-	public synchronized List<TerrainShockfrontNode> snapshotNodes() {
-		return List.copyOf(this.nodes);
+	public List<TerrainShockfrontNode> snapshotNodes() {
+		return this.nodeSnapshot;
 	}
 
 	synchronized int nextSampleIndex() {
@@ -45,6 +51,7 @@ public final class TerrainShockfrontSpoke {
 
 	synchronized void addNode(final TerrainShockfrontNode node) {
 		this.nodes.add(node);
+		this.nodeSnapshot = List.copyOf(this.nodes);
 	}
 
 	synchronized TerrainShockfrontNode previousNode() {
