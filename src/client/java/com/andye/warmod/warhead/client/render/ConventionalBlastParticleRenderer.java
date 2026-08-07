@@ -143,8 +143,6 @@ public final class ConventionalBlastParticleRenderer {
             if (localAge >= life) continue;
 
             float angle = (index + unit(random, 2)) / count * Mth.TWO_PI;
-            float inwardSpeed = 0.13F + unit(random, 3)
-                * (0.20F + 0.055F * sqrtScale);
             float radialJitter = signed(random, 4) * (1.0F + 1.7F * scale);
             float radial = Math.max(0.0F, (float) returnRadius + radialJitter);
             float tangential = signed(random, 5) * localAge * 0.018F;
@@ -261,6 +259,7 @@ public final class ConventionalBlastParticleRenderer {
         final float centerZ, final float radius, final float rotation,
         final int red, final int green, final int blue, final float alpha,
         final int light, final Basis basis) {
+        if (!WarheadParticleVisibility.visible(pose, centerX, centerY, centerZ, radius)) return;
         float cosine = Mth.cos(rotation);
         float sine = Mth.sin(rotation);
         vertex(pose, buffer, centerX, centerY, centerZ, -radius, -radius,
