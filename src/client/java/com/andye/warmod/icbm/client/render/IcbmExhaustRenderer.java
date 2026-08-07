@@ -13,29 +13,33 @@ public final class IcbmExhaustRenderer {
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed);
 		float visibility = visibilityScale(lod);
-		plume(pose, buffer, -2.54F, 0.50F * visibility,
-			(float) (5.25 * flicker * visibility), 255, 255, 238, 255, 4);
-		plume(pose, buffer, -2.57F, 0.70F * visibility,
-			(float) (7.15 * flicker * visibility), 255, 225, 112, 244, 4);
-		/* Keep a compact orange core visible at extreme range and through fog. */
-		plume(pose, buffer, -2.60F, 0.84F * visibility,
-			(float) (8.75 * flicker * visibility), 255, 164, 38, 226, 4);
+		/*
+		 * The orange layer is intentionally wider than the white kernel. It is
+		 * full-bright and submitted through an additive emissive pipeline so the
+		 * engine remains visibly lit even when the missile body is small in fog.
+		 */
+		plume(pose, buffer, -2.60F, 1.04F * visibility,
+			(float) (9.35 * flicker * visibility), 255, 138, 24, 255, 6);
+		plume(pose, buffer, -2.57F, 0.78F * visibility,
+			(float) (7.70 * flicker * visibility), 255, 205, 76, 255, 5);
+		plume(pose, buffer, -2.54F, 0.54F * visibility,
+			(float) (5.65 * flicker * visibility), 255, 255, 238, 255, 5);
 	}
 
 	public static void renderFringe(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed);
 		float visibility = visibilityScale(lod);
-		plume(pose, buffer, -2.61F, 1.02F * visibility,
-			(float) (11.4 * flicker * visibility), 255, 132, 26, 205, 5);
+		plume(pose, buffer, -2.63F, 1.30F * visibility,
+			(float) (12.8 * flicker * visibility), 255, 111, 20, 218, 6);
 		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.65F, 1.31F * visibility,
-				(float) (14.4 * flicker * visibility), 255, 82, 18, 142, 5);
+			plume(pose, buffer, -2.67F, 1.55F * visibility,
+				(float) (15.6 * flicker * visibility), 255, 72, 14, 154, 6);
 		}
 		if (lod == IcbmLongRangeRenderContext.Lod.NEAR
 			|| lod == IcbmLongRangeRenderContext.Lod.MEDIUM) {
-			plume(pose, buffer, -2.70F, 1.58F,
-				(float) (17.2 * flicker), 236, 62, 14, 78, 6);
+			plume(pose, buffer, -2.72F, 1.82F,
+				(float) (18.4 * flicker), 236, 58, 12, 82, 7);
 		}
 	}
 
@@ -49,9 +53,9 @@ public final class IcbmExhaustRenderer {
 	private static float visibilityScale(final IcbmLongRangeRenderContext.Lod lod) {
 		return switch (lod) {
 			case NEAR -> 1.0F;
-			case MEDIUM -> 1.08F;
-			case FAR -> 1.26F;
-			case EXTREME -> 1.62F;
+			case MEDIUM -> 1.12F;
+			case FAR -> 1.38F;
+			case EXTREME -> 1.90F;
 		};
 	}
 
