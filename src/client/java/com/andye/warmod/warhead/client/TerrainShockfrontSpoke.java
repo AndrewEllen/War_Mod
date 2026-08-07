@@ -6,10 +6,12 @@ import java.util.List;
 /** Mutable build and emission state for one deterministic radial terrain path. */
 public final class TerrainShockfrontSpoke {
 	private static final double ACTIVE_DUST_DEPTH = 52.0;
-	private static final long ACTIVE_DUST_LIFETIME_TICKS = 240L;
+	private static final long ACTIVE_DUST_LIFETIME_TICKS = 1_200L;
 
 	private final double angle;
 	private final List<TerrainShockfrontNode> nodes = new ArrayList<>();
+	/* Rendering queries the same immutable topology from several passes. */
+	private volatile List<TerrainShockfrontNode> nodeSnapshot = List.of();
 	private int nextSampleIndex = 1;
 	private int reachedNodeCount;
 	private int frontierIndex = -1;
@@ -23,8 +25,8 @@ public final class TerrainShockfrontSpoke {
 		return this.angle;
 	}
 
-	public synchronized List<TerrainShockfrontNode> snapshotNodes() {
-		return List.copyOf(this.nodes);
+	public List<TerrainShockfrontNode> snapshotNodes() {
+		return this.nodeSnapshot;
 	}
 
 	/** Append only the terrain nodes crossed by a shrinking return-wave band. */
@@ -63,6 +65,7 @@ public final class TerrainShockfrontSpoke {
 
 	synchronized void addNode(final TerrainShockfrontNode node) {
 		this.nodes.add(node);
+		this.nodeSnapshot = List.copyOf(this.nodes);
 	}
 
 	synchronized TerrainShockfrontNode previousNode() {

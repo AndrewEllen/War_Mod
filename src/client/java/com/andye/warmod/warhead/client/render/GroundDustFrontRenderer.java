@@ -4,6 +4,7 @@ import com.andye.warmod.warhead.client.TerrainShockfrontNode;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -31,22 +32,31 @@ public final class GroundDustFrontRenderer {
             long start = node.emittedGameTime() == Long.MIN_VALUE
                 ? node.readyGameTime() : node.emittedGameTime();
             double age = Math.max(0.0, gameTime - start);
-            double lifetime = 132.0 + ((seed >>> 8) & 111L);
+            double motionLifetime = 132.0 + ((seed >>> 8) & 111L);
+            double lifetime = motionLifetime * 5.0;
             if (age > lifetime) continue;
-            double progress = age / lifetime;
+            double motionProgress = Mth.clamp(age / motionLifetime, 0.0, 1.0);
+            double lifeProgress = Mth.clamp(age / lifetime, 0.0, 1.0);
             double dx = node.position().x - impactPosition.x;
             double dz = node.position().z - impactPosition.z;
             double length = Math.sqrt(dx * dx + dz * dz);
             if (length < 1.0E-4) continue;
 
-            double outward = (0.24 + ((seed >>> 18) & 31L) / 36.0) * progress;
+            /*
+             * Keep the original outward/rise timing. Extending lifetime must not
+             * turn the shockwave into slow motion: after its old lifetime the
+             * plume settles back onto the terrain and only its fade continues.
+             */
+            double settle = smoothstep(Mth.clamp((float) ((age - motionLifetime)
+                / Math.max(1.0, motionLifetime * 0.32)), 0.0F, 1.0F));
+            double outward = (0.24 + ((seed >>> 18) & 31L) / 36.0) * motionProgress;
             double rise = (0.18 + ((seed >>> 27) & 31L) / 25.0)
-                * Math.sin(progress * Math.PI * 0.88);
+                * Math.sin(motionProgress * Math.PI * 0.88) * (1.0 - settle);
             Vec3 base = node.position().subtract(impactPosition)
                 .add(dx / length * outward, 0.06 + rise, dz / length * outward);
-            float fadeStart = 0.68F + unit(seed, 7) * 0.25F;
-            float fade = progress < fadeStart ? 1.0F
-                : smoothstep(Mth.clamp((float) ((1.0 - progress)
+            float fadeStart = 0.80F + unit(seed, 7) * 0.15F;
+            float fade = lifeProgress < fadeStart ? 1.0F
+                : smoothstep(Mth.clamp((float) ((1.0 - lifeProgress)
                     / Math.max(0.03, 1.0 - fadeStart)), 0.0F, 1.0F));
             float alpha = (0.58F + unit(seed, 8) * 0.24F) * fade;
             int puffs = lod == WarheadMesh.Lod.NEAR ? 8
@@ -74,10 +84,10 @@ public final class GroundDustFrontRenderer {
                     blue = Mth.clamp(earth - 28, 78, 154);
                 }
                 float radius = (0.14F + unit(puffSeed, 0) * 0.42F)
-                    * (0.92F + (float) progress * 0.72F);
+                    * (0.92F + (float) motionProgress * 0.72F);
                 float rotation = unit(puffSeed, 1) * Mth.TWO_PI;
                 Vec3 center = base.add(signed(puffSeed, 2) * radius * 1.7,
-                    unit(puffSeed, 3) * radius * 0.95,
+                    unit(puffSeed, 3) * radius * 0.95 * (1.0 - settle),
                     signed(puffSeed, 4) * radius * 1.7);
                 addBillboard(pose, buffer, center, radius, rotation, red, green, blue,
                     alpha * (0.68F + unit(puffSeed, 5) * 0.30F), basis);
@@ -139,6 +149,8 @@ public final class GroundDustFrontRenderer {
     private static void addBillboard(final PoseStack.Pose pose, final VertexConsumer buffer,
         final Vec3 center, final float radius, final float rotation, final int red, final int green,
         final int blue, final float alpha, final Basis basis) {
+        if (!WarheadParticleVisibility.visible(pose, (float) center.x, (float) center.y,
+            (float) center.z, radius)) return;
         float cosine = Mth.cos(rotation), sine = Mth.sin(rotation);
         float ux = cosine * radius, uy = sine * radius;
         float vx = -sine * radius, vy = cosine * radius;
@@ -161,8 +173,8 @@ public final class GroundDustFrontRenderer {
         float oz = basis.right.z * x + basis.up.z * y;
         buffer.addVertex(pose, (float) center.x + ox, (float) center.y + oy,
                 (float) center.z + oz)
-            .setColor(red, green, blue, alpha).setUv(u, v).setOverlay(0)
-            .setLight(0xB000B0)
+            .setColor(red, green, blue, alpha).setUv(u, v)
+            .setOverlay(OverlayTexture.NO_OVERLAY).setLight(0xB000B0)
             .setNormal(pose, basis.normal.x, basis.normal.y, basis.normal.z);
     }
 
