@@ -2,6 +2,7 @@ package com.andye.warmod.icbm.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 
 /** Full-bright layered rocket exhaust using neutral alpha-mask textures. */
@@ -11,29 +12,47 @@ public final class IcbmExhaustRenderer {
 	public static void renderCore(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed);
-		plume(pose, buffer, -2.55F, 0.46F, (float) (4.65 * flicker), 255, 255, 238, 255, 3);
-		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.58F, 0.63F, (float) (6.35 * flicker), 255, 232, 146, 228, 3);
-		}
+		float visibility = visibilityScale(lod);
+		plume(pose, buffer, -2.54F, 0.50F * visibility,
+			(float) (5.25 * flicker * visibility), 255, 255, 238, 255, 4);
+		plume(pose, buffer, -2.57F, 0.70F * visibility,
+			(float) (7.15 * flicker * visibility), 255, 225, 112, 244, 4);
+		/* Keep a compact orange core visible at extreme range and through fog. */
+		plume(pose, buffer, -2.60F, 0.84F * visibility,
+			(float) (8.75 * flicker * visibility), 255, 164, 38, 226, 4);
 	}
 
 	public static void renderFringe(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed);
-		plume(pose, buffer, -2.60F, 0.82F, (float) (8.55 * flicker), 255, 174, 54, 216, 4);
+		float visibility = visibilityScale(lod);
+		plume(pose, buffer, -2.61F, 1.02F * visibility,
+			(float) (11.4 * flicker * visibility), 255, 132, 26, 205, 5);
 		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.64F, 1.08F, (float) (11.25 * flicker), 255, 108, 24, 150, 4);
+			plume(pose, buffer, -2.65F, 1.31F * visibility,
+				(float) (14.4 * flicker * visibility), 255, 82, 18, 142, 5);
 		}
-		if (lod == IcbmLongRangeRenderContext.Lod.NEAR || lod == IcbmLongRangeRenderContext.Lod.MEDIUM) {
-			plume(pose, buffer, -2.68F, 1.38F, (float) (14.0 * flicker), 238, 76, 18, 82, 5);
+		if (lod == IcbmLongRangeRenderContext.Lod.NEAR
+			|| lod == IcbmLongRangeRenderContext.Lod.MEDIUM) {
+			plume(pose, buffer, -2.70F, 1.58F,
+				(float) (17.2 * flicker), 236, 62, 14, 78, 6);
 		}
 	}
 
-	/** Retained for any external call sites; the world renderer submits the two passes separately. */
+	/** Retained for external call sites; the world renderer submits both passes. */
 	public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		renderCore(pose, buffer, seed, elapsed, lod);
 		renderFringe(pose, buffer, seed, elapsed, lod);
+	}
+
+	private static float visibilityScale(final IcbmLongRangeRenderContext.Lod lod) {
+		return switch (lod) {
+			case NEAR -> 1.0F;
+			case MEDIUM -> 1.08F;
+			case FAR -> 1.26F;
+			case EXTREME -> 1.62F;
+		};
 	}
 
 	private static double flicker(final long seed, final double elapsed) {
@@ -48,10 +67,14 @@ public final class IcbmExhaustRenderer {
 			float angle = quad * Mth.PI / quads;
 			float cosine = Mth.cos(angle);
 			float sine = Mth.sin(angle);
-			vertex(pose, buffer, -cosine * radius, top, -sine * radius, 0.0F, 0.0F, red, green, blue, alpha);
-			vertex(pose, buffer, cosine * radius, top, sine * radius, 1.0F, 0.0F, red, green, blue, alpha);
-			vertex(pose, buffer, cosine * 0.035F, top - length, sine * 0.035F, 1.0F, 1.0F, red, green, blue, 0);
-			vertex(pose, buffer, -cosine * 0.035F, top - length, -sine * 0.035F, 0.0F, 1.0F, red, green, blue, 0);
+			vertex(pose, buffer, -cosine * radius, top, -sine * radius,
+				0.0F, 0.0F, red, green, blue, alpha);
+			vertex(pose, buffer, cosine * radius, top, sine * radius,
+				1.0F, 0.0F, red, green, blue, alpha);
+			vertex(pose, buffer, cosine * 0.035F, top - length, sine * 0.035F,
+				1.0F, 1.0F, red, green, blue, 0);
+			vertex(pose, buffer, -cosine * 0.035F, top - length, -sine * 0.035F,
+				0.0F, 1.0F, red, green, blue, 0);
 		}
 	}
 
@@ -61,7 +84,7 @@ public final class IcbmExhaustRenderer {
 		buffer.addVertex(pose, x, y, z)
 			.setColor(red, green, blue, alpha)
 			.setUv(u, v)
-			.setOverlay(0)
+			.setOverlay(OverlayTexture.NO_OVERLAY)
 			.setLight(0xF000F0)
 			.setNormal(pose, 0.0F, 1.0F, 0.0F);
 	}

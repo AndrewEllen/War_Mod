@@ -127,7 +127,7 @@ public final class IcbmLaunchService {
 		double burnoutY = Math.min(ceiling - 80.0, Math.max(launch.y + IcbmConstants.PREFERRED_BURNOUT_HEIGHT_ABOVE_LAUNCH,
 			Math.max(target.y + 420.0, cloudHeight + 96.0)));
 		double separationY = Math.min(ceiling - 40.0, target.y + IcbmConstants.PREFERRED_SEPARATION_HEIGHT_ABOVE_TARGET);
-		Vec3 burnout = new Vec3(launch.x, burnoutY, launch.z);
+		Vec3 burnout = boostBurnout(launch, horizontal, horizontalDistance, burnoutY);
 		double terminalVertical = Math.max(0.0, separationY - target.y);
 		double terminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS * WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
 		double maxOffset = Math.sqrt(Math.max(0.0, terminalTravel * terminalTravel - terminalVertical * terminalVertical));
@@ -172,8 +172,7 @@ public final class IcbmLaunchService {
 		if (!Double.isFinite(burnoutY) || !Double.isFinite(separationY)
 			|| burnoutY < launch.y + IcbmConstants.MINIMUM_BURNOUT_HEIGHT_ABOVE_LAUNCH
 			|| separationY < target.y + IcbmConstants.MINIMUM_SEPARATION_HEIGHT_ABOVE_TARGET) return Optional.empty();
-		// Boost geometry is target-independent: lateral steering starts only after burnout.
-		Vec3 burnout = new Vec3(launch.x, burnoutY, launch.z);
+		Vec3 burnout = boostBurnout(launch, horizontal, horizontalDistance, burnoutY);
 		double verticalTravel = Math.max(0.0, separationY - target.y);
 		double maximumTerminalTravel = IcbmConstants.MAXIMUM_TERMINAL_TICKS
 			* WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK;
@@ -197,6 +196,16 @@ public final class IcbmLaunchService {
 		} catch (IllegalArgumentException ignored) {
 			return Optional.empty();
 		}
+	}
+
+	private static Vec3 boostBurnout(final Vec3 launch, final Vec3 horizontalDirection,
+		final double horizontalDistance, final double burnoutY) {
+		double lead = Mth.clamp(
+			horizontalDistance * IcbmConstants.BOOST_FORWARD_LEAD_DISTANCE_FRACTION,
+			IcbmConstants.MINIMUM_BOOST_FORWARD_LEAD_BLOCKS,
+			IcbmConstants.MAXIMUM_BOOST_FORWARD_LEAD_BLOCKS);
+		return new Vec3(launch.x + horizontalDirection.x * lead, burnoutY,
+			launch.z + horizontalDirection.z * lead);
 	}
 
 	private static Vec3 virtualLaunchPosition(final ServerLevel level, final ServerPlayer player,

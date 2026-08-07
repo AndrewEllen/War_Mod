@@ -21,10 +21,9 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Adds the vanilla animated explosion emitter to sampled terrain nodes reached
- * by the custom pressure-front simulation. The accompanying custom fleck layer
- * gives complete front coverage while these emitters provide the full vanilla
- * animation on a dense, deterministic subset that remains bounded per tick.
+ * Adds a bounded subset of vanilla animated explosion emitters to the sampled
+ * terrain front. Full front coverage remains in the custom ribbon/fleck layers;
+ * the expensive vanilla emitters are accents rather than the primary wave.
  */
 public final class ShockwaveVanillaParticleEmitter {
     private static final Map<UUID, Long> LAST_PROCESSED_TICK = new HashMap<>();
@@ -79,10 +78,10 @@ public final class ShockwaveVanillaParticleEmitter {
         final ImpactVisualState state, final double radius, final long gameTime) {
         if (!Double.isFinite(radius) || radius <= 0.0) return;
         boolean nuclear = state.payloadType() == WarheadPayloadType.NUCLEAR;
-        int maximumNodes = nuclear ? 2_048 : 768;
+        int maximumNodes = nuclear ? 1_024 : 512;
         List<TerrainShockfrontNode> nodes = state.terrainShockfrontField().readyNodes(
             radius, nuclear ? 256 : 192, maximumNodes, gameTime);
-        int emitterLimit = nuclear ? 768 : 256;
+        int emitterLimit = nuclear ? 224 : 112;
         int emitted = 0;
         for (TerrainShockfrontNode node : nodes) {
             if (node.state() != TerrainShockfrontNode.State.READY) continue;
@@ -104,7 +103,7 @@ public final class ShockwaveVanillaParticleEmitter {
         double outer = previousRadius + 2.5;
         double inner = Math.max(0.0, currentRadius - 2.5);
         int emitted = 0;
-        final int emitterLimit = 896;
+        final int emitterLimit = 288;
         for (TerrainShockfrontSpoke spoke
             : state.terrainShockfrontField().snapshotSpokes()) {
             List<TerrainShockfrontNode> nodes = spoke.snapshotNodes();

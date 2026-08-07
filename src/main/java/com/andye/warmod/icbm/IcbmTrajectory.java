@@ -5,9 +5,9 @@ import net.minecraft.world.phys.Vec3;
 
 /** Authoritative carrier route with a continuous powered-ascent-to-coast arc. */
 public final class IcbmTrajectory {
-    private static final double COAST_INITIAL_HORIZONTAL_FRACTION = 0.14;
-    private static final double COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD = 24.0;
-    private static final double COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD = 192.0;
+    private static final double COAST_INITIAL_HORIZONTAL_FRACTION = 0.10;
+    private static final double COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD = 32.0;
+    private static final double COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD = 160.0;
 
     private IcbmTrajectory() { }
 
@@ -62,7 +62,11 @@ public final class IcbmTrajectory {
         Vec3 start = plan.launchPosition().add(0, .5, 0);
         Vec3 burnout = plan.burnoutPosition();
         Vec3 launchTangent = new Vec3(0, .55 * plan.boostTicks(), 0);
-        /* Match the diagonal coast tangent so the missile begins banking before burnout. */
+        /*
+         * The planned burnout point already carries a broad down-range lead.
+         * Matching the coast tangent therefore produces an early, monotonic
+         * bank rather than the old near-vertical rise followed by a sharp turn.
+         */
         Vec3 burnoutTangent = coastInitialVelocity(plan).scale(plan.boostTicks());
         return start.scale(2 * u3 - 3 * u2 + 1)
             .add(launchTangent.scale(u3 - 2 * u2 + u))
@@ -110,12 +114,6 @@ public final class IcbmTrajectory {
             .scale(1.0 / plan.coastTicks());
     }
 
-    /**
-     * The old first control point was directly above burnout. That kept the
-     * carrier vertical until near the apex and then forced a visibly sharp
-     * turn. A bounded forward lead starts the down-range arc while the carrier
-     * is still climbing above the cloud layer.
-     */
     private static Vec3 coastControlOne(final Vec3 burnout, final Vec3 separation) {
         Vec3 delta = separation.subtract(burnout);
         Vec3 horizontal = new Vec3(delta.x, 0.0, delta.z);
