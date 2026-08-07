@@ -8,10 +8,10 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
- * Deterministic conventional blast built from two interacting fire volumes.
- * The broad crater fire and the narrower internal lift cool into smoke without
- * layer swaps. Ballistic ejecta emit independent smoke puffs instead of drawing
- * a pre-authored ribbon from the origin to the current head position.
+ * Deterministic conventional blast made from a broad crater fire, a narrower
+ * rising internal core, irregular smoke lobes and ballistic ejecta puffs.
+ * Every non-nuclear smoke particle settles to ground and receives its own fade
+ * window so no whole section of the effect disappears in one frame.
  */
 public final class ConventionalBlastVisualV5 {
     private static volatile int lastActive;
@@ -52,6 +52,7 @@ public final class ConventionalBlastVisualV5 {
         final WarheadClientVisualProfile profile, final long seed,
         final WarheadMesh.Lod lod, final Quaternionf camera) {
         renderSmoke(pose, buffer, age, visualScale, seed, lod, camera, false);
+        renderTurbulentShroud(pose, buffer, age, visualScale, seed, lod, camera);
         renderBallisticTrails(pose, buffer, age, visualScale, seed, lod, camera);
     }
 
@@ -63,32 +64,32 @@ public final class ConventionalBlastVisualV5 {
         final VertexConsumer buffer, final double rawAge, final float rawScale,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera,
         final FirePass pass) {
-        if (rawAge < 0.0 || rawAge >= 650.0) return;
+        if (rawAge < 0.0 || rawAge >= 900.0) return;
         float age = (float) rawAge;
         float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
         float craterRadius = 2.0F + 13.5F * scale;
         float smallYieldBoost = 1.0F + Mth.clamp((0.72F - scale) / 0.72F,
-            0.0F, 1.0F) * 0.32F;
+            0.0F, 1.0F) * 0.34F;
         float bodyRadius = craterRadius
-            * (0.88F + unit(seed, 0) * 0.15F) * smallYieldBoost;
+            * (1.01F + unit(seed, 0) * 0.16F) * smallYieldBoost;
         float craterFloor = -Math.max(1.1F, craterRadius * 0.22F);
         float budget = densityMultiplier();
         int base = switch (lod) {
-            case NEAR -> 3_200;
-            case MEDIUM -> 1_520;
-            case FAR -> 580;
+            case NEAR -> 3_850;
+            case MEDIUM -> 1_850;
+            case FAR -> 690;
         };
-        int count = Math.max(96, Math.round(base * budget));
+        int count = Math.max(128, Math.round(base * budget));
         Basis basis = Basis.from(camera);
         int active = 0;
         int culled = 0;
 
         for (int index = 0; index < count; index++) {
-            long random = mix(seed ^ 0x464952455F563636L
+            long random = mix(seed ^ 0x464952455F563737L
                 ^ index * 0x9E3779B97F4A7C15L);
-            boolean inner = unit(random, 0) < 0.35F;
-            float onset = inner ? 4.0F + unit(random, 1) * 20.0F
-                : unit(random, 1) * 10.0F;
+            boolean inner = unit(random, 0) < 0.39F;
+            float onset = inner ? 3.0F + unit(random, 1) * 22.0F
+                : unit(random, 1) * 12.0F;
             float localAge = age - onset;
             if (localAge < 0.0F) {
                 culled++;
@@ -96,60 +97,65 @@ public final class ConventionalBlastVisualV5 {
             }
 
             float coolingTime = inner
-                ? 470.0F + unit(random, 2) * 135.0F
-                : 395.0F + unit(random, 2) * 125.0F;
-            float temperature = Mth.clamp(1.10F - localAge / coolingTime
-                + signed(random, 3) * 0.115F, 0.0F, 1.0F);
+                ? 570.0F + unit(random, 2) * 180.0F
+                : 485.0F + unit(random, 2) * 165.0F;
+            float temperature = Mth.clamp(1.12F - localAge / coolingTime
+                + signed(random, 3) * 0.105F, 0.0F, 1.0F);
             if (!matches(pass, temperature, inner)) {
                 culled++;
                 continue;
             }
 
-            float contractionStart = inner ? 185.0F : 155.0F;
-            float contractionDuration = inner ? 410.0F : 390.0F;
+            float contractionStart = inner ? 245.0F : 205.0F;
+            float contractionDuration = inner ? 500.0F : 475.0F;
             float contraction = smoothstep(Mth.clamp(
                 (localAge - contractionStart) / contractionDuration,
                 0.0F, 1.0F));
             float radiusScale = Mth.lerp(contraction,
-                inner ? 0.61F : 1.0F,
-                inner ? 0.26F : 0.40F);
+                inner ? 0.66F : 1.0F,
+                inner ? 0.28F : 0.43F);
             float volumeRadius = bodyRadius * radiusScale;
-            float rise = Mth.lerp(smoothstep(Mth.clamp(localAge / 360.0F,
-                0.0F, 1.0F)), 0.0F, inner ? 7.2F : 3.7F);
-            float centerY = craterFloor + bodyRadius * (inner ? 0.70F : 0.48F)
+            float rise = Mth.lerp(smoothstep(Mth.clamp(localAge / 430.0F,
+                0.0F, 1.0F)), 0.0F, inner ? 8.6F : 4.4F);
+            float centerY = craterFloor + bodyRadius * (inner ? 0.72F : 0.49F)
                 + rise;
 
             float angle = unit(random, 4) * Mth.TWO_PI
-                + localAge * signed(random, 5) * (inner ? 0.0042F : 0.0022F);
+                + localAge * signed(random, 5) * (inner ? 0.0046F : 0.0025F);
             float radialFraction = Mth.sqrt(unit(random, 6));
             float shellY = signed(random, 7);
             float dome = Mth.sqrt(Math.max(0.0F,
                 1.0F - radialFraction * radialFraction));
             float horizontal = radialFraction * volumeRadius
-                * (0.80F + unit(random, 8) * 0.36F);
-            float verticalRadius = volumeRadius * (inner ? 1.52F : 1.12F)
-                * (0.82F + unit(random, 9) * 0.34F);
+                * (0.78F + unit(random, 8) * 0.39F);
+            float verticalRadius = volumeRadius * (inner ? 1.62F : 1.20F)
+                * (0.80F + unit(random, 9) * 0.38F);
             float clusterNoise = Mth.sin(unit(random, 10) * Mth.TWO_PI
-                + localAge * 0.031F) * volumeRadius * 0.11F;
+                + localAge * 0.033F) * volumeRadius * 0.12F;
             float px = Mth.cos(angle) * horizontal
                 + Mth.cos(angle + Mth.HALF_PI) * clusterNoise
-                + signed(random, 11) * volumeRadius * 0.10F;
+                + signed(random, 11) * volumeRadius * 0.11F;
             float pz = Mth.sin(angle) * horizontal
                 + Mth.sin(angle + Mth.HALF_PI) * clusterNoise
-                + signed(random, 12) * volumeRadius * 0.10F;
+                + signed(random, 12) * volumeRadius * 0.11F;
             float py = centerY + shellY * verticalRadius * dome;
-            if (inner) py += Mth.abs(shellY) * bodyRadius * 0.12F;
+            if (inner) py += Mth.abs(shellY) * bodyRadius * 0.14F;
 
             float particleSize = Mth.lerp(radialFraction,
-                1.65F + scale * 0.76F, 0.55F + scale * 0.26F)
-                * (0.76F + unit(random, 13) * 0.52F);
-            if (inner) particleSize *= 0.88F;
-            float remaining = Mth.clamp(1.0F - localAge / (coolingTime + 110.0F),
+                1.82F + scale * 0.82F, 0.40F + scale * 0.24F)
+                * (0.68F + unit(random, 13) * 0.64F);
+            if (inner) particleSize *= 0.91F;
+            float remaining = Mth.clamp(1.0F - localAge / (coolingTime + 150.0F),
                 0.0F, 1.0F);
+            float fadeStart = 0.78F + unit(random, 18) * 0.15F;
+            float lifeProgress = localAge / (coolingTime + 150.0F);
+            float individualFade = lifeProgress < fadeStart ? 1.0F
+                : smoothstep(Mth.clamp((1.0F - lifeProgress)
+                    / Math.max(0.04F, 1.0F - fadeStart), 0.0F, 1.0F));
             float alpha = (pass == FirePass.CORE ? 0.99F
-                : pass == FirePass.HOT ? 0.95F : 0.87F)
+                : pass == FirePass.HOT ? 0.96F : 0.89F)
                 * smoothstep(Mth.clamp(localAge / 5.0F, 0.0F, 1.0F))
-                * (float) Math.pow(remaining, 0.34F);
+                * (float) Math.pow(remaining, 0.28F) * individualFade;
             Colour colour = fireColour(temperature, random);
             billboard(pose, buffer, px, py, pz, particleSize,
                 unit(random, 14) * Mth.TWO_PI
@@ -165,134 +171,212 @@ public final class ConventionalBlastVisualV5 {
         final VertexConsumer buffer, final double rawAge, final float rawScale,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera,
         final boolean corePass) {
-        if (rawAge < 22.0 || rawAge >= 720.0) return;
+        if (rawAge < 24.0 || rawAge >= 1_220.0) return;
         float age = (float) rawAge;
         float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
         float craterRadius = 2.0F + 13.5F * scale;
         float smallYieldBoost = 1.0F + Mth.clamp((0.72F - scale) / 0.72F,
-            0.0F, 1.0F) * 0.25F;
+            0.0F, 1.0F) * 0.28F;
         float bodyRadius = craterRadius
-            * (0.86F + unit(seed, 0) * 0.14F) * smallYieldBoost;
+            * (0.96F + unit(seed, 0) * 0.16F) * smallYieldBoost;
         float craterFloor = -Math.max(1.1F, craterRadius * 0.22F);
         float budget = densityMultiplier();
         int base = switch (lod) {
-            case NEAR -> corePass ? 2_150 : 2_650;
-            case MEDIUM -> corePass ? 1_020 : 1_240;
-            case FAR -> corePass ? 390 : 470;
+            case NEAR -> corePass ? 2_850 : 3_450;
+            case MEDIUM -> corePass ? 1_360 : 1_620;
+            case FAR -> corePass ? 500 : 610;
         };
-        int count = Math.max(96, Math.round(base * budget));
+        int count = Math.max(128, Math.round(base * budget));
         Basis basis = Basis.from(camera);
 
         for (int index = 0; index < count; index++) {
             long random = mix(seed ^ (corePass
-                ? 0x534D4F4B455F4336L : 0x534D4F4B455F5336L)
+                ? 0x534D4F4B455F4337L : 0x534D4F4B455F5337L)
                 ^ index * 0xD1B54A32D192ED03L);
-            boolean fromInnerFire = unit(random, 0) < 0.34F;
+            boolean fromInnerFire = unit(random, 0) < 0.37F;
             float onset = fromInnerFire
-                ? 105.0F + unit(random, 1) * 210.0F
-                : 65.0F + unit(random, 1) * 235.0F;
+                ? 115.0F + unit(random, 1) * 270.0F
+                : 72.0F + unit(random, 1) * 310.0F;
             float localAge = age - onset;
             if (localAge < 0.0F) continue;
-            float life = 310.0F + unit(random, 2) * 255.0F;
+            float life = 510.0F + unit(random, 2) * 360.0F;
             if (localAge >= life) continue;
             float progress = localAge / life;
 
             float radialFraction = Mth.sqrt(unit(random, 3));
-            boolean central = radialFraction < (corePass ? 0.68F : 0.34F);
+            boolean central = radialFraction < (corePass ? 0.69F : 0.35F);
             if (central != corePass) continue;
             float clusterAngle = unit(random, 4) * Mth.TWO_PI;
             float clusterDistance = bodyRadius * unit(random, 5)
-                * (corePass ? 0.26F : 0.66F);
+                * (corePass ? 0.27F : 0.72F);
             float clusterX = Mth.cos(clusterAngle) * clusterDistance;
             float clusterZ = Mth.sin(clusterAngle) * clusterDistance;
             float localAngle = unit(random, 6) * Mth.TWO_PI
-                + localAge * signed(random, 7) * 0.0028F;
-            float lobeRadius = bodyRadius * (fromInnerFire ? 0.56F : 0.82F)
-                * (0.72F + unit(random, 8) * 0.38F);
+                + localAge * signed(random, 7) * 0.0025F;
+            float lobeRadius = bodyRadius * (fromInnerFire ? 0.60F : 0.88F)
+                * (0.68F + unit(random, 8) * 0.44F);
             float radial = radialFraction * lobeRadius;
 
             float earlyRise = fromInnerFire
-                ? 4.5F + unit(random, 9) * 5.5F
-                : 2.0F + unit(random, 9) * 4.5F;
-            float coolingGravity = Math.max(0.0F, progress - 0.24F);
-            float verticalDrop = coolingGravity * coolingGravity
-                * (5.0F + unit(random, 10) * 9.0F);
-            float centerY = craterFloor + bodyRadius
-                * (fromInnerFire ? 0.78F : 0.48F)
-                + earlyRise - verticalDrop;
+                ? 5.0F + unit(random, 9) * 6.8F
+                : 2.2F + unit(random, 9) * 5.2F;
+            float airborneY = craterFloor + bodyRadius
+                * (fromInnerFire ? 0.82F : 0.50F) + earlyRise
+                + signed(random, 13) * bodyRadius
+                    * (fromInnerFire ? 0.49F : 0.38F);
+            float settleStart = 0.20F + unit(random, 10) * 0.24F;
+            float settleEnd = 0.70F + unit(random, 11) * 0.18F;
+            float settle = smoothstep(Mth.clamp((progress - settleStart)
+                / Math.max(0.10F, settleEnd - settleStart), 0.0F, 1.0F));
+            float groundY = 0.08F + unit(random, 12) * (corePass ? 0.55F : 0.36F);
             float px = clusterX + Mth.cos(localAngle) * radial
-                + signed(random, 11) * bodyRadius * 0.10F;
+                + signed(random, 14) * bodyRadius * 0.11F;
             float pz = clusterZ + Mth.sin(localAngle) * radial
-                + signed(random, 12) * bodyRadius * 0.10F;
-            float py = centerY + signed(random, 13) * bodyRadius
-                * (fromInnerFire ? 0.46F : 0.34F);
-            py = Math.max(0.08F, py);
+                + signed(random, 15) * bodyRadius * 0.11F;
+            float py = Mth.lerp(settle, airborneY, groundY);
 
             float particleSize = Mth.lerp(radialFraction,
-                1.85F + scale * 0.76F, 0.58F + scale * 0.26F)
-                * (0.74F + unit(random, 14) * 0.58F)
-                * (1.0F + progress * 0.44F);
-            float finalFade = progress < 0.84F ? 1.0F
-                : smoothstep(Mth.clamp((1.0F - progress) / 0.16F,
-                    0.0F, 1.0F));
-            float alpha = (corePass ? 0.95F : 0.86F)
-                * smoothstep(Mth.clamp(localAge / 8.0F, 0.0F, 1.0F))
+                2.05F + scale * 0.84F, 0.30F + scale * 0.22F)
+                * (0.60F + unit(random, 16) * 0.78F)
+                * (1.0F + progress * 0.50F);
+            float fadeStart = 0.78F + unit(random, 17) * 0.17F;
+            float finalFade = progress < fadeStart ? 1.0F
+                : smoothstep(Mth.clamp((1.0F - progress)
+                    / Math.max(0.035F, 1.0F - fadeStart), 0.0F, 1.0F));
+            float alpha = (corePass ? 0.96F : 0.88F)
+                * smoothstep(Mth.clamp(localAge / 9.0F, 0.0F, 1.0F))
                 * finalFade;
             int tone = smokeTone(random, corePass, progress);
             billboard(pose, buffer, px, py, pz, particleSize,
-                unit(random, 15) * Mth.TWO_PI
-                    + localAge * signed(random, 16) * 0.0032F,
+                unit(random, 18) * Mth.TWO_PI
+                    + localAge * signed(random, 19) * 0.0030F,
                 tone, tone, tone, alpha,
                 corePass ? 0x900090 : 0xA000A0, basis);
+        }
+    }
+
+    /**
+     * Irregular wall around the fireball. It begins at the same temperature as
+     * the core, then cools into varied grey lobes with deliberately uneven
+     * elevations and gaps rather than a uniform circling cylinder.
+     */
+    private static void renderTurbulentShroud(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final double rawAge, final float rawScale,
+        final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        if (rawAge < 4.0 || rawAge >= 980.0) return;
+        float age = (float) rawAge;
+        float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
+        float craterRadius = 2.0F + 13.5F * scale;
+        float bodyRadius = craterRadius * (1.02F + unit(seed, 20) * 0.12F);
+        int base = switch (lod) {
+            case NEAR -> 1_750;
+            case MEDIUM -> 820;
+            case FAR -> 300;
+        };
+        int count = Math.max(72, Math.round(base * densityMultiplier()));
+        Basis basis = Basis.from(camera);
+
+        for (int index = 0; index < count; index++) {
+            long random = mix(seed ^ 0x5348524F55445F37L
+                ^ index * 0x94D049BB133111EBL);
+            float onset = unit(random, 0) * 60.0F;
+            float localAge = age - onset;
+            if (localAge < 0.0F) continue;
+            float life = 430.0F + unit(random, 1) * 360.0F;
+            if (localAge >= life) continue;
+            float progress = localAge / life;
+            float angle = unit(random, 2) * Mth.TWO_PI
+                + localAge * signed(random, 3) * 0.0044F;
+            float sectorWave = 0.5F + 0.5F * Mth.sin(angle * 3.0F
+                + unit(random, 4) * Mth.TWO_PI);
+            float radial = bodyRadius * (0.68F + unit(random, 5) * 0.31F)
+                * (1.0F - progress * 0.22F);
+            float heightBand = bodyRadius * (0.20F + sectorWave * 0.78F)
+                + signed(random, 6) * bodyRadius * 0.20F;
+            float settle = smoothstep(Mth.clamp((progress - 0.48F)
+                / (0.34F + unit(random, 7) * 0.10F), 0.0F, 1.0F));
+            float py = Mth.lerp(settle,
+                -Math.max(1.1F, craterRadius * 0.22F) + heightBand,
+                0.08F + unit(random, 8) * 0.42F);
+            float px = Mth.cos(angle) * radial
+                + signed(random, 9) * bodyRadius * 0.13F;
+            float pz = Mth.sin(angle) * radial
+                + signed(random, 10) * bodyRadius * 0.13F;
+            float heat = Mth.clamp(1.04F - localAge
+                / (430.0F + unit(random, 11) * 160.0F)
+                + signed(random, 12) * 0.08F, 0.0F, 1.0F);
+            Colour colour;
+            int light;
+            if (heat > 0.17F) {
+                colour = fireColour(heat, random);
+                light = 0xF000F0;
+            } else {
+                int tone = smokeTone(random, false, progress);
+                colour = new Colour(tone, tone, tone);
+                light = 0xA000A0;
+            }
+            float particleSize = (0.34F + unit(random, 13) * 1.80F)
+                * (0.88F + scale * 0.24F) * (1.0F + progress * 0.36F);
+            float fadeStart = 0.76F + unit(random, 14) * 0.20F;
+            float fade = progress < fadeStart ? 1.0F
+                : smoothstep(Mth.clamp((1.0F - progress)
+                    / Math.max(0.025F, 1.0F - fadeStart), 0.0F, 1.0F));
+            float alpha = (0.72F + unit(random, 15) * 0.24F) * fade;
+            billboard(pose, buffer, px, py, pz, particleSize,
+                unit(random, 16) * Mth.TWO_PI
+                    + localAge * signed(random, 17) * 0.004F,
+                colour.red, colour.green, colour.blue, alpha, light, basis);
         }
     }
 
     private static void renderBallisticTrails(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double rawAge, final float rawScale,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
-        if (rawAge < 2.0 || rawAge >= 720.0) return;
+        if (rawAge < 2.0 || rawAge >= 1_150.0) return;
         float age = (float) rawAge;
         float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
         float craterRadius = 2.0F + 13.5F * scale;
-        int streamCount = Mth.clamp(Math.round(4.0F + scale * 6.0F), 5, 15);
+        int streamCount = Mth.clamp(Math.round(1.5F + scale * 5.2F), 3, 12);
         int puffLimit = switch (lod) {
-            case NEAR -> 52;
-            case MEDIUM -> 30;
-            case FAR -> 15;
+            case NEAR -> 34;
+            case MEDIUM -> 21;
+            case FAR -> 10;
         };
-        float density = Mth.clamp(densityMultiplier(), 0.65F, 2.25F);
+        float density = Mth.clamp(densityMultiplier(), 0.70F, 2.25F);
         Basis basis = Basis.from(camera);
         final float gravity = 0.052F;
 
         for (int stream = 0; stream < streamCount; stream++) {
-            long random = mix(seed ^ 0x42414C4C49535436L
+            long random = mix(seed ^ 0x42414C4C49535437L
                 ^ stream * 0x94D049BB133111EBL);
-            float onset = 1.0F + unit(random, 0) * 26.0F;
+            float onset = 1.0F + unit(random, 0) * 30.0F;
             float streamAge = age - onset;
             if (streamAge < 0.0F) continue;
             float angle = unit(random, 1) * Mth.TWO_PI;
-            float speed = 0.27F + unit(random, 2)
-                * (0.44F + scale * 0.20F);
-            float upward = 0.32F + unit(random, 3)
-                * (0.48F + scale * 0.14F);
-            float startY = 0.65F + unit(random, 4) * Math.min(3.2F,
-                craterRadius * 0.28F);
-            float drag = 0.020F + unit(random, 5) * 0.027F;
+            float speed = 0.30F + unit(random, 2)
+                * (0.47F + scale * 0.21F);
+            float upward = 0.36F + unit(random, 3)
+                * (0.52F + scale * 0.15F);
+            float startY = 0.65F + unit(random, 4) * Math.min(3.4F,
+                craterRadius * 0.30F);
+            float drag = 0.022F + unit(random, 5) * 0.030F;
             float hitTime = (upward + Mth.sqrt(upward * upward
                 + 2.0F * gravity * startY)) / gravity;
-            float emissionEnd = Math.min(hitTime, 44.0F + unit(random, 6) * 28.0F);
-            float interval = (1.10F + unit(random, 7) * 1.35F)
-                / density;
+            float emissionEnd = Math.min(hitTime,
+                38.0F + unit(random, 6) * (24.0F + scale * 12.0F));
+            float interval = (2.35F + unit(random, 7) * 3.10F) / density;
             int possiblePuffs = Math.min(puffLimit,
                 1 + (int) Math.floor(emissionEnd / interval));
-            float smokeLife = 265.0F + unit(random, 8) * 235.0F;
+            float smokeLife = 430.0F + unit(random, 8) * 370.0F;
 
             for (int puff = 0; puff < possiblePuffs; puff++) {
-                float emissionTime = puff * interval;
+                long puffSeed = mix(random ^ puff * 0x9E3779B97F4A7C15L);
+                float emissionTime = puff * interval
+                    + signed(puffSeed, 0) * interval * 0.28F;
+                emissionTime = Math.max(0.0F, emissionTime);
                 if (emissionTime > streamAge) break;
                 float puffAge = streamAge - emissionTime;
                 if (puffAge >= smokeLife) continue;
-                long puffSeed = mix(random ^ puff * 0x9E3779B97F4A7C15L);
 
                 float launchDistance = dragDistance(speed, drag, emissionTime);
                 float launchY = startY + upward * emissionTime
@@ -300,39 +384,43 @@ public final class ConventionalBlastVisualV5 {
                 launchY = Math.max(0.08F, launchY);
                 float remainingVelocity = speed
                     * (float) Math.exp(-drag * emissionTime);
-                float smokeDrift = dragDistance(remainingVelocity * 0.12F,
-                    0.055F, puffAge);
-                float crossNoise = Mth.sin(emissionTime * 0.42F
-                    + unit(puffSeed, 0) * Mth.TWO_PI)
-                    * (0.09F + puffAge * 0.0045F);
+                float smokeDrift = dragDistance(remainingVelocity * 0.09F,
+                    0.060F, Math.min(puffAge, 42.0F));
+                float crossNoise = Mth.sin(emissionTime * 0.47F
+                    + unit(puffSeed, 1) * Mth.TWO_PI)
+                    * (0.16F + puffAge * 0.0060F);
                 float px = Mth.cos(angle) * (launchDistance + smokeDrift)
                     - Mth.sin(angle) * crossNoise
-                    + signed(puffSeed, 1) * 0.20F;
+                    + signed(puffSeed, 2) * 0.38F;
                 float pz = Mth.sin(angle) * (launchDistance + smokeDrift)
                     + Mth.cos(angle) * crossNoise
-                    + signed(puffSeed, 2) * 0.20F;
-                float settling = Math.max(0.0F, puffAge - 18.0F);
-                float py = launchY + 0.025F * Math.min(puffAge, 18.0F)
-                    - settling * (0.018F + unit(puffSeed, 3) * 0.012F);
-                py = Math.max(0.08F, py);
-
+                    + signed(puffSeed, 3) * 0.38F;
                 float progress = puffAge / smokeLife;
-                float fade = progress < 0.82F ? 1.0F
-                    : smoothstep(Mth.clamp((1.0F - progress) / 0.18F,
-                        0.0F, 1.0F));
-                float particleSize = (0.52F + unit(puffSeed, 4) * 0.92F)
-                    * (0.88F + scale * 0.17F)
-                    * (1.0F + puffAge * 0.008F);
+                float settleStart = 0.16F + unit(puffSeed, 4) * 0.20F;
+                float settleEnd = 0.62F + unit(puffSeed, 5) * 0.22F;
+                float settle = smoothstep(Mth.clamp((progress - settleStart)
+                    / Math.max(0.12F, settleEnd - settleStart), 0.0F, 1.0F));
+                float airborneY = launchY + 0.03F * Math.min(puffAge, 18.0F);
+                float py = Mth.lerp(settle, airborneY,
+                    0.08F + unit(puffSeed, 6) * 0.32F);
+
+                float fadeStart = 0.76F + unit(puffSeed, 7) * 0.21F;
+                float fade = progress < fadeStart ? 1.0F
+                    : smoothstep(Mth.clamp((1.0F - progress)
+                        / Math.max(0.025F, 1.0F - fadeStart), 0.0F, 1.0F));
+                float particleSize = (0.34F + unit(puffSeed, 8) * 1.22F)
+                    * (0.90F + scale * 0.18F)
+                    * (1.0F + puffAge * 0.0065F);
                 int selector = Math.floorMod((int) (puffSeed >>> 9), 100);
-                int tone = selector < 9
-                    ? 92 + Math.floorMod((int) (puffSeed >>> 19), 42)
-                    : selector < 24
-                        ? 170 + Math.floorMod((int) (puffSeed >>> 19), 35)
-                        : 220 + Math.floorMod((int) (puffSeed >>> 19), 32);
-                float alpha = (0.84F + unit(puffSeed, 5) * 0.13F) * fade;
+                int tone = selector < 8
+                    ? 84 + Math.floorMod((int) (puffSeed >>> 19), 48)
+                    : selector < 22
+                        ? 166 + Math.floorMod((int) (puffSeed >>> 19), 42)
+                        : 218 + Math.floorMod((int) (puffSeed >>> 19), 36);
+                float alpha = (0.76F + unit(puffSeed, 9) * 0.18F) * fade;
                 billboard(pose, buffer, px, py, pz, particleSize,
-                    unit(puffSeed, 6) * Mth.TWO_PI
-                        + puffAge * signed(puffSeed, 7) * 0.003F,
+                    unit(puffSeed, 10) * Mth.TWO_PI
+                        + puffAge * signed(puffSeed, 11) * 0.003F,
                     tone, tone, tone, alpha, 0xB000B0, basis);
             }
         }
@@ -387,7 +475,7 @@ public final class ConventionalBlastVisualV5 {
 
     private static float densityMultiplier() {
         return Mth.clamp((float) Math.sqrt(
-            WarheadRenderSettings.particleBudgetMultiplier() / 6.0F),
+            WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
             0.35F, 6.0F);
     }
 
