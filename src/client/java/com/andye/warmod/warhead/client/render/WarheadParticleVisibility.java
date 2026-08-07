@@ -17,17 +17,18 @@ import org.joml.Vector3f;
  *
  * <p>The renderer already rejects whole effects outside the view. This class
  * handles the expensive case where a partly-visible blast still contains many
- * particles behind/inside terrain. Occlusion is deliberately conservative:
- * transparent/non-full blocks never occlude; a cached cell is rejected only
- * when every sampled line of sight is blocked by full opaque cubes. Large
- * particles skip coarse LOS culling so a smoke lobe peeking around an edge is
- * never removed just because its centre is hidden.</p>
+ * particles behind terrain. Frustum rejection is per billboard and allocation
+ * free. Terrain visibility is cached per 8x8x8 world cell and shared by every
+ * simultaneous explosion, so it never performs block ray tests per particle.
+ * Transparent, fluid and non-full blocks never occlude. Large smoke billboards
+ * intentionally skip coarse terrain LOS culling so a lobe peeking around an
+ * edge cannot disappear because its centre cell is hidden.</p>
  */
 public final class WarheadParticleVisibility {
     private static final int CELL_SHIFT = 3;
     private static final int CELL_SIZE = 1 << CELL_SHIFT;
     private static final double CELL_HALF = CELL_SIZE * 0.5;
-    private static final int MAX_NEW_LOS_CELLS = 128;
+    private static final int MAX_NEW_LOS_CELLS = 96;
     private static final double MAX_LOS_DISTANCE = 512.0;
     private static final byte UNKNOWN = 0;
     private static final byte VISIBLE = 1;
@@ -85,16 +86,12 @@ public final class WarheadParticleVisibility {
         double safeRadius = Math.max(0.05, radius);
         if (!insideGenerousFrustum(rx, ry, rz, distanceSquared, safeRadius)) return false;
 
-        double worldX = cameraPosition.x + rx;
-        double worldY = cameraPosition.y + ry;
-        double worldZ = cameraPosition.z + rz;
-        if (fullyEnclosedByOpaqueBlocks(currentLevel, worldX, worldY, worldZ, safeRadius)) {
-            return false;
-        }
-
         double distance = Math.sqrt(distanceSquared);
         if (distance < 24.0 || distance > MAX_LOS_DISTANCE || safeRadius > 4.0) return true;
 
+        double worldX = cameraPosition.x + rx;
+        double worldY = cameraPosition.y + ry;
+        double worldZ = cameraPosition.z + rz;
         int cellX = Mth.floor(worldX) >> CELL_SHIFT;
         int cellY = Mth.floor(worldY) >> CELL_SHIFT;
         int cellZ = Mth.floor(worldZ) >> CELL_SHIFT;
@@ -161,30 +158,25 @@ public final class WarheadParticleVisibility {
             && Math.abs(vertical) <= front * 1.45 + margin;
     }
 
-    private static boolean fullyEnclosedByOpaqueBlocks(final ClientLevel level,
-        final double x, final double y, final double z, final double radius) {
-        double sample = Math.max(0.20, radius * 0.78);
-        return fullOpaqueAt(level, x, y, z)
-            && fullOpaqueAt(level, x - sample, y - sample, z - sample)
-            && fullOpaqueAt(level, x - sample, y - sample, z + sample)
-            && fullOpaqueAt(level, x - sample, y + sample, z - sample)
-            && fullOpaqueAt(level, x - sample, y + sample, z + sample)
-            && fullOpaqueAt(level, x + sample, y - sample, z - sample)
-            && fullOpaqueAt(level, x + sample, y - sample, z + sample)
-            && fullOpaqueAt(level, x + sample, y + sample, z - sample)
-            && fullOpaqueAt(level, x + sample, y + sample, z + sample);
-    }
-
+    /**
+     * A cell is rejected only when its centre and all eight corners are hidden.
+     * The sampled volume is larger than any billboard allowed through this LOS
+     * path, so a particle near a terrain silhouette remains visible whenever a
+     * representative edge/corner line can reach the camera.
+     */
     private static boolean fullyOccludedCell(final ClientLevel level,
         final double x, final double y, final double z) {
         double extent = CELL_HALF + 1.0;
-        return blockedRay(level, x, y, z)
-            && blockedRay(level, x - extent, y, z)
-            && blockedRay(level, x + extent, y, z)
-            && blockedRay(level, x, y - extent, z)
-            && blockedRay(level, x, y + extent, z)
-            && blockedRay(level, x, y, z - extent)
-            && blockedRay(level, x, y, z + extent);
+        if (!blockedRay(level, x, y, z)) return false;
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sy = -1; sy <= 1; sy += 2) {
+                for (int sz = -1; sz <= 1; sz += 2) {
+                    if (!blockedRay(level,
+                        x + sx * extent, y + sy * extent, z + sz * extent)) return false;
+                }
+            }
+        }
+        return true;
     }
 
     private static boolean blockedRay(final ClientLevel level,
@@ -245,11 +237,6 @@ public final class WarheadParticleVisibility {
         if (step == 0 || Math.abs(delta) < 1.0E-12) return Double.POSITIVE_INFINITY;
         double boundary = step > 0 ? block + 1.0 : block;
         return (boundary - start) / delta;
-    }
-
-    private static boolean fullOpaqueAt(final ClientLevel level,
-        final double x, final double y, final double z) {
-        return fullOpaqueAt(level, Mth.floor(x), Mth.floor(y), Mth.floor(z));
     }
 
     private static boolean fullOpaqueAt(final ClientLevel level,
