@@ -29,7 +29,9 @@ dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-	compileOnly "maven.modrinth:DistantHorizonsApi:7.1.0"
+	// Distant Horizons API 7.0.0. Modrinth's Maven endpoint uses the published
+	// project/version IDs here; the API is compile-only because DH supplies it at runtime.
+	compileOnly "maven.modrinth:Xs0XTOVv:GgrzKRsK"
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
 }
 
