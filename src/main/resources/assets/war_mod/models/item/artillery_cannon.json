@@ -1,0 +1,1 @@
+{"parent":"war_mod:block/artillery_cannon","display":{"gui":{"rotation":[30,225,0],"translation":[0,0,0],"scale":[0.7,0.7,0.7]},"ground":{"scale":[0.35,0.35,0.35]},"fixed":{"scale":[0.65,0.65,0.65]}}}
