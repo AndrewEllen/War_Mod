@@ -1,6 +1,7 @@
 package com.andye.warmod.entity;
 
 import com.andye.warmod.artillery.ArtilleryConstants;
+import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import com.andye.warmod.warhead.WarheadImpactService;
 import com.andye.warmod.warhead.WarheadYield;
@@ -72,6 +73,7 @@ public final class PrimedYieldExplosiveEntity extends Entity {
     public boolean cluster() { return getEntityData().get(CLUSTER); }
     public int fuseTicks() { return getEntityData().get(FUSE); }
     public long visualSeed() { return getEntityData().get(VISUAL_SEED); }
+    public int age() { return tickCount; }
 
     @Override
     public void tick() {
@@ -80,11 +82,11 @@ public final class PrimedYieldExplosiveEntity extends Entity {
 
         Vec3 velocity = getDeltaMovement().add(0.0, -0.04, 0.0);
         move(MoverType.SELF, velocity);
-        double horizontalDrag = onGround() ? 0.72 : 0.985;
-        double verticalDrag = onGround() ? -0.28 : 0.985;
+        boolean grounded = onGround();
+        double horizontalDrag = grounded ? 0.72 : 0.985;
+        double verticalDrag = grounded ? -0.28 : 0.985;
         setDeltaMovement(velocity.x * horizontalDrag,
-            onGround() ? velocity.y * verticalDrag : velocity.y * verticalDrag,
-            velocity.z * horizontalDrag);
+            velocity.y * verticalDrag, velocity.z * horizontalDrag);
 
         if (!(level() instanceof ServerLevel server)) return;
         int fuse = Math.max(0, fuseTicks() - 1);
@@ -123,7 +125,8 @@ public final class PrimedYieldExplosiveEntity extends Entity {
     private void detonateOne(final ServerLevel server, final @Nullable ServerPlayer owner,
         final UUID id, final Vec3 position, final long seed) {
         WarheadYieldRegistry.put(server, id, yield());
-        WarheadImpactChunkLeaseManager.hold(server, id, position, 2400);
+        WarheadImpactChunkLeaseManager.hold(server, id, position,
+            IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
         WarheadImpactService.detonateAt(server, owner, id, id, position, seed,
             yield().payloadType(), false);
     }
