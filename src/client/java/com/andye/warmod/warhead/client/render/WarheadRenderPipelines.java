@@ -118,9 +118,9 @@ public final class WarheadRenderPipelines {
         false, false);
 
     /*
-     * Iris-only compatibility types. Stock particle/entity/eyes pipelines are
-     * deliberately used here because shader packs understand those contracts.
-     * The stable custom pipelines above remain untouched when shaders are off.
+     * Iris-only compatibility types. These effects are submitted as custom world geometry,
+     * so their translucent path must use the stock entity/world contract rather than
+     * Iris' particle pass. The stable custom pipelines remain untouched when shaders are off.
      */
     private static final RenderType IRIS_CONE = irisParticle("war_mod_cone_iris",
         texture("vapor_noise.png"), true);
@@ -221,10 +221,11 @@ public final class WarheadRenderPipelines {
 
     private static RenderType irisParticle(final String name, final Identifier texture,
         final boolean sortOnUpload) {
-        RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(RenderPipelines.TRANSLUCENT_PARTICLE)
+        RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(RenderPipelines.ENTITY_TRANSLUCENT)
             .withTexture("Sampler0", texture,
                 () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
             .useLightmap()
+            .useOverlay()
             .setOutline(RenderSetup.OutlineProperty.NONE);
         if (sortOnUpload) builder.sortOnUpload();
         return RenderType.create(name, builder.createRenderSetup());
