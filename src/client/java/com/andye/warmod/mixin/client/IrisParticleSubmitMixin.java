@@ -26,9 +26,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(SubmitNodeStorage.class)
 public abstract class IrisParticleSubmitMixin {
     private static final Identifier PARTICLE_MASK = Identifier.fromNamespaceAndPath(
-        "minecraft", "particle/big_smoke_2");
+        "minecraft", "big_smoke_2");
     private static final Identifier EXPLOSION_MASK = Identifier.fromNamespaceAndPath(
-        "minecraft", "particle/explosion_0");
+        "minecraft", "explosion_0");
     private static boolean warnedUnsupportedGeometry;
     private static boolean warnedMissingSprite;
 
