@@ -13,7 +13,6 @@ import net.fabricmc.fabric.api.menu.v1.ExtendedMenuProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -93,7 +92,7 @@ public final class ArtilleryCannonBlock extends BaseEntityBlock implements World
             for (int slot = 0; slot < cannon.getContainerSize(); slot++) {
                 if (!cannon.canPlaceItem(slot, held)) continue;
                 cannon.setItem(slot, held.copyWithCount(1));
-                held.consume(1, player);
+                if (!player.hasInfiniteMaterials()) held.shrink(1);
                 return InteractionResult.SUCCESS_SERVER;
             }
             player.sendSystemMessage(Component.literal("Artillery magazine is full"));
