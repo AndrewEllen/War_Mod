@@ -21,10 +21,15 @@ loom {
 	}
 }
 
+repositories {
+	maven { url = "https://api.modrinth.com/maven" }
+}
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	compileOnly "maven.modrinth:DistantHorizonsApi:7.1.0"
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
 }
 

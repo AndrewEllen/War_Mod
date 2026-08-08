@@ -3,7 +3,8 @@
   "package": "com.andye.warmod.mixin.client",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "CameraShakeMixin"
+    "CameraShakeMixin",
+    "GameRendererCleanupMixin"
   ],
   "injectors": {
     "defaultRequire": 1
