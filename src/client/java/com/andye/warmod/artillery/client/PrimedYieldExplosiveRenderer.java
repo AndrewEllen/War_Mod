@@ -28,7 +28,7 @@ public final class PrimedYieldExplosiveRenderer
         super.extractRenderState(entity, state, partialTick);
         state.velocity = entity.getDeltaMovement();
         state.visualSeed = entity.visualSeed();
-        state.ageInTicks = entity.tickCount + partialTick;
+        state.ageInTicks = entity.age() + partialTick;
         state.lod = RocketProjectileRenderState.RocketLod.NEAR;
     }
 
