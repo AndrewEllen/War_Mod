@@ -3,11 +3,12 @@ package com.andye.warmod.warhead.client.render;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
 
+import com.andye.warmod.warhead.client.WarheadDebrisTuning;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.minecraft.network.chat.Component;
 
-/** Client-only profiling commands. They never contact or modify the server. */
+/** Client-only profiling and visual tuning commands. They never contact or modify the server. */
 public final class WarheadRenderCommands {
 	private static boolean registered;
 
@@ -33,6 +34,20 @@ public final class WarheadRenderCommands {
 							.executes(context -> setBudget(context.getSource(),
 								FloatArgumentType.getFloat(context, "multiplier")))))
 					.then(literal("status").executes(context -> status(context.getSource())))
+				)
+				.then(literal("debris")
+					.then(literal("velocity")
+						.then(literal("horizontal")
+							.then(argument("multiplier", FloatArgumentType.floatArg(0.0F, 4.0F))
+								.executes(context -> setDebrisHorizontal(context.getSource(),
+									FloatArgumentType.getFloat(context, "multiplier")))))
+						.then(literal("vertical")
+							.then(argument("multiplier", FloatArgumentType.floatArg(0.0F, 4.0F))
+								.executes(context -> setDebrisVertical(context.getSource(),
+									FloatArgumentType.getFloat(context, "multiplier")))))
+						.then(literal("reset").executes(context -> resetDebrisVelocity(context.getSource())))
+						.then(literal("status").executes(context -> debrisVelocityStatus(context.getSource())))
+					)
 				)
 		));
 		registered = true;
@@ -62,6 +77,40 @@ public final class WarheadRenderCommands {
 	) {
 		WarheadRenderSettings.resetParticleBudget();
 		return setBudget(source, WarheadRenderSettings.particleBudgetMultiplier());
+	}
+
+	private static int setDebrisHorizontal(
+		final net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source,
+		final float multiplier
+	) {
+		WarheadDebrisTuning.setHorizontalVelocityMultiplier(multiplier);
+		return debrisVelocityStatus(source);
+	}
+
+	private static int setDebrisVertical(
+		final net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source,
+		final float multiplier
+	) {
+		WarheadDebrisTuning.setVerticalVelocityMultiplier(multiplier);
+		return debrisVelocityStatus(source);
+	}
+
+	private static int resetDebrisVelocity(
+		final net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source
+	) {
+		WarheadDebrisTuning.reset();
+		return debrisVelocityStatus(source);
+	}
+
+	private static int debrisVelocityStatus(
+		final net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source
+	) {
+		source.sendFeedback(Component.literal(
+			"War Mod debris velocity: horizontal="
+				+ WarheadDebrisTuning.horizontalVelocityMultiplier()
+				+ "x, vertical=" + WarheadDebrisTuning.verticalVelocityMultiplier()
+				+ "x (applies to newly spawned debris)"));
+		return 1;
 	}
 
 	private static int status(final net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source) {

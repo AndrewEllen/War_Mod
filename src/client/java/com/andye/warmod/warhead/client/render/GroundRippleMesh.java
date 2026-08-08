@@ -6,6 +6,7 @@ import com.andye.warmod.warhead.client.TerrainShockfrontSpoke;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
@@ -52,6 +53,6 @@ public final class GroundRippleMesh {
 		double displacement = amplitude * Math.sin(delta * 1.10 - age * 0.42) * envelope;
 		int alpha = Mth.clamp((int) (baseAlpha * envelope * 255.0F), 0, 255);
 		buffer.addVertex(pose, (float) (node.position().x - center.x), (float) (node.position().y - center.y + 0.035), (float) (node.position().z - center.z))
-			.setColor(142, 137, 126, alpha).setUv((float) displacement, 0.0F).setOverlay(0).setLight(0xC000C0).setNormal(pose, 0.0F, 1.0F, 0.0F);
+			.setColor(142, 137, 126, alpha).setUv((float) displacement, 0.0F).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0xC000C0).setNormal(pose, 0.0F, 1.0F, 0.0F);
 	}
 }

@@ -2,6 +2,7 @@ package com.andye.warmod.icbm.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 
 /** Full-bright layered rocket exhaust using neutral alpha-mask textures. */
@@ -61,7 +62,7 @@ public final class IcbmExhaustRenderer {
 		buffer.addVertex(pose, x, y, z)
 			.setColor(red, green, blue, alpha)
 			.setUv(u, v)
-			.setOverlay(0)
+			.setOverlay(OverlayTexture.NO_OVERLAY)
 			.setLight(0xF000F0)
 			.setNormal(pose, 0.0F, 1.0F, 0.0F);
 	}
