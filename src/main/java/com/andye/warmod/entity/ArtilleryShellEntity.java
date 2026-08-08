@@ -23,6 +23,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.ClipContext;
@@ -31,6 +32,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jspecify.annotations.Nullable;
@@ -137,6 +139,26 @@ public final class ArtilleryShellEntity extends Entity {
             pauseForChunkLoading(server, previous);
             return;
         }
+
+        /*
+         * Keep the explicit loaded-block traversal above as the chunk-safety
+         * gate, then use Minecraft's normal projectile sweep to choose the
+         * nearest block OR entity collision on this tick. This mirrors the
+         * rocket collision contract and means an artillery warhead detonates
+         * on intervening players/mobs/entities instead of passing through them.
+         */
+        setPos(previous);
+        setDeltaMovement(next.subtract(previous));
+        HitResult collision = ProjectileUtil.getHitResultOnMoveVector(this,
+            entity -> entity.isAlive()
+                && (elapsed >= ArtilleryConstants.OWNER_IGNORE_TICKS
+                    || ownerPlayerId == null
+                    || !ownerPlayerId.equals(entity.getUUID())));
+        if (collision.getType() != HitResult.Type.MISS) {
+            impact(server, collision.getLocation());
+            return;
+        }
+        /* Defensive fallback if the generic projectile sweep ever disagrees. */
         if (raycast.hit().isPresent()) {
             impact(server, raycast.hit().get().getLocation());
             return;
