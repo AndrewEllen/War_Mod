@@ -30,7 +30,7 @@ public abstract class IrisParticleSubmitMixin {
     private static final Identifier EXPLOSION_MASK = Identifier.fromNamespaceAndPath(
         "minecraft", "explosion_0");
     private static boolean warnedUnsupportedGeometry;
-    private static boolean warnedMissingSprite;
+    private static boolean warnedAtlasLookup;
 
     @Inject(method = "submitCustomGeometry", at = @At("HEAD"), cancellable = true)
     private void warMod$routeIrisBillboards(final PoseStack poseStack,
@@ -53,8 +53,8 @@ public abstract class IrisParticleSubmitMixin {
             return;
         }
 
-        if (!particles.isEmpty()) {
-            ((SubmitNodeStorage) (Object) this).submitQuadParticleGroup(particles);
+        if (collector.particleCount() > 0) {
+            ((SubmitNodeStorage) (Object) this).submitParticleGroup(particles);
         }
         ci.cancel();
     }
@@ -80,28 +80,15 @@ public abstract class IrisParticleSubmitMixin {
         try {
             TextureAtlas atlas = Minecraft.getInstance().getAtlasManager()
                 .getAtlasOrThrow(TextureAtlas.LOCATION_PARTICLES);
-            TextureAtlasSprite sprite = atlas.getSprite(spriteId);
-            if (sprite == atlas.missingSprite()) {
-                warnMissingSprite(spriteId);
-                return null;
-            }
-            return sprite;
+            return atlas.getSprite(spriteId);
         } catch (RuntimeException exception) {
-            if (!warnedMissingSprite) {
-                warnedMissingSprite = true;
+            if (!warnedAtlasLookup) {
+                warnedAtlasLookup = true;
                 WarMod.LOGGER.warn(
                     "Iris particle bridge could not resolve the Minecraft particle atlas; retaining custom geometry",
                     exception);
             }
             return null;
         }
-    }
-
-    private static void warnMissingSprite(final Identifier spriteId) {
-        if (warnedMissingSprite) return;
-        warnedMissingSprite = true;
-        WarMod.LOGGER.warn(
-            "Iris particle bridge could not resolve particle sprite {}; retaining custom geometry",
-            spriteId);
     }
 }
