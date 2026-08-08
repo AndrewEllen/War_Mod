@@ -3,7 +3,7 @@ package com.andye.warmod.compat.iris;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.particle.SingleQuadParticle;
 import net.minecraft.client.renderer.state.level.QuadParticleRenderState;
-import net.minecraft.util.ARGB;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -15,6 +15,7 @@ public final class IrisParticleQuadCollector implements VertexConsumer {
     private static final float MAX_CORNER_ERROR = 0.10F;
 
     private final QuadParticleRenderState particles;
+    private final TextureAtlasSprite sprite;
     private final SingleQuadParticle.Layer layer;
     private final float[] x = new float[4];
     private final float[] y = new float[4];
@@ -30,9 +31,10 @@ public final class IrisParticleQuadCollector implements VertexConsumer {
     private int particleCount;
 
     public IrisParticleQuadCollector(final QuadParticleRenderState particles,
-        final SingleQuadParticle.Layer layer) {
+        final TextureAtlasSprite sprite) {
         this.particles = particles;
-        this.layer = layer;
+        this.sprite = sprite;
+        this.layer = SingleQuadParticle.Layer.bySprite(sprite);
     }
 
     @Override
@@ -58,7 +60,12 @@ public final class IrisParticleQuadCollector implements VertexConsumer {
 
     @Override
     public VertexConsumer setColor(final int red, final int green, final int blue, final int alpha) {
-        if (currentOpen) color[currentVertex] = ARGB.color(alpha, red, green, blue);
+        if (currentOpen) {
+            color[currentVertex] = ((alpha & 255) << 24)
+                | ((red & 255) << 16)
+                | ((green & 255) << 8)
+                | (blue & 255);
+        }
         return this;
     }
 
@@ -160,16 +167,24 @@ public final class IrisParticleQuadCollector implements VertexConsumer {
         float centerY = (y[0] + y[1] + y[2] + y[3]) * 0.25F;
         float centerZ = (z[0] + z[1] + z[2] + z[3]) * 0.25F;
         float scale = (rightLength + upLength) * 0.25F;
-        float minU = Math.min(Math.min(u[0], u[1]), Math.min(u[2], u[3]));
-        float maxU = Math.max(Math.max(u[0], u[1]), Math.max(u[2], u[3]));
-        float minV = Math.min(Math.min(v[0], v[1]), Math.min(v[2], v[3]));
-        float maxV = Math.max(Math.max(v[0], v[1]), Math.max(v[2], v[3]));
+        float rawMinU = Math.min(Math.min(u[0], u[1]), Math.min(u[2], u[3]));
+        float rawMaxU = Math.max(Math.max(u[0], u[1]), Math.max(u[2], u[3]));
+        float rawMinV = Math.min(Math.min(v[0], v[1]), Math.min(v[2], v[3]));
+        float rawMaxV = Math.max(Math.max(v[0], v[1]), Math.max(v[2], v[3]));
+        float minU = remap(rawMinU, sprite.getU0(), sprite.getU1());
+        float maxU = remap(rawMaxU, sprite.getU0(), sprite.getU1());
+        float minV = remap(rawMinV, sprite.getV0(), sprite.getV1());
+        float maxV = remap(rawMaxV, sprite.getV0(), sprite.getV1());
 
         particles.add(layer, centerX, centerY, centerZ,
             rotation.x, rotation.y, rotation.z, rotation.w,
             scale, minU, maxU, minV, maxV, color[0], light[0]);
         particleCount++;
         return true;
+    }
+
+    private static float remap(final float value, final float minimum, final float maximum) {
+        return minimum + (maximum - minimum) * value;
     }
 
     private static Quaternionf rotationFromBasis(final Vector3f right,
