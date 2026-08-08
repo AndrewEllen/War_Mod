@@ -4,6 +4,7 @@ import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
 import com.andye.warmod.antiair.client.ClientAntiAirNetworking;
 import com.andye.warmod.antiair.client.AntiAirWorldRenderer;
 import com.andye.warmod.antiair.client.audio.AntiAirEngineAudioManager;
+import com.andye.warmod.compat.DistantHorizonsCompat;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.block.entity.ModBlockEntities;
@@ -69,6 +70,7 @@ public final class WarModClient implements ClientModInitializer {
         AntiAirWorldRenderer.register();
 		PhalanxTracerRenderer.register();
 		NuclearFlashOverlay.register();
+		DistantHorizonsCompat.register();
 		WarMod.LOGGER.info("War Mod client initialized.");
 	}
 }
