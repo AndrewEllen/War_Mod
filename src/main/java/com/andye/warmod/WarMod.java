@@ -5,6 +5,7 @@ import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.acoustics.network.AcousticNetworking;
 import com.andye.warmod.antiair.AntiAirFlightControllerManager;
 import com.andye.warmod.antiair.network.AntiAirNetworking;
+import com.andye.warmod.artillery.network.ArtilleryNetworking;
 import com.andye.warmod.block.ModBlocks;
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.entity.ModEntityTypes;
@@ -56,6 +57,7 @@ public final class WarMod implements ModInitializer {
         AcousticNetworking.registerPayloadTypes();
         AntiAirNetworking.register();
         PhalanxNetworking.register();
+        ArtilleryNetworking.register();
         WarheadVisualNetworking.registerPayloadTypes();
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
@@ -99,7 +101,6 @@ public final class WarMod implements ModInitializer {
             IncomingWarheadRegistry.clearAll();
             com.andye.warmod.warhead.StrategicMissilePayloadRegistry.clear();
         });
-
         LOGGER.info("War Mod initialized.");
     }
 }

@@ -5,6 +5,10 @@ import com.andye.warmod.block.MissileSiloBlockItem;
 import com.andye.warmod.block.MissileSiloGuidanceSupportItem;
 import com.andye.warmod.block.PhalanxTurretBlockItem;
 import com.andye.warmod.block.RadarStationBlockItem;
+import com.andye.warmod.warhead.WarheadYield;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -21,6 +25,7 @@ public final class ModItems {
     public static final ResourceKey<Item> MASTER_EXPLOSIVE_TEST_STICK_KEY = key("master_explosive_test_stick");
     public static final ResourceKey<Item> RADAR_KEY = key("radar");
     public static final ResourceKey<Item> MISSILE_SILO_KEY = key("missile_silo");
+    public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
     public static final ResourceKey<Item> CONVENTIONAL_ICBM_KEY = key("conventional_icbm");
     public static final ResourceKey<Item> NUCLEAR_ICBM_KEY = key("nuclear_icbm");
     public static final ResourceKey<Item> CONVENTIONAL_CLUSTER_ICBM_KEY = key("conventional_cluster_icbm");
@@ -50,6 +55,9 @@ public final class ModItems {
     public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
     public static final Item RADAR = new RadarItem(properties(RADAR_KEY, 1));
     public static final Item MISSILE_SILO = new MissileSiloBlockItem(properties(MISSILE_SILO_KEY, 1));
+    public static final Item ARTILLERY_CANNON = new BlockItem(
+        com.andye.warmod.block.ModBlocks.ARTILLERY_CANNON,
+        properties(ARTILLERY_CANNON_KEY, 1));
     public static final Item CONVENTIONAL_ICBM = new ConventionalIcbmItem(properties(CONVENTIONAL_ICBM_KEY, 16));
     public static final Item NUCLEAR_ICBM = new NuclearIcbmItem(properties(NUCLEAR_ICBM_KEY, 16));
     public static final Item CONVENTIONAL_CLUSTER_ICBM = new ConventionalIcbmItem(properties(CONVENTIONAL_CLUSTER_ICBM_KEY, 16));
@@ -69,14 +77,15 @@ public final class ModItems {
     public static final Item ANTI_AIR_GUN_AMMO = new Item(properties(ANTI_AIR_GUN_AMMO_KEY, 64));
     public static final Item RADAR_DISPLAY_PANEL = new BlockItem(
         com.andye.warmod.block.ModBlocks.RADAR_DISPLAY_PANEL,
-        properties(RADAR_DISPLAY_PANEL_KEY, 64)
-    );
+        properties(RADAR_DISPLAY_PANEL_KEY, 64));
     public static final Item RADAR_LINKING_TOOL = new RadarLinkingToolItem(properties(RADAR_LINKING_TOOL_KEY, 1));
     public static final Item ITEM_PIPE = new BlockItem(
         com.andye.warmod.block.ModBlocks.ITEM_PIPE,
-        properties(ITEM_PIPE_KEY, 64)
-    );
+        properties(ITEM_PIPE_KEY, 64));
     public static final Item PIPE_WRENCH = new PipeWrenchItem(properties(PIPE_WRENCH_KEY, 1));
+
+    /** Seven yields x six forms = 42 production explosive items. */
+    public static final Map<WarheadYield, YieldItemSet> YIELD_ITEMS = createYieldItems();
 
     private static boolean registered;
 
@@ -92,6 +101,7 @@ public final class ModItems {
         register(MASTER_EXPLOSIVE_TEST_STICK_KEY, MASTER_EXPLOSIVE_TEST_STICK);
         register(RADAR_KEY, RADAR);
         register(MISSILE_SILO_KEY, MISSILE_SILO);
+        register(ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
         register(CONVENTIONAL_ICBM_KEY, CONVENTIONAL_ICBM);
         register(NUCLEAR_ICBM_KEY, NUCLEAR_ICBM);
         register(CONVENTIONAL_CLUSTER_ICBM_KEY, CONVENTIONAL_CLUSTER_ICBM);
@@ -113,6 +123,9 @@ public final class ModItems {
         register(RADAR_LINKING_TOOL_KEY, RADAR_LINKING_TOOL);
         register(ITEM_PIPE_KEY, ITEM_PIPE);
         register(PIPE_WRENCH_KEY, PIPE_WRENCH);
+        for (WarheadYield yield : WarheadYield.values()) {
+            for (YieldItemEntry entry : YIELD_ITEMS.get(yield).all()) register(entry.key(), entry.item());
+        }
         registered = true;
     }
 
@@ -124,18 +137,59 @@ public final class ModItems {
         };
     }
 
+    public static Item yieldMissile(final WarheadYield yield, final boolean cluster) {
+        YieldItemSet set = YIELD_ITEMS.get(yield);
+        return (cluster ? set.clusterMissile() : set.missile()).item();
+    }
+    public static Item yieldWarhead(final WarheadYield yield, final boolean cluster) {
+        YieldItemSet set = YIELD_ITEMS.get(yield);
+        return (cluster ? set.clusterWarhead() : set.warhead()).item();
+    }
+    public static Item yieldTnt(final WarheadYield yield, final boolean cluster) {
+        YieldItemSet set = YIELD_ITEMS.get(yield);
+        return (cluster ? set.clusterTnt() : set.tnt()).item();
+    }
+
+    private static Map<WarheadYield, YieldItemSet> createYieldItems() {
+        EnumMap<WarheadYield, YieldItemSet> map = new EnumMap<>(WarheadYield.class);
+        for (WarheadYield yield : WarheadYield.values()) {
+            String prefix = yield.getSerializedName();
+            map.put(yield, new YieldItemSet(
+                entry(prefix + "_missile", key -> new YieldMissileItem(properties(key, 16), yield, false)),
+                entry(prefix + "_cluster_missile", key -> new YieldMissileItem(properties(key, 16), yield, true)),
+                entry(prefix + "_warhead", key -> new YieldWarheadItem(properties(key, 16), yield, false)),
+                entry(prefix + "_cluster_warhead", key -> new YieldWarheadItem(properties(key, 16), yield, true)),
+                entry(prefix + "_tnt", key -> new TimedYieldExplosiveItem(properties(key, 16), yield, false)),
+                entry(prefix + "_cluster_tnt", key -> new TimedYieldExplosiveItem(properties(key, 16), yield, true))));
+        }
+        return Map.copyOf(map);
+    }
+
+    private static YieldItemEntry entry(final String path,
+        final java.util.function.Function<ResourceKey<Item>, Item> factory) {
+        ResourceKey<Item> key = key(path);
+        return new YieldItemEntry(key, factory.apply(key));
+    }
+
     private static void register(final ResourceKey<Item> key, final Item item) {
         Registry.register(BuiltInRegistries.ITEM, key, item);
     }
 
     private static ResourceKey<Item> key(final String path) {
-        return ResourceKey.create(
-            Registries.ITEM,
-            Identifier.fromNamespaceAndPath("war_mod", path)
-        );
+        return ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath("war_mod", path));
     }
 
     private static Item.Properties properties(final ResourceKey<Item> key, final int size) {
         return new Item.Properties().setId(key).stacksTo(size);
+    }
+
+    public record YieldItemEntry(ResourceKey<Item> key, Item item) {
+    }
+    public record YieldItemSet(YieldItemEntry missile, YieldItemEntry clusterMissile,
+        YieldItemEntry warhead, YieldItemEntry clusterWarhead,
+        YieldItemEntry tnt, YieldItemEntry clusterTnt) {
+        public List<YieldItemEntry> all() {
+            return List.of(missile, clusterMissile, warhead, clusterWarhead, tnt, clusterTnt);
+        }
     }
 }

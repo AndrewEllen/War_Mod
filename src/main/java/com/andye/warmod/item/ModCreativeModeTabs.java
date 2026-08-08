@@ -1,6 +1,7 @@
 package com.andye.warmod.item;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.warhead.WarheadYield;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -14,21 +15,20 @@ import net.minecraft.world.item.ItemStack;
 public final class ModCreativeModeTabs {
     public static final ResourceKey<CreativeModeTab> WAR_MOD_KEY = ResourceKey.create(
         Registries.CREATIVE_MODE_TAB,
-        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
-    );
-    private static final int ENTRY_COUNT = 28;
+        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod"));
+    private static final int ENTRY_COUNT = 71;
     private static boolean registered;
 
-    private ModCreativeModeTabs() {
-    }
+    private ModCreativeModeTabs() { }
 
     public static void register() {
         if (registered) return;
         CreativeModeTab tab = CreativeModeTab.builder(CreativeModeTab.Row.TOP, 0)
             .title(Component.translatable("itemGroup.war_mod.war_mod"))
-            .icon(() -> new ItemStack(ModItems.NUCLEAR_ICBM))
+            .icon(() -> new ItemStack(ModItems.ARTILLERY_CANNON))
             .displayItems((parameters, output) -> {
                 output.accept(ModItems.MISSILE_SILO);
+                output.accept(ModItems.ARTILLERY_CANNON);
                 output.accept(ModItems.GUIDANCE_TIER_1);
                 output.accept(ModItems.GUIDANCE_TIER_2);
                 output.accept(ModItems.GUIDANCE_TIER_3);
@@ -41,6 +41,15 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.CONVENTIONAL_CLUSTER_ICBM);
                 output.accept(ModItems.NUCLEAR_ICBM);
                 output.accept(ModItems.NUCLEAR_CLUSTER_ICBM);
+                for (WarheadYield yield : WarheadYield.values()) {
+                    ModItems.YieldItemSet set = ModItems.YIELD_ITEMS.get(yield);
+                    output.accept(set.missile().item());
+                    output.accept(set.clusterMissile().item());
+                    output.accept(set.warhead().item());
+                    output.accept(set.clusterWarhead().item());
+                    output.accept(set.tnt().item());
+                    output.accept(set.clusterTnt().item());
+                }
                 output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
                 output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
                 output.accept(ModItems.ROCKET_LAUNCHER);
