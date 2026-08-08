@@ -235,9 +235,9 @@ public final class ArtilleryShellEntity extends Entity {
         WarheadImpactChunkLeaseManager.hold(server, shellId, hit,
             IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
         if (!cluster()) {
-            WarheadYieldRegistry.put(server, shellId, yield());
+            WarheadYieldRegistry.put(server, shellId, this.yield());
             WarheadImpactService.impact(server, owner, shellId, shellId, hit,
-                visualSeed(), yield().payloadType());
+                visualSeed(), this.yield().payloadType());
         } else {
             double rotation = ((visualSeed() >>> 12) & 65535L) / 65535.0 * Math.PI * 2.0;
             for (int index = 0; index < ArtilleryConstants.CLUSTER_CHILDREN; index++) {
@@ -247,10 +247,10 @@ public final class ArtilleryShellEntity extends Entity {
                     0.0,
                     Math.sin(angle) * ArtilleryConstants.CLUSTER_SPREAD_RADIUS_BLOCKS);
                 UUID childId = UUID.randomUUID();
-                WarheadYieldRegistry.put(server, childId, yield());
+                WarheadYieldRegistry.put(server, childId, this.yield());
                 WarheadImpactService.detonateAt(server, owner, childId, shellId, childPosition,
                     visualSeed() + index * 0x9E3779B97F4A7C15L,
-                    yield().payloadType(), false);
+                    this.yield().payloadType(), false);
             }
         }
         releaseStreamingTickets(server);
@@ -315,7 +315,7 @@ public final class ArtilleryShellEntity extends Entity {
         output.putInt("FlightTicks", flightTicks);
         output.putInt("PausedSimulationTicks", pausedSimulationTicks);
         output.putBoolean("Impacted", impacted);
-        output.putString("Yield", yield().getSerializedName());
+        output.putString("Yield", this.yield().getSerializedName());
         output.putBoolean("Cluster", cluster());
         output.putLong("VisualSeed", visualSeed());
     }
