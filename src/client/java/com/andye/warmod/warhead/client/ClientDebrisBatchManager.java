@@ -78,10 +78,13 @@ public final class ClientDebrisBatchManager {
             double horizontalScale = horizontalLength > maximumHorizontal
                 ? maximumHorizontal / horizontalLength : 1.0;
             double maximumVertical = 0.72 + 1.55 / Math.sqrt(Math.max(1.0, mass));
+            double horizontalTuning = WarheadDebrisTuning.horizontalVelocityMultiplier();
+            double verticalTuning = WarheadDebrisTuning.verticalVelocityMultiplier();
             Vec3 velocity = new Vec3(
-                encodedVelocity.x * massDamping * horizontalScale * 1.14,
-                Mth.clamp(encodedVelocity.y * massDamping * 1.12, 0.18, maximumVertical),
-                encodedVelocity.z * massDamping * horizontalScale * 1.14);
+                encodedVelocity.x * massDamping * horizontalScale * 1.14 * horizontalTuning,
+                Mth.clamp(encodedVelocity.y * massDamping * 1.12, 0.18, maximumVertical)
+                    * verticalTuning,
+                encodedVelocity.z * massDamping * horizontalScale * 1.14 * horizontalTuning);
             Vec3 angularVelocity = new Vec3(entry.spinX(), entry.spinY(), entry.spinZ())
                 .scale(Math.min(0.72, 2.2 / Math.sqrt(mass)));
             float visualScale = Mth.clamp(entry.scale()
