@@ -124,11 +124,11 @@ public final class PrimedYieldExplosiveEntity extends Entity {
 
     private void detonateOne(final ServerLevel server, final @Nullable ServerPlayer owner,
         final UUID id, final Vec3 position, final long seed) {
-        WarheadYieldRegistry.put(server, id, yield());
+        WarheadYieldRegistry.put(server, id, this.yield());
         WarheadImpactChunkLeaseManager.hold(server, id, position,
             IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
         WarheadImpactService.detonateAt(server, owner, id, id, position, seed,
-            yield().payloadType(), false);
+            this.yield().payloadType(), false);
     }
 
     private static long deriveSeed(final UUID id) {
@@ -158,7 +158,7 @@ public final class PrimedYieldExplosiveEntity extends Entity {
     protected void addAdditionalSaveData(final ValueOutput output) {
         output.store("ExplosiveId", UUIDUtil.CODEC, explosiveId);
         output.storeNullable("OwnerPlayerId", UUIDUtil.CODEC, ownerPlayerId);
-        output.putString("Yield", yield().getSerializedName());
+        output.putString("Yield", this.yield().getSerializedName());
         output.putBoolean("Cluster", cluster());
         output.putInt("Fuse", fuseTicks());
         output.putLong("VisualSeed", visualSeed());
