@@ -53,8 +53,8 @@ public abstract class IrisParticleSubmitMixin {
             return;
         }
 
-        if (collector.particleCount() > 0) {
-            ((SubmitNodeStorage) (Object) this).submitParticleGroup(particles);
+        if (!particles.isEmpty()) {
+            ((SubmitNodeStorage) (Object) this).submitQuadParticleGroup(particles);
         }
         ci.cancel();
     }
