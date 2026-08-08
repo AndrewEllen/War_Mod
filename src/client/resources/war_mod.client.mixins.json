@@ -4,7 +4,10 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraShakeMixin",
-    "GameRendererCleanupMixin"
+    "GameRendererCleanupMixin",
+    "IrisParticleSubmitMixin",
+    "WarheadTerrainVisualTimingMixin",
+    "WarheadWorldVisualTimingMixin"
   ],
   "injectors": {
     "defaultRequire": 1

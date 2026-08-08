@@ -20,9 +20,7 @@ import com.seibel.distanthorizons.api.enums.config.EDhApiRenderingEngine;
 import com.seibel.distanthorizons.api.enums.rendering.EDhApiRenderPass;
 import com.seibel.distanthorizons.api.interfaces.render.IDhApiBlazeTextureWrapper;
 import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
-import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiAfterRenderEvent;
-import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeApplyShaderRenderEvent;
-import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiCancelableEventParam;
+import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeRenderCleanupEvent;
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiRenderParam;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
@@ -54,27 +52,24 @@ public final class DistantHorizonsDepthBridge {
     private static final RenderPipeline DEPTH_BRIDGE = createPipeline(false);
     private static final RenderPipeline DEPTH_BRIDGE_ZERO_TO_ONE = createPipeline(true);
 
-    private static volatile FrameState pendingFrame;
     private static boolean registered;
     private static boolean disabled;
     private static boolean warnedLegacyEngine;
     private static boolean warnedDepthUnavailable;
+    private static boolean loggedFirstResolve;
 
     private DistantHorizonsDepthBridge() { }
 
     public static void register() {
         if (registered) return;
 
-        DhApiResult<Void> beforeResult = DhApiEventRegister.on(
-            DhApiBeforeApplyShaderRenderEvent.class, new BeforeApplyHandler());
-        DhApiResult<Void> afterResult = DhApiEventRegister.on(
-            DhApiAfterRenderEvent.class, new AfterRenderHandler());
-
-        if (!beforeResult.success || !afterResult.success) {
+        DhApiResult<Void> cleanupResult = DhApiEventRegister.on(
+            DhApiBeforeRenderCleanupEvent.class, new BeforeCleanupHandler());
+        if (!cleanupResult.success) {
             disabled = true;
             WarMod.LOGGER.warn(
-                "Distant Horizons depth compatibility could not bind render events: before={}, after={}",
-                beforeResult.message, afterResult.message);
+                "Distant Horizons depth compatibility could not bind the before-cleanup render event: {}",
+                cleanupResult.message);
             return;
         }
 
@@ -83,28 +78,20 @@ public final class DistantHorizonsDepthBridge {
     }
 
     public static void close() {
-        pendingFrame = null;
         STAGED_BUFFER.close();
     }
 
-    private static void capture(final DhApiRenderParam param) {
-        if (disabled || WarheadRenderPipelines.compatibilityRendererActive()
+    /**
+     * Resolve while DH still owns a completed frame, after its apply pass but
+     * immediately before it tears down render state. Doing this in AfterRender
+     * is too late on the 26.2 Blaze3D path: the LOD depth target may already be
+     * detached/reset by the time later Minecraft feature renders execute.
+     */
+    private static void bridgeFrame(final DhApiRenderParam param) {
+        if (param == null || disabled || WarheadRenderPipelines.compatibilityRendererActive()
             || param.renderPass == EDhApiRenderPass.TRANSPARENT) {
-            pendingFrame = null;
             return;
         }
-
-        Matrix4f mcProjection = toJoml(param.mcProjectionMatrix);
-        Matrix4f mcModelView = toJoml(param.mcModelViewMatrix);
-        Matrix4f dhInverseMvp = toJoml(param.dhInverseMvmProjectionMatrix);
-        Matrix4f reprojection = mcProjection.mul(mcModelView).mul(dhInverseMvp);
-        pendingFrame = new FrameState(reprojection);
-    }
-
-    private static void bridgePendingFrame() {
-        FrameState frame = pendingFrame;
-        pendingFrame = null;
-        if (frame == null || disabled || WarheadRenderPipelines.compatibilityRendererActive()) return;
 
         try {
             if (DhApi.Delayed.renderProxy == null) return;
@@ -132,8 +119,17 @@ public final class DistantHorizonsDepthBridge {
                 return;
             }
 
-            drawDepth(frame.reprojection(), depthView, depthSampler);
+            Matrix4f mcProjection = toJoml(param.mcProjectionMatrix);
+            Matrix4f mcModelView = toJoml(param.mcModelViewMatrix);
+            Matrix4f dhInverseMvp = toJoml(param.dhInverseMvmProjectionMatrix);
+            Matrix4f reprojection = mcProjection.mul(mcModelView).mul(dhInverseMvp);
+            drawDepth(reprojection, depthView, depthSampler);
             warnedDepthUnavailable = false;
+            if (!loggedFirstResolve) {
+                loggedFirstResolve = true;
+                WarMod.LOGGER.info(
+                    "Distant Horizons LOD depth resolved into Minecraft depth before DH cleanup.");
+            }
         } catch (RuntimeException | LinkageError exception) {
             disabled = true;
             WarMod.LOGGER.warn(
@@ -214,23 +210,11 @@ public final class DistantHorizonsDepthBridge {
         WarMod.LOGGER.warn("Distant Horizons depth texture is not available yet: {}", reason);
     }
 
-    private record FrameState(Matrix4f reprojection) { }
-
-    private static final class BeforeApplyHandler extends DhApiBeforeApplyShaderRenderEvent {
+    private static final class BeforeCleanupHandler extends DhApiBeforeRenderCleanupEvent {
         @Override
-        public void beforeRender(final DhApiCancelableEventParam<DhApiRenderParam> event) {
-            if (event == null || event.value == null) {
-                pendingFrame = null;
-                return;
-            }
-            capture(event.value);
-        }
-    }
-
-    private static final class AfterRenderHandler extends DhApiAfterRenderEvent {
-        @Override
-        public void afterRender(final DhApiEventParam<Void> event) {
-            bridgePendingFrame();
+        public void beforeCleanup(final DhApiEventParam<DhApiRenderParam> event) {
+            if (event == null || event.value == null) return;
+            bridgeFrame(event.value);
         }
     }
 }
