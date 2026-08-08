@@ -5,7 +5,9 @@
   "client": [
     "CameraShakeMixin",
     "GameRendererCleanupMixin",
-    "IrisParticleSubmitMixin"
+    "IrisParticleSubmitMixin",
+    "WarheadTerrainVisualTimingMixin",
+    "WarheadWorldVisualTimingMixin"
   ],
   "injectors": {
     "defaultRequire": 1
