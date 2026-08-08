@@ -2,6 +2,7 @@ package com.andye.warmod.warhead.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
@@ -51,7 +52,7 @@ public final class TerrainDeformationMesh {
 	private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer, final Vec3 point,
 		final float u, final float v, final int red, final int green, final int blue, final int light) {
 		buffer.addVertex(pose, (float) point.x, (float) point.y, (float) point.z).setColor(red, green, blue, 255)
-			.setUv(u, v).setOverlay(0).setLight(light).setNormal(pose, 0.0F, 1.0F, 0.0F);
+			.setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose, 0.0F, 1.0F, 0.0F);
 	}
 	private static long mix(long value) { value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L; value ^= value >>> 27; value *= 0x94D049BB133111EBL; return value ^ (value >>> 31); }
 }
