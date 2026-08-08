@@ -12,11 +12,4 @@ public final class WarheadVisualTiming {
         return payloadType == WarheadPayloadType.NUCLEAR
             ? physicalAge * NUCLEAR_TIME_SCALE : physicalAge;
     }
-
-    public static long gameTime(final WarheadPayloadType payloadType,
-        final long impactGameTime, final long physicalGameTime) {
-        if (payloadType != WarheadPayloadType.NUCLEAR) return physicalGameTime;
-        long elapsed = Math.max(0L, physicalGameTime - impactGameTime);
-        return impactGameTime + Math.round(elapsed * NUCLEAR_TIME_SCALE);
-    }
 }
