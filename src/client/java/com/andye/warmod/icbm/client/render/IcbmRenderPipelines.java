@@ -35,8 +35,8 @@ public final class IcbmRenderPipelines {
 		RenderSetup.builder(NORMAL_SMOKE_PIPELINE)
 			.withTexture("Sampler0", SMOKE_TEXTURE).useLightmap().sortOnUpload().createRenderSetup());
 	private static final RenderType IRIS_SMOKE = RenderType.create("war_mod_icbm_smoke_iris",
-		RenderSetup.builder(RenderPipelines.TRANSLUCENT_PARTICLE)
-			.withTexture("Sampler0", SMOKE_TEXTURE).useLightmap().sortOnUpload().createRenderSetup());
+		RenderSetup.builder(RenderPipelines.ENTITY_TRANSLUCENT)
+			.withTexture("Sampler0", SMOKE_TEXTURE).useLightmap().useOverlay().sortOnUpload().createRenderSetup());
 
 	public static final RenderType MISSILE = RenderType.create("war_mod_icbm",
 		RenderSetup.builder(RenderPipelines.ENTITY_CUTOUT)
