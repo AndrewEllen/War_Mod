@@ -6,12 +6,13 @@ import com.andye.warmod.icbm.client.render.IcbmRenderPipelines;
 import com.andye.warmod.warhead.client.render.IrisShaderState;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.client.particle.SingleQuadParticle;
-import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.state.level.QuadParticleRenderState;
+import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -24,13 +25,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(SubmitNodeStorage.class)
 public abstract class IrisParticleSubmitMixin {
-    private static final SingleQuadParticle.Layer PARTICLE_MASK = layer(
-        Identifier.fromNamespaceAndPath("minecraft", "textures/particle/big_smoke_2.png"));
-    private static final SingleQuadParticle.Layer EXPLOSION_MASK = layer(
-        Identifier.fromNamespaceAndPath("minecraft", "textures/particle/explosion_0.png"));
-    private static final SingleQuadParticle.Layer ICBM_SMOKE = layer(
-        Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "textures/effect/icbm_smoke.png"));
+    private static final Identifier PARTICLE_MASK = Identifier.fromNamespaceAndPath(
+        "minecraft", "particle/big_smoke_2");
+    private static final Identifier EXPLOSION_MASK = Identifier.fromNamespaceAndPath(
+        "minecraft", "particle/explosion_0");
     private static boolean warnedUnsupportedGeometry;
+    private static boolean warnedMissingSprite;
 
     @Inject(method = "submitCustomGeometry", at = @At("HEAD"), cancellable = true)
     private void warMod$routeIrisBillboards(final PoseStack poseStack,
@@ -38,11 +38,11 @@ public abstract class IrisParticleSubmitMixin {
         final SubmitNodeCollector.CustomGeometryRenderer customGeometryRenderer,
         final CallbackInfo ci) {
         if (!IrisShaderState.active()) return;
-        SingleQuadParticle.Layer layer = particleLayer(renderType);
-        if (layer == null) return;
+        TextureAtlasSprite sprite = particleSprite(renderType);
+        if (sprite == null) return;
 
         QuadParticleRenderState particles = new QuadParticleRenderState();
-        IrisParticleQuadCollector collector = new IrisParticleQuadCollector(particles, layer);
+        IrisParticleQuadCollector collector = new IrisParticleQuadCollector(particles, sprite);
         customGeometryRenderer.render(poseStack.last(), collector);
         if (!collector.finish()) {
             if (!warnedUnsupportedGeometry) {
@@ -59,25 +59,49 @@ public abstract class IrisParticleSubmitMixin {
         ci.cancel();
     }
 
-    private static SingleQuadParticle.Layer particleLayer(final RenderType renderType) {
+    private static TextureAtlasSprite particleSprite(final RenderType renderType) {
+        Identifier spriteId;
         if (renderType == WarheadRenderPipelines.GROUND_DUST
             || renderType == WarheadRenderPipelines.HEAVY_SMOKE
             || renderType == WarheadRenderPipelines.HEAVY_SMOKE_CORE
             || renderType == WarheadRenderPipelines.NUCLEAR_SMOKE
             || renderType == WarheadRenderPipelines.FIREBALL_CORE
             || renderType == WarheadRenderPipelines.FIREBALL_HOT
-            || renderType == WarheadRenderPipelines.FIREBALL_COOL) {
-            return PARTICLE_MASK;
-        }
-        if (renderType == WarheadRenderPipelines.EXPLOSION_PUFF
+            || renderType == WarheadRenderPipelines.FIREBALL_COOL
+            || renderType == IcbmRenderPipelines.SMOKE) {
+            spriteId = PARTICLE_MASK;
+        } else if (renderType == WarheadRenderPipelines.EXPLOSION_PUFF
             || renderType == WarheadRenderPipelines.NUCLEAR_FLASH) {
-            return EXPLOSION_MASK;
+            spriteId = EXPLOSION_MASK;
+        } else {
+            return null;
         }
-        if (renderType == IcbmRenderPipelines.SMOKE) return ICBM_SMOKE;
-        return null;
+
+        try {
+            TextureAtlas atlas = Minecraft.getInstance().getAtlasManager()
+                .getAtlasOrThrow(TextureAtlas.LOCATION_PARTICLES);
+            TextureAtlasSprite sprite = atlas.getSprite(spriteId);
+            if (sprite == atlas.missingSprite()) {
+                warnMissingSprite(spriteId);
+                return null;
+            }
+            return sprite;
+        } catch (RuntimeException exception) {
+            if (!warnedMissingSprite) {
+                warnedMissingSprite = true;
+                WarMod.LOGGER.warn(
+                    "Iris particle bridge could not resolve the Minecraft particle atlas; retaining custom geometry",
+                    exception);
+            }
+            return null;
+        }
     }
 
-    private static SingleQuadParticle.Layer layer(final Identifier texture) {
-        return new SingleQuadParticle.Layer(true, texture, RenderPipelines.TRANSLUCENT_PARTICLE);
+    private static void warnMissingSprite(final Identifier spriteId) {
+        if (warnedMissingSprite) return;
+        warnedMissingSprite = true;
+        WarMod.LOGGER.warn(
+            "Iris particle bridge could not resolve particle sprite {}; retaining custom geometry",
+            spriteId);
     }
 }
