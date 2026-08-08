@@ -11,6 +11,7 @@ public final class ArtilleryConstants {
     public static final int AMMUNITION_SLOTS = 16;
     public static final int CLUSTER_CHILDREN = 4;
     public static final double CLUSTER_SPREAD_RADIUS_BLOCKS = 7.5;
+    public static final int OWNER_IGNORE_TICKS = 4;
     public static final int CONVENTIONAL_FUSE_TICKS = 200;
     public static final int NUCLEAR_FUSE_TICKS = 600;
     public static final int PRIMED_EXPLOSIVE_MAX_LIFETIME_TICKS = 800;
