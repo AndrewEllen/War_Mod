@@ -6,6 +6,8 @@ import net.minecraft.world.phys.Vec3;
 
 /** Analytic low-arc solver followed by integer-tick correction to hit the requested target exactly. */
 public final class ArtilleryBallistics {
+    private static final double SPEED_EPSILON = 1.0E-4;
+
     private ArtilleryBallistics() {
     }
 
@@ -47,8 +49,8 @@ public final class ArtilleryBallistics {
         double ux = dx / horizontal;
         double uz = dz / horizontal;
 
-        // Ceil-to-tick correction can alter the exact launch speed slightly. Increase the
-        // duration until the exact integer-tick solution obeys both hard limits.
+        // Integer ticks can differ from the continuous solution by floating-point noise at
+        // the exact 1000-block boundary. The epsilon is 0.002% of the 5 block/tick cap.
         for (int attempt = 0; attempt < 24
             && flightTicks <= ArtilleryConstants.MAXIMUM_FLIGHT_TICKS; attempt++, flightTicks++) {
             double t = flightTicks;
@@ -57,7 +59,7 @@ public final class ArtilleryBallistics {
             double correctedSpeed = Math.sqrt(vxz * vxz + vy * vy);
             double apex = vy > 0.0 ? muzzle.y + vy * vy / (2.0 * gravity) : muzzle.y;
             if (!Double.isFinite(correctedSpeed) || !Double.isFinite(apex)) continue;
-            if (correctedSpeed > speed + 1.0E-6 || apex > allowedApex + 1.0E-6) continue;
+            if (correctedSpeed > speed + SPEED_EPSILON || apex > allowedApex + 1.0E-6) continue;
 
             Vec3 velocity = new Vec3(ux * vxz, vy, uz * vxz);
             double correctedAngle = Math.toDegrees(Math.atan2(vy, vxz));
