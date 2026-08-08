@@ -77,7 +77,7 @@ public final class ArtilleryCannonBlockEntity extends BlockEntity implements Wor
         if (!result.accepted()) return fail(result.message());
 
         inventory.removeItem(slot, 1);
-        lastStatus = result.shells() == 1 ? "Fired" : "Cluster salvo fired";
+        lastStatus = warhead.cluster() ? "Cluster warhead fired" : "Fired";
         lastAngleDegrees = result.angleDegrees();
         lastRangeBlocks = result.rangeBlocks();
         lastApexY = result.apexY();
