@@ -43,6 +43,8 @@ import org.jspecify.annotations.Nullable;
 public final class ArtilleryShellEntity extends Entity {
     private static final EntityDataAccessor<Integer> YIELD =
         SynchedEntityData.defineId(ArtilleryShellEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> CLUSTER =
+        SynchedEntityData.defineId(ArtilleryShellEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Long> VISUAL_SEED =
         SynchedEntityData.defineId(ArtilleryShellEntity.class, EntityDataSerializers.LONG);
 
@@ -69,7 +71,7 @@ public final class ArtilleryShellEntity extends Entity {
     public ArtilleryShellEntity(final ServerLevel level, final UUID shellId,
         final @Nullable UUID ownerPlayerId, final Vec3 startPosition,
         final Vec3 intendedTarget, final Vec3 initialVelocity, final int flightTicks,
-        final long visualSeed, final WarheadYield yield) {
+        final long visualSeed, final WarheadYield yield, final boolean cluster) {
         this(ModEntityTypes.ARTILLERY_SHELL, level);
         this.shellId = shellId;
         this.ownerPlayerId = ownerPlayerId;
@@ -79,6 +81,7 @@ public final class ArtilleryShellEntity extends Entity {
         this.flightTicks = flightTicks;
         this.launchGameTime = level.getGameTime();
         this.getEntityData().set(YIELD, yield.ordinal());
+        this.getEntityData().set(CLUSTER, cluster);
         this.getEntityData().set(VISUAL_SEED, visualSeed);
         setPos(startPosition);
         setDeltaMovement(initialVelocity);
@@ -88,6 +91,7 @@ public final class ArtilleryShellEntity extends Entity {
     @Override
     protected void defineSynchedData(final SynchedEntityData.Builder builder) {
         builder.define(YIELD, WarheadYield.CONVENTIONAL.ordinal());
+        builder.define(CLUSTER, false);
         builder.define(VISUAL_SEED, 0L);
     }
 
@@ -97,6 +101,7 @@ public final class ArtilleryShellEntity extends Entity {
         WarheadYield[] values = WarheadYield.values();
         return values[Math.max(0, Math.min(values.length - 1, index))];
     }
+    public boolean cluster() { return getEntityData().get(CLUSTER); }
     public long visualSeed() { return getEntityData().get(VISUAL_SEED); }
 
     @Override
@@ -226,11 +231,28 @@ public final class ArtilleryShellEntity extends Entity {
             ServerPlayer candidate = server.getServer().getPlayerList().getPlayer(ownerPlayerId);
             if (candidate != null && candidate.level() == server) owner = candidate;
         }
-        WarheadYieldRegistry.put(server, shellId, yield());
+
         WarheadImpactChunkLeaseManager.hold(server, shellId, hit,
             IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
-        WarheadImpactService.impact(server, owner, shellId, shellId, hit,
-            visualSeed(), yield().payloadType());
+        if (!cluster()) {
+            WarheadYieldRegistry.put(server, shellId, yield());
+            WarheadImpactService.impact(server, owner, shellId, shellId, hit,
+                visualSeed(), yield().payloadType());
+        } else {
+            double rotation = ((visualSeed() >>> 12) & 65535L) / 65535.0 * Math.PI * 2.0;
+            for (int index = 0; index < ArtilleryConstants.CLUSTER_CHILDREN; index++) {
+                double angle = rotation + index * Math.PI * 2.0 / ArtilleryConstants.CLUSTER_CHILDREN;
+                Vec3 childPosition = hit.add(
+                    Math.cos(angle) * ArtilleryConstants.CLUSTER_SPREAD_RADIUS_BLOCKS,
+                    0.0,
+                    Math.sin(angle) * ArtilleryConstants.CLUSTER_SPREAD_RADIUS_BLOCKS);
+                UUID childId = UUID.randomUUID();
+                WarheadYieldRegistry.put(server, childId, yield());
+                WarheadImpactService.detonateAt(server, owner, childId, shellId, childPosition,
+                    visualSeed() + index * 0x9E3779B97F4A7C15L,
+                    yield().payloadType(), false);
+            }
+        }
         releaseStreamingTickets(server);
         discard();
     }
@@ -272,6 +294,7 @@ public final class ArtilleryShellEntity extends Entity {
         WarheadYield loadedYield = WarheadYield.fromSerializedName(
             input.getStringOr("Yield", "conventional")).orElse(WarheadYield.CONVENTIONAL);
         getEntityData().set(YIELD, loadedYield.ordinal());
+        getEntityData().set(CLUSTER, input.getBooleanOr("Cluster", false));
         getEntityData().set(VISUAL_SEED, input.getLongOr("VisualSeed", 0L));
         if (!valid() || impacted) discard();
         else {
@@ -293,6 +316,7 @@ public final class ArtilleryShellEntity extends Entity {
         output.putInt("PausedSimulationTicks", pausedSimulationTicks);
         output.putBoolean("Impacted", impacted);
         output.putString("Yield", yield().getSerializedName());
+        output.putBoolean("Cluster", cluster());
         output.putLong("VisualSeed", visualSeed());
     }
 
