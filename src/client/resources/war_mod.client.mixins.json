@@ -4,7 +4,8 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraShakeMixin",
-    "GameRendererCleanupMixin"
+    "GameRendererCleanupMixin",
+    "IrisParticleSubmitMixin"
   ],
   "injectors": {
     "defaultRequire": 1
