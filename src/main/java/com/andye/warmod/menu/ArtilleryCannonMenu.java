@@ -19,9 +19,9 @@ public final class ArtilleryCannonMenu extends AbstractContainerMenu {
     private ArtilleryCannonMenu(final int id, final Inventory inventory, final @Nullable ArtilleryCannonBlockEntity cannon, final BlockPos position) {
         super(ModMenus.ARTILLERY_CANNON, id); this.position = position; this.cannon = cannon;
         var container = cannon == null ? new SimpleContainer(1) : cannon;
-        addSlot(new Slot(container, 0, 34, 52) { @Override public boolean mayPlace(final ItemStack stack) { return ArtilleryPayloadItems.isWarhead(stack) && container.canPlaceItem(0, stack); } @Override public int getMaxStackSize() { return 16; } });
-        for (int row = 0; row < 3; row++) for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column + row * 9 + 9, 8 + column * 18, 110 + row * 18));
-        for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column, 8 + column * 18, 168));
+        addSlot(new Slot(container, 0, 234, 54) { @Override public boolean mayPlace(final ItemStack stack) { return ArtilleryPayloadItems.isWarhead(stack) && container.canPlaceItem(0, stack); } @Override public int getMaxStackSize() { return 16; } });
+        for (int row = 0; row < 3; row++) for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column + row * 9 + 9, 87 + column * 18, 202 + row * 18));
+        for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column, 87 + column * 18, 254));
     }
     public BlockPos position() { return position; } public @Nullable ArtilleryCannonBlockEntity cannon() { return cannon; }
     @Override public boolean stillValid(final Player player) { return cannon != null && cannon.stillValid(player); }
