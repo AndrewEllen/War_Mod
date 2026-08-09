@@ -79,7 +79,6 @@ public final class GenerateOrdnanceAssets {
         String model = "{\"textures\":{\"base\":\"war_mod:block/artillery_base\",\"barrel\":\"war_mod:block/artillery_barrel\",\"breech\":\"war_mod:block/artillery_breech\"},\"elements\":["
             + element(1,0,1,15,4,15,String.format(faces,"base","base","base","base","base","base")) + ","
             + element(3,4,4,13,7,13,String.format(faces,"breech","breech","breech","breech","breech","breech")) + ","
-            + element(6,7,-2,10,11,10,String.format(faces,"barrel","barrel","barrel","barrel","barrel","barrel")) + ","
             + element(5,5,10,11,8,14,String.format(faces,"breech","breech","breech","breech","breech","breech")) + "]}";
         write(assets.resolve("models/block/artillery_cannon.json"), model);
         write(assets.resolve("blockstates/artillery_cannon.json"), "{\"variants\":{\"facing=north\":{\"model\":\"war_mod:block/artillery_cannon\"},\"facing=east\":{\"model\":\"war_mod:block/artillery_cannon\",\"y\":90},\"facing=south\":{\"model\":\"war_mod:block/artillery_cannon\",\"y\":180},\"facing=west\":{\"model\":\"war_mod:block/artillery_cannon\",\"y\":270}}}");

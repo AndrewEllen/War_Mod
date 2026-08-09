@@ -26,9 +26,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(SubmitNodeStorage.class)
 public abstract class IrisParticleSubmitMixin {
     private static final Identifier PARTICLE_MASK = Identifier.fromNamespaceAndPath(
-        "minecraft", "big_smoke_2");
+        "war_mod", "warhead_smoke_2");
     private static final Identifier EXPLOSION_MASK = Identifier.fromNamespaceAndPath(
-        "minecraft", "explosion_0");
+        "war_mod", "warhead_fireball_2");
     private static boolean warnedUnsupportedGeometry;
     private static boolean warnedAtlasLookup;
 
@@ -65,12 +65,12 @@ public abstract class IrisParticleSubmitMixin {
             || renderType == WarheadRenderPipelines.HEAVY_SMOKE
             || renderType == WarheadRenderPipelines.HEAVY_SMOKE_CORE
             || renderType == WarheadRenderPipelines.NUCLEAR_SMOKE
-            || renderType == WarheadRenderPipelines.FIREBALL_CORE
-            || renderType == WarheadRenderPipelines.FIREBALL_HOT
-            || renderType == WarheadRenderPipelines.FIREBALL_COOL
             || renderType == IcbmRenderPipelines.SMOKE) {
             spriteId = PARTICLE_MASK;
-        } else if (renderType == WarheadRenderPipelines.EXPLOSION_PUFF
+        } else if (renderType == WarheadRenderPipelines.FIREBALL_CORE
+            || renderType == WarheadRenderPipelines.FIREBALL_HOT
+            || renderType == WarheadRenderPipelines.FIREBALL_COOL
+            || renderType == WarheadRenderPipelines.EXPLOSION_PUFF
             || renderType == WarheadRenderPipelines.NUCLEAR_FLASH) {
             spriteId = EXPLOSION_MASK;
         } else {

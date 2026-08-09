@@ -2,12 +2,14 @@ package com.andye.warmod;
 
 import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
 import com.andye.warmod.artillery.client.gui.ArtilleryCannonScreen;
+import com.andye.warmod.artillery.client.render.ArtilleryCannonBlockEntityRenderer;
 import com.andye.warmod.antiair.client.ClientAntiAirNetworking;
 import com.andye.warmod.antiair.client.AntiAirWorldRenderer;
 import com.andye.warmod.antiair.client.audio.AntiAirEngineAudioManager;
 import com.andye.warmod.compat.DistantHorizonsCompat;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
+import com.andye.warmod.entity.client.TimedWarheadTntRenderer;
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.silo.client.MissileSiloBlockEntityRenderer;
 import com.andye.warmod.silo.client.gui.MissileSiloScreen;
@@ -58,8 +60,9 @@ public final class WarModClient implements ClientModInitializer {
 		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);
 		EntityRendererRegistry.register(ModEntityTypes.ROCKET_PROJECTILE, RocketProjectileRenderer::new);
         EntityRendererRegistry.register(ModEntityTypes.ARTILLERY_WARHEAD, com.andye.warmod.entity.client.SimpleWarheadRenderer::new);
-        EntityRendererRegistry.register(ModEntityTypes.TIMED_WARHEAD_TNT, com.andye.warmod.entity.client.SimpleWarheadRenderer::new);
-		BlockEntityRenderers.register(ModBlockEntities.MISSILE_SILO, MissileSiloBlockEntityRenderer::new);
+        EntityRendererRegistry.register(ModEntityTypes.TIMED_WARHEAD_TNT, TimedWarheadTntRenderer::new);
+		BlockEntityRenderers.register(ModBlockEntities.ARTILLERY_CANNON, ArtilleryCannonBlockEntityRenderer::new);
+	BlockEntityRenderers.register(ModBlockEntities.MISSILE_SILO, MissileSiloBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.RADAR_STATION, RadarStationBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.PHALANX_TURRET, PhalanxBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.RADAR_DISPLAY_PANEL, RadarDisplayBlockEntityRenderer::new);

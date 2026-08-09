@@ -2,7 +2,7 @@ package com.andye.warmod.block;
 
 import com.andye.warmod.artillery.ArtilleryPayload;
 import com.andye.warmod.entity.TimedWarheadTntEntity;
-import com.mojang.serialization.MapCodec;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -13,6 +13,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.piglin.PiglinAi;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.Item;
@@ -69,7 +70,12 @@ public final class TimedWarheadTntBlock extends TntBlock {
             && state.getValue(UNSTABLE)) {
             prime(level, pos, player);
         }
-        return super.playerWillDestroy(level, pos, state, player);
+        spawnDestroyParticles(level, player, pos, state);
+        if (state.is(BlockTags.GUARDED_BY_PIGLINS) && level instanceof ServerLevel server) {
+            PiglinAi.angerNearbyPiglins(server, player, false);
+        }
+        level.gameEvent(GameEvent.BLOCK_DESTROY, pos, GameEvent.Context.of(player, state));
+        return state;
     }
 
     @Override
