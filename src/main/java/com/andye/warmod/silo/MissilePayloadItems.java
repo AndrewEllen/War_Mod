@@ -1,3 +1,19 @@
 package com.andye.warmod.silo;
-import com.andye.warmod.antiair.AntiAirMissileVariant;import com.andye.warmod.item.ModItems;import com.andye.warmod.warhead.WarheadPayloadType;import java.util.Optional;import net.minecraft.world.item.ItemStack;
-public final class MissilePayloadItems{private MissilePayloadItems(){}public static Optional<SiloMissileType> missileType(ItemStack s){if(s.is(ModItems.CONVENTIONAL_ICBM))return Optional.of(SiloMissileType.CONVENTIONAL_ICBM);if(s.is(ModItems.CONVENTIONAL_CLUSTER_ICBM))return Optional.of(SiloMissileType.CONVENTIONAL_CLUSTER_ICBM);if(s.is(ModItems.NUCLEAR_ICBM))return Optional.of(SiloMissileType.NUCLEAR_ICBM);if(s.is(ModItems.NUCLEAR_CLUSTER_ICBM))return Optional.of(SiloMissileType.NUCLEAR_CLUSTER_ICBM);if(s.is(ModItems.ANTI_AIR_MISSILE_MK1))return Optional.of(SiloMissileType.ANTI_AIR_MK_I);if(s.is(ModItems.ANTI_AIR_MISSILE_MK2))return Optional.of(SiloMissileType.ANTI_AIR_MK_II);return Optional.empty();}public static Optional<WarheadPayloadType> payloadType(ItemStack s){return missileType(s).flatMap(SiloMissileType::payloadType);}public static Optional<AntiAirMissileVariant> antiAirVariant(ItemStack s){return missileType(s).flatMap(SiloMissileType::antiAirVariant);}public static boolean isMissile(ItemStack s){return missileType(s).isPresent();}public static boolean isStrategicStrikeMissile(ItemStack s){return missileType(s).map(t->t.role()==SiloMissileRole.STRATEGIC_STRIKE).orElse(false);}public static boolean isInterceptor(ItemStack s){return missileType(s).map(t->t.role()==SiloMissileRole.INTERCEPTOR).orElse(false);}public static boolean compatible(ItemStack a,ItemStack b){return a.isEmpty()?isMissile(b):missileType(a).equals(missileType(b));}}
+
+import com.andye.warmod.antiair.AntiAirMissileVariant;
+import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadYield;
+import java.util.Optional;
+import net.minecraft.world.item.ItemStack;
+
+public final class MissilePayloadItems {
+    private MissilePayloadItems() { }
+    public static Optional<SiloMissileType> missileType(final ItemStack stack) { for (SiloMissileType type : SiloMissileType.values()) if (stack.is(type.item())) return Optional.of(type); return Optional.empty(); }
+    public static Optional<WarheadPayloadType> payloadType(final ItemStack stack) { return missileType(stack).flatMap(SiloMissileType::payloadType); }
+    public static Optional<WarheadYield> yield(final ItemStack stack) { return missileType(stack).flatMap(SiloMissileType::yield); }
+    public static Optional<AntiAirMissileVariant> antiAirVariant(final ItemStack stack) { return missileType(stack).flatMap(SiloMissileType::antiAirVariant); }
+    public static boolean isMissile(final ItemStack stack) { return missileType(stack).isPresent(); }
+    public static boolean isStrategicStrikeMissile(final ItemStack stack) { return missileType(stack).map(type -> type.role() == SiloMissileRole.STRATEGIC_STRIKE).orElse(false); }
+    public static boolean isInterceptor(final ItemStack stack) { return missileType(stack).map(type -> type.role() == SiloMissileRole.INTERCEPTOR).orElse(false); }
+    public static boolean compatible(final ItemStack current, final ItemStack incoming) { return current.isEmpty() ? isMissile(incoming) : missileType(current).equals(missileType(incoming)); }
+}

@@ -3,6 +3,8 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 
 public final class GenerateEffectTextures {
@@ -37,6 +39,9 @@ public final class GenerateEffectTextures {
 		writeImage(outputDirectory.resolve("smoke_lobe.png"), createSmokeLobe());
 		writeImage(outputDirectory.resolve("ground_ripple_noise.png"), createGroundRippleNoise());
 		writeSmokeAssets(particleDirectory);
+		if (args.length == 0) {
+			mirrorClientAssets(outputDirectory, particleDirectory);
+		}
 
 		verifyImage(outputDirectory.resolve("warhead_albedo.png"), 64, 64);
 		verifyImage(outputDirectory.resolve("icbm_albedo.png"), 64, 64);
@@ -52,6 +57,38 @@ public final class GenerateEffectTextures {
 		}
 		for (int frame = 0; frame < SMOKE_FRAME_COUNT; frame++) {
 			verifyImage(particleDirectory.resolve("warhead_smoke_" + frame + ".png"), SMOKE_FRAME_SIZE, SMOKE_FRAME_SIZE);
+		}
+	}
+
+	/**
+	 * Particle-atlas discovery is client-only in split source-set builds. Keep
+	 * the direct render textures beside it as well so shader renderers resolve
+	 * the same assets as the vanilla renderer.
+	 */
+	private static void mirrorClientAssets(final Path effectDirectory,
+		final Path particleDirectory) throws IOException {
+		Path clientAssetDirectory = Path.of("src/client/resources/assets/war_mod");
+		copyPngs(effectDirectory, clientAssetDirectory.resolve("textures/effect"));
+		copyPngs(particleDirectory, clientAssetDirectory.resolve("textures/particle"));
+
+		Path sourceAssetDirectory = effectDirectory.getParent().getParent();
+		Path sourceParticleDefinitions = sourceAssetDirectory.resolve("particles");
+		Path clientParticleDefinitions = clientAssetDirectory.resolve("particles");
+		Files.createDirectories(clientParticleDefinitions);
+		for (String definition : new String[] { "warhead_fireball.json", "warhead_smoke.json" }) {
+			Files.copy(sourceParticleDefinitions.resolve(definition),
+				clientParticleDefinitions.resolve(definition), StandardCopyOption.REPLACE_EXISTING);
+		}
+	}
+
+	private static void copyPngs(final Path sourceDirectory, final Path destinationDirectory)
+		throws IOException {
+		Files.createDirectories(destinationDirectory);
+		try (Stream<Path> files = Files.list(sourceDirectory)) {
+			for (Path source : files.filter(path -> path.getFileName().toString().endsWith(".png")).toList()) {
+				Files.copy(source, destinationDirectory.resolve(source.getFileName()),
+					StandardCopyOption.REPLACE_EXISTING);
+			}
 		}
 	}
 

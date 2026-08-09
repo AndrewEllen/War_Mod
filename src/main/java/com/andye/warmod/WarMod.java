@@ -1,6 +1,7 @@
 package com.andye.warmod;
 
 import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.artillery.network.ArtilleryNetworking;
 import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.acoustics.network.AcousticNetworking;
 import com.andye.warmod.antiair.AntiAirFlightControllerManager;
@@ -60,6 +61,7 @@ public final class WarMod implements ModInitializer {
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
         SiloNetworking.register();
+        ArtilleryNetworking.register();
         MasterExplosiveNetworking.register();
         RadarStationNetworking.register();
         RadarDisplayNetworking.register();

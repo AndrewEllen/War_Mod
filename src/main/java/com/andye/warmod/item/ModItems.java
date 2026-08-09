@@ -5,6 +5,11 @@ import com.andye.warmod.block.MissileSiloBlockItem;
 import com.andye.warmod.block.MissileSiloGuidanceSupportItem;
 import com.andye.warmod.block.PhalanxTurretBlockItem;
 import com.andye.warmod.block.RadarStationBlockItem;
+import com.andye.warmod.artillery.ArtilleryPayload;
+import com.andye.warmod.block.ModBlocks;
+import com.andye.warmod.warhead.WarheadYield;
+import java.util.EnumMap;
+import java.util.Map;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -42,6 +47,7 @@ public final class ModItems {
     public static final ResourceKey<Item> RADAR_LINKING_TOOL_KEY = key("radar_linking_tool");
     public static final ResourceKey<Item> ITEM_PIPE_KEY = key("item_pipe");
     public static final ResourceKey<Item> PIPE_WRENCH_KEY = key("pipe_wrench");
+    public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
 
     public static final Item ACOUSTIC_TEST_STICK = new AcousticTestStickItem(properties(ACOUSTIC_TEST_STICK_KEY, 1));
     public static final Item ICBM_TEST_STICK = new IcbmTestStickItem(properties(ICBM_TEST_STICK_KEY, 1));
@@ -77,6 +83,8 @@ public final class ModItems {
         properties(ITEM_PIPE_KEY, 64)
     );
     public static final Item PIPE_WRENCH = new PipeWrenchItem(properties(PIPE_WRENCH_KEY, 1));
+    public static final Item ARTILLERY_CANNON = new BlockItem(ModBlocks.ARTILLERY_CANNON, properties(ARTILLERY_CANNON_KEY, 1));
+    private static final Map<WarheadYield, Map<PayloadKind, Item>> YIELD_ITEMS = createYieldItems();
 
     private static boolean registered;
 
@@ -113,6 +121,8 @@ public final class ModItems {
         register(RADAR_LINKING_TOOL_KEY, RADAR_LINKING_TOOL);
         register(ITEM_PIPE_KEY, ITEM_PIPE);
         register(PIPE_WRENCH_KEY, PIPE_WRENCH);
+        register(ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        for (WarheadYield yield : WarheadYield.values()) for (PayloadKind kind : PayloadKind.values()) register(key(kind.path(yield)), item(yield, kind));
         registered = true;
     }
 
@@ -124,6 +134,35 @@ public final class ModItems {
         };
     }
 
+    public static Item yieldMissile(final WarheadYield yield, final boolean cluster) { return item(yield, cluster ? PayloadKind.CLUSTER_MISSILE : PayloadKind.MISSILE); }
+    public static Item artilleryWarhead(final WarheadYield yield, final boolean cluster) { return item(yield, cluster ? PayloadKind.CLUSTER_WARHEAD : PayloadKind.WARHEAD); }
+    public static Item timedTnt(final WarheadYield yield, final boolean cluster) { return item(yield, cluster ? PayloadKind.CLUSTER_TNT : PayloadKind.TNT); }
+    public static Iterable<Item> yieldItems() { return YIELD_ITEMS.values().stream().flatMap(values -> values.values().stream()).toList(); }
+    private static Item item(final WarheadYield yield, final PayloadKind kind) { return YIELD_ITEMS.get(yield).get(kind); }
+    private static Map<WarheadYield, Map<PayloadKind, Item>> createYieldItems() {
+        Map<WarheadYield, Map<PayloadKind, Item>> result = new EnumMap<>(WarheadYield.class);
+        for (WarheadYield yield : WarheadYield.values()) {
+            Map<PayloadKind, Item> values = new EnumMap<>(PayloadKind.class);
+            for (PayloadKind kind : PayloadKind.values()) {
+                ResourceKey<Item> itemKey = key(kind.path(yield));
+                ArtilleryPayload payload = new ArtilleryPayload(yield, kind.cluster());
+                values.put(kind, switch (kind) {
+                    case MISSILE, CLUSTER_MISSILE -> new YieldMissileItem(properties(itemKey, 16), payload);
+                    case WARHEAD, CLUSTER_WARHEAD -> new ArtilleryWarheadItem(properties(itemKey, 16), payload);
+                    case TNT, CLUSTER_TNT -> new TimedWarheadTntItem(properties(itemKey, 16), payload);
+                });
+            }
+            result.put(yield, Map.copyOf(values));
+        }
+        return Map.copyOf(result);
+    }
+    private enum PayloadKind {
+        MISSILE("missile", false), CLUSTER_MISSILE("cluster_missile", true), WARHEAD("warhead", false), CLUSTER_WARHEAD("cluster_warhead", true), TNT("tnt", false), CLUSTER_TNT("cluster_tnt", true);
+        private final String suffix; private final boolean cluster;
+        PayloadKind(final String suffix, final boolean cluster) { this.suffix = suffix; this.cluster = cluster; }
+        String path(final WarheadYield yield) { return yield.getSerializedName() + "_" + suffix; }
+        boolean cluster() { return cluster; }
+    }
     private static void register(final ResourceKey<Item> key, final Item item) {
         Registry.register(BuiltInRegistries.ITEM, key, item);
     }

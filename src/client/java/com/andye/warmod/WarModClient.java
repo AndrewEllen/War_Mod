@@ -1,6 +1,7 @@
 package com.andye.warmod;
 
 import com.andye.warmod.acoustics.client.ClientAcousticNetworking;
+import com.andye.warmod.artillery.client.gui.ArtilleryCannonScreen;
 import com.andye.warmod.antiair.client.ClientAntiAirNetworking;
 import com.andye.warmod.antiair.client.AntiAirWorldRenderer;
 import com.andye.warmod.antiair.client.audio.AntiAirEngineAudioManager;
@@ -56,12 +57,15 @@ public final class WarModClient implements ClientModInitializer {
 		ClientTerminalAudioManager.register();
 		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);
 		EntityRendererRegistry.register(ModEntityTypes.ROCKET_PROJECTILE, RocketProjectileRenderer::new);
+        EntityRendererRegistry.register(ModEntityTypes.ARTILLERY_WARHEAD, com.andye.warmod.entity.client.SimpleWarheadRenderer::new);
+        EntityRendererRegistry.register(ModEntityTypes.TIMED_WARHEAD_TNT, com.andye.warmod.entity.client.SimpleWarheadRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.MISSILE_SILO, MissileSiloBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.RADAR_STATION, RadarStationBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.PHALANX_TURRET, PhalanxBlockEntityRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.RADAR_DISPLAY_PANEL, RadarDisplayBlockEntityRenderer::new);
 		MenuScreens.register(ModMenus.MISSILE_SILO, MissileSiloScreen::new);
 		MenuScreens.register(ModMenus.PHALANX, PhalanxScreen::new);
+        MenuScreens.register(ModMenus.ARTILLERY_CANNON, ArtilleryCannonScreen::new);
 		WarheadParticleClient.register();
 		WarheadRenderCommands.register();
 		ShockwaveVanillaParticleEmitter.register();

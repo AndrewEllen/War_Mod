@@ -1,7 +1,6 @@
 package com.andye.warmod.compat.distanthorizons;
 
 import com.andye.warmod.WarMod;
-import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BindGroupLayout;
@@ -16,15 +15,14 @@ import com.mojang.blaze3d.textures.GpuSampler;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.seibel.distanthorizons.api.DhApi;
-import com.seibel.distanthorizons.api.enums.config.EDhApiRenderingEngine;
 import com.seibel.distanthorizons.api.enums.rendering.EDhApiRenderPass;
-import com.seibel.distanthorizons.api.interfaces.render.IDhApiBlazeTextureWrapper;
 import com.seibel.distanthorizons.api.methods.events.DhApiEventRegister;
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeRenderCleanupEvent;
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiEventParam;
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiRenderParam;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import com.seibel.distanthorizons.api.objects.math.DhApiMat4f;
+import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import net.minecraft.client.Minecraft;
@@ -54,6 +52,7 @@ public final class DistantHorizonsDepthBridge {
 
     private static boolean registered;
     private static boolean disabled;
+    private static boolean warnedUnsupportedApi;
     private static boolean warnedLegacyEngine;
     private static boolean warnedDepthUnavailable;
     private static boolean loggedFirstResolve;
@@ -62,6 +61,18 @@ public final class DistantHorizonsDepthBridge {
 
     public static void register() {
         if (registered) return;
+
+        if (!supportsBlazeDepthWrappers()) {
+            disabled = true;
+            if (!warnedUnsupportedApi) {
+                warnedUnsupportedApi = true;
+                WarMod.LOGGER.info(
+                    "Distant Horizons API {}.{}.{} does not expose Blaze3D depth wrappers; "
+                        + "War Mod depth compatibility is inactive.",
+                    DhApi.getApiMajorVersion(), DhApi.getApiMinorVersion(), DhApi.getApiPatchVersion());
+            }
+            return;
+        }
 
         DhApiResult<Void> cleanupResult = DhApiEventRegister.on(
             DhApiBeforeRenderCleanupEvent.class, new BeforeCleanupHandler());
@@ -88,14 +99,18 @@ public final class DistantHorizonsDepthBridge {
      * detached/reset by the time later Minecraft feature renders execute.
      */
     private static void bridgeFrame(final DhApiRenderParam param) {
-        if (param == null || disabled || WarheadRenderPipelines.compatibilityRendererActive()
-            || param.renderPass == EDhApiRenderPass.TRANSPARENT) {
+        // Resolve into Minecraft's shared depth target before any renderer
+        // selection. Iris-submitted quads, custom meshes, and vanilla render
+        // types all test against this same target later in the frame.
+        if (param == null || disabled || param.renderPass == EDhApiRenderPass.TRANSPARENT) {
             return;
         }
 
         try {
             if (DhApi.Delayed.renderProxy == null) return;
-            if (DhApi.Delayed.renderProxy.getRenderingEngine() != EDhApiRenderingEngine.BLAZE_3D) {
+            Object renderProxy = DhApi.Delayed.renderProxy;
+            Object renderingEngine = invoke(renderProxy, "getRenderingEngine");
+            if (!"BLAZE_3D".equals(String.valueOf(renderingEngine))) {
                 if (!warnedLegacyEngine) {
                     warnedLegacyEngine = true;
                     WarMod.LOGGER.warn(
@@ -104,15 +119,15 @@ public final class DistantHorizonsDepthBridge {
                 return;
             }
 
-            DhApiResult<IDhApiBlazeTextureWrapper> result =
-                DhApi.Delayed.renderProxy.getDhDepthTextureBlazeWrapper();
+            DhApiResult<?> result = (DhApiResult<?>) invoke(renderProxy,
+                "getDhDepthTextureBlazeWrapper");
             if (!result.success || result.payload == null) {
                 warnDepthUnavailable(result.message);
                 return;
             }
 
-            Object viewObject = result.payload.getTextureView();
-            Object samplerObject = result.payload.getTextureSampler();
+            Object viewObject = invoke(result.payload, "getTextureView");
+            Object samplerObject = invoke(result.payload, "getTextureSampler");
             if (!(viewObject instanceof GpuTextureView depthView)
                 || !(samplerObject instanceof GpuSampler depthSampler)) {
                 warnDepthUnavailable("DH returned an uninitialized Blaze3D depth texture");
@@ -130,12 +145,28 @@ public final class DistantHorizonsDepthBridge {
                 WarMod.LOGGER.info(
                     "Distant Horizons LOD depth resolved into Minecraft depth before DH cleanup.");
             }
-        } catch (RuntimeException | LinkageError exception) {
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
             disabled = true;
             WarMod.LOGGER.warn(
                 "Distant Horizons depth compatibility failed and will be disabled for this session",
                 exception);
         }
+    }
+
+    /**
+     * DH 3.2.0-b bundles API 7.0, which only exposes raw OpenGL texture IDs.
+     * The Blaze3D objects needed by this render pass were added in API 7.1.
+     */
+    private static boolean supportsBlazeDepthWrappers() {
+        int major = DhApi.getApiMajorVersion();
+        int minor = DhApi.getApiMinorVersion();
+        return major > 7 || (major == 7 && minor >= 1);
+    }
+
+    private static Object invoke(final Object target, final String method)
+        throws ReflectiveOperationException {
+        Method reflectedMethod = target.getClass().getMethod(method);
+        return reflectedMethod.invoke(target);
     }
 
     private static void drawDepth(final Matrix4f reprojection, final GpuTextureView depthView,

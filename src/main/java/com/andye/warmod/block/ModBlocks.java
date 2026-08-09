@@ -18,6 +18,7 @@ public final class ModBlocks {
     public static final ResourceKey<Block> PHALANX_TURRET_KEY = key("phalanx_turret");
     public static final ResourceKey<Block> RADAR_DISPLAY_PANEL_KEY = key("radar_display_panel");
     public static final ResourceKey<Block> ITEM_PIPE_KEY = key("item_pipe");
+    public static final ResourceKey<Block> ARTILLERY_CANNON_KEY = key("artillery_cannon");
 
     public static final MissileSiloGuidanceSupportBlock MISSILE_SILO_GUIDANCE_SUPPORT =
         new MissileSiloGuidanceSupportBlock(BlockBehaviour.Properties.of()
@@ -28,6 +29,14 @@ public final class ModBlocks {
             .pushReaction(PushReaction.BLOCK)
             .noOcclusion());
 
+    public static final ArtilleryCannonBlock ARTILLERY_CANNON =
+        new ArtilleryCannonBlock(BlockBehaviour.Properties.of()
+            .setId(ARTILLERY_CANNON_KEY)
+            .strength(7.0F, 24.0F)
+            .requiresCorrectToolForDrops()
+            .sound(SoundType.METAL)
+            .pushReaction(PushReaction.BLOCK)
+            .noOcclusion());
     public static final RadarStationBlock RADAR_STATION =
         new RadarStationBlock(BlockBehaviour.Properties.of()
             .setId(RADAR_STATION_KEY)
@@ -88,6 +97,7 @@ public final class ModBlocks {
         Registry.register(BuiltInRegistries.BLOCK, PHALANX_TURRET_KEY, PHALANX_TURRET);
         Registry.register(BuiltInRegistries.BLOCK, RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         Registry.register(BuiltInRegistries.BLOCK, ITEM_PIPE_KEY, ITEM_PIPE);
+        Registry.register(BuiltInRegistries.BLOCK, ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
         registered = true;
     }
 
