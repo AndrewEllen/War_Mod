@@ -51,7 +51,7 @@ public final class ArtilleryCannonBlockEntity extends BlockEntity implements Con
     public boolean fire(final ServerLevel level, final @Nullable Player player) {
         if (cooldown > 0) return fail("Artillery is cycling");
         ArtilleryPayload payload = ArtilleryPayloadItems.payload(ammunition);
-        if (payload == null) return fail("Load an artillery warhead");
+        if (payload == null) return fail("Load an artillery shell");
         if (target == null || !target.dimension().equals(level.dimension())) return fail("Program a same-dimension target");
         Vec3 origin = muzzle(); Vec3 destination = target.position();
         if (!level.getWorldBorder().isWithinBounds(destination) || level.isOutsideBuildHeight(BlockPos.containing(destination)) || origin.distanceTo(destination) > ArtilleryConstants.MAX_RANGE_BLOCKS) return fail("Target exceeds 1,000-block artillery range");

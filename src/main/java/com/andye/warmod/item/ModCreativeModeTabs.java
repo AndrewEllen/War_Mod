@@ -16,7 +16,7 @@ public final class ModCreativeModeTabs {
         Registries.CREATIVE_MODE_TAB,
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
     );
-    private static final int ENTRY_COUNT = 71;
+    private static final int ENTRY_COUNT = 66;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
@@ -52,11 +52,6 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.RADAR);
                 output.accept(ModItems.RADAR_LINKING_TOOL);
                 output.accept(ModItems.MASTER_EXPLOSIVE_TEST_STICK);
-                output.accept(ModItems.ACOUSTIC_TEST_STICK);
-                output.accept(ModItems.ICBM_TEST_STICK);
-                output.accept(ModItems.NUCLEAR_TEST_STICK);
-                output.accept(ModItems.NUCLEAR_ICBM_TEST_STICK);
-                output.accept(ModItems.ANTI_AIR_TEST_STICK);
                 for (net.minecraft.world.item.Item item : ModItems.yieldItems()) output.accept(item);
             }).build();
         Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, WAR_MOD_KEY, tab);

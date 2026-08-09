@@ -19,10 +19,6 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 
 public final class ModItems {
-    public static final ResourceKey<Item> ACOUSTIC_TEST_STICK_KEY = key("acoustic_test_stick");
-    public static final ResourceKey<Item> ICBM_TEST_STICK_KEY = key("icbm_test_stick");
-    public static final ResourceKey<Item> NUCLEAR_TEST_STICK_KEY = key("nuclear_test_stick");
-    public static final ResourceKey<Item> NUCLEAR_ICBM_TEST_STICK_KEY = key("nuclear_icbm_test_stick");
     public static final ResourceKey<Item> MASTER_EXPLOSIVE_TEST_STICK_KEY = key("master_explosive_test_stick");
     public static final ResourceKey<Item> RADAR_KEY = key("radar");
     public static final ResourceKey<Item> MISSILE_SILO_KEY = key("missile_silo");
@@ -32,7 +28,6 @@ public final class ModItems {
     public static final ResourceKey<Item> NUCLEAR_CLUSTER_ICBM_KEY = key("nuclear_cluster_icbm");
     public static final ResourceKey<Item> ANTI_AIR_MISSILE_MK1_KEY = key("anti_air_missile_mk1");
     public static final ResourceKey<Item> ANTI_AIR_MISSILE_MK2_KEY = key("anti_air_missile_mk2");
-    public static final ResourceKey<Item> ANTI_AIR_TEST_STICK_KEY = key("anti_air_test_stick");
     public static final ResourceKey<Item> TARGET_DESIGNATOR_KEY = key("target_designator");
     public static final ResourceKey<Item> REMOTE_LAUNCH_DESIGNATOR_KEY = key("remote_launch_designator");
     public static final ResourceKey<Item> ROCKET_LAUNCHER_KEY = key("rocket_launcher");
@@ -49,10 +44,6 @@ public final class ModItems {
     public static final ResourceKey<Item> PIPE_WRENCH_KEY = key("pipe_wrench");
     public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
 
-    public static final Item ACOUSTIC_TEST_STICK = new AcousticTestStickItem(properties(ACOUSTIC_TEST_STICK_KEY, 1));
-    public static final Item ICBM_TEST_STICK = new IcbmTestStickItem(properties(ICBM_TEST_STICK_KEY, 1));
-    public static final Item NUCLEAR_TEST_STICK = new NuclearTestStickItem(properties(NUCLEAR_TEST_STICK_KEY, 1));
-    public static final Item NUCLEAR_ICBM_TEST_STICK = new NuclearIcbmTestStickItem(properties(NUCLEAR_ICBM_TEST_STICK_KEY, 1));
     public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
     public static final Item RADAR = new RadarItem(properties(RADAR_KEY, 1));
     public static final Item MISSILE_SILO = new MissileSiloBlockItem(properties(MISSILE_SILO_KEY, 1));
@@ -62,7 +53,6 @@ public final class ModItems {
     public static final Item NUCLEAR_CLUSTER_ICBM = new NuclearIcbmItem(properties(NUCLEAR_CLUSTER_ICBM_KEY, 16));
     public static final Item ANTI_AIR_MISSILE_MK1 = new AntiAirMissileItem(properties(ANTI_AIR_MISSILE_MK1_KEY, 16), AntiAirMissileVariant.MK_I);
     public static final Item ANTI_AIR_MISSILE_MK2 = new AntiAirMissileItem(properties(ANTI_AIR_MISSILE_MK2_KEY, 16), AntiAirMissileVariant.MK_II);
-    public static final Item ANTI_AIR_TEST_STICK = new AntiAirTestStickItem(properties(ANTI_AIR_TEST_STICK_KEY, 1));
     public static final Item TARGET_DESIGNATOR = new TargetDesignatorItem(properties(TARGET_DESIGNATOR_KEY, 1));
     public static final Item REMOTE_LAUNCH_DESIGNATOR = new RemoteLaunchDesignatorItem(properties(REMOTE_LAUNCH_DESIGNATOR_KEY, 1));
     public static final Item ROCKET_LAUNCHER = new RocketLauncherItem(properties(ROCKET_LAUNCHER_KEY, 1));
@@ -93,10 +83,6 @@ public final class ModItems {
 
     public static void register() {
         if (registered) return;
-        register(ACOUSTIC_TEST_STICK_KEY, ACOUSTIC_TEST_STICK);
-        register(ICBM_TEST_STICK_KEY, ICBM_TEST_STICK);
-        register(NUCLEAR_TEST_STICK_KEY, NUCLEAR_TEST_STICK);
-        register(NUCLEAR_ICBM_TEST_STICK_KEY, NUCLEAR_ICBM_TEST_STICK);
         register(MASTER_EXPLOSIVE_TEST_STICK_KEY, MASTER_EXPLOSIVE_TEST_STICK);
         register(RADAR_KEY, RADAR);
         register(MISSILE_SILO_KEY, MISSILE_SILO);
@@ -106,7 +92,6 @@ public final class ModItems {
         register(NUCLEAR_CLUSTER_ICBM_KEY, NUCLEAR_CLUSTER_ICBM);
         register(ANTI_AIR_MISSILE_MK1_KEY, ANTI_AIR_MISSILE_MK1);
         register(ANTI_AIR_MISSILE_MK2_KEY, ANTI_AIR_MISSILE_MK2);
-        register(ANTI_AIR_TEST_STICK_KEY, ANTI_AIR_TEST_STICK);
         register(TARGET_DESIGNATOR_KEY, TARGET_DESIGNATOR);
         register(REMOTE_LAUNCH_DESIGNATOR_KEY, REMOTE_LAUNCH_DESIGNATOR);
         register(ROCKET_LAUNCHER_KEY, ROCKET_LAUNCHER);
@@ -149,7 +134,8 @@ public final class ModItems {
                 values.put(kind, switch (kind) {
                     case MISSILE, CLUSTER_MISSILE -> new YieldMissileItem(properties(itemKey, 16), payload);
                     case WARHEAD, CLUSTER_WARHEAD -> new ArtilleryWarheadItem(properties(itemKey, 16), payload);
-                    case TNT, CLUSTER_TNT -> new TimedWarheadTntItem(properties(itemKey, 16), payload);
+                    case TNT, CLUSTER_TNT -> new YieldTntBlockItem(
+                        ModBlocks.timedTnt(yield, kind.cluster()), properties(itemKey, 16), payload);
                 });
             }
             result.put(yield, Map.copyOf(values));

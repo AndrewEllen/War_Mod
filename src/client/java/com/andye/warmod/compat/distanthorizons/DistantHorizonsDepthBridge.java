@@ -1,6 +1,7 @@
 package com.andye.warmod.compat.distanthorizons;
 
 import com.andye.warmod.WarMod;
+import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BindGroupLayout;
@@ -11,7 +12,9 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.seibel.distanthorizons.api.DhApi;
@@ -22,6 +25,8 @@ import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhAp
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiRenderParam;
 import com.seibel.distanthorizons.api.objects.DhApiResult;
 import com.seibel.distanthorizons.api.objects.math.DhApiMat4f;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -33,6 +38,8 @@ import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
+import org.lwjgl.opengl.GL11C;
+import org.lwjgl.opengl.GL45C;
 
 /**
  * Reprojects Distant Horizons' LOD depth into Minecraft's main depth target.
@@ -52,27 +59,19 @@ public final class DistantHorizonsDepthBridge {
 
     private static boolean registered;
     private static boolean disabled;
-    private static boolean warnedUnsupportedApi;
-    private static boolean warnedLegacyEngine;
     private static boolean warnedDepthUnavailable;
     private static boolean loggedFirstResolve;
+    private static boolean loggedRawResolve;
+    private static int wrappedRawTextureId = -1;
+    private static int wrappedRawTextureWidth = -1;
+    private static int wrappedRawTextureHeight = -1;
+    private static GpuTextureView wrappedRawDepthView;
 
     private DistantHorizonsDepthBridge() { }
 
     public static void register() {
         if (registered) return;
 
-        if (!supportsBlazeDepthWrappers()) {
-            disabled = true;
-            if (!warnedUnsupportedApi) {
-                warnedUnsupportedApi = true;
-                WarMod.LOGGER.info(
-                    "Distant Horizons API {}.{}.{} does not expose Blaze3D depth wrappers; "
-                        + "War Mod depth compatibility is inactive.",
-                    DhApi.getApiMajorVersion(), DhApi.getApiMinorVersion(), DhApi.getApiPatchVersion());
-            }
-            return;
-        }
 
         DhApiResult<Void> cleanupResult = DhApiEventRegister.on(
             DhApiBeforeRenderCleanupEvent.class, new BeforeCleanupHandler());
@@ -90,6 +89,10 @@ public final class DistantHorizonsDepthBridge {
 
     public static void close() {
         STAGED_BUFFER.close();
+        // The API-7.0 view is a non-owning facade over DH's OpenGL texture.
+        // Closing it would eventually delete a texture owned by DH.
+        wrappedRawDepthView = null;
+        wrappedRawTextureId = -1;
     }
 
     /**
@@ -109,36 +112,14 @@ public final class DistantHorizonsDepthBridge {
         try {
             if (DhApi.Delayed.renderProxy == null) return;
             Object renderProxy = DhApi.Delayed.renderProxy;
-            Object renderingEngine = invoke(renderProxy, "getRenderingEngine");
-            if (!"BLAZE_3D".equals(String.valueOf(renderingEngine))) {
-                if (!warnedLegacyEngine) {
-                    warnedLegacyEngine = true;
-                    WarMod.LOGGER.warn(
-                        "Distant Horizons is not using its Blaze3D renderer; War Mod depth compatibility is disabled for this renderer");
-                }
-                return;
-            }
-
-            DhApiResult<?> result = (DhApiResult<?>) invoke(renderProxy,
-                "getDhDepthTextureBlazeWrapper");
-            if (!result.success || result.payload == null) {
-                warnDepthUnavailable(result.message);
-                return;
-            }
-
-            Object viewObject = invoke(result.payload, "getTextureView");
-            Object samplerObject = invoke(result.payload, "getTextureSampler");
-            if (!(viewObject instanceof GpuTextureView depthView)
-                || !(samplerObject instanceof GpuSampler depthSampler)) {
-                warnDepthUnavailable("DH returned an uninitialized Blaze3D depth texture");
-                return;
-            }
-
             Matrix4f mcProjection = toJoml(param.mcProjectionMatrix);
             Matrix4f mcModelView = toJoml(param.mcModelViewMatrix);
             Matrix4f dhInverseMvp = toJoml(param.dhInverseMvmProjectionMatrix);
             Matrix4f reprojection = mcProjection.mul(mcModelView).mul(dhInverseMvp);
-            drawDepth(reprojection, depthView, depthSampler);
+
+            if (!resolveBlazeDepth(renderProxy, reprojection)) {
+                resolveRawOpenGlDepth(renderProxy, reprojection);
+            }
             warnedDepthUnavailable = false;
             if (!loggedFirstResolve) {
                 loggedFirstResolve = true;
@@ -153,14 +134,104 @@ public final class DistantHorizonsDepthBridge {
         }
     }
 
-    /**
-     * DH 3.2.0-b bundles API 7.0, which only exposes raw OpenGL texture IDs.
-     * The Blaze3D objects needed by this render pass were added in API 7.1.
-     */
+    /** DH API 7.1+ exposes an owned Blaze3D view which is the preferred path. */
     private static boolean supportsBlazeDepthWrappers() {
         int major = DhApi.getApiMajorVersion();
         int minor = DhApi.getApiMinorVersion();
         return major > 7 || (major == 7 && minor >= 1);
+    }
+
+    private static boolean resolveBlazeDepth(final Object renderProxy,
+        final Matrix4f reprojection) throws ReflectiveOperationException {
+        if (!supportsBlazeDepthWrappers()) return false;
+        Object renderingEngine = invoke(renderProxy, "getRenderingEngine");
+        if (!"BLAZE_3D".equals(String.valueOf(renderingEngine))) return false;
+
+        DhApiResult<?> result = (DhApiResult<?>) invoke(renderProxy,
+            "getDhDepthTextureBlazeWrapper");
+        if (!result.success || result.payload == null) {
+            warnDepthUnavailable(result.message);
+            return true;
+        }
+        Object viewObject = invoke(result.payload, "getTextureView");
+        Object samplerObject = invoke(result.payload, "getTextureSampler");
+        if (!(viewObject instanceof GpuTextureView depthView)
+            || !(samplerObject instanceof GpuSampler depthSampler)) {
+            warnDepthUnavailable("DH returned an uninitialized Blaze3D depth texture");
+            return true;
+        }
+        drawDepth(reprojection, depthView, depthSampler);
+        return true;
+    }
+
+    /**
+     * DH 3.2.0-b/API 7.0.1 is forced by Iris onto DH's raw OpenGL renderer.
+     * Its compatibility API exposes only getDhDepthTextureId(), so wrap that
+     * texture in a non-owning Blaze3D facade and run the same reprojection pass.
+     */
+    private static void resolveRawOpenGlDepth(final Object renderProxy,
+        final Matrix4f reprojection) throws ReflectiveOperationException {
+        DhApiResult<?> result = (DhApiResult<?>) invoke(renderProxy, "getDhDepthTextureId");
+        if (!result.success || !(result.payload instanceof Number textureNumber)
+            || textureNumber.intValue() <= 0) {
+            warnDepthUnavailable(result.message);
+            return;
+        }
+        int textureId = textureNumber.intValue();
+        GpuTextureView depthView = rawDepthView(textureId);
+        GpuSampler sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
+        drawDepth(reprojection, depthView, sampler);
+        if (!loggedRawResolve) {
+            loggedRawResolve = true;
+            WarMod.LOGGER.info(
+                "Distant Horizons API 7.0 raw OpenGL depth texture is being reprojected into Minecraft depth.");
+        }
+    }
+
+    private static GpuTextureView rawDepthView(final int textureId)
+        throws ReflectiveOperationException {
+        RenderSystem.assertOnRenderThread();
+        if (!GL11C.glIsTexture(textureId)) {
+            throw new IllegalStateException("DH returned a non-texture OpenGL name: " + textureId);
+        }
+        int width = GL45C.glGetTextureLevelParameteri(textureId, 0, GL11C.GL_TEXTURE_WIDTH);
+        int height = GL45C.glGetTextureLevelParameteri(textureId, 0, GL11C.GL_TEXTURE_HEIGHT);
+        if (width <= 0 || height <= 0) {
+            throw new IllegalStateException("DH returned an incomplete depth texture: " + textureId);
+        }
+        if (wrappedRawDepthView != null && wrappedRawTextureId == textureId
+            && wrappedRawTextureWidth == width && wrappedRawTextureHeight == height) {
+            return wrappedRawDepthView;
+        }
+
+        Object device = RenderSystem.getDevice();
+        Field backendField = device.getClass().getDeclaredField("backend");
+        backendField.setAccessible(true);
+        Object backend = backendField.get(device);
+        Field cacheField = backend.getClass().getDeclaredField("frameBufferCache");
+        cacheField.setAccessible(true);
+        Object frameBufferCache = cacheField.get(backend);
+
+        Class<?> glTextureClass = Class.forName("com.mojang.blaze3d.opengl.GlTexture");
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : glTextureClass.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() == 9) {
+                constructor = candidate;
+                break;
+            }
+        }
+        if (constructor == null) {
+            throw new NoSuchMethodException("GlTexture external facade constructor");
+        }
+        constructor.setAccessible(true);
+        GpuTexture texture = (GpuTexture) constructor.newInstance(textureId,
+            "War Mod borrowed DH API 7.0 depth", GpuFormat.D32_FLOAT,
+            width, height, 1, 1, GpuTexture.USAGE_TEXTURE_BINDING, frameBufferCache);
+        wrappedRawDepthView = RenderSystem.getDevice().createTextureView(texture);
+        wrappedRawTextureId = textureId;
+        wrappedRawTextureWidth = width;
+        wrappedRawTextureHeight = height;
+        return wrappedRawDepthView;
     }
 
     private static Object invoke(final Object target, final String method)

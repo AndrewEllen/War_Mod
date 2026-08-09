@@ -13,7 +13,7 @@ public final class ArtilleryWarheadItem extends Item {
     private final ArtilleryPayload payload;
     public ArtilleryWarheadItem(final Properties properties, final ArtilleryPayload payload) { super(properties); this.payload = payload; }
     public ArtilleryPayload payload() { return payload; }
-    @Override public Component getName(final ItemStack stack) { return Component.literal(payload.displayName("Warhead")); }
+    @Override public Component getName(final ItemStack stack) { return Component.literal(payload.displayName("Artillery Shell")); }
     @Override public void appendHoverText(final ItemStack stack, final TooltipContext context, final TooltipDisplay display, final Consumer<Component> tooltip, final TooltipFlag flag) {
         tooltip.accept(Component.literal("Artillery ammunition"));
         tooltip.accept(Component.literal(payload.cluster() ? "Splits into four impacts" : "Single impact"));

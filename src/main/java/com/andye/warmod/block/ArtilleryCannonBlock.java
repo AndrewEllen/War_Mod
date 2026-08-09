@@ -53,7 +53,7 @@ public final class ArtilleryCannonBlock extends BaseEntityBlock {
         }
         if (ArtilleryPayloadItems.isWarhead(held)) {
             int inserted = cannon.insert(held, player.isShiftKeyDown() ? held.getCount() : 1);
-            if (inserted > 0) held.consume(inserted, player); else player.sendSystemMessage(Component.literal("Artillery accepts one warhead type, up to 16"));
+            if (inserted > 0) held.consume(inserted, player); else player.sendSystemMessage(Component.literal("Artillery accepts one artillery shell type, up to 16"));
             return InteractionResult.SUCCESS_SERVER;
         }
         return InteractionResult.TRY_WITH_EMPTY_HAND;

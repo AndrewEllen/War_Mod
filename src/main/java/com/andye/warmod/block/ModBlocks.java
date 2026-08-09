@@ -1,6 +1,10 @@
 package com.andye.warmod.block;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.artillery.ArtilleryPayload;
+import com.andye.warmod.warhead.WarheadYield;
+import java.util.EnumMap;
+import java.util.Map;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -19,6 +23,10 @@ public final class ModBlocks {
     public static final ResourceKey<Block> RADAR_DISPLAY_PANEL_KEY = key("radar_display_panel");
     public static final ResourceKey<Block> ITEM_PIPE_KEY = key("item_pipe");
     public static final ResourceKey<Block> ARTILLERY_CANNON_KEY = key("artillery_cannon");
+    private static final Map<WarheadYield, TimedWarheadTntBlock> TIMED_TNT =
+        createTimedTntBlocks(false);
+    private static final Map<WarheadYield, TimedWarheadTntBlock> CLUSTER_TNT =
+        createTimedTntBlocks(true);
 
     public static final MissileSiloGuidanceSupportBlock MISSILE_SILO_GUIDANCE_SUPPORT =
         new MissileSiloGuidanceSupportBlock(BlockBehaviour.Properties.of()
@@ -98,7 +106,36 @@ public final class ModBlocks {
         Registry.register(BuiltInRegistries.BLOCK, RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         Registry.register(BuiltInRegistries.BLOCK, ITEM_PIPE_KEY, ITEM_PIPE);
         Registry.register(BuiltInRegistries.BLOCK, ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        for (WarheadYield yield : WarheadYield.values()) {
+            Registry.register(BuiltInRegistries.BLOCK, key(tntPath(yield, false)),
+                timedTnt(yield, false));
+            Registry.register(BuiltInRegistries.BLOCK, key(tntPath(yield, true)),
+                timedTnt(yield, true));
+        }
         registered = true;
+    }
+
+    public static TimedWarheadTntBlock timedTnt(final WarheadYield yield,
+        final boolean cluster) {
+        return (cluster ? CLUSTER_TNT : TIMED_TNT).get(yield);
+    }
+
+    public static String tntPath(final WarheadYield yield, final boolean cluster) {
+        return yield.getSerializedName() + (cluster ? "_cluster_tnt" : "_tnt");
+    }
+
+    private static Map<WarheadYield, TimedWarheadTntBlock> createTimedTntBlocks(
+        final boolean cluster) {
+        Map<WarheadYield, TimedWarheadTntBlock> result = new EnumMap<>(WarheadYield.class);
+        for (WarheadYield yield : WarheadYield.values()) {
+            ResourceKey<Block> blockKey = key(tntPath(yield, cluster));
+            result.put(yield, new TimedWarheadTntBlock(BlockBehaviour.Properties.of()
+                .setId(blockKey)
+                .strength(0.0F)
+                .sound(SoundType.GRASS)
+                .ignitedByLava(), new ArtilleryPayload(yield, cluster)));
+        }
+        return Map.copyOf(result);
     }
 
     private static ResourceKey<Block> key(final String path) {

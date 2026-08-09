@@ -10,5 +10,5 @@ public final class YieldMissileItem extends Item {
     private final ArtilleryPayload payload;
     public YieldMissileItem(final Properties properties, final ArtilleryPayload payload) { super(properties); this.payload = payload; }
     public ArtilleryPayload payload() { return payload; }
-    @Override public Component getName(final ItemStack stack) { return Component.literal(payload.displayName("Missile")); }
+    @Override public Component getName(final ItemStack stack) { return Component.literal(payload.displayName("ICBM")); }
 }
