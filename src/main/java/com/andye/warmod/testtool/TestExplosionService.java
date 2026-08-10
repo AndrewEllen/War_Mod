@@ -23,6 +23,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 public final class TestExplosionService {
+	private static final int UNPREPARED_DEBRIS_CHECK_BUDGET = 1_024;
 	private static final WeightedList<ExplosionParticleInfo> DEFAULT_BLOCK_PARTICLES = WeightedList.<ExplosionParticleInfo>builder()
 		.add(new ExplosionParticleInfo(ParticleTypes.POOF, 0.5F, 1.0F))
 		.add(new ExplosionParticleInfo(ParticleTypes.SMOKE, 1.0F, 1.0F))
@@ -52,11 +53,13 @@ public final class TestExplosionService {
 		/*
 		 * Capture the struck structure before staged crater removal begins. When
 		 * terminal flight already prepared this exact impact, reuse that sample;
-		 * otherwise preserve the original synchronous fallback.
+		 * otherwise take only a bounded synchronous prefix so debris cosmetics
+		 * cannot stall the authoritative detonation.
 		 */
 		List<WarheadExplosionDropContext.DestroyedBlock> debris =
 			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed)
-				.orElseGet(() -> WarheadDebrisSourceSampler.sample(level, position, yield, seed));
+				.orElseGet(() -> WarheadDebrisSourceSampler.sampleBounded(
+					level, position, yield, seed, UNPREPARED_DEBRIS_CHECK_BUDGET));
 
 		/*
 		 * This explosion is about to mutate terrain observed by other in-flight

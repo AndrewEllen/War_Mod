@@ -3,6 +3,9 @@ package com.andye.warmod.warhead.client.render;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import net.minecraft.util.Mth;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -14,6 +17,9 @@ import org.joml.Vector3f;
  * window so no whole section of the effect disappears in one frame.
  */
 public final class ConventionalBlastVisualV5 {
+    private static final int MAX_CACHED_FIRE_FRAMES = 24;
+    private static final Map<Long, FireFrame> FIRE_FRAMES =
+        new LinkedHashMap<>(32, 0.75F, true);
     private static volatile int lastActive;
     private static volatile int lastCulled;
 
@@ -60,11 +66,54 @@ public final class ConventionalBlastVisualV5 {
         return new DebugSnapshot(lastActive, 0, lastCulled, 0);
     }
 
+    static synchronized void clear() {
+        FIRE_FRAMES.clear();
+        lastActive = 0;
+        lastCulled = 0;
+    }
+
     private static void renderFire(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double rawAge, final float rawScale,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera,
-        final FirePass pass) {
+        final FirePass requestedPass) {
         if (rawAge < 0.0 || rawAge >= 900.0) return;
+        FireFrame frame = fireFrame(rawAge, rawScale, seed, lod);
+        Basis basis = Basis.from(camera);
+        for (int index = 0; index < frame.size; index++) {
+            if (!matches(requestedPass, frame.temperature[index], frame.inner[index])) continue;
+            float alpha = switch (requestedPass) {
+                case CORE -> 0.99F;
+                case HOT -> 0.96F;
+                case COOLING -> 0.89F;
+            } * frame.alphaFactor[index];
+            billboard(pose, buffer, frame.x[index], frame.y[index], frame.z[index],
+                frame.radius[index], frame.rotation[index], frame.red[index],
+                frame.green[index], frame.blue[index], alpha,
+                0xF000F0, basis);
+        }
+    }
+
+    /**
+     * The three fire layers use distinct render types, but their particle
+     * distribution is identical. Building it once per submitted frame avoids
+     * re-running the expensive deterministic volume math for every layer.
+     */
+    private static synchronized FireFrame fireFrame(final double rawAge,
+        final float rawScale, final long seed, final WarheadMesh.Lod lod) {
+        FireFrame existing = FIRE_FRAMES.get(seed);
+        if (existing != null && existing.matches(rawAge, rawScale, lod)) return existing;
+        FireFrame frame = buildFireFrame(rawAge, rawScale, lod, seed, existing);
+        FIRE_FRAMES.put(seed, frame);
+        while (FIRE_FRAMES.size() > MAX_CACHED_FIRE_FRAMES) {
+            Iterator<Long> iterator = FIRE_FRAMES.keySet().iterator();
+            iterator.next();
+            iterator.remove();
+        }
+        return frame;
+    }
+
+    private static FireFrame buildFireFrame(final double rawAge, final float rawScale,
+        final WarheadMesh.Lod lod, final long seed, final FireFrame reusable) {
         float age = (float) rawAge;
         float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
         float craterRadius = 2.0F + 13.5F * scale;
@@ -80,7 +129,10 @@ public final class ConventionalBlastVisualV5 {
             case FAR -> 690;
         };
         int count = Math.max(128, Math.round(base * budget));
-        Basis basis = Basis.from(camera);
+        int maximumCount = Math.max(count, Math.round(3_850 * budget));
+        FireFrame frame = reusable != null && reusable.capacity() >= maximumCount
+            ? reusable : new FireFrame(maximumCount);
+        frame.reset(rawAge, rawScale, lod);
         int active = 0;
         int culled = 0;
 
@@ -101,7 +153,7 @@ public final class ConventionalBlastVisualV5 {
                 : 485.0F + unit(random, 2) * 165.0F;
             float temperature = Mth.clamp(1.12F - localAge / coolingTime
                 + signed(random, 3) * 0.105F, 0.0F, 1.0F);
-            if (!matches(pass, temperature, inner)) {
+            if (temperature < 0.08F) {
                 culled++;
                 continue;
             }
@@ -124,6 +176,10 @@ public final class ConventionalBlastVisualV5 {
                 + localAge * signed(random, 5) * (inner ? 0.0046F : 0.0025F);
             float radialFraction = Mth.sqrt(unit(random, 6));
             float shellY = signed(random, 7);
+            if (buriedFire(random, radialFraction, shellY, inner, lod)) {
+                culled++;
+                continue;
+            }
             float dome = Mth.sqrt(Math.max(0.0F,
                 1.0F - radialFraction * radialFraction));
             float horizontal = radialFraction * volumeRadius
@@ -152,19 +208,18 @@ public final class ConventionalBlastVisualV5 {
             float individualFade = lifeProgress < fadeStart ? 1.0F
                 : smoothstep(Mth.clamp((1.0F - lifeProgress)
                     / Math.max(0.04F, 1.0F - fadeStart), 0.0F, 1.0F));
-            float alpha = (pass == FirePass.CORE ? 0.99F
-                : pass == FirePass.HOT ? 0.96F : 0.89F)
-                * smoothstep(Mth.clamp(localAge / 5.0F, 0.0F, 1.0F))
+            float alphaFactor = smoothstep(Mth.clamp(localAge / 5.0F, 0.0F, 1.0F))
                 * (float) Math.pow(remaining, 0.28F) * individualFade;
             Colour colour = fireColour(temperature, random);
-            billboard(pose, buffer, px, py, pz, particleSize,
+            frame.add(px, py, pz, particleSize,
                 unit(random, 14) * Mth.TWO_PI
                     + localAge * signed(random, 15) * 0.0055F,
-                colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
+                colour.red, colour.green, colour.blue, alphaFactor, temperature, inner);
             active++;
         }
         lastActive = active;
         lastCulled = culled;
+        return frame;
     }
 
     private static void renderSmoke(final PoseStack.Pose pose,
@@ -206,6 +261,7 @@ public final class ConventionalBlastVisualV5 {
             float radialFraction = Mth.sqrt(unit(random, 3));
             boolean central = radialFraction < (corePass ? 0.69F : 0.35F);
             if (central != corePass) continue;
+            if (buriedSmoke(random, radialFraction, corePass, lod)) continue;
             float clusterAngle = unit(random, 4) * Mth.TWO_PI;
             float clusterDistance = bodyRadius * unit(random, 5)
                 * (corePass ? 0.27F : 0.72F);
@@ -441,6 +497,37 @@ public final class ConventionalBlastVisualV5 {
         };
     }
 
+    /**
+     * Preserve the visible shell while deterministically thinning billboards
+     * buried in the hot volume. Stable seed-based retention avoids temporal
+     * sparkle and attacks translucent overdraw without changing simulation or
+     * colour calculations.
+     */
+    private static boolean buriedFire(final long random, final float radial,
+        final float vertical, final boolean inner, final WarheadMesh.Lod lod) {
+        float radialLimit = inner ? 0.48F : 0.56F;
+        if (radial >= radialLimit || Math.abs(vertical) >= 0.62F) return false;
+        int keepModulo = switch (lod) {
+            case NEAR -> 3;
+            case MEDIUM -> 4;
+            case FAR -> 6;
+        };
+        return Math.floorMod((int) (random >>> 32), keepModulo) != 0;
+    }
+
+    /** Layer-aware interior rejection for the two smoke volumes. */
+    private static boolean buriedSmoke(final long random, final float radial,
+        final boolean core, final WarheadMesh.Lod lod) {
+        float radialLimit = core ? 0.43F : 0.61F;
+        if (radial >= radialLimit) return false;
+        int keepModulo = switch (lod) {
+            case NEAR -> core ? 3 : 4;
+            case MEDIUM -> core ? 4 : 5;
+            case FAR -> core ? 6 : 7;
+        };
+        return Math.floorMod((int) (random >>> 24), keepModulo) != 0;
+    }
+
     private static Colour fireColour(final float heat, final long random) {
         float noise = signed(random, 17) * 0.07F;
         float temperature = Mth.clamp(heat + noise, 0.0F, 1.0F);
@@ -483,6 +570,76 @@ public final class ConventionalBlastVisualV5 {
         int culledParticles, int activeFields) { }
 
     private enum FirePass { CORE, HOT, COOLING }
+
+    private static final class FireFrame {
+        private long ageBits;
+        private int scaleBits;
+        private WarheadMesh.Lod lod;
+        private final float[] x;
+        private final float[] y;
+        private final float[] z;
+        private final float[] radius;
+        private final float[] rotation;
+        private final float[] alphaFactor;
+        private final float[] temperature;
+        private final boolean[] inner;
+        private final int[] red;
+        private final int[] green;
+        private final int[] blue;
+        private int size;
+
+        private FireFrame(final int capacity) {
+            this.x = new float[capacity];
+            this.y = new float[capacity];
+            this.z = new float[capacity];
+            this.radius = new float[capacity];
+            this.rotation = new float[capacity];
+            this.alphaFactor = new float[capacity];
+            this.temperature = new float[capacity];
+            this.inner = new boolean[capacity];
+            this.red = new int[capacity];
+            this.green = new int[capacity];
+            this.blue = new int[capacity];
+        }
+
+        private int capacity() {
+            return x.length;
+        }
+
+        private void reset(final double age, final float scale,
+            final WarheadMesh.Lod candidateLod) {
+            ageBits = Double.doubleToLongBits(age);
+            scaleBits = Float.floatToIntBits(scale);
+            lod = candidateLod;
+            size = 0;
+        }
+
+        private boolean matches(final double age, final float scale,
+            final WarheadMesh.Lod candidateLod) {
+            return ageBits == Double.doubleToLongBits(age)
+                && scaleBits == Float.floatToIntBits(scale) && lod == candidateLod;
+        }
+
+        private void add(final float px, final float py, final float pz,
+            final float particleRadius, final float particleRotation,
+            final int particleRed, final int particleGreen, final int particleBlue,
+            final float particleAlphaFactor, final float particleTemperature,
+            final boolean particleInner) {
+            int index = size++;
+            x[index] = px;
+            y[index] = py;
+            z[index] = pz;
+            radius[index] = particleRadius;
+            rotation[index] = particleRotation;
+            alphaFactor[index] = particleAlphaFactor;
+            temperature[index] = particleTemperature;
+            inner[index] = particleInner;
+            red[index] = particleRed;
+            green[index] = particleGreen;
+            blue[index] = particleBlue;
+        }
+    }
+
     private record Colour(int red, int green, int blue) { }
 
     private record Basis(Vector3f right, Vector3f up, Vector3f normal) {

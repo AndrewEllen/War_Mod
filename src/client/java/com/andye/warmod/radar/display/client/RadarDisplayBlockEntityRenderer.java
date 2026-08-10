@@ -276,7 +276,7 @@ public final class RadarDisplayBlockEntityRenderer
 
         collector.submitCustomGeometry(
             pose,
-            RadarDisplayRenderPipelines.SCREEN,
+            RadarDisplayRenderPipelines.screen(),
             (submittedPose, buffer) ->
                 RadarDisplayMapRenderer.renderTile(
                     submittedPose,

@@ -61,8 +61,9 @@ import org.jspecify.annotations.Nullable;
  * still given its explosion callback so chain reactions continue to work.</p>
  */
 public final class WarheadExplosionWorkManager {
-	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 20_000_000L;
-	private static final int MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 80_000;
+	/* Keep strategic terrain work below a tenth of a normal 50 ms server tick. */
+	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 4_000_000L;
+	private static final int MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 8_192;
 	private static final int APPLICATION_SLICE = 256;
 	private static final int TIME_CHECK_INTERVAL = 32;
 	private static final int MAX_RESOLVED_DESCENT_BLOCKS = 768;

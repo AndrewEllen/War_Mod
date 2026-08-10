@@ -20,6 +20,7 @@ import net.minecraft.world.item.Item;
 
 public final class ModItems {
     public static final ResourceKey<Item> MASTER_EXPLOSIVE_TEST_STICK_KEY = key("master_explosive_test_stick");
+    public static final ResourceKey<Item> ANTI_AIR_TEST_STICK_KEY = key("anti_air_test_stick");
     public static final ResourceKey<Item> RADAR_KEY = key("radar");
     public static final ResourceKey<Item> MISSILE_SILO_KEY = key("missile_silo");
     public static final ResourceKey<Item> CONVENTIONAL_ICBM_KEY = key("conventional_icbm");
@@ -45,6 +46,7 @@ public final class ModItems {
     public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
 
     public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
+    public static final Item ANTI_AIR_TEST_STICK = new AntiAirTestStickItem(properties(ANTI_AIR_TEST_STICK_KEY, 1));
     public static final Item RADAR = new RadarItem(properties(RADAR_KEY, 1));
     public static final Item MISSILE_SILO = new MissileSiloBlockItem(properties(MISSILE_SILO_KEY, 1));
     public static final Item CONVENTIONAL_ICBM = new ConventionalIcbmItem(properties(CONVENTIONAL_ICBM_KEY, 16));
@@ -84,6 +86,7 @@ public final class ModItems {
     public static void register() {
         if (registered) return;
         register(MASTER_EXPLOSIVE_TEST_STICK_KEY, MASTER_EXPLOSIVE_TEST_STICK);
+        register(ANTI_AIR_TEST_STICK_KEY, ANTI_AIR_TEST_STICK);
         register(RADAR_KEY, RADAR);
         register(MISSILE_SILO_KEY, MISSILE_SILO);
         register(CONVENTIONAL_ICBM_KEY, CONVENTIONAL_ICBM);

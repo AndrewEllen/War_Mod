@@ -60,6 +60,26 @@ public final class WarheadDebrisSourceSampler {
         return sample.result();
     }
 
+    /**
+     * Captures as much representative debris as fits inside a fixed world-read
+     * budget. Strategic impacts use this only when no terminal-flight
+     * preparation exists, so an unprepared or intercepted launch can never
+     * turn the impact tick into an unbounded terrain scan.
+     */
+    public static List<WarheadExplosionDropContext.DestroyedBlock> sampleBounded(
+        final ServerLevel level,
+        final Vec3 center,
+        final WarheadYield yield,
+        final long seed,
+        final int maximumChecks
+    ) {
+        if (level == null) throw new NullPointerException();
+        if (maximumChecks <= 0) return List.of();
+        IncrementalSample sample = begin(center, yield, seed);
+        sample.advance(level, maximumChecks);
+        return sample.partialResult();
+    }
+
     public static final class IncrementalSample {
         private final Vec3 center;
         private final StrategicExplosionProfile profile;
@@ -148,6 +168,11 @@ public final class WarheadDebrisSourceSampler {
 
         public List<WarheadExplosionDropContext.DestroyedBlock> result() {
             if (!complete) throw new IllegalStateException("Debris sampling is not complete");
+            return List.copyOf(result);
+        }
+
+        /** Returns the stable prefix collected so far without forcing completion. */
+        public List<WarheadExplosionDropContext.DestroyedBlock> partialResult() {
             return List.copyOf(result);
         }
 

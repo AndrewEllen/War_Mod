@@ -1,6 +1,7 @@
 package com.andye.warmod.artillery.client.render;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.artillery.ArtilleryConstants;
 import com.andye.warmod.artillery.ArtilleryTrajectory;
 import com.andye.warmod.block.ArtilleryCannonBlock;
 import com.andye.warmod.block.entity.ArtilleryCannonBlockEntity;
@@ -53,7 +54,8 @@ public final class ArtilleryCannonBlockEntityRenderer
         state.hasTarget = cannon.target() != null;
         if (cannon.target() == null) return;
 
-        Vec3 origin = Vec3.atCenterOf(cannon.getBlockPos()).add(0.0, 0.55, 0.0);
+        Vec3 origin = Vec3.atCenterOf(cannon.getBlockPos()).add(0.0,
+            ArtilleryConstants.BARREL_PIVOT_HEIGHT, 0.0);
         ArtilleryTrajectory.solve(origin, cannon.target().position()).ifPresent(velocity -> {
             state.yawDegrees = (float)Math.toDegrees(Math.atan2(velocity.x, -velocity.z));
             state.elevationDegrees = (float)Math.toDegrees(
@@ -65,7 +67,7 @@ public final class ArtilleryCannonBlockEntityRenderer
     public void submit(final ArtilleryCannonRenderState state, final PoseStack poses,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
         poses.pushPose();
-        poses.translate(0.5, 0.62, 0.5);
+        poses.translate(0.5, ArtilleryConstants.BARREL_PIVOT_HEIGHT, 0.5);
         poses.mulPose(Axis.YP.rotationDegrees(state.yawDegrees));
         poses.mulPose(Axis.XP.rotationDegrees(state.elevationDegrees));
         collector.submitCustomGeometry(poses, BARREL,
@@ -75,8 +77,9 @@ public final class ArtilleryCannonBlockEntityRenderer
 
     private static void renderBarrel(final PoseStack.Pose pose, final VertexConsumer buffer,
         final int light) {
-        box(pose, buffer, -0.13F, -0.13F, -1.22F, 0.13F, 0.13F, 0.36F, light);
-        box(pose, buffer, -0.20F, -0.20F, 0.20F, 0.20F, 0.20F, 0.48F, light);
+        box(pose, buffer, -0.18F, -0.18F, -2.35F, 0.18F, 0.18F, 0.52F, light);
+        box(pose, buffer, -0.29F, -0.29F, 0.24F, 0.29F, 0.29F, 0.64F, light);
+        box(pose, buffer, -0.24F, -0.24F, -1.92F, 0.24F, 0.24F, -1.66F, light);
     }
 
     private static void box(final PoseStack.Pose pose, final VertexConsumer buffer,

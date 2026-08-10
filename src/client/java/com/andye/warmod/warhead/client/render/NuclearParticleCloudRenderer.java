@@ -22,9 +22,11 @@ import org.joml.Vector3f;
  * back to its initial column.
  */
 public final class NuclearParticleCloudRenderer {
-    private static final int CAPACITY = 49_152;
+    /* Keep the aggregate allocation near the old six-field budget while allowing
+       nine concurrent clouds to retain their simulation state. */
+    private static final int CAPACITY = 32_768;
     private static final int LOGICAL_PARTICLES_PER_SIMULATED = 32;
-    private static final int MAX_FIELDS = 6;
+    private static final int MAX_FIELDS = 9;
     private static final int DEPTH_BINS = 12;
     private static final Map<Long, Field> FIELDS = new LinkedHashMap<>(16, 0.75F, true);
 

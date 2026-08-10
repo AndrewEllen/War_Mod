@@ -1,7 +1,6 @@
 package com.andye.warmod.artillery;
 
 import com.andye.warmod.entity.ArtilleryWarheadEntity;
-import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import java.util.ArrayList;
@@ -28,11 +27,14 @@ public final class ArtilleryLaunchService {
             Vec3 velocity = ArtilleryTrajectory.solve(origin, childTarget).orElse(null);
             if (velocity == null) return Optional.empty();
             UUID id = UUID.randomUUID();
-            ArtilleryWarheadEntity entity = new ArtilleryWarheadEntity(level, id, owner, origin.add(velocity.normalize().scale(1.1)), childTarget, velocity, payload.yield(), random.nextLong());
+            ArtilleryWarheadEntity entity = new ArtilleryWarheadEntity(level, id, owner, origin, childTarget, velocity, payload.yield(), random.nextLong());
             spawned.add(entity); ids.add(id);
         }
         for (ArtilleryWarheadEntity entity : spawned) if (!level.addFreshEntity(entity)) { spawned.forEach(ArtilleryWarheadEntity::discard); return Optional.empty(); }
-        for (UUID id : ids) WarheadImpactChunkLeaseManager.holdApproach(level, id, origin, target, 1_200 + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
+        for (int index = 0; index < ids.size(); index++) {
+            WarheadImpactChunkLeaseManager.holdApproach(level, ids.get(index), origin,
+                spawned.get(index).target(), 1_200 + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
+        }
         return Optional.of(List.copyOf(ids));
     }
 }

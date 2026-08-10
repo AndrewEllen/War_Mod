@@ -1,6 +1,7 @@
 package com.andye.warmod.radar.display.client;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.warhead.client.render.IrisShaderState;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
@@ -39,7 +40,7 @@ public final class RadarDisplayRenderPipelines {
                 .build()
         );
 
-    public static final RenderType SCREEN =
+    private static final RenderType NORMAL_SCREEN =
         RenderType.create(
             "war_mod_radar_display",
             RenderSetup
@@ -54,6 +55,23 @@ public final class RadarDisplayRenderPipelines {
                 .createRenderSetup()
         );
 
+    /* Iris shader packs reliably accept the stock entity-translucent contract
+       for block-entity custom geometry, while the custom emissive pipeline is
+       retained for Sodium and vanilla. */
+    private static final RenderType IRIS_SCREEN = RenderType.create(
+        "war_mod_radar_display_iris",
+        RenderSetup.builder(RenderPipelines.ENTITY_TRANSLUCENT)
+            .withTexture("Sampler0", PIXEL_TEXTURE)
+            .useLightmap()
+            .useOverlay()
+            .sortOnUpload()
+            .createRenderSetup()
+    );
+
     private RadarDisplayRenderPipelines() {
+    }
+
+    public static RenderType screen() {
+        return IrisShaderState.active() ? IRIS_SCREEN : NORMAL_SCREEN;
     }
 }

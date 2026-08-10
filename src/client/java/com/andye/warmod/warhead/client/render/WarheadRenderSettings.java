@@ -50,6 +50,7 @@ public final class WarheadRenderSettings {
 		}
 		particleBudgetMultiplier = multiplier;
 		ConventionalBlastVisualV4.clear();
+		ConventionalBlastVisualV5.clear();
 	}
 
 	public static void resetParticleBudget() {

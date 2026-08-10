@@ -33,6 +33,7 @@ public final class WarheadPreImpactPreparationManager {
     private static final long LEVEL_WORK_BUDGET_NANOS = 2_000_000L;
     private static final int MAX_CHECKS_PER_LEVEL_TICK = 384;
     private static final int WORK_SLICE = 64;
+    private static final int IMPACT_FINISH_CHECK_BUDGET = 768;
     private static final double CENTER_EPSILON_SQR = 1.0E-6;
     private static final double CRATER_DEPTH_INVALIDATION_MARGIN = 12.0;
     private static final Map<ServerLevel, LevelWork> LEVELS = new WeakHashMap<>();
@@ -77,18 +78,20 @@ public final class WarheadPreImpactPreparationManager {
 
         /*
          * A miss, an earlier overlapping crater, or simply running out of
-         * approach ticks can make the old per-warhead sample unusable. Finish
-         * (or rebuild) it here against the shared read-through cache rather
-         * than throwing away every terrain observation and starting cold.
+         * approach ticks can make the old per-warhead sample unusable. Rebuild
+         * it against the shared read-through cache, then spend only a bounded
+         * final slice here rather than moving the entire scan onto impact.
          */
         if (!preparation.compatible(effectiveCenter, yield, seed)) {
             preparation.prepareForImpact(effectiveCenter, yield, seed, levelWork.terrainCache);
         }
-        while (!preparation.complete()) {
-            preparation.sampler.advance(level, Integer.MAX_VALUE);
+        if (!preparation.complete()) {
+            preparation.sampler.advance(level, IMPACT_FINISH_CHECK_BUDGET);
         }
 
-        List<WarheadExplosionDropContext.DestroyedBlock> debris = preparation.sampler.result();
+        List<WarheadExplosionDropContext.DestroyedBlock> debris = preparation.complete()
+            ? preparation.sampler.result()
+            : preparation.sampler.partialResult();
         for (WarheadExplosionDropContext.DestroyedBlock block : debris) {
             int chunkX = SectionPos.blockToSectionCoord(block.position().getX());
             int chunkZ = SectionPos.blockToSectionCoord(block.position().getZ());

@@ -1,1 +1,1 @@
-{"parent":"minecraft:block/cube_all","textures":{"all":"war_mod:item/high_capacity_he_tnt"}}
+{"parent":"minecraft:block/cube_bottom_top","textures":{"top":"minecraft:block/tnt_top","bottom":"minecraft:block/tnt_bottom","side":"minecraft:block/tnt_side"}}

@@ -34,4 +34,14 @@ public final class ArtilleryTrajectory {
     public static double apexAboveMuzzle(final Vec3 velocity) {
         return velocity.y <= 0.0 ? 0.0 : velocity.y * velocity.y / (2.0 * ArtilleryConstants.GRAVITY_PER_TICK);
     }
+
+    /** Number of physics ticks required to cover the horizontal part of a solved arc. */
+    public static int flightTicks(final Vec3 origin, final Vec3 target, final Vec3 velocity) {
+        if (origin == null || target == null || velocity == null || !origin.isFinite()
+            || !target.isFinite() || !velocity.isFinite()) return 1;
+        double horizontalSpeed = velocity.horizontalDistance();
+        if (!Double.isFinite(horizontalSpeed) || horizontalSpeed < 1.0E-6) return 1;
+        double distance = target.subtract(origin).horizontalDistance();
+        return Math.max(1, (int) Math.ceil(distance / horizontalSpeed));
+    }
 }

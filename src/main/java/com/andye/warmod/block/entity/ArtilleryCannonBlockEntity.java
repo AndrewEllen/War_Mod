@@ -53,15 +53,21 @@ public final class ArtilleryCannonBlockEntity extends BlockEntity implements Con
         ArtilleryPayload payload = ArtilleryPayloadItems.payload(ammunition);
         if (payload == null) return fail("Load an artillery shell");
         if (target == null || !target.dimension().equals(level.dimension())) return fail("Program a same-dimension target");
-        Vec3 origin = muzzle(); Vec3 destination = target.position();
-        if (!level.getWorldBorder().isWithinBounds(destination) || level.isOutsideBuildHeight(BlockPos.containing(destination)) || origin.distanceTo(destination) > ArtilleryConstants.MAX_RANGE_BLOCKS) return fail("Target exceeds 1,000-block artillery range");
+        Vec3 destination = target.position();
+        Vec3 pivot = barrelPivot();
+        if (!level.getWorldBorder().isWithinBounds(destination) || level.isOutsideBuildHeight(BlockPos.containing(destination)) || pivot.distanceTo(destination) > ArtilleryConstants.MAX_RANGE_BLOCKS) return fail("Target exceeds 1,000-block artillery range");
+        Vec3 initialVelocity = ArtilleryTrajectory.solve(pivot, destination).orElse(null);
+        if (initialVelocity == null) return fail("Target is outside the ballistic envelope");
+        // The selected target, rather than placement facing, determines both the displayed tube
+        // and physical muzzle. Re-solve from that muzzle to keep the landing point exact.
+        Vec3 origin = pivot.add(initialVelocity.normalize().scale(ArtilleryConstants.BARREL_MUZZLE_OFFSET));
         if (ArtilleryTrajectory.solve(origin, destination).isEmpty()) return fail("Target is outside the ballistic envelope");
         ItemStack reserved = ammunition.split(1);
         if (ArtilleryLaunchService.launch(level, player == null ? null : player.getUUID(), origin, destination, payload).isEmpty()) { if (ammunition.isEmpty()) ammunition = reserved; else ammunition.grow(reserved.getCount()); return fail("Unable to launch artillery warhead"); }
         cooldown = ArtilleryConstants.FIRE_COOLDOWN_TICKS; lastError = ""; sync(); return true;
     }
     private boolean fail(final String error) { lastError = error; sync(); return false; }
-    private Vec3 muzzle() { Direction direction = getBlockState().getValue(ArtilleryCannonBlock.FACING); return Vec3.atCenterOf(worldPosition).add(direction.getStepX() * 0.72, 1.05, direction.getStepZ() * 0.72); }
+    private Vec3 barrelPivot() { return Vec3.atCenterOf(worldPosition).add(0.0, ArtilleryConstants.BARREL_PIVOT_HEIGHT, 0.0); }
     private void sync() { setChanged(); if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override protected void saveAdditional(final ValueOutput out) { super.saveAdditional(out); out.store("ammunition", ItemStack.OPTIONAL_CODEC, ammunition); out.storeNullable("target", TargetCoordinates.CODEC, target); out.putInt("signal", previousSignal); out.putInt("cooldown", cooldown); out.putString("error", lastError); }
     @Override protected void loadAdditional(final ValueInput in) { super.loadAdditional(in); ItemStack loaded = in.read("ammunition", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY); ammunition = ArtilleryPayloadItems.isWarhead(loaded) ? loaded.copyWithCount(Math.min(ArtilleryConstants.MAX_AMMUNITION, loaded.getCount())) : ItemStack.EMPTY; target = in.read("target", TargetCoordinates.CODEC).filter(TargetCoordinates::isValid).orElse(null); previousSignal = Math.max(0, Math.min(15, in.getIntOr("signal", 0))); cooldown = Math.max(0, in.getIntOr("cooldown", 0)); lastError = in.getStringOr("error", ""); }
