@@ -4,24 +4,33 @@ import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
@@ -36,8 +45,8 @@ public final class WarheadGlassShockwaveManager {
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
-    private static final long PREPARATION_WORK_BUDGET_NANOS = 8_000_000L;
-    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 8_192;
+    private static final long PREPARATION_WORK_BUDGET_NANOS = 3_000_000L;
+    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 2_048;
     /* These are already-discovered mutations, not scan work. Keep enough headroom
        to drain a dense forest annulus during the same tick that the pressure front
        crosses it; preprocessing remains separately time-bounded. */
@@ -122,6 +131,25 @@ public final class WarheadGlassShockwaveManager {
             existing.extend(expiresAt);
             return;
         }
+		/* The carrier starts this work under its radar-root ID.  Once the
+		 * terminal entity has its final impact ID, move the compatible prepared
+		 * scan instead of throwing away the flight-time work and starting over. */
+		java.util.UUID compatibleId = null;
+		for (Map.Entry<java.util.UUID, NuclearTerrainPreparation> entry
+			: preparations.entrySet()) {
+			if (!entry.getKey().equals(impactId)
+				&& entry.getValue().compatible(center, seed, aftermathRadius)) {
+				compatibleId = entry.getKey();
+				existing = entry.getValue();
+				break;
+			}
+		}
+		if (compatibleId != null) {
+			preparations.remove(compatibleId);
+			existing.extend(expiresAt);
+			preparations.put(impactId, existing);
+			return;
+		}
         preparations.put(impactId, new NuclearTerrainPreparation(
             center, seed, craterRadius, aftermathRadius, expiresAt));
     }
@@ -140,11 +168,26 @@ public final class WarheadGlassShockwaveManager {
         long gameTime = level.getGameTime();
         long deadline = System.nanoTime() + LEVEL_WORK_BUDGET_NANOS;
         int scheduledWaves = waves.size();
+		LongOpenHashSet dirtyBiomeChunks = new LongOpenHashSet();
         for (int index = 0; index < scheduledWaves; index++) {
             if (index > 0 && System.nanoTime() >= deadline) break;
             Wave wave = waves.removeFirst();
             if (!wave.advance(level, gameTime)) waves.addLast(wave);
+			wave.drainDirtyBiomeChunks(dirtyBiomeChunks);
         }
+		if (!dirtyBiomeChunks.isEmpty()) {
+			List<ChunkAccess> changed = new ArrayList<>(dirtyBiomeChunks.size());
+			for (long packed : dirtyBiomeChunks) {
+				int chunkX = (int) (packed >> 32);
+				int chunkZ = (int) packed;
+				if (level.getChunkSource().hasChunk(chunkX, chunkZ)) {
+					changed.add(level.getChunk(chunkX, chunkZ));
+				}
+			}
+			if (!changed.isEmpty()) {
+				level.getChunkSource().chunkMap.resendBiomesForChunks(changed);
+			}
+		}
         if (waves.isEmpty()) WAVES.remove(level);
     }
 
@@ -204,6 +247,8 @@ public final class WarheadGlassShockwaveManager {
         private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         private final BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
         private final LongOpenHashSet pressureColumns = new LongOpenHashSet(MAX_COLUMNS_PER_WAVE_TICK * 2);
+		private final LongOpenHashSet dirtyBiomeChunks = new LongOpenHashSet();
+		private Holder<Biome> basaltDeltas;
         private long lastPressureGameTime;
         private double processedRadius;
         private boolean pressureComplete;
@@ -451,6 +496,11 @@ public final class WarheadGlassShockwaveManager {
             return Math.sqrt(dx * dx + dz * dz);
         }
 
+		private void drainDirtyBiomeChunks(final LongOpenHashSet target) {
+			target.addAll(dirtyBiomeChunks);
+			dirtyBiomeChunks.clear();
+		}
+
         private static BlockState paleLog(final BlockState original) {
             BlockState replacement = Blocks.PALE_OAK_LOG.defaultBlockState();
             if (original.hasProperty(BlockStateProperties.AXIS)) {
@@ -555,6 +605,7 @@ public final class WarheadGlassShockwaveManager {
             double aftermathNormalized = radialDistance / Math.max(1.0, aftermathRadius);
             int surfaceY = terrainSurfaceY(level, x, z);
             if (surfaceY < level.dimensionType().minY()) return;
+			paintSurfaceBiome(level, x, surfaceY, z);
             long columnHash = seed ^ ((long) x << 32) ^ (z & 0xFFFFFFFFL)
                 ^ 0x4E55434C45415235L;
 
@@ -635,6 +686,38 @@ public final class WarheadGlassShockwaveManager {
                 placeAshDecoration(level, x, surfaceY, z, columnHash, aftermathNormalized);
             }
         }
+
+		@SuppressWarnings("unchecked")
+		private void paintSurfaceBiome(final ServerLevel level, final int x,
+			final int surfaceY, final int z) {
+			if (basaltDeltas == null) {
+				basaltDeltas = level.registryAccess().lookupOrThrow(Registries.BIOME)
+					.getOrThrow(Biomes.BASALT_DELTAS);
+			}
+			LevelChunk chunk = level.getChunk(x >> 4, z >> 4);
+			int localQuartX = QuartPos.fromBlock(x) & 3;
+			int localQuartZ = QuartPos.fromBlock(z) & 3;
+			int minimumQuartY = QuartPos.fromBlock(surfaceY);
+			int maximumQuartY = QuartPos.fromBlock(surfaceY + 10);
+			boolean changed = false;
+			for (int quartY = minimumQuartY; quartY <= maximumQuartY; quartY++) {
+				int blockY = QuartPos.toBlock(quartY);
+				if (blockY < level.dimensionType().minY()
+					|| blockY >= level.dimensionType().minY() + level.dimensionType().height()) continue;
+				LevelChunkSection section = chunk.getSection(level.getSectionIndex(blockY));
+				if (section.getNoiseBiome(localQuartX, quartY & 3, localQuartZ)
+					.is(Biomes.BASALT_DELTAS)) continue;
+				PalettedContainer<Holder<Biome>> biomes =
+					(PalettedContainer<Holder<Biome>>) section.getBiomes();
+				biomes.set(localQuartX, quartY & 3, localQuartZ, basaltDeltas);
+				changed = true;
+			}
+			if (changed) {
+				chunk.markUnsaved();
+				dirtyBiomeChunks.add(((long) chunk.getPos().x() << 32)
+					^ (chunk.getPos().z() & 0xFFFFFFFFL));
+			}
+		}
 
         private BlockState fusedSand(final long hash, final boolean redSand,
             final double craterNormalized) {
@@ -881,7 +964,8 @@ public final class WarheadGlassShockwaveManager {
         private boolean compatible(final Vec3 otherCenter, final long otherSeed,
             final int otherRadius) {
             return seed == otherSeed && radius == otherRadius
-                && center.distanceToSqr(otherCenter) <= 1.0E-6;
+				&& Math.abs(center.x - otherCenter.x) <= 1.0E-6
+				&& Math.abs(center.z - otherCenter.z) <= 1.0E-6;
         }
 
         private void extend(final long otherExpiresAt) {

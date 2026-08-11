@@ -491,7 +491,7 @@ public final class NuclearParticleCloudRenderer {
             /* Maintain one connected column rather than switching to a smaller
                smoke-only feed. The material mix shifts from a bright core into
                red fire and increasingly dominant smoke. */
-            boolean smoky = unit(random, 3) > 0.15F + hotRemaining * 0.65F;
+            boolean smoky = unit(random, 3) > 0.10F + hotRemaining * 0.55F;
             float heat = smoky
                 ? 0.03F + unit(random, 4) * (0.18F + 0.12F * hotRemaining)
                 : 0.34F + hotRemaining * 0.46F
@@ -731,11 +731,11 @@ public final class NuclearParticleCloudRenderer {
                     ? Mth.clamp(1.0F - radial / Math.max(1.0F, stemR * 1.60F), 0.0F, 1.0F)
                     : Mth.clamp(1.0F - radial / Math.max(1.0F, capR * 0.88F), 0.0F, 1.0F);
                 float cooling = switch (region[index]) {
-                    case REGION_FIREBALL -> 0.00320F;
-                    case REGION_STEM -> 0.00170F;
-                    case REGION_CAP -> 0.00335F;
+                    case REGION_FIREBALL -> 0.00410F;
+                    case REGION_STEM -> 0.00225F;
+                    case REGION_CAP -> 0.00425F;
                     case REGION_OUTER_CURL -> 0.00410F;
-                    case REGION_UNDER_CAP -> 0.00305F;
+                    case REGION_UNDER_CAP -> 0.00380F;
                     case REGION_BASE -> 0.00105F;
                     default -> 0.0022F;
                 };

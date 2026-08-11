@@ -23,7 +23,7 @@ public final class TerrainSettledSmokeRenderer {
         final WarheadMesh.Lod lod, final boolean nuclear,
         final Quaternionf cameraOrientation) {
         if (spokes == null || spokes.isEmpty() || age < 2.0) return;
-        double lifetime = nuclear ? 2_250.0 : 190.0 + visualScale * 36.0;
+        double lifetime = nuclear ? 3_400.0 : 190.0 + visualScale * 36.0;
         if (age >= lifetime) return;
 
         float budgetScale = Mth.clamp(
@@ -92,8 +92,9 @@ public final class TerrainSettledSmokeRenderer {
                 Vec3 base = node.position().subtract(impactPosition);
                 for (int stack = 0; stack < stacks && rendered < limit; stack++) {
                     long particleSeed = mix(seed + stack * 0x9E3779B97F4A7C15L);
-                    double particleLife = lifetime
-                        * (0.70 + unit(particleSeed, 8) * 0.30);
+                    double particleLife = lifetime * (nuclear
+                        ? 0.88 + unit(particleSeed, 8) * 0.12
+                        : 0.70 + unit(particleSeed, 8) * 0.30);
                     if (age >= particleLife) continue;
                     float lifeProgress = Mth.clamp((float) (age / particleLife),
                         0.0F, 1.0F);
@@ -125,13 +126,17 @@ public final class TerrainSettledSmokeRenderer {
                         + Math.floorMod((int) (particleSeed >>> 18),
                             nuclear ? 66 : 92),
                         nuclear ? 27 : 54, nuclear ? 120 : 172);
-                    float fadeStart = nuclear ? 0.76F + unit(particleSeed, 10) * 0.20F
+                    float fadeStart = nuclear ? 0.64F + unit(particleSeed, 10) * 0.14F
                         : 0.50F + unit(particleSeed, 10) * 0.18F;
                     float individualFade = lifeProgress < fadeStart ? 1.0F
                         : smoothstep(Mth.clamp((1.0F - lifeProgress)
                             / Math.max(0.025F, 1.0F - fadeStart), 0.0F, 1.0F));
+                    float systemFade = !nuclear || age < 2_300.0 ? 1.0F
+                        : smoothstep(Mth.clamp((float) ((3_400.0 - age) / 1_100.0),
+                            0.0F, 1.0F));
                     float alpha = (nuclear ? 0.90F : 0.68F)
                         * individualFade
+                        * systemFade
                         * (0.78F + unit(particleSeed, 5) * 0.20F);
                     billboard(pose, buffer, px, py, pz, particleRadius,
                         unit(particleSeed, 6) * Mth.TWO_PI
@@ -200,8 +205,8 @@ public final class TerrainSettledSmokeRenderer {
                         + tangentX * signed(particleSeed, 3) * 1.8F;
                     float pz = (float) base.z + radialZ * radialJitter
                         + tangentZ * signed(particleSeed, 4) * 1.8F;
-                    float particleRadius = (1.95F
-                        + unit(particleSeed, 5) * 5.2F)
+                    float particleRadius = (2.55F
+                        + unit(particleSeed, 5) * 6.15F)
                         * (0.92F + visualScale * 0.11F)
                         * (0.90F + band * 0.42F);
                     int selector = Math.floorMod((int) (particleSeed >>> 12), 100);

@@ -2,6 +2,9 @@ package com.andye.warmod.icbm;
 
 import com.andye.warmod.WarMod;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
+import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
+import com.andye.warmod.warhead.WarheadYield;
+import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -159,6 +162,15 @@ public final class IcbmChunkTicketController {
             plan.intendedTarget(),
             leaseTicks
         );
+		WarheadYield yield = WarheadYieldRegistry.resolve(
+			level, missileId, missileId, plan.payloadType());
+		if (yield.nuclear()) {
+			/* The carrier already knows the exact target, seed and yield.  Feed
+			 * those loaded approach chunks to the incremental terrain discovery
+			 * for the whole flight, instead of compressing it into terminal ticks. */
+			WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(
+				level, missileId, plan.intendedTarget(), yield, plan.visualSeed(), leaseTicks);
+		}
         finalApproachLeaseHeld = true;
         finalApproachLeaseDirty = false;
         nextApproachLeaseRefreshElapsed = elapsed

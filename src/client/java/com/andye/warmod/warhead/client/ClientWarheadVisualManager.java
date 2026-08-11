@@ -26,7 +26,7 @@ public final class ClientWarheadVisualManager {
 	public static final ClientWarheadVisualManager INSTANCE = new ClientWarheadVisualManager();
 	private static final int TOTAL_TERRAIN_BUILD_BUDGET = 32_768;
 	private static final int MAX_TERRAIN_BUILD_PER_IMPACT = 8_192;
-	private static final double TERRAIN_LOOKAHEAD_BLOCKS = 36.0;
+	private static final double TERRAIN_LOOKAHEAD_BLOCKS = 96.0;
 
 	private final Map<UUID, WarheadVisualState> activeWarheads = new LinkedHashMap<>();
 	private final Map<UUID, ImpactVisualState> activeImpacts = new LinkedHashMap<>();
@@ -47,6 +47,16 @@ public final class ClientWarheadVisualManager {
 
 	public synchronized void acceptImpact(final ClientboundWarheadImpactPayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
+		ImpactVisualState existing = this.activeImpacts.get(payload.warheadId());
+		if (existing != null
+			&& existing.visualSeed() == payload.visualSeed()
+			&& existing.payloadType() == payload.payloadType()
+			&& existing.impactGameTime() == payload.impactGameTime()) {
+			double dx = existing.impactPosition().x - payload.impactX();
+			double dy = existing.impactPosition().y - payload.impactY();
+			double dz = existing.impactPosition().z - payload.impactZ();
+			if (dx * dx + dy * dy + dz * dz <= 1.0E-6) return;
+		}
 		this.activeWarheads.remove(payload.warheadId());
 		this.activeImpacts.remove(payload.warheadId());
 		this.volumetricImpacts.remove(payload.warheadId());

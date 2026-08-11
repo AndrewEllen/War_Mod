@@ -577,7 +577,7 @@ public final class WarheadExplosionWorkManager {
 				 * which cannot see steep crater walls. */
 				if (profile.yield().nuclear() && bottomOfColumn) {
 					return level.setBlock(position,
-						nuclearCraterShell(state, position.asLong(), normalized), FAST_REMOVE_FLAGS);
+						nuclearCraterShell(state, position, normalized), FAST_REMOVE_FLAGS);
 				}
 				boolean changed = level.setBlock(position, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 				if (changed && topOfColumn) removeUnsupportedAbove(level, position);
@@ -588,9 +588,13 @@ public final class WarheadExplosionWorkManager {
 		}
 
 		private BlockState nuclearCraterShell(final BlockState original,
-			final long packed, final double normalized) {
+			final BlockPos position, final double normalized) {
+			long packed = position.asLong();
 			long hash = mix(seed ^ packed ^ 0x4352415445525F53L);
 			double selector = unit(hash);
+			if (magmaFissure(position, hash, normalized)) {
+				return Blocks.MAGMA_BLOCK.defaultBlockState();
+			}
 			if (original.is(Blocks.SAND)) {
 				if (selector < 0.20) return Blocks.TINTED_GLASS.defaultBlockState();
 				if (selector < 0.38) return Blocks.STAINED_GLASS.black().defaultBlockState();
@@ -614,6 +618,27 @@ public final class WarheadExplosionWorkManager {
 			if (selector < 0.64) return Blocks.DEEPSLATE.defaultBlockState();
 			if (selector < 0.84) return Blocks.COBBLED_DEEPSLATE.defaultBlockState();
 			return Blocks.TUFF.defaultBlockState();
+		}
+
+		private boolean magmaFissure(final BlockPos position, final long hash,
+			final double normalized) {
+			if (normalized > 0.94) return false;
+			double dx = position.getX() + 0.5 - center.x;
+			double dz = position.getZ() + 0.5 - center.z;
+			double radial = Math.hypot(dx, dz);
+			if (radial < 2.2) return unit(hash ^ 0x4D41474D415F4345L) < 0.58;
+			int arms = 6 + Math.floorMod((int) (seed >>> 19), 4);
+			double phase = unit(seed ^ 0x4D41474D415F5048L) * Math.PI * 2.0;
+			double angle = Math.atan2(dz, dx)
+				+ Math.sin(radial * 0.29 + phase * 2.0) * 0.105
+				+ Math.sin(radial * 0.117 - phase) * 0.065;
+			double armDelta = (angle - phase) * arms;
+			double nearestArm = Math.abs(Math.atan2(
+				Math.sin(armDelta), Math.cos(armDelta))) / arms;
+			double halfWidth = (0.72 + unit(hash ^ 0x4D41474D415F5744L) * 0.50)
+				/ Math.max(3.0, radial);
+			return nearestArm <= halfWidth
+				&& unit(hash ^ 0x4D41474D415F4741L) < 0.90;
 		}
 
 		private int advanceSurfaceWave(final ServerLevel level, final int budget, final long deadline) {

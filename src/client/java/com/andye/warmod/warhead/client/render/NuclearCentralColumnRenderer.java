@@ -145,7 +145,7 @@ public final class NuclearCentralColumnRenderer {
             : smoothstep(Mth.clamp((float) ((3_200.0 - age) / 900.0),
                 0.0F, 1.0F));
         float ageHeat = 1.0F - smoothstep(Mth.clamp(
-            ((float) age - 110.0F) / 620.0F, 0.0F, 1.0F));
+            ((float) age - 90.0F) / 430.0F, 0.0F, 1.0F));
 
         for (int index = 0; index < count; index++) {
             long random = mix(seed ^ 0x4341505F52454854L
@@ -162,7 +162,7 @@ public final class NuclearCentralColumnRenderer {
                 (cycle - 0.78F) / 0.18F, 0.0F, 1.0F));
             float heat = Mth.clamp(heatUp * topCooling
                 * (0.82F + unit(random, 2) * 0.22F)
-                * (0.30F + ageHeat * 0.70F), 0.0F, 1.0F);
+                * (0.44F + ageHeat * 0.56F), 0.0F, 1.0F);
             boolean hot = heat >= 0.50F;
             if (hot != hotPass || heat < 0.08F) continue;
 

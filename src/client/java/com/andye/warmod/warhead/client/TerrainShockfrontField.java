@@ -10,7 +10,10 @@ public final class TerrainShockfrontField {
 	public static final int MAX_HORIZONTAL_RANGE = 512;
 	public static final int SAMPLE_SPACING = 2;
 	public static final int MAX_SPOKES = 256;
-	private static final int MAX_BUILD_PER_CALL = 2_048;
+	/* Keep the terrain path comfortably ahead of a 17.15 block/tick pressure
+	 * front.  The old 2,048-node ceiling could only extend eight samples per
+	 * spoke (16 blocks), which left intermittent holes at full shockwave speed. */
+	private static final int MAX_BUILD_PER_CALL = 8_192;
 	/* Two-block samples may legitimately climb steep hills and stepped terrain. */
 	private static final double MAX_VERTICAL_STEP = 18.0;
 

@@ -12,6 +12,8 @@ import net.minecraft.world.phys.Vec3;
 
 /** Distance- and view-aware nuclear flash/afterimage without changing world time or the sun. */
 public final class NuclearFlashOverlay {
+	/* Match the previous heavy-nuclear envelope for every nuclear yield. */
+	private static final double NUCLEAR_BLINDING_DURATION_TICKS = 156.0;
 	private static boolean registered;
 	private NuclearFlashOverlay() { }
 
@@ -34,7 +36,7 @@ public final class NuclearFlashOverlay {
 					if (!Double.isFinite(distance) || distance > 2_048.0 || distance < 1.0E-5) continue;
 					double age = state.ageTicks(time, partial);
 					double yield = Math.max(0.6, state.visualScale() / 2.7);
-					double duration = 56.0 + 76.0 * yield;
+					double duration = NUCLEAR_BLINDING_DURATION_TICKS;
 					if (age >= duration) continue;
 					double distanceFalloff = distance < 120.0 ? 1.0
 						: distance < 500.0 ? 0.88 : distance < 1_200.0 ? 0.56 : 0.28;

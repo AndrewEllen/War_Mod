@@ -145,7 +145,7 @@ public final class WarheadRenderPipelines {
         PARTICLE_MASK, true);
     private static final RenderType IRIS_NUCLEAR_SMOKE = irisParticle("war_mod_nuclear_smoke_iris",
         PARTICLE_MASK, true);
-    private static final RenderType IRIS_NUCLEAR_FIRE = irisSortedEmissive("war_mod_nuclear_fire_iris",
+    private static final RenderType IRIS_NUCLEAR_FIRE = irisDepthWritingEmissive("war_mod_nuclear_fire_iris",
         PARTICLE_MASK, true);
     private static final RenderType IRIS_FIREBALL_CORE = irisEmissive("war_mod_fireball_core_iris",
         PARTICLE_MASK);
@@ -258,6 +258,18 @@ public final class WarheadRenderPipelines {
         return RenderType.create(name, builder.createRenderSetup());
     }
 
+    private static RenderType irisDepthWritingEmissive(final String name,
+        final Identifier texture, final boolean sortOnUpload) {
+        RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(
+                RenderPipelines.ENTITY_TRANSLUCENT_EMISSIVE)
+            .withTexture("Sampler0", texture,
+                () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
+            .useOverlay()
+            .setOutline(RenderSetup.OutlineProperty.NONE);
+        if (sortOnUpload) builder.sortOnUpload();
+        return RenderType.create(name, builder.createRenderSetup());
+    }
+
     private static RenderType createClamped(final String name, final RenderPipeline pipeline,
         final Identifier texture, final boolean useLightmap, final boolean sortOnUpload) {
         RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(pipeline)
@@ -312,7 +324,7 @@ public final class WarheadRenderPipelines {
                 .withShaderDefine("NO_CARDINAL_LIGHTING")
                 .withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
                 .withDepthStencilState(
-                    new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+                    new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
                 .withCull(false).build());
     }
 
