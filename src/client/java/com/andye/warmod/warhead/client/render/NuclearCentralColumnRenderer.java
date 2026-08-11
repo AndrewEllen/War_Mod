@@ -14,7 +14,7 @@ public final class NuclearCentralColumnRenderer {
         final VertexConsumer buffer, final double age, final float visualScale,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
         final Quaternionf camera) {
-        if (age < 0.0 || age >= 5_750.0) return;
+        if (age < 0.0 || age >= 3_400.0) return;
         float scale = Mth.clamp(visualScale, 1.4F, 4.2F);
         float budget = densityMultiplier();
         int baseCount = switch (lod) {
@@ -47,8 +47,9 @@ public final class NuclearCentralColumnRenderer {
             /* This analytical helper is only the continuous feed. Letting every
                helper particle flare at the end of its independent lifetime made a
                second, late little dome above the packed mushroom. */
-            float lateCooling = Math.max(0.0F, ((float) age - 4_650.0F) / 1_100.0F);
-            float heat = Mth.clamp(1.02F - progress * 0.30F - lateCooling * 0.44F
+            float lateCooling = Mth.clamp(((float) age - 260.0F) / 1_100.0F,
+                0.0F, 1.25F);
+            float heat = Mth.clamp(1.02F - progress * 0.30F - lateCooling * 0.78F
                 + signed(random, 3) * 0.10F, 0.0F, 1.0F);
             boolean hot = heat >= 0.61F;
             if (hot != hotPass || heat < 0.10F) continue;
@@ -101,8 +102,8 @@ public final class NuclearCentralColumnRenderer {
                     * (1.16F + unit(random, 10) * 0.54F);
             }
             float remaining = Mth.clamp(1.0F - progress, 0.0F, 1.0F);
-            float globalFade = age < 5_150.0 ? 1.0F : smoothstep(Mth.clamp(
-                (float) ((5_750.0 - age) / 600.0), 0.0F, 1.0F));
+            float globalFade = age < 2_300.0 ? 1.0F : smoothstep(Mth.clamp(
+                (float) ((3_400.0 - age) / 1_100.0), 0.0F, 1.0F));
             float alpha = (hotPass ? 0.99F : 0.90F)
                 * smoothstep(Mth.clamp(localAge / 6.0F, 0.0F, 1.0F))
                 * (craterBase ? (float) Math.pow(remaining, 0.40F) : globalFade);
@@ -125,7 +126,7 @@ public final class NuclearCentralColumnRenderer {
         final VertexConsumer buffer, final double age, final float scale,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
         final Basis basis) {
-        if (age < 120.0 || age >= 5_600.0) return;
+        if (age < 120.0 || age >= 3_200.0) return;
         int baseCount = switch (lod) {
             case NEAR -> 720;
             case MEDIUM -> 350;
@@ -138,9 +139,11 @@ public final class NuclearCentralColumnRenderer {
         float capCenter = packedCapCenterY(age, scale);
         float capBase = capCenter - packedCapDepth(age, scale) * 0.74F;
         float capDepth = packedCapDepth(age, scale) * 0.50F;
-        float lateFade = age < 5_050.0 ? 1.0F
-            : smoothstep(Mth.clamp((float) ((5_600.0 - age) / 550.0),
+        float lateFade = age < 2_300.0 ? 1.0F
+            : smoothstep(Mth.clamp((float) ((3_200.0 - age) / 900.0),
                 0.0F, 1.0F));
+        float ageHeat = 1.0F - smoothstep(Mth.clamp(
+            ((float) age - 260.0F) / 1_200.0F, 0.0F, 1.0F));
 
         for (int index = 0; index < count; index++) {
             long random = mix(seed ^ 0x4341505F52454854L
@@ -156,7 +159,8 @@ public final class NuclearCentralColumnRenderer {
             float topCooling = 1.0F - 0.18F * smoothstep(Mth.clamp(
                 (cycle - 0.78F) / 0.18F, 0.0F, 1.0F));
             float heat = Mth.clamp(heatUp * topCooling
-                * (0.82F + unit(random, 2) * 0.22F), 0.0F, 1.0F);
+                * (0.82F + unit(random, 2) * 0.22F)
+                * (0.30F + ageHeat * 0.70F), 0.0F, 1.0F);
             boolean hot = heat >= 0.50F;
             if (hot != hotPass || heat < 0.08F) continue;
 
@@ -374,6 +378,11 @@ public final class NuclearCentralColumnRenderer {
     }
 
     private static Colour fireColour(final float heat, final long random) {
+        if (heat > 0.52F && Math.floorMod((int) (random >>> 21), 7) == 0) {
+            float redHeat = Mth.clamp((heat - 0.52F) / 0.48F, 0.0F, 1.0F);
+            return new Colour(Mth.lerpInt(redHeat, 150, 232),
+                Mth.lerpInt(redHeat, 20, 62), Mth.lerpInt(redHeat, 16, 24));
+        }
         if (heat > 0.84F) {
             float t = (heat - 0.84F) / 0.16F;
             if (heat > 0.92F && Math.floorMod((int) (random >>> 17), 4) == 0) {

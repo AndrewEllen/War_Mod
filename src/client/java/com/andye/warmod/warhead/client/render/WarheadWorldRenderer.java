@@ -331,7 +331,7 @@ public final class WarheadWorldRenderer {
                     });
 
                 /* Submit every nuclear temperature band through one sorted,
-                   non-additive type after smoke has established the visible
+                   sorted emissive type after smoke has established the visible
                    cloud surface. This prevents the analytical stalk from
                    painting unsorted white cards over the mushroom. */
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
@@ -352,16 +352,6 @@ public final class WarheadWorldRenderer {
                             cloud.visualSeed(), impact.lod(), false, cloud.sources(),
                             frame.cameraOrientation());
                     });
-            }
-            double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(
-                impact.ageTicks(), yieldRadiusScale);
-            if (returnRadius > 0.0) {
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.GROUND_DUST,
-                    (pose, buffer) -> ConventionalBlastParticleRenderer
-                        .renderNuclearReturnFront(pose, buffer, impact.ageTicks(),
-                            returnRadius, yieldRadiusScale, impact.visualSeed(), impact.lod(),
-                            frame.cameraOrientation()));
             }
             if (renderCloud || cloud.sources().size() == 1) {
                 context.submitNodeCollector().submitCustomGeometry(poseStack,

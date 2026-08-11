@@ -41,13 +41,24 @@ public final class TerrainSettledSmokeRenderer {
         float settleProgress = smoothstep(Mth.clamp((float) (age
             / (nuclear ? 155.0 : 115.0)), 0.0F, 1.0F));
         Basis basis = Basis.from(cameraOrientation);
-        int rendered = renderSettledBase(pose, buffer, spokes, impactPosition,
+        renderSettledBase(pose, buffer, spokes, impactPosition,
             age, lifetime, visualScale, visualSeed, lod, nuclear, budgetScale,
             spokeStride, innerRadius, outerRadius, settleProgress, basis);
 
         if (nuclear) {
+            float radiusScale = WarheadYieldScaling.radiusScale(
+                WarheadPayloadType.NUCLEAR, visualScale);
             renderNuclearShockwall(pose, buffer, spokes, impactPosition, age,
-                visualScale, visualSeed, lod, budgetScale, basis, rendered);
+                visualScale, visualSeed, lod, basis,
+                WarheadVisualMath.groundShockwaveDistance(age, radiusScale),
+                (float) WarheadVisualMath.groundShockwaveAlpha(age, radiusScale), false);
+            double returnDistance = WarheadVisualMath.nuclearReturnWaveRadius(age, radiusScale);
+            if (returnDistance > 0.0) {
+                renderNuclearShockwall(pose, buffer, spokes, impactPosition, age,
+                    visualScale, visualSeed ^ 0x52455455524E5741L, lod, basis,
+                    returnDistance,
+                    (float) WarheadVisualMath.nuclearReturnWaveAlpha(age, radiusScale), true);
+            }
         }
     }
 
@@ -142,43 +153,36 @@ public final class TerrainSettledSmokeRenderer {
     private static void renderNuclearShockwall(final PoseStack.Pose pose,
         final VertexConsumer buffer, final List<TerrainShockfrontSpoke> spokes,
         final Vec3 impactPosition, final double age, final float visualScale,
-        final long visualSeed, final WarheadMesh.Lod lod, final float budgetScale,
-        final Basis basis, final int alreadyRendered) {
-        float radiusScale = WarheadYieldScaling.radiusScale(
-            WarheadPayloadType.NUCLEAR, visualScale);
-        double frontDistance = WarheadVisualMath.groundShockwaveDistance(age,
-            radiusScale);
+        final long visualSeed, final WarheadMesh.Lod lod, final Basis basis,
+        final double frontDistance, final float requestedAlpha,
+        final boolean returning) {
         if (frontDistance <= 0.0) return;
-        float frontAlpha = Mth.clamp((float)
-            WarheadVisualMath.groundShockwaveAlpha(age, radiusScale), 0.0F, 1.0F);
+        float frontAlpha = Mth.clamp(requestedAlpha, 0.0F, 1.0F);
         if (frontAlpha <= 0.004F) return;
 
-        double halfWidth = 13.0 + visualScale * 3.0;
-        int limit = alreadyRendered + Math.max(640,
-            Math.round((lod == WarheadMesh.Lod.NEAR ? 24_000
-                : lod == WarheadMesh.Lod.MEDIUM ? 13_000 : 6_500)
-                * budgetScale));
-        int rendered = alreadyRendered;
-        for (int spokeIndex = 0; spokeIndex < spokes.size() && rendered < limit;
-            spokeIndex++) {
+        double halfWidth = (returning ? 9.0 : 13.0) + visualScale * 3.0;
+        for (int spokeIndex = 0; spokeIndex < spokes.size(); spokeIndex++) {
             List<TerrainShockfrontNode> nodes = spokes.get(spokeIndex).snapshotNodes();
-            for (int nodeIndex = 0; nodeIndex < nodes.size() && rendered < limit; nodeIndex++) {
+            for (int nodeIndex = 0; nodeIndex < nodes.size(); nodeIndex++) {
                 TerrainShockfrontNode node = nodes.get(nodeIndex);
                 if (!node.valid() || !node.visibleFromImpact()) continue;
                 double offset = node.cumulativePathDistance() - frontDistance;
                 if (Math.abs(offset) > halfWidth) continue;
                 float band = 1.0F - (float) (Math.abs(offset) / halfWidth);
                 long seed = mix(visualSeed ^ node.surfaceBlock().asLong()
-                    ^ 0x4E554B455F57414CL);
-                int stacks = 9 + Math.floorMod((int) seed, 10);
-                stacks = Math.max(6,
-                    Math.round(stacks * Math.min(3.5F, budgetScale)));
+                    ^ (returning ? 0x5245545F57414C4CL : 0x4E554B455F57414CL));
+                int stacks = switch (lod) {
+                    case NEAR -> 9 + Math.floorMod((int) seed, 6);
+                    case MEDIUM -> 6 + Math.floorMod((int) seed, 4);
+                    case FAR -> 3 + Math.floorMod((int) seed, 3);
+                };
                 Vec3 base = node.position().subtract(impactPosition);
-                for (int stack = 0; stack < stacks && rendered < limit; stack++) {
+                for (int stack = 0; stack < stacks; stack++) {
                     long particleSeed = mix(seed
                         + stack * 0xD1B54A32D192ED03L);
-                    float wallHeight = 5.0F + visualScale * 2.3F
-                        + unit(particleSeed, 0) * (12.0F + visualScale * 3.0F);
+                    float wallHeight = (returning ? 3.0F : 5.0F) + visualScale * 2.3F
+                        + unit(particleSeed, 0)
+                            * ((returning ? 8.0F : 12.0F) + visualScale * 3.0F);
                     float layer = stack / (float) Math.max(1, stacks - 1);
                     float py = (float) base.y
                         + 0.12F + wallHeight * layer
@@ -202,15 +206,16 @@ public final class TerrainSettledSmokeRenderer {
                         * (0.90F + band * 0.42F);
                     int selector = Math.floorMod((int) (particleSeed >>> 12), 100);
                     int tone = selector < 28
-                        ? 142 + Math.floorMod((int) (particleSeed >>> 23), 70)
-                        : 44 + Math.floorMod((int) (particleSeed >>> 23), 90);
+                        ? (returning ? 118 : 142)
+                            + Math.floorMod((int) (particleSeed >>> 23), 70)
+                        : (returning ? 36 : 44)
+                            + Math.floorMod((int) (particleSeed >>> 23), 90);
                     float alpha = frontAlpha * (0.38F + band * 0.62F)
                         * (0.82F + unit(particleSeed, 6) * 0.17F);
                     billboard(pose, buffer, px, py, pz, particleRadius,
                         unit(particleSeed, 7) * Mth.TWO_PI
                             + (float) age * signed(particleSeed, 8) * 0.003F,
                         tone, tone, tone, alpha, 0x980098, basis);
-                    rendered++;
                 }
             }
         }

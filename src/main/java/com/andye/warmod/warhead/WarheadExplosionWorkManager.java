@@ -624,12 +624,8 @@ public final class WarheadExplosionWorkManager {
 					} else if (surface.is(Blocks.SAND) || surface.is(Blocks.RED_SAND)) {
 						if (level.setBlock(surfaceScan, Blocks.GRAVEL.defaultBlockState(), FAST_REMOVE_FLAGS)) changed++;
 					}
-					if (pressure > 0.44 && unit(hash ^ 0x464952455F574156L) < pressure * 0.10) {
-						surfaceScan.set(worldX, groundY + 1, worldZ);
-						if (level.isInWorldBounds(surfaceScan) && level.getBlockState(surfaceScan).isAir()) {
-							if (level.setBlock(surfaceScan, Blocks.FIRE.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE)) changed++;
-						}
-					}
+					/* The extended prepared shockwave owns coherent fire pockets.
+					   Avoid scattering unrelated one-block fires in this earlier pass. */
 				}
 			}
 			return changed;

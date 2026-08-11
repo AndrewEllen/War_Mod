@@ -270,16 +270,12 @@ public final class NuclearParticleCloudRenderer {
             this.craterRadius = 12.0F + 13.0F * this.scale;
             this.craterFloor = -Math.max(7.0F, craterRadius * 0.30F);
             this.fireballEmissionEnd = Math.round(190.0F + 120.0F * yield);
-            /* The cap now rises quickly, so retain a deliberately light hot feed for
-               longer. This keeps the stalk connected without materially increasing
-               the packed-field population once the initial cloud is established. */
-            /* Keep the same packed population, but keep its existing central feed
-               incandescent for the bulk of the impact lifetime.  The earlier
-               values cooled the first stem before the mature cap had finished
-               forming, which made the remaining smoke read as a separate stalk. */
-            this.hotFeedEnd = Math.round(4_500.0F + 420.0F * yield);
-            this.primaryFeedEnd = Math.round(4_200.0F + 480.0F * yield);
-            this.feedEmissionEnd = Math.round(5_150.0F + 420.0F * yield);
+            /* Keep the packed population and continuous feed, but shorten the
+               white-hot phase so the connected stalk can cool through orange/red
+               into smoke while the mature cap remains established. */
+            this.hotFeedEnd = Math.round(480.0F + 80.0F * yield);
+            this.primaryFeedEnd = Math.round(420.0F + 90.0F * yield);
+            this.feedEmissionEnd = Math.round(3_000.0F + 260.0F * yield);
             this.baseEmissionEnd = Math.round(760.0F + 260.0F * yield);
             initialiseSlots();
         }
@@ -490,14 +486,14 @@ public final class NuclearParticleCloudRenderer {
                 + unit(random, 2) * craterRadius * 0.32F;
             float hotRemaining = Mth.clamp(1.0F - tick / (float) Math.max(1, hotFeedEnd),
                 0.0F, 1.0F);
-            /* The stem has to stay a hot, connected column rather than changing
-               abruptly into a smaller smoke-only feed.  Sparse smoke still rolls
-               around it, but the central material remains bright until the final
-               cooling phase. */
-            boolean smoky = tick > hotFeedEnd || unit(random, 3) > 0.82F + hotRemaining * 0.12F;
+            /* Maintain one connected column rather than switching to a smaller
+               smoke-only feed. The material mix shifts from a bright core into
+               red fire and increasingly dominant smoke. */
+            boolean smoky = unit(random, 3) > 0.20F + hotRemaining * 0.72F;
             float heat = smoky
-                ? 0.04F + unit(random, 4) * (0.16F + 0.18F * hotRemaining)
-                : 0.78F + unit(random, 4) * (0.22F + 0.08F * hotRemaining);
+                ? 0.03F + unit(random, 4) * (0.18F + 0.12F * hotRemaining)
+                : 0.34F + hotRemaining * 0.46F
+                    + unit(random, 4) * (0.18F + 0.06F * hotRemaining);
             spawn(REGION_STEM, px, py, pz,
                 -Mth.cos(angle) * radial * 0.006F + signed(random, 5) * 0.014F,
                 (smoky ? 0.28F : 0.42F) + unit(random, 6) * (0.40F + 0.16F * yield),
@@ -727,19 +723,21 @@ public final class NuclearParticleCloudRenderer {
                     : Mth.clamp(1.0F - radial / Math.max(1.0F, capR * 0.88F), 0.0F, 1.0F);
                 float cooling = switch (region[index]) {
                     case REGION_FIREBALL -> 0.00105F;
-                    case REGION_STEM -> 0.00058F;
-                    case REGION_CAP -> 0.00145F;
+                    case REGION_STEM -> 0.00115F;
+                    case REGION_CAP -> 0.00220F;
                     case REGION_OUTER_CURL -> 0.00410F;
-                    case REGION_UNDER_CAP -> 0.00155F;
+                    case REGION_UNDER_CAP -> 0.00200F;
                     case REGION_BASE -> 0.00125F;
                     default -> 0.0022F;
                 };
-                cooling *= 1.0F - insulation * 0.46F;
+                cooling *= 1.0F - insulation * 0.32F;
                 temperature[index] = Math.max(0.0F,
                     temperature[index] - cooling * (0.80F + progress * 1.35F));
                 if (region[index] == REGION_STEM && radial < stemR * 0.62F
-                    && y[index] < capY - capD * 0.54F && tick < hotFeedEnd + 620) {
-                    temperature[index] = Math.min(0.96F, temperature[index] + 0.00225F);
+                    && y[index] < capY - capD * 0.54F && tick < hotFeedEnd + 520) {
+                    float retainedHeat = 0.34F + 0.58F * Mth.clamp(
+                        1.0F - tick / (float) Math.max(1, hotFeedEnd + 520), 0.0F, 1.0F);
+                    temperature[index] = Math.max(temperature[index], retainedHeat);
                 }
                 /* A turbulent, insulated kernel keeps the lower cap visibly hot
                    while its outer billboards cool into smoke. This is an in-place
@@ -747,9 +745,9 @@ public final class NuclearParticleCloudRenderer {
                 if ((region[index] == REGION_CAP || region[index] == REGION_UNDER_CAP)
                     && radial < capR * 0.58F && y[index] < capY - capD * 0.10F
                     && y[index] > capY - capD * 1.06F
-                    && tick < hotFeedEnd + 760) {
-                    float coreHeat = 0.78F + 0.20F * Mth.clamp(
-                        1.0F - tick / (float) Math.max(1, hotFeedEnd + 760), 0.0F, 1.0F);
+                    && tick < hotFeedEnd + 900) {
+                    float coreHeat = 0.32F + 0.64F * Mth.clamp(
+                        1.0F - tick / (float) Math.max(1, hotFeedEnd + 900), 0.0F, 1.0F);
                     temperature[index] = Math.max(temperature[index], coreHeat);
                 }
                 radius[index] *= region[index] == REGION_OUTER_CURL ? 1.00036F
@@ -972,6 +970,12 @@ public final class NuclearParticleCloudRenderer {
                 return new Colour(Mth.clamp(tone + greyShift, 18, 244),
                     Mth.clamp(tone, 18, 244),
                     Mth.clamp(tone - greyShift, 18, 244));
+            }
+            if ((particleRegion == REGION_STEM || particleRegion == REGION_UNDER_CAP)
+                && heat > 0.50F && Math.floorMod(seed >>> 18, 7) == 0) {
+                float redHeat = Mth.clamp((heat - 0.50F) / 0.50F, 0.0F, 1.0F);
+                return new Colour(Mth.lerpInt(redHeat, 146, 228),
+                    Mth.lerpInt(redHeat, 20, 58), Mth.lerpInt(redHeat, 16, 24));
             }
             if (heat > 0.86F) {
                 float t = (heat - 0.86F) / 0.14F;
