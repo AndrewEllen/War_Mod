@@ -505,8 +505,10 @@ public final class WarheadExplosionWorkManager {
 					cursor.set(currentWorldX, centerY + currentY, currentWorldZ);
 					int yOffset = currentY--;
 					boolean topOfColumn = yOffset == currentTopY;
+					boolean bottomOfColumn = yOffset == currentColumn.bottomY;
 					visited++;
-					if (destroyAt(level, levelWork, cursor, currentColumn.radial, yOffset, topOfColumn)) changed++;
+					if (destroyAt(level, levelWork, cursor, currentColumn.radial, yOffset,
+						topOfColumn, bottomOfColumn)) changed++;
 				} else {
 					if (!aftermathStarted) aftermathStarted = true;
 					if (advanceAftermath(level)) {
@@ -534,7 +536,8 @@ public final class WarheadExplosionWorkManager {
 			final BlockPos position,
 			final double radial,
 			final int yOffset,
-			final boolean topOfColumn
+			final boolean topOfColumn,
+			final boolean bottomOfColumn
 		) {
 			if (!level.isInWorldBounds(position)) return false;
 			if (!level.getChunkSource().hasChunk(
@@ -568,12 +571,49 @@ public final class WarheadExplosionWorkManager {
 					state.onExplosionHit(level, position, explosion, (stack, dropPosition) -> { });
 					return true;
 				}
+				/* The final block in every nuclear excavation column is the exposed
+				 * crater skin. Preserve that one-block shell as fused/charred material
+				 * instead of deleting it and relying on a later top-down surface scan,
+				 * which cannot see steep crater walls. */
+				if (profile.yield().nuclear() && bottomOfColumn) {
+					return level.setBlock(position,
+						nuclearCraterShell(state, position.asLong(), normalized), FAST_REMOVE_FLAGS);
+				}
 				boolean changed = level.setBlock(position, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 				if (changed && topOfColumn) removeUnsupportedAbove(level, position);
 				return changed;
 			} finally {
 				levelWork.release(packed);
 			}
+		}
+
+		private BlockState nuclearCraterShell(final BlockState original,
+			final long packed, final double normalized) {
+			long hash = mix(seed ^ packed ^ 0x4352415445525F53L);
+			double selector = unit(hash);
+			if (original.is(Blocks.SAND)) {
+				if (selector < 0.20) return Blocks.TINTED_GLASS.defaultBlockState();
+				if (selector < 0.38) return Blocks.STAINED_GLASS.black().defaultBlockState();
+				if (selector < 0.56) return Blocks.STAINED_GLASS.gray().defaultBlockState();
+				if (selector < 0.78) return Blocks.DYED_TERRACOTTA.white().defaultBlockState();
+				return Blocks.SANDSTONE.defaultBlockState();
+			}
+			if (original.is(Blocks.RED_SAND)) {
+				if (selector < 0.28) return Blocks.STAINED_GLASS.black().defaultBlockState();
+				if (selector < 0.52) return Blocks.STAINED_GLASS.gray().defaultBlockState();
+				if (selector < 0.78) return Blocks.TERRACOTTA.defaultBlockState();
+				return Blocks.RED_SANDSTONE.defaultBlockState();
+			}
+			/* Keep magma rare and central; the remainder forms a continuous mottled
+				basalt/deepslate/tuff skin across floor and walls. */
+			if (normalized < 0.48 && selector < 0.055) {
+				return Blocks.MAGMA_BLOCK.defaultBlockState();
+			}
+			if (selector < 0.22) return Blocks.BASALT.defaultBlockState();
+			if (selector < 0.40) return Blocks.BLACKSTONE.defaultBlockState();
+			if (selector < 0.64) return Blocks.DEEPSLATE.defaultBlockState();
+			if (selector < 0.84) return Blocks.COBBLED_DEEPSLATE.defaultBlockState();
+			return Blocks.TUFF.defaultBlockState();
 		}
 
 		private int advanceSurfaceWave(final ServerLevel level, final int budget, final long deadline) {

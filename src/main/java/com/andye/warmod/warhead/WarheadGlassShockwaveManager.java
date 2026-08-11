@@ -36,10 +36,13 @@ public final class WarheadGlassShockwaveManager {
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
-    private static final long PREPARATION_WORK_BUDGET_NANOS = 4_000_000L;
-    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 1_536;
-    private static final int PREPARED_MUTATIONS_PER_WAVE_TICK = 8_192;
-    private static final int PREPARED_SURFACE_MUTATIONS_PER_WAVE_TICK = 6_144;
+    private static final long PREPARATION_WORK_BUDGET_NANOS = 8_000_000L;
+    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 8_192;
+    /* These are already-discovered mutations, not scan work. Keep enough headroom
+       to drain a dense forest annulus during the same tick that the pressure front
+       crosses it; preprocessing remains separately time-bounded. */
+    private static final int PREPARED_MUTATIONS_PER_WAVE_TICK = 262_144;
+    private static final int PREPARED_SURFACE_MUTATIONS_PER_WAVE_TICK = 65_536;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static final Map<Block, Boolean> GLASS_BLOCK_CACHE = new IdentityHashMap<>();
     private static final Predicate<BlockState> PRESSURE_RELEVANT = state ->
@@ -149,7 +152,7 @@ public final class WarheadGlassShockwaveManager {
         final float visualScale) {
         /* Tactical reaches the former heavy-nuclear footprint; strategic and
            heavy yields extend about fifty percent beyond their old 3x scars. */
-        double multiplier = visualScale < 2.20F ? 4.90 : 4.50;
+        double multiplier = visualScale < 2.20F ? 6.125 : 5.625;
         return craterRadius * multiplier;
     }
 
@@ -299,7 +302,7 @@ public final class WarheadGlassShockwaveManager {
                 if (remaining <= 0) return;
             }
 
-            int glassBudget = Math.min(384, remaining);
+            int glassBudget = Math.min(16_384, remaining);
             for (long packed : preparation.takeGlass(shell, glassBudget)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!loaded(level, position)) continue;
@@ -316,7 +319,7 @@ public final class WarheadGlassShockwaveManager {
                 if (remaining <= 0) return;
             }
 
-            int fragileBudget = Math.min(384, remaining);
+            int fragileBudget = Math.min(16_384, remaining);
             for (long packed : preparation.takeFragile(shell, fragileBudget)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!loaded(level, position)) continue;
@@ -331,7 +334,7 @@ public final class WarheadGlassShockwaveManager {
                 if (remaining <= 0) return;
             }
 
-            int leavesBudget = Math.min(768, remaining);
+            int leavesBudget = Math.min(98_304, remaining);
             for (long packed : preparation.takeLeaves(shell, leavesBudget)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!loaded(level, position)) continue;
@@ -340,10 +343,10 @@ public final class WarheadGlassShockwaveManager {
                     double normalized = horizontalDistance(position)
                         / Math.max(1.0, aftermathRadius);
                     long hash = seed ^ packed ^ 0x4C45415645535F4EL;
-                    if (normalized <= 0.64) {
+                    if (normalized <= 0.70) {
                         level.setBlock(position, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
                     } else {
-                        double outer = Mth.clamp((1.0 - normalized) / 0.36, 0.0, 1.0);
+                        double outer = Mth.clamp((1.0 - normalized) / 0.30, 0.0, 1.0);
                         double stripChance = outer * 0.72;
                         double paleChance = 0.10 + outer * 0.64;
                         double selector = unit(hash);
@@ -359,7 +362,7 @@ public final class WarheadGlassShockwaveManager {
                 if (remaining <= 0) return;
             }
 
-            int logsBudget = Math.min(384, remaining);
+            int logsBudget = Math.min(32_768, remaining);
             for (long packed : preparation.takeLogs(shell, logsBudget)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!loaded(level, position)) continue;
@@ -367,10 +370,11 @@ public final class WarheadGlassShockwaveManager {
                 if (state.is(BlockTags.LOGS)) {
                     double normalized = horizontalDistance(position)
                         / Math.max(1.0, aftermathRadius);
-                    if (normalized <= 0.24) {
+                    if (normalized <= 0.34) {
                         level.setBlock(position, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
-                    } else if (normalized <= 0.56) {
+                    } else if (normalized <= 0.62) {
                         level.setBlock(position, paleLog(state), UPDATE_FLAGS);
+                        placeTreeFire(level, position, normalized, packed);
                     } else {
                         int groundY = terrainSurfaceY(level, position.getX(), position.getZ());
                         double upperBias = Mth.clamp((position.getY() - groundY - 5.0) / 30.0,
@@ -380,6 +384,7 @@ public final class WarheadGlassShockwaveManager {
                         double chance = distanceHeat * (0.28 + upperBias * 0.72);
                         if (unit(seed ^ packed ^ 0x4C4F47535F415348L) < chance) {
                             level.setBlock(position, paleLog(state), UPDATE_FLAGS);
+                            placeTreeFire(level, position, normalized, packed);
                         }
                     }
                 }
@@ -387,7 +392,7 @@ public final class WarheadGlassShockwaveManager {
                 if (remaining <= 0) return;
             }
 
-            int structuralLogBudget = Math.min(64, remaining);
+            int structuralLogBudget = Math.min(8_192, remaining);
             for (long packed : preparation.takeStructuralLogs(shell, structuralLogBudget)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!loaded(level, position)) continue;
@@ -403,7 +408,7 @@ public final class WarheadGlassShockwaveManager {
                 if (remaining <= 0) return;
             }
 
-            int plankBudget = Math.min(64, remaining);
+            int plankBudget = Math.min(8_192, remaining);
             for (long packed : preparation.takePlanks(shell, plankBudget)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!loaded(level, position)) continue;
@@ -453,6 +458,16 @@ public final class WarheadGlassShockwaveManager {
                     original.getValue(BlockStateProperties.AXIS));
             }
             return replacement;
+        }
+
+        private void placeTreeFire(final ServerLevel level, final BlockPos trunk,
+            final double normalized, final long packed) {
+            double chance = 0.22 * Mth.clamp((0.82 - normalized) / 0.48, 0.0, 1.0);
+            if (unit(seed ^ packed ^ 0x545245455F464952L) >= chance) return;
+            neighbour.set(trunk.getX(), trunk.getY() + 1, trunk.getZ());
+            if (level.isInWorldBounds(neighbour) && level.getBlockState(neighbour).isAir()) {
+                level.setBlock(neighbour, Blocks.FIRE.defaultBlockState(), UPDATE_FLAGS);
+            }
         }
 
         private void processPressureColumn(final ServerLevel level, final int x, final int z,
@@ -591,9 +606,12 @@ public final class WarheadGlassShockwaveManager {
                     continue;
                 }
 
-                if (craterNormalized <= 1.18 && isCommonRock(state)
-                    && (depth == 0 || exposedToAir(level, cursor))) {
-                    level.setBlock(cursor, darkCraterRock(hash, craterNormalized), UPDATE_FLAGS);
+                if (isCommonRock(state) && (depth == 0 || exposedToAir(level, cursor))) {
+                    double rockChance = craterNormalized <= 1.38 ? 1.0
+                        : Mth.clamp((0.58 - aftermathNormalized) / 0.34, 0.0, 0.82);
+                    if (unit(hash ^ 0x524F434B5F534341L) < rockChance) {
+                        level.setBlock(cursor, darkCraterRock(hash, craterNormalized), UPDATE_FLAGS);
+                    }
                 }
             }
 
@@ -669,10 +687,11 @@ public final class WarheadGlassShockwaveManager {
 
         private BlockState outerScorchedSoil(final long hash) {
             double selector = unit(hash ^ 0x4F55544552534F49L);
-            if (selector < 0.34) return Blocks.COARSE_DIRT.defaultBlockState();
-            if (selector < 0.56) return Blocks.PODZOL.defaultBlockState();
-            if (selector < 0.72) return Blocks.PALE_MOSS_BLOCK.defaultBlockState();
-            if (selector < 0.86) return Blocks.TUFF.defaultBlockState();
+            if (selector < 0.28) return Blocks.COARSE_DIRT.defaultBlockState();
+            if (selector < 0.47) return Blocks.PODZOL.defaultBlockState();
+            if (selector < 0.61) return Blocks.MYCELIUM.defaultBlockState();
+            if (selector < 0.75) return Blocks.PALE_MOSS_BLOCK.defaultBlockState();
+            if (selector < 0.88) return Blocks.TUFF.defaultBlockState();
             return Blocks.ROOTED_DIRT.defaultBlockState();
         }
 
@@ -700,7 +719,7 @@ public final class WarheadGlassShockwaveManager {
             int cellZ = Math.floorDiv(z, cellSize);
             long cellHash = seed ^ ((long) cellX << 32) ^ (cellZ & 0xFFFFFFFFL)
                 ^ 0x46495245504F434BL;
-            double selectionChance = 0.065 * Mth.clamp(
+            double selectionChance = 0.11 * Mth.clamp(
                 1.05 - aftermathNormalized, 0.22, 1.0);
             if (unit(cellHash) >= selectionChance) return false;
             double centerX = cellX * cellSize + 2.0 + unit(cellHash ^ 0x5843454E544552L) * 10.0;
@@ -731,6 +750,9 @@ public final class WarheadGlassShockwaveManager {
                     case 3 -> Blocks.DEAD_HORN_CORAL_FAN.defaultBlockState();
                     default -> Blocks.DEAD_TUBE_CORAL_FAN.defaultBlockState();
                 };
+                if (decoration.hasProperty(BlockStateProperties.WATERLOGGED)) {
+                    decoration = decoration.setValue(BlockStateProperties.WATERLOGGED, false);
+                }
                 level.setBlock(cursor, decoration, UPDATE_FLAGS);
             }
         }

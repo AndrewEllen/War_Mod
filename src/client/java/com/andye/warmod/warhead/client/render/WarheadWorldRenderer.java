@@ -16,8 +16,10 @@ import com.andye.warmod.warhead.client.WarheadVisualState;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
@@ -43,6 +45,7 @@ public final class WarheadWorldRenderer {
     private static final double MEDIUM_DISTANCE = 640.0;
     private static final double MAX_DISTANCE = 1536.0;
     private static final Set<UUID> RETURN_WAVE_SOUND_PLAYED = new HashSet<>();
+    private static final Map<UUID, Double> RETURN_WAVE_PREVIOUS_RADIUS = new HashMap<>();
     private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
     private static boolean registered;
     private static long lastDebugTick = Long.MIN_VALUE;
@@ -66,6 +69,7 @@ public final class WarheadWorldRenderer {
         if (level == null || camera == null || camera.pos == null) {
             currentFrame = RenderFrame.EMPTY;
             RETURN_WAVE_SOUND_PLAYED.clear();
+            RETURN_WAVE_PREVIOUS_RADIUS.clear();
             return;
         }
         Vec3 cameraPosition = camera.pos;
@@ -141,6 +145,7 @@ public final class WarheadWorldRenderer {
                 rawGroundDistance, groundDistance));
         }
         RETURN_WAVE_SOUND_PLAYED.retainAll(activeReturnWaveIds);
+        RETURN_WAVE_PREVIOUS_RADIUS.keySet().retainAll(activeReturnWaveIds);
 
         List<DebrisFrame> debris = new ArrayList<>();
         for (ClientDebrisBatchManager.RenderSample sample
@@ -493,12 +498,25 @@ public final class WarheadWorldRenderer {
         if (RETURN_WAVE_SOUND_PLAYED.contains(state.warheadId())) return;
         float radiusScale = WarheadYieldScaling.radiusScale(
             state.payloadType(), state.visualScale());
-        double previous = WarheadVisualMath.nuclearReturnWaveRadius(
-            Math.max(0.0, age - 1.0), radiusScale);
+        double returnStart = WarheadVisualMath.nuclearReturnWaveStartTicks(radiusScale);
         double current = WarheadVisualMath.nuclearReturnWaveRadius(age, radiusScale);
+        if (current < 0.0) {
+            if (age < returnStart) {
+                RETURN_WAVE_PREVIOUS_RADIUS.remove(state.warheadId());
+                return;
+            }
+            /* A very slow frame may step across the final collapse entirely. */
+            current = 0.0;
+        }
+        Double sampledPrevious = RETURN_WAVE_PREVIOUS_RADIUS.put(state.warheadId(), current);
+        double previous = sampledPrevious == null
+            ? WarheadVisualMath.nuclearReturnWaveMaximumRadius(radiusScale)
+            : sampledPrevious;
         double distance = listener.distanceTo(state.impactPosition());
-        if (previous >= 0.0 && current >= 0.0
-            && previous >= distance && current < distance) {
+        /* Compare actual rendered-frame radii, not age-1. Large yields can drop
+           several simulation ticks between frames; the old one-tick sample could
+           skip the crossing and play late or not at all. */
+        if (previous >= distance && current < distance) {
             level.playLocalSound(listener.x, listener.y, listener.z,
                 ModSoundEvents.PROTOTYPE_EXPLOSION_EXTREME, SoundSource.BLOCKS,
                 3.2F, 0.54F, false);

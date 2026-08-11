@@ -26,7 +26,7 @@ public final class NuclearCentralColumnRenderer {
         float craterRadius = 12.0F + 13.0F * scale;
         float craterFloor = -Math.max(7.0F, craterRadius * 0.30F);
         float columnHeight = columnHeight(age, scale);
-        float columnRadius = (4.0F + 2.25F * scale) * 2.45F;
+        float columnRadius = (4.0F + 2.25F * scale) * 2.62F;
         Basis basis = Basis.from(camera);
 
         for (int index = 0; index < count; index++) {
@@ -47,8 +47,10 @@ public final class NuclearCentralColumnRenderer {
             /* This analytical helper is only the continuous feed. Letting every
                helper particle flare at the end of its independent lifetime made a
                second, late little dome above the packed mushroom. */
-            float lateCooling = Mth.clamp(((float) age - 260.0F) / 1_100.0F,
-                0.0F, 1.25F);
+            float coolingStart = craterBase ? 420.0F : 90.0F;
+            float coolingSpan = craterBase ? 1_900.0F : 520.0F;
+            float lateCooling = Mth.clamp(((float) age - coolingStart) / coolingSpan,
+                0.0F, craterBase ? 1.05F : 1.25F);
             float heat = Mth.clamp(1.02F - progress * 0.30F - lateCooling * 0.78F
                 + signed(random, 3) * 0.10F, 0.0F, 1.0F);
             boolean hot = heat >= 0.61F;
@@ -75,8 +77,8 @@ public final class NuclearCentralColumnRenderer {
                 float angle = unit(random, 4) * Mth.TWO_PI
                     + localAge * signed(random, 5) * 0.0072F;
                 float radialFraction = Mth.sqrt(unit(random, 6));
-                float narrowing = Mth.lerp(Mth.clamp((float) age / 1_850.0F,
-                    0.0F, 1.0F), 1.0F, 0.68F);
+                float narrowing = Mth.lerp(Mth.clamp((float) age / 3_000.0F,
+                    0.0F, 1.0F), 1.0F, 0.82F);
                 float radial = radialFraction * columnRadius * narrowing
                     * (0.66F + 0.34F * Mth.sin(progress * Mth.PI));
                 /* Recycle each billboard smoothly through the same tall flow path.
@@ -111,7 +113,7 @@ public final class NuclearCentralColumnRenderer {
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 11) * Mth.TWO_PI
                     + localAge * signed(random, 12) * 0.006F,
-                colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
+                colour.red, colour.green, colour.blue, alpha, heatLight(heat), basis);
         }
 
         renderCapReheat(pose, buffer, age, scale, seed, lod, hotPass, basis);
@@ -133,7 +135,7 @@ public final class NuclearCentralColumnRenderer {
             case FAR -> 140;
         };
         int count = Math.max(160, Math.round(baseCount * densityMultiplier()));
-        float innerRadius = 5.8F + 2.45F * scale;
+        float innerRadius = (5.8F + 2.45F * scale) * 1.28F;
         /* Share the packed cloud's exact cap curve so this hot core cannot outrun
            it and read as an independent dome. Keep it inside the lower cap. */
         float capCenter = packedCapCenterY(age, scale);
@@ -143,7 +145,7 @@ public final class NuclearCentralColumnRenderer {
             : smoothstep(Mth.clamp((float) ((3_200.0 - age) / 900.0),
                 0.0F, 1.0F));
         float ageHeat = 1.0F - smoothstep(Mth.clamp(
-            ((float) age - 260.0F) / 1_200.0F, 0.0F, 1.0F));
+            ((float) age - 110.0F) / 620.0F, 0.0F, 1.0F));
 
         for (int index = 0; index < count; index++) {
             long random = mix(seed ^ 0x4341505F52454854L
@@ -187,7 +189,7 @@ public final class NuclearCentralColumnRenderer {
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 9) * Mth.TWO_PI
                     + (float) age * signed(random, 10) * 0.005F,
-                colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
+                colour.red, colour.green, colour.blue, alpha, heatLight(heat), basis);
         }
     }
 
@@ -400,6 +402,12 @@ public final class NuclearCentralColumnRenderer {
         float t = heat / 0.48F;
         return new Colour(Mth.lerpInt(t, 102, 255),
             Mth.lerpInt(t, 82, 78), Mth.lerpInt(t, 72, 10));
+    }
+
+    private static int heatLight(final float heat) {
+        if (heat >= 0.58F) return 0xF000F0;
+        if (heat >= 0.42F) return 0xD000D0;
+        return 0xB000B0;
     }
 
     private record Colour(int red, int green, int blue) { }
