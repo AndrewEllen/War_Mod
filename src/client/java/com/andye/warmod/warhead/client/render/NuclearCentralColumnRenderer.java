@@ -14,7 +14,7 @@ public final class NuclearCentralColumnRenderer {
         final VertexConsumer buffer, final double age, final float visualScale,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
         final Quaternionf camera) {
-        if (age < 0.0 || age >= 2_400.0) return;
+        if (age < 0.0 || age >= 3_000.0) return;
         float scale = Mth.clamp(visualScale, 1.4F, 4.2F);
         float budget = densityMultiplier();
         int baseCount = switch (lod) {
@@ -44,6 +44,10 @@ public final class NuclearCentralColumnRenderer {
                 : 1_020.0F + unit(random, 2) * 1_020.0F;
             if (localAge >= life) continue;
             float progress = localAge / life;
+            /* This analytical helper is only the continuous feed. Letting every
+               helper particle flare at the end of its independent lifetime made a
+               second, late little dome above the packed mushroom. */
+            if (!craterBase && progress > 0.76F) continue;
             float lateCooling = Math.max(0.0F, ((float) age - 1_650.0F) / 950.0F);
             float heat = Mth.clamp(1.10F - progress * 0.88F - lateCooling * 0.52F
                 + signed(random, 3) * 0.10F, 0.0F, 1.0F);
@@ -73,30 +77,30 @@ public final class NuclearCentralColumnRenderer {
                 float radialFraction = Mth.sqrt(unit(random, 6));
                 float narrowing = Mth.lerp(Mth.clamp((float) age / 1_850.0F,
                     0.0F, 1.0F), 1.0F, 0.68F);
-                float capBlend = smoothstep(Mth.clamp((progress - 0.72F) / 0.28F,
-                    0.0F, 1.0F));
                 float radial = radialFraction * columnRadius * narrowing
                     * (0.66F + 0.34F * Mth.sin(progress * Mth.PI));
-                radial += capBlend * columnRadius * (0.45F + unit(random, 7) * 1.10F);
-                float riseProgress = Math.min(progress, 0.94F);
-                float rise = riseProgress * columnHeight;
+                float riseProgress = Math.min(progress, 0.90F);
+                float capUnderside = packedCapCenterY(age, scale)
+                    - packedCapDepth(age, scale) * 0.42F;
+                float rise = Math.min(riseProgress * columnHeight,
+                    Math.max(0.0F, capUnderside - craterFloor));
                 float wobble = Mth.sin(localAge * 0.049F
                     + unit(random, 8) * Mth.TWO_PI) * columnRadius * 0.16F;
                 px = Mth.cos(angle) * radial
                     + Mth.cos(angle + Mth.HALF_PI) * wobble;
                 pz = Mth.sin(angle) * radial
                     + Mth.sin(angle + Mth.HALF_PI) * wobble;
-                py = craterFloor + 0.18F + rise
-                    - capBlend * unit(random, 9) * 5.0F;
+                py = craterFloor + 0.18F + rise;
                 particleRadius = Mth.lerp(radialFraction,
                     3.1F + 0.44F * scale, 0.94F + 0.19F * scale)
-                    * (0.94F + unit(random, 10) * 0.42F)
-                    * (1.0F + capBlend * 0.24F);
+                    * (0.94F + unit(random, 10) * 0.42F);
             }
             float remaining = Mth.clamp(1.0F - progress, 0.0F, 1.0F);
             float alpha = (hotPass ? 0.96F : 0.86F)
                 * smoothstep(Mth.clamp(localAge / 6.0F, 0.0F, 1.0F))
-                * (float) Math.pow(remaining, 0.40F);
+                * (float) Math.pow(remaining, 0.40F)
+                * (craterBase ? 1.0F : smoothstep(Mth.clamp(
+                    (0.80F - progress) / 0.08F, 0.0F, 1.0F)));
             Colour colour = fireColour(heat);
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 11) * Mth.TWO_PI
@@ -104,8 +108,7 @@ public final class NuclearCentralColumnRenderer {
                 colour.red, colour.green, colour.blue, alpha, 0xF000F0, basis);
         }
 
-        renderCapReheat(pose, buffer, age, scale, seed, lod, hotPass,
-            craterFloor, columnHeight, basis);
+        renderCapReheat(pose, buffer, age, scale, seed, lod, hotPass, basis);
     }
 
     /**
@@ -116,8 +119,8 @@ public final class NuclearCentralColumnRenderer {
     private static void renderCapReheat(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double age, final float scale,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
-        final float craterFloor, final float columnHeight, final Basis basis) {
-        if (age < 120.0 || age >= 2_200.0) return;
+        final Basis basis) {
+        if (age < 120.0 || age >= 2_950.0) return;
         int baseCount = switch (lod) {
             case NEAR -> 720;
             case MEDIUM -> 350;
@@ -125,10 +128,13 @@ public final class NuclearCentralColumnRenderer {
         };
         int count = Math.max(160, Math.round(baseCount * densityMultiplier()));
         float innerRadius = 5.8F + 2.45F * scale;
-        float capBase = craterFloor + columnHeight * 0.72F;
-        float capDepth = 15.0F + 3.0F * scale;
-        float lateFade = age < 1_850.0 ? 1.0F
-            : smoothstep(Mth.clamp((float) ((2_200.0 - age) / 350.0),
+        /* Share the packed cloud's exact cap curve so this hot core cannot outrun
+           it and read as an independent dome. Keep it inside the lower cap. */
+        float capCenter = packedCapCenterY(age, scale);
+        float capBase = capCenter - packedCapDepth(age, scale) * 0.36F;
+        float capDepth = packedCapDepth(age, scale) * 0.56F;
+        float lateFade = age < 2_450.0 ? 1.0F
+            : smoothstep(Mth.clamp((float) ((2_950.0 - age) / 500.0),
                 0.0F, 1.0F));
 
         for (int index = 0; index < count; index++) {
@@ -140,11 +146,13 @@ public final class NuclearCentralColumnRenderer {
             float rise = smoothstep(cycle);
             float heatUp = smoothstep(Mth.clamp((cycle - 0.08F) / 0.42F,
                 0.0F, 1.0F));
-            float rapidTopCooling = 1.0F - smoothstep(Mth.clamp(
-                (cycle - 0.76F) / 0.18F, 0.0F, 1.0F));
-            float heat = Mth.clamp(heatUp * rapidTopCooling
+            /* Keep the incandescent centre through the upper cap for longer. The
+               low-opacity outer smoke still defines the mushroom silhouette. */
+            float topCooling = 1.0F - 0.34F * smoothstep(Mth.clamp(
+                (cycle - 0.78F) / 0.18F, 0.0F, 1.0F));
+            float heat = Mth.clamp(heatUp * topCooling
                 * (0.82F + unit(random, 2) * 0.22F), 0.0F, 1.0F);
-            boolean hot = heat >= 0.58F;
+            boolean hot = heat >= 0.50F;
             if (hot != hotPass || heat < 0.08F) continue;
 
             float angle = unit(random, 3) * Mth.TWO_PI
@@ -208,6 +216,10 @@ public final class NuclearCentralColumnRenderer {
                 : 1_520.0F + unit(random, 2) * 1_420.0F;
             if (localAge >= life) continue;
             float progress = localAge / life;
+            /* The packed field owns the mushroom cap. Keeping this helper as an
+               upward feed prevents its individually timed particles forming a
+               separate smoke dome later in the sequence. */
+            if (!baseCloud && progress > 0.80F) continue;
             float angle = unit(random, 3) * Mth.TWO_PI
                 + localAge * signed(random, 4)
                     * (baseCloud ? 0.0030F : 0.0060F);
@@ -233,24 +245,22 @@ public final class NuclearCentralColumnRenderer {
             } else {
                 float narrowing = Mth.lerp(Mth.clamp((float) age / 2_150.0F,
                     0.0F, 1.0F), 1.0F, 0.70F);
-                float capBlend = smoothstep(Mth.clamp((progress - 0.70F) / 0.30F,
-                    0.0F, 1.0F));
                 float radial = radialFraction * columnRadius * narrowing;
-                radial += capBlend * columnRadius * (0.35F + unit(random, 6) * 0.92F);
-                float riseProgress = Math.min(progress, 0.94F);
-                float rise = riseProgress * columnHeight;
+                float riseProgress = Math.min(progress, 0.90F);
+                float capUnderside = packedCapCenterY(age, scale)
+                    - packedCapDepth(age, scale) * 0.42F;
+                float rise = Math.min(riseProgress * columnHeight,
+                    Math.max(0.0F, capUnderside - craterFloor));
                 float curl = Mth.sin(localAge * 0.043F
                     + unit(random, 7) * Mth.TWO_PI) * columnRadius * 0.11F;
                 px = Mth.cos(angle) * radial
                     + Mth.cos(angle + Mth.HALF_PI) * curl;
                 pz = Mth.sin(angle) * radial
                     + Mth.sin(angle + Mth.HALF_PI) * curl;
-                py = craterFloor + 0.18F + rise
-                    - capBlend * unit(random, 8) * 6.0F;
+                py = craterFloor + 0.18F + rise;
                 particleRadius = Mth.lerp(radialFraction,
                     3.8F + 0.54F * scale, 1.22F + 0.24F * scale)
-                    * (0.96F + unit(random, 9) * 0.44F)
-                    * (1.0F + capBlend * 0.26F);
+                    * (0.96F + unit(random, 9) * 0.44F);
             }
             int tone = smokeTone(random, baseCloud, progress);
             float tail = progress < 0.90F ? 1.0F
@@ -258,12 +268,58 @@ public final class NuclearCentralColumnRenderer {
                     0.0F, 1.0F));
             float alpha = (baseCloud ? 0.86F : 0.95F)
                 * smoothstep(Mth.clamp(localAge / 7.0F, 0.0F, 1.0F))
-                * tail * systemFade;
+                * tail * systemFade * (baseCloud ? 1.0F : smoothstep(Mth.clamp(
+                    (0.84F - progress) / 0.08F, 0.0F, 1.0F)));
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 10) * Mth.TWO_PI
                     + localAge * signed(random, 11) * 0.0038F,
                 tone, tone, tone, alpha,
                 baseCloud ? 0x880088 : 0x900090, basis);
+        }
+        renderCondensationRing(pose, buffer, age, scale, seed, lod, basis);
+    }
+
+    /**
+     * A small, persistent ring of pale condensation follows the growing cap. It is
+     * rendered through the existing batched smoke pass, so it costs a bounded number
+     * of billboards and never competes with Minecraft's vanilla particle budget.
+     */
+    private static void renderCondensationRing(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final double age, final float scale,
+        final long seed, final WarheadMesh.Lod lod, final Basis basis) {
+        if (age < 105.0 || age >= 2_850.0) return;
+        int count = switch (lod) {
+            case NEAR -> 144;
+            case MEDIUM -> 64;
+            case FAR -> 28;
+        };
+        float capRadius = packedCapRadius(age, scale);
+        float capDepth = packedCapDepth(age, scale);
+        float capY = packedCapCenterY(age, scale);
+        float fadeIn = smoothstep(Mth.clamp(((float) age - 105.0F) / 130.0F,
+            0.0F, 1.0F));
+        float fadeOut = age < 2_420.0 ? 1.0F : smoothstep(Mth.clamp(
+            (2_850.0F - (float) age) / 430.0F, 0.0F, 1.0F));
+        for (int index = 0; index < count; index++) {
+            long random = mix(seed ^ 0x434F4E44454E534CL
+                ^ index * 0x9E3779B97F4A7C15L);
+            float angle = unit(random, 0) * Mth.TWO_PI
+                + (float) age * signed(random, 1) * 0.0018F;
+            float lobe = Mth.sin(angle * 5.0F + unit(random, 2) * Mth.TWO_PI);
+            float radius = capRadius * (0.72F + unit(random, 3) * 0.34F)
+                + lobe * capRadius * 0.055F;
+            float px = Mth.cos(angle) * radius;
+            float pz = Mth.sin(angle) * radius;
+            float py = capY + capDepth * (0.24F + signed(random, 4) * 0.30F)
+                + Mth.sin((float) age * 0.026F + unit(random, 5) * Mth.TWO_PI)
+                    * (0.6F + scale * 0.22F);
+            float particleRadius = (1.45F + unit(random, 6) * 2.85F)
+                * (0.88F + scale * 0.11F);
+            int tone = 202 + Math.floorMod((int) (random >>> 20), 44);
+            float alpha = (0.22F + unit(random, 7) * 0.20F) * fadeIn * fadeOut;
+            billboard(pose, buffer, px, py, pz, particleRadius,
+                unit(random, 8) * Mth.TWO_PI + (float) age * signed(random, 9) * 0.003F,
+                tone, tone, Mth.clamp(tone + 5, 0, 255), alpha, 0xC000C0, basis);
         }
     }
 
@@ -272,6 +328,27 @@ public final class NuclearCentralColumnRenderer {
             + Mth.sqrt((float) Math.max(0.0, age)) * 1.90F;
         float cap = 154.0F + 18.0F * scale;
         return Math.min(growing, cap);
+    }
+
+    private static float packedCapCenterY(final double age, final float scale) {
+        float yield = Mth.clamp(scale / 2.70F, 0.55F, 1.55F);
+        float craterRadius = 12.0F + 13.0F * scale;
+        float launch = craterRadius * 0.20F;
+        float early = Math.min((float) age, 150.0F) * (0.33F + 0.055F * yield);
+        float late = Mth.sqrt(Math.max(0.0F, (float) age - 150.0F))
+            * (1.82F + 0.36F * yield);
+        return launch + early + late;
+    }
+
+    private static float packedCapRadius(final double age, final float scale) {
+        float yield = Mth.clamp(scale / 2.70F, 0.55F, 1.55F);
+        float growth = Mth.sqrt(Mth.clamp((float) age / 520.0F, 0.0F, 1.0F));
+        return (24.0F + 44.0F * yield) * (0.025F + 0.975F * growth);
+    }
+
+    private static float packedCapDepth(final double age, final float scale) {
+        float yield = Mth.clamp(scale / 2.70F, 0.55F, 1.55F);
+        return packedCapRadius(age, scale) * (0.46F + 0.07F * yield);
     }
 
     private static float densityMultiplier() {
@@ -283,8 +360,9 @@ public final class NuclearCentralColumnRenderer {
     private static int smokeTone(final long random, final boolean baseCloud,
         final float progress) {
         int variation = Math.floorMod((int) (random >>> 19), 58);
-        int base = baseCloud ? 54 : 38;
-        return Mth.clamp(base + variation - (int) (progress * 20.0F), 24, 116);
+        int base = baseCloud ? 42 : 62;
+        if (!baseCloud && Math.floorMod((int) (random >>> 11), 10) <= 1) base += 48;
+        return Mth.clamp(base + variation - (int) (progress * 20.0F), 24, 188);
     }
 
     private static Colour fireColour(final float heat) {

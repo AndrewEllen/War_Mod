@@ -32,7 +32,13 @@ public final class WarheadGlassShockwaveManager {
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final int NUCLEAR_AFTERMATH_DELAY_TICKS = 80;
-    private static final int NUCLEAR_AFTERMATH_COLUMNS_PER_TICK = 2_048;
+    /*
+     * The wasteland is intentionally spread over several ticks.  A nuclear
+     * impact may cover tens of thousands of surface columns, but it must never
+     * turn that into one large server-thread sweep.
+     */
+    private static final int NUCLEAR_AFTERMATH_COLUMNS_PER_TICK = 640;
+    private static final double NUCLEAR_AFTERMATH_RADIUS_SCALE = 3.0;
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static final Map<Block, Boolean> GLASS_BLOCK_CACHE = new IdentityHashMap<>();
@@ -101,6 +107,7 @@ public final class WarheadGlassShockwaveManager {
         private final boolean nuclear;
         private final double craterRadius;
         private final int aftermathRadius;
+        private final int aftermathStep;
         private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         private final BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
         private final LongOpenHashSet pressureColumns = new LongOpenHashSet(MAX_COLUMNS_PER_WAVE_TICK * 2);
@@ -119,8 +126,10 @@ public final class WarheadGlassShockwaveManager {
             this.visualScale = visualScale;
             this.nuclear = nuclear;
             this.craterRadius = nuclear ? 12.0 + 13.0 * visualScale : 0.0;
+            /* Keep the excavated crater unchanged; only the burned surface reaches out further. */
             this.aftermathRadius = nuclear
-                ? Mth.ceil(craterRadius * 1.55) : 0;
+                ? Mth.ceil(craterRadius * NUCLEAR_AFTERMATH_RADIUS_SCALE) : 0;
+            this.aftermathStep = aftermathRadius > 112 ? 2 : 1;
             this.aftermathX = -aftermathRadius;
             this.aftermathZ = -aftermathRadius;
             this.lastPressureGameTime = startGameTime - 1L;
@@ -222,16 +231,20 @@ public final class WarheadGlassShockwaveManager {
                     if (scorchIntensity > 0.0) {
                         long hash = seed ^ cursor.asLong() ^ 0x4153485F54524545L;
                         if (state.is(BlockTags.LEAVES)) {
-                            double stripChance = Mth.clamp(0.18 + scorchIntensity * 0.92,
-                                0.0, 1.0);
+                            /* A nuclear fireball fully strips the trees nearest to its crater. */
+                            double stripChance = nuclear && radialDistance <= craterRadius * 2.15
+                                ? 1.0
+                                : Mth.clamp(0.18 + scorchIntensity * 0.92, 0.0, 1.0);
                             if (unit(hash) < stripChance) {
                                 level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
                             }
                             continue;
                         }
                         if (state.is(BlockTags.LOGS)) {
-                            double ashChance = Mth.clamp((scorchIntensity - 0.16) * 1.18,
-                                0.0, 0.92);
+                            /* Preserve the existing pale-log visual, but make its inner blast path reliable. */
+                            double ashChance = nuclear && radialDistance <= craterRadius * 2.55
+                                ? 1.0
+                                : Mth.clamp((scorchIntensity - 0.16) * 1.18, 0.0, 0.92);
                             if (unit(hash ^ 0x50414C455F4F414BL) < ashChance) {
                                 level.setBlock(cursor, Blocks.PALE_OAK_LOG.defaultBlockState(),
                                     UPDATE_FLAGS);
@@ -256,18 +269,18 @@ public final class WarheadGlassShockwaveManager {
                 && visited < NUCLEAR_AFTERMATH_COLUMNS_PER_TICK) {
                 int dx = aftermathX;
                 int dz = aftermathZ;
-                aftermathZ++;
+                aftermathZ += aftermathStep;
                 if (aftermathZ > aftermathRadius) {
                     aftermathZ = -aftermathRadius;
-                    aftermathX++;
+                    aftermathX += aftermathStep;
                 }
                 if ((double) dx * dx + (double) dz * dz
                     > (double) aftermathRadius * aftermathRadius) continue;
+                visited++;
                 int x = Mth.floor(center.x) + dx;
                 int z = Mth.floor(center.z) + dz;
                 if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
                 transformNuclearColumn(level, x, z, Math.sqrt((double) dx * dx + (double) dz * dz));
-                visited++;
             }
             return aftermathX > aftermathRadius;
         }
@@ -275,29 +288,56 @@ public final class WarheadGlassShockwaveManager {
         private void transformNuclearColumn(final ServerLevel level, final int x,
             final int z, final double radialDistance) {
             double craterNormalized = radialDistance / Math.max(1.0, craterRadius);
+            double aftermathNormalized = radialDistance / Math.max(1.0, aftermathRadius);
             int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
             if (surfaceY < level.dimensionType().minY()) return;
             long columnHash = seed ^ ((long) x << 32) ^ (z & 0xFFFFFFFFL)
                 ^ 0x4E55434C45415235L;
 
-            for (int depth = 0; depth <= 6; depth++) {
+            int replacementDepth = aftermathNormalized < 0.45 ? 3
+                : aftermathNormalized < 0.78 ? 2 : 1;
+            for (int depth = 0; depth <= replacementDepth; depth++) {
                 cursor.set(x, surfaceY - depth, z);
                 if (!level.isInWorldBounds(cursor)) continue;
                 BlockState state = level.getBlockState(cursor);
                 if (state.isAir()) continue;
                 long hash = columnHash ^ cursor.asLong() ^ depth * 0x9E3779B97F4A7C15L;
 
+                if (state.is(Blocks.SNOW) || state.is(Blocks.SNOW_BLOCK)) {
+                    level.setBlock(cursor, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                    continue;
+                }
+
                 if (state.is(Blocks.SAND)) {
-                    level.setBlock(cursor, fusedSand(hash, false, craterNormalized), UPDATE_FLAGS);
+                    BlockState replacement = craterNormalized <= 1.65
+                        ? fusedSand(hash, false, craterNormalized)
+                        : Blocks.GRAVEL.defaultBlockState();
+                    level.setBlock(cursor, replacement, UPDATE_FLAGS);
                     continue;
                 }
                 if (state.is(Blocks.RED_SAND)) {
-                    level.setBlock(cursor, fusedSand(hash, true, craterNormalized), UPDATE_FLAGS);
+                    BlockState replacement = craterNormalized <= 1.65
+                        ? fusedSand(hash, true, craterNormalized)
+                        : Blocks.TERRACOTTA.defaultBlockState();
+                    level.setBlock(cursor, replacement, UPDATE_FLAGS);
                     continue;
                 }
 
                 if (isSoil(state) && craterNormalized <= 1.52) {
                     level.setBlock(cursor, scorchedSoil(hash, craterNormalized), UPDATE_FLAGS);
+                    continue;
+                }
+
+                /*
+                 * Beyond the unchanged crater rim, replace only the natural
+                 * surface layers.  The deterministic chance feathers the edge
+                 * rather than producing a perfectly circular scar.
+                 */
+                double edgeFalloff = Math.pow(Math.max(0.0, 1.0 - aftermathNormalized), 0.65);
+                double outerReplacementChance = 0.12 + edgeFalloff * 0.74;
+                if (isSoil(state) && unit(hash ^ 0x4F555445525F4153L)
+                    < outerReplacementChance) {
+                    level.setBlock(cursor, outerScorchedSoil(hash), UPDATE_FLAGS);
                     continue;
                 }
 
@@ -307,8 +347,10 @@ public final class WarheadGlassShockwaveManager {
                 }
             }
 
-            if (craterNormalized <= 1.36 && unit(columnHash ^ 0x464952455F414654L)
-                < Math.max(0.0, 0.13 - craterNormalized * 0.055)) {
+            double fireChance = craterNormalized <= 1.36
+                ? Math.max(0.0, 0.13 - craterNormalized * 0.055)
+                : Math.max(0.0, 0.008 - aftermathNormalized * 0.005);
+            if (unit(columnHash ^ 0x464952455F414654L) < fireChance) {
                 cursor.set(x, surfaceY + 1, z);
                 if (level.isInWorldBounds(cursor) && level.getBlockState(cursor).isAir()) {
                     level.setBlock(cursor, Blocks.FIRE.defaultBlockState(), UPDATE_FLAGS);
@@ -340,6 +382,13 @@ public final class WarheadGlassShockwaveManager {
             }
             if (selector < 0.42) return Blocks.PODZOL.defaultBlockState();
             if (selector < 0.74) return Blocks.COARSE_DIRT.defaultBlockState();
+            return Blocks.ROOTED_DIRT.defaultBlockState();
+        }
+
+        private BlockState outerScorchedSoil(final long hash) {
+            double selector = unit(hash ^ 0x4F55544552534F49L);
+            if (selector < 0.58) return Blocks.COARSE_DIRT.defaultBlockState();
+            if (selector < 0.84) return Blocks.PODZOL.defaultBlockState();
             return Blocks.ROOTED_DIRT.defaultBlockState();
         }
 
