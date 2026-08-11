@@ -6,6 +6,7 @@ import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import com.andye.warmod.warhead.WarheadImpactService;
+import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
 import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.HashSet;
@@ -42,6 +43,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     private final Set<ChunkPos> heldChunks = new HashSet<>();
     private boolean impacted;
     private boolean cleaned;
+    private boolean terrainPreparationScheduled;
     private int chunkWaitTicks;
 
     public ArtilleryWarheadEntity(final EntityType<? extends ArtilleryWarheadEntity> type, final Level level) { super(type, level); noPhysics = true; setNoGravity(true); }
@@ -61,6 +63,14 @@ public final class ArtilleryWarheadEntity extends Entity {
         super.tick();
         if (impacted || !(level() instanceof ServerLevel server)) return;
         if (!position().isFinite() || !target.isFinite() || !velocity.isFinite() || tickCount > 1_200) { discard(); return; }
+        if (!terrainPreparationScheduled && yield.nuclear()) {
+            WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(
+                server, id, target, yield, seed,
+                Math.max(1, entityData.get(DATA_FLIGHT_TICKS)
+                    + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS + 120)
+            );
+            terrainPreparationScheduled = true;
+        }
         Set<ChunkPos> desired = desiredChunks();
         Vec3 from = position();
         Vec3 next = from.add(velocity);
@@ -84,7 +94,13 @@ public final class ArtilleryWarheadEntity extends Entity {
         Set<ChunkPos> desired = new HashSet<>();
         Vec3 ahead = position().add(velocity.scale(ArtilleryConstants.STREAM_LOOKAHEAD_TICKS));
         IcbmChunkTicketRegistry.addSegmentWindow(desired, position(), ahead, 1, 16.0);
-        if (position().distanceTo(target) <= ArtilleryConstants.MAX_MUZZLE_SPEED * ArtilleryConstants.TARGET_LEAD_TICKS) IcbmChunkTicketRegistry.addWindow(desired, IcbmChunkTicketRegistry.chunk(target), IcbmConstants.IMPACT_CHUNK_RADIUS);
+        int impactLeadTicks = yield.nuclear()
+            ? Math.max(ArtilleryConstants.TARGET_LEAD_TICKS, 96)
+            : ArtilleryConstants.TARGET_LEAD_TICKS;
+        if (position().distanceTo(target) <= ArtilleryConstants.MAX_MUZZLE_SPEED * impactLeadTicks) {
+            IcbmChunkTicketRegistry.addWindow(
+                desired, IcbmChunkTicketRegistry.chunk(target), IcbmConstants.IMPACT_CHUNK_RADIUS);
+        }
         return desired;
     }
     private boolean prepareChunks(final ServerLevel level, final Set<ChunkPos> desired,

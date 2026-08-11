@@ -21,6 +21,13 @@ import org.joml.Vector3f;
 public final class ConventionalBlastParticleRenderer {
     private static final int MAX_FIELDS = 8;
     private static final int CAPACITY = 65_536;
+    /*
+     * The nuclear return front is a persistent, packed ring.  Keep it below
+     * the backing field capacity so the pressure front never has to compete
+     * for whatever slots happen to be released that tick.  Its deliberately
+     * short trail is still wider than the visible pressure band.
+     */
+    private static final int RETURN_ACTIVE_CAP = 54_000;
     private static final float HE_FIRE_TOP = 4.75F;
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
     private static final Map<Long, Field> FIELDS = new LinkedHashMap<>(16, 0.75F, true);
@@ -214,6 +221,7 @@ public final class ConventionalBlastParticleRenderer {
         private int simulatedTick = -1;
         private int freeCount;
         private int activeCount;
+        private int activeReturnCount;
         private int spawnedLastTick;
         private int culledLastRender;
         private int lastSurfaceTick = Integer.MIN_VALUE;
@@ -239,6 +247,7 @@ public final class ConventionalBlastParticleRenderer {
             }
             freeCount = CAPACITY;
             activeCount = 0;
+            activeReturnCount = 0;
         }
 
         private void ensureSimulated(final double renderedAge) {
@@ -493,7 +502,20 @@ public final class ConventionalBlastParticleRenderer {
             };
             int count = Math.min(1_900,
                 Math.round(base * (0.78F + (float) Math.sqrt(scale))));
-            for (int index = 0; index < count; index++) {
+            int admitted = Math.min(count,
+                Math.max(0, RETURN_ACTIVE_CAP - activeReturnCount));
+            if (admitted <= 0) return;
+            /*
+             * A field near its cap may only accept some of this tick's ring.
+             * Spread those admissions over the whole circumference rather
+             * than filling the low angular indices first: otherwise released
+             * slots make a visibly clockwise arc appear at the end of a nuke.
+             */
+            int angularOffset = Math.floorMod((int) mix(seed
+                ^ 0x52455455524E4F46L ^ ((long) tick << 19)), count);
+            for (int emission = 0; emission < admitted; emission++) {
+                int index = Math.floorMod((int) (((long) emission * count) / admitted)
+                    + angularOffset, count);
                 long random = mix(seed ^ 0x52455455524E5633L ^ ((long) tick << 32)
                     ^ index * 0xD1B54A32D192ED03L);
                 float angle = (index + unit(random, 0)) / count * Mth.TWO_PI;
@@ -509,7 +531,7 @@ public final class ConventionalBlastParticleRenderer {
                     -Mth.sin(angle) * inward,
                     0.0F,
                     (0.30F + unit(random, 5) * 0.56F) * (0.96F + 0.10F * scale),
-                    Math.round(100.0F + unit(random, 6) * 90.0F),
+                    Math.round(26.0F + unit(random, 6) * 18.0F),
                     (int) random);
             }
         }
@@ -536,6 +558,7 @@ public final class ConventionalBlastParticleRenderer {
             particleSeed[slot] = randomSeed;
             material[slot] = particleMaterial;
             flags[slot] = particleFlags;
+            if (particleMaterial == MATERIAL_RETURN) activeReturnCount++;
             spawnedLastTick++;
         }
 
@@ -548,6 +571,7 @@ public final class ConventionalBlastParticleRenderer {
 
         private void removeActiveAt(final int activePosition) {
             int removedSlot = activeSlots[activePosition];
+            if (material[removedSlot] == MATERIAL_RETURN) activeReturnCount--;
             int lastPosition = --activeCount;
             if (activePosition < lastPosition) activeSlots[activePosition] = activeSlots[lastPosition];
             freeSlots[freeCount++] = removedSlot;

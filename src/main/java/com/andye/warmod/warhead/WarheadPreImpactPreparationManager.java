@@ -61,6 +61,27 @@ public final class WarheadPreImpactPreparationManager {
         levelWork.enqueue(preparation);
     }
 
+    /**
+     * Starts the nuclear surface discovery as soon as a caller already knows
+     * its yield, seed and intended impact.  ICBMs get those values only once
+     * their terminal entity is observed, while artillery and timed charges
+     * know them at launch/fuse time.  The scan is deliberately read-only and
+     * ignores unloaded chunks; it never expands the caller's chunk lease.
+     */
+    public static void scheduleKnownNuclearTerrain(
+        final ServerLevel level,
+        final UUID warheadId,
+        final Vec3 intendedTarget,
+        final WarheadYield yield,
+        final long seed,
+        final int lifetimeTicks
+    ) {
+        if (level == null || warheadId == null || intendedTarget == null
+            || !intendedTarget.isFinite() || yield == null || !yield.nuclear()) return;
+        WarheadGlassShockwaveManager.prepareNuclearTerrain(
+            level, warheadId, intendedTarget, yield, seed, lifetimeTicks);
+    }
+
     public static synchronized Optional<List<WarheadExplosionDropContext.DestroyedBlock>> consume(
         final ServerLevel level,
         final UUID warheadId,
@@ -257,6 +278,10 @@ public final class WarheadPreImpactPreparationManager {
                 );
                 seed = entity.visualSeed();
                 effectiveCenter = WarheadExplosionWorkManager.resolveDetonationCenter(level, intendedTarget, yield);
+                scheduleKnownNuclearTerrain(
+                    level, warheadId, effectiveCenter, yield, seed,
+                    Math.max(1, (int) (expiresAt - level.getGameTime()))
+                );
                 sampler = WarheadDebrisSourceSampler.begin(effectiveCenter, yield, seed, levelWork.terrainCache);
             }
             return sampler.advance(level, budget);

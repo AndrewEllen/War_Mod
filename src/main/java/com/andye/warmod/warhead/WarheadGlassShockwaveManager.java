@@ -1,9 +1,13 @@
 package com.andye.warmod.warhead;
 
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.function.Predicate;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
@@ -31,21 +35,18 @@ public final class WarheadGlassShockwaveManager {
         WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
-    private static final int NUCLEAR_AFTERMATH_DELAY_TICKS = 80;
-    /*
-     * The wasteland is intentionally spread over several ticks.  A nuclear
-     * impact may cover tens of thousands of surface columns, but it must never
-     * turn that into one large server-thread sweep.
-     */
-    private static final int NUCLEAR_AFTERMATH_COLUMNS_PER_TICK = 640;
     private static final double NUCLEAR_AFTERMATH_RADIUS_SCALE = 3.0;
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
+    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 768;
+    private static final int PREPARED_MUTATIONS_PER_WAVE_TICK = 4_096;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static final Map<Block, Boolean> GLASS_BLOCK_CACHE = new IdentityHashMap<>();
     private static final Predicate<BlockState> PRESSURE_RELEVANT = state ->
         Wave.isGlass(state) || state.is(BlockTags.LEAVES) || state.is(BlockTags.LOGS)
             || Wave.isFragileSurface(state);
     private static final Map<ServerLevel, ArrayDeque<Wave>> WAVES = new IdentityHashMap<>();
+    private static final Map<ServerLevel, Map<java.util.UUID, NuclearTerrainPreparation>>
+        NUCLEAR_PREPARATIONS = new IdentityHashMap<>();
     private static boolean registered;
 
     private WarheadGlassShockwaveManager() { }
@@ -56,6 +57,7 @@ public final class WarheadGlassShockwaveManager {
         ServerLevelEvents.UNLOAD.register((server, level) -> {
             synchronized (WarheadGlassShockwaveManager.class) {
                 WAVES.remove(level);
+                NUCLEAR_PREPARATIONS.remove(level);
             }
         });
         registered = true;
@@ -72,9 +74,51 @@ public final class WarheadGlassShockwaveManager {
         double maximumRadius = nuclear
             ? 72.0 + visualScale * 58.0
             : conventionalGlassRadius(visualScale);
+        NuclearTerrainPreparation preparation = nuclear
+            ? takePreparation(level, payload.warheadId()) : null;
+        if (nuclear && preparation == null) {
+            /* Direct/master-stick detonation fallback: discover only chunks already present. */
+            double craterRadius = 12.0 + 13.0 * visualScale;
+            preparation = new NuclearTerrainPreparation(
+                center, payload.visualSeed(), craterRadius,
+                Mth.ceil(craterRadius * NUCLEAR_AFTERMATH_RADIUS_SCALE),
+                payload.impactGameTime() + 420L
+            );
+        }
         WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(new Wave(
             center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
-            visualScale, nuclear));
+            visualScale, nuclear, preparation));
+    }
+
+    /**
+     * Read-only terrain discovery for a known incoming nuclear impact.  It is
+     * intentionally server-side: GPU queries cannot safely read or mutate an
+     * authoritative Minecraft world.  Only chunks already loaded by the
+     * caller's normal route/impact leases are inspected.
+     */
+    public static synchronized void prepareNuclearTerrain(
+        final ServerLevel level,
+        final java.util.UUID impactId,
+        final Vec3 center,
+        final WarheadYield yield,
+        final long seed,
+        final int lifetimeTicks
+    ) {
+        if (level == null || impactId == null || center == null || !center.isFinite()
+            || yield == null || !yield.nuclear()) return;
+        float visualScale = Mth.clamp(yield.visualScale(), 0.28F, 4.2F);
+        double craterRadius = 12.0 + 13.0 * visualScale;
+        int aftermathRadius = Mth.ceil(craterRadius * NUCLEAR_AFTERMATH_RADIUS_SCALE);
+        long expiresAt = level.getGameTime() + Math.max(1, lifetimeTicks);
+        Map<java.util.UUID, NuclearTerrainPreparation> preparations =
+            NUCLEAR_PREPARATIONS.computeIfAbsent(level, ignored -> new HashMap<>());
+        NuclearTerrainPreparation existing = preparations.get(impactId);
+        if (existing != null && existing.compatible(center, seed, aftermathRadius)) {
+            existing.extend(expiresAt);
+            return;
+        }
+        preparations.put(impactId, new NuclearTerrainPreparation(
+            center, seed, craterRadius, aftermathRadius, expiresAt));
     }
 
     private static double conventionalGlassRadius(final float visualScale) {
@@ -85,6 +129,7 @@ public final class WarheadGlassShockwaveManager {
     }
 
     private static synchronized void tick(final ServerLevel level) {
+        advancePreparations(level);
         ArrayDeque<Wave> waves = WAVES.get(level);
         if (waves == null || waves.isEmpty()) return;
         long gameTime = level.getGameTime();
@@ -98,6 +143,36 @@ public final class WarheadGlassShockwaveManager {
         if (waves.isEmpty()) WAVES.remove(level);
     }
 
+    private static void advancePreparations(final ServerLevel level) {
+        Map<java.util.UUID, NuclearTerrainPreparation> preparations = NUCLEAR_PREPARATIONS.get(level);
+        if (preparations == null || preparations.isEmpty()) return;
+        long now = level.getGameTime();
+        Iterator<Map.Entry<java.util.UUID, NuclearTerrainPreparation>> iterator =
+            preparations.entrySet().iterator();
+        int remaining = NUCLEAR_PREPARATION_COLUMNS_PER_TICK;
+        while (iterator.hasNext()) {
+            Map.Entry<java.util.UUID, NuclearTerrainPreparation> entry = iterator.next();
+            NuclearTerrainPreparation preparation = entry.getValue();
+            if (now >= preparation.expiresAt) {
+                iterator.remove();
+                continue;
+            }
+            if (remaining <= 0 || preparation.complete()) continue;
+            remaining -= preparation.advance(level, Math.min(192, remaining));
+        }
+        if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
+    }
+
+    private static NuclearTerrainPreparation takePreparation(
+        final ServerLevel level, final java.util.UUID impactId
+    ) {
+        Map<java.util.UUID, NuclearTerrainPreparation> preparations = NUCLEAR_PREPARATIONS.get(level);
+        if (preparations == null) return null;
+        NuclearTerrainPreparation preparation = preparations.remove(impactId);
+        if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
+        return preparation;
+    }
+
     private static final class Wave {
         private final Vec3 center;
         private final long startGameTime;
@@ -107,18 +182,17 @@ public final class WarheadGlassShockwaveManager {
         private final boolean nuclear;
         private final double craterRadius;
         private final int aftermathRadius;
-        private final int aftermathStep;
+        private final NuclearTerrainPreparation preparation;
         private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         private final BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
         private final LongOpenHashSet pressureColumns = new LongOpenHashSet(MAX_COLUMNS_PER_WAVE_TICK * 2);
         private long lastPressureGameTime;
         private double processedRadius;
         private boolean pressureComplete;
-        private int aftermathX;
-        private int aftermathZ;
 
         private Wave(final Vec3 center, final long startGameTime, final long seed,
-            final double maximumRadius, final float visualScale, final boolean nuclear) {
+            final double maximumRadius, final float visualScale, final boolean nuclear,
+            final NuclearTerrainPreparation preparation) {
             this.center = center;
             this.startGameTime = startGameTime;
             this.seed = seed;
@@ -129,30 +203,39 @@ public final class WarheadGlassShockwaveManager {
             /* Keep the excavated crater unchanged; only the burned surface reaches out further. */
             this.aftermathRadius = nuclear
                 ? Mth.ceil(craterRadius * NUCLEAR_AFTERMATH_RADIUS_SCALE) : 0;
-            this.aftermathStep = aftermathRadius > 112 ? 2 : 1;
-            this.aftermathX = -aftermathRadius;
-            this.aftermathZ = -aftermathRadius;
+            this.preparation = preparation;
             this.lastPressureGameTime = startGameTime - 1L;
         }
 
         private boolean advance(final ServerLevel level, final long gameTime) {
+            if (nuclear && preparation != null && !preparation.complete()) {
+                if (gameTime <= preparation.expiresAt) {
+                    preparation.advance(level, NUCLEAR_PREPARATION_COLUMNS_PER_TICK);
+                } else {
+                    preparation.stopDiscovery();
+                }
+            }
             if (!pressureComplete) {
                 long pressureGameTime = Math.min(gameTime, lastPressureGameTime + 1L);
                 advancePressure(level, pressureGameTime);
                 lastPressureGameTime = pressureGameTime;
                 if (processedRadius + 0.01 < maximumRadius) return false;
                 pressureComplete = true;
-                if (!nuclear) return true;
             }
-            if (!nuclear) return true;
-            if (gameTime - startGameTime < NUCLEAR_AFTERMATH_DELAY_TICKS) return false;
-            return advanceNuclearAftermath(level);
+            if (!nuclear || preparation == null) return true;
+            applyPreparedNuclearTerrain(level, maximumRadius);
+            /* Keep bounded direct-impact fallback work alive until its loaded terrain is drained. */
+            return !preparation.hasPendingWork();
         }
 
         private void advancePressure(final ServerLevel level, final long gameTime) {
             double targetRadius = Math.min(maximumRadius,
                 Math.max(0.0, gameTime - startGameTime + 1.0) * SPEED_BLOCKS_PER_TICK);
             if (targetRadius <= processedRadius + 0.01) return;
+
+            if (nuclear && preparation != null) {
+                applyPreparedNuclearTerrain(level, targetRadius);
+            }
 
             double innerRadius = Math.max(0.0, processedRadius - 1.25);
             double annulusWidth = Math.max(0.75, targetRadius - innerRadius);
@@ -182,6 +265,41 @@ public final class WarheadGlassShockwaveManager {
                 }
             }
             processedRadius = targetRadius;
+        }
+
+        private void applyPreparedNuclearTerrain(final ServerLevel level,
+            final double targetRadius) {
+            int shell = NuclearTerrainPreparation.shellFor(targetRadius);
+            int remaining = PREPARED_MUTATIONS_PER_WAVE_TICK;
+            int fairShare = Math.max(1, remaining / 3);
+            for (long packed : preparation.takeLeaves(shell, fairShare)) {
+                BlockPos position = BlockPos.of(packed);
+                if (!level.getChunkSource().hasChunk(position.getX() >> 4, position.getZ() >> 4)) continue;
+                if (level.getBlockState(position).is(BlockTags.LEAVES)) {
+                    level.setBlock(position, Blocks.AIR.defaultBlockState(), UPDATE_FLAGS);
+                }
+                remaining--;
+                if (remaining <= 0) return;
+            }
+            fairShare = Math.max(1, remaining / 2);
+            for (long packed : preparation.takeLogs(shell, fairShare)) {
+                BlockPos position = BlockPos.of(packed);
+                if (!level.getChunkSource().hasChunk(position.getX() >> 4, position.getZ() >> 4)) continue;
+                if (level.getBlockState(position).is(BlockTags.LOGS)) {
+                    level.setBlock(position, Blocks.PALE_OAK_LOG.defaultBlockState(), UPDATE_FLAGS);
+                }
+                remaining--;
+                if (remaining <= 0) return;
+            }
+            for (long packed : preparation.takeSurfaceColumns(shell, remaining)) {
+                BlockPos column = BlockPos.of(packed);
+                if (!level.getChunkSource().hasChunk(column.getX() >> 4, column.getZ() >> 4)) continue;
+                double dx = column.getX() + 0.5 - center.x;
+                double dz = column.getZ() + 0.5 - center.z;
+                transformNuclearColumn(level, column.getX(), column.getZ(), Math.sqrt(dx * dx + dz * dz));
+                remaining--;
+                if (remaining <= 0) return;
+            }
         }
 
         private void processPressureColumn(final ServerLevel level, final int x, final int z,
@@ -263,28 +381,6 @@ public final class WarheadGlassShockwaveManager {
             }
         }
 
-        private boolean advanceNuclearAftermath(final ServerLevel level) {
-            int visited = 0;
-            while (aftermathX <= aftermathRadius
-                && visited < NUCLEAR_AFTERMATH_COLUMNS_PER_TICK) {
-                int dx = aftermathX;
-                int dz = aftermathZ;
-                aftermathZ += aftermathStep;
-                if (aftermathZ > aftermathRadius) {
-                    aftermathZ = -aftermathRadius;
-                    aftermathX += aftermathStep;
-                }
-                if ((double) dx * dx + (double) dz * dz
-                    > (double) aftermathRadius * aftermathRadius) continue;
-                visited++;
-                int x = Mth.floor(center.x) + dx;
-                int z = Mth.floor(center.z) + dz;
-                if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
-                transformNuclearColumn(level, x, z, Math.sqrt((double) dx * dx + (double) dz * dz));
-            }
-            return aftermathX > aftermathRadius;
-        }
-
         private void transformNuclearColumn(final ServerLevel level, final int x,
             final int z, final double radialDistance) {
             double craterNormalized = radialDistance / Math.max(1.0, craterRadius);
@@ -347,9 +443,10 @@ public final class WarheadGlassShockwaveManager {
                 }
             }
 
-            double fireChance = craterNormalized <= 1.36
-                ? Math.max(0.0, 0.13 - craterNormalized * 0.055)
-                : Math.max(0.0, 0.008 - aftermathNormalized * 0.005);
+            /* Isolated burn pockets rather than a continuous ring of fire. */
+            double fireChance = craterNormalized <= 1.20
+                ? Math.max(0.0, 0.028 - craterNormalized * 0.016)
+                : Math.max(0.0, 0.003 - aftermathNormalized * 0.002);
             if (unit(columnHash ^ 0x464952455F414654L) < fireChance) {
                 cursor.set(x, surfaceY + 1, z);
                 if (level.isInWorldBounds(cursor) && level.getBlockState(cursor).isAir()) {
@@ -455,6 +552,210 @@ public final class WarheadGlassShockwaveManager {
                 || state.is(Blocks.FERN) || state.is(Blocks.LARGE_FERN)
                 || state.is(Blocks.VINE) || state.is(Blocks.SNOW)
                 || state.is(Blocks.BROWN_MUSHROOM) || state.is(Blocks.RED_MUSHROOM);
+        }
+    }
+
+    /**
+     * Incremental, loaded-chunk-only discovery of the surface and exposed
+     * vegetation the nuclear pressure front will reach.  The scan stores no
+     * block states: mutations re-check the live block state when the front
+     * arrives, so another explosion or a player edit cannot be overwritten.
+     */
+    private static final class NuclearTerrainPreparation {
+        private static final int TREE_SCAN_ABOVE_SURFACE = 64;
+        private static final int TREE_SCAN_BELOW_SURFACE = 4;
+        private final Vec3 center;
+        private final long seed;
+        private final double treeRadius;
+        private final int radius;
+        private final Map<Integer, LongArrayList> leavesByShell = new HashMap<>();
+        private final Map<Integer, LongArrayList> logsByShell = new HashMap<>();
+        private final Map<Integer, LongArrayList> surfacesByShell = new HashMap<>();
+        private long expiresAt;
+        private final LongOpenHashSet deferredColumns = new LongOpenHashSet();
+        private int scanRing;
+        private int scanPerimeterOffset;
+        private boolean mainScanComplete;
+
+        private NuclearTerrainPreparation(final Vec3 center, final long seed,
+            final double craterRadius, final int radius, final long expiresAt) {
+            this.center = center;
+            this.seed = seed;
+            this.treeRadius = craterRadius * 2.55;
+            this.radius = radius;
+            this.expiresAt = expiresAt;
+            this.scanRing = 0;
+        }
+
+        private boolean compatible(final Vec3 otherCenter, final long otherSeed,
+            final int otherRadius) {
+            return seed == otherSeed && radius == otherRadius
+                && center.distanceToSqr(otherCenter) <= 1.0E-6;
+        }
+
+        private void extend(final long otherExpiresAt) {
+            expiresAt = Math.max(expiresAt, otherExpiresAt);
+        }
+
+        private void stopDiscovery() {
+            mainScanComplete = true;
+            deferredColumns.clear();
+        }
+
+        private boolean complete() {
+            return mainScanComplete && deferredColumns.isEmpty();
+        }
+
+        private boolean hasPendingWork() {
+            return !complete() || !leavesByShell.isEmpty() || !logsByShell.isEmpty()
+                || !surfacesByShell.isEmpty();
+        }
+
+        private int advance(final ServerLevel level, final int budget) {
+            if (complete() || budget <= 0) return 0;
+            int centerX = Mth.floor(center.x);
+            int centerZ = Mth.floor(center.z);
+            /* Wait for the actual impact chunk rather than permanently skipping it. */
+            if (!level.getChunkSource().hasChunk(centerX >> 4, centerZ >> 4)) return 0;
+
+            int used = 0;
+            double radiusSqr = (double) radius * radius;
+            double treeRadiusSqr = treeRadius * treeRadius;
+            int retryBudget = Math.max(1, budget / 4);
+            LongIterator retry = deferredColumns.iterator();
+            while (retry.hasNext() && used < retryBudget) {
+                long packed = retry.nextLong();
+                int x = (int) (packed >> 32);
+                int z = (int) packed;
+                used++;
+                if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
+                retry.remove();
+                discoverColumn(level, centerX, centerZ, x, z, radiusSqr, treeRadiusSqr);
+            }
+            while (!mainScanComplete && used < budget) {
+                long packedOffset = nextRadialOffset();
+                if (packedOffset == Long.MIN_VALUE) {
+                    mainScanComplete = true;
+                    break;
+                }
+                int dx = (int) (packedOffset >> 32);
+                int dz = (int) packedOffset;
+                if ((double) dx * dx + (double) dz * dz > radiusSqr) continue;
+                used++;
+                int x = centerX + dx;
+                int z = centerZ + dz;
+                if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) {
+                    deferredColumns.add(((long) x << 32) ^ (z & 0xFFFFFFFFL));
+                    continue;
+                }
+                discoverColumn(level, centerX, centerZ, x, z, radiusSqr, treeRadiusSqr);
+            }
+            return used;
+        }
+
+        private long nextRadialOffset() {
+            if (scanRing > radius) return Long.MIN_VALUE;
+            if (scanRing == 0) {
+                scanRing = 1;
+                return 0L;
+            }
+            int ring = scanRing;
+            int sideLength = ring * 2;
+            int side = scanPerimeterOffset / sideLength;
+            int offset = scanPerimeterOffset % sideLength;
+            scanPerimeterOffset++;
+            if (scanPerimeterOffset >= sideLength * 4) {
+                scanPerimeterOffset = 0;
+                scanRing++;
+            }
+            int dx;
+            int dz;
+            switch (side) {
+                case 0 -> { dx = -ring + offset; dz = -ring; }
+                case 1 -> { dx = ring; dz = -ring + offset; }
+                case 2 -> { dx = ring - offset; dz = ring; }
+                default -> { dx = -ring; dz = ring - offset; }
+            }
+            return ((long) dx << 32) ^ (dz & 0xFFFFFFFFL);
+        }
+
+        private void discoverColumn(final ServerLevel level, final int centerX,
+            final int centerZ, final int x, final int z, final double radiusSqr,
+            final double treeRadiusSqr) {
+            int dx = x - centerX;
+            int dz = z - centerZ;
+            double distanceSqr = (double) dx * dx + (double) dz * dz;
+            if (distanceSqr > radiusSqr) return;
+            int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+            if (surfaceY < level.dimensionType().minY()) return;
+            int shell = shellFor(Math.sqrt(distanceSqr));
+            surfacesByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                .add(BlockPos.asLong(x, 0, z));
+            if (distanceSqr <= treeRadiusSqr) discoverTrees(level, x, z, surfaceY, shell);
+        }
+
+        private void discoverTrees(final ServerLevel level, final int x, final int z,
+            final int surfaceY, final int shell) {
+            int minimumY = Math.max(level.dimensionType().minY(), surfaceY - TREE_SCAN_BELOW_SURFACE);
+            int maximumY = Math.min(level.dimensionType().minY() + level.dimensionType().height() - 1,
+                surfaceY + TREE_SCAN_ABOVE_SURFACE);
+            LevelChunk chunk = level.getChunk(x >> 4, z >> 4);
+            BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+            int y = minimumY;
+            while (y <= maximumY) {
+                int sectionEnd = Math.min(maximumY, (y & ~15) + 15);
+                LevelChunkSection section = chunk.getSection(level.getSectionIndex(y));
+                if (!section.maybeHas(state -> state.is(BlockTags.LEAVES) || state.is(BlockTags.LOGS))) {
+                    y = sectionEnd + 1;
+                    continue;
+                }
+                for (; y <= sectionEnd; y++) {
+                    cursor.set(x, y, z);
+                    BlockState state = level.getBlockState(cursor);
+                    if (state.is(BlockTags.LEAVES)) {
+                        leavesByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                            .add(cursor.asLong());
+                    } else if (state.is(BlockTags.LOGS)) {
+                        logsByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                            .add(cursor.asLong());
+                    }
+                }
+            }
+        }
+
+        private static int shellFor(final double distance) {
+            return Math.max(0, Mth.floor(distance / SPEED_BLOCKS_PER_TICK));
+        }
+
+        private LongArrayList takeLeaves(final int shell, final int limit) {
+            return takeThrough(leavesByShell, shell, limit);
+        }
+
+        private LongArrayList takeLogs(final int shell, final int limit) {
+            return takeThrough(logsByShell, shell, limit);
+        }
+
+        private LongArrayList takeSurfaceColumns(final int shell, final int limit) {
+            return takeThrough(surfacesByShell, shell, limit);
+        }
+
+        private static LongArrayList takeThrough(final Map<Integer, LongArrayList> source,
+            final int maximumShell, final int limit) {
+            LongArrayList result = new LongArrayList(Math.max(0, limit));
+            if (limit <= 0) return result;
+            Iterator<Map.Entry<Integer, LongArrayList>> iterator = source.entrySet().iterator();
+            while (iterator.hasNext() && result.size() < limit) {
+                Map.Entry<Integer, LongArrayList> entry = iterator.next();
+                if (entry.getKey() > maximumShell) continue;
+                LongArrayList values = entry.getValue();
+                int count = Math.min(limit - result.size(), values.size());
+                for (int index = 0; index < count; index++) {
+                    result.add(values.getLong(index));
+                }
+                values.removeElements(0, count);
+                if (values.isEmpty()) iterator.remove();
+            }
+            return result;
         }
     }
 
