@@ -23,7 +23,7 @@ public final class TerrainSettledSmokeRenderer {
         final WarheadMesh.Lod lod, final boolean nuclear,
         final Quaternionf cameraOrientation) {
         if (spokes == null || spokes.isEmpty() || age < 2.0) return;
-        double lifetime = nuclear ? 2_250.0 : 900.0 + visualScale * 120.0;
+        double lifetime = nuclear ? 2_250.0 : 190.0 + visualScale * 36.0;
         if (age >= lifetime) return;
 
         float budgetScale = Mth.clamp(
@@ -59,8 +59,8 @@ public final class TerrainSettledSmokeRenderer {
         final double innerRadius, final double outerRadius,
         final float settleProgress, final Basis basis) {
         int rendered = 0;
-        int limit = Math.max(128, Math.round((lod == WarheadMesh.Lod.NEAR ? 10_800
-            : lod == WarheadMesh.Lod.MEDIUM ? 5_100 : 1_850) * budgetScale));
+        int limit = Math.max(96, Math.round((lod == WarheadMesh.Lod.NEAR ? 2_400
+            : lod == WarheadMesh.Lod.MEDIUM ? 1_100 : 400) * budgetScale));
 
         for (int spokeIndex = 0; spokeIndex < spokes.size() && rendered < limit;
             spokeIndex += spokeStride) {
@@ -70,10 +70,12 @@ public final class TerrainSettledSmokeRenderer {
                 if (!node.valid() || !node.visibleFromImpact()) continue;
                 double radius = node.directDistance();
                 if (radius < innerRadius || radius > outerRadius) continue;
+                if (!nuclear && !GroundDustFrontRenderer.claimSettledSmokeNode(
+                    node.surfaceBlock().asLong())) continue;
                 long seed = mix(visualSeed ^ node.surfaceBlock().asLong()
                     ^ (nuclear ? 0x4E554B455F424153L : 0x434F4E565F424153L));
                 int stacks = nuclear ? 3 + Math.floorMod((int) seed, 6)
-                    : 2 + Math.floorMod((int) seed, 4);
+                    : 1 + Math.floorMod((int) seed, 2);
                 stacks = Math.max(1,
                     Math.round(stacks * Math.min(2.8F, budgetScale)));
                 Vec3 base = node.position().subtract(impactPosition);
@@ -112,11 +114,12 @@ public final class TerrainSettledSmokeRenderer {
                         + Math.floorMod((int) (particleSeed >>> 18),
                             nuclear ? 66 : 92),
                         nuclear ? 27 : 54, nuclear ? 120 : 172);
-                    float fadeStart = 0.76F + unit(particleSeed, 10) * 0.20F;
+                    float fadeStart = nuclear ? 0.76F + unit(particleSeed, 10) * 0.20F
+                        : 0.50F + unit(particleSeed, 10) * 0.18F;
                     float individualFade = lifeProgress < fadeStart ? 1.0F
                         : smoothstep(Mth.clamp((1.0F - lifeProgress)
                             / Math.max(0.025F, 1.0F - fadeStart), 0.0F, 1.0F));
-                    float alpha = (nuclear ? 0.90F : 0.86F)
+                    float alpha = (nuclear ? 0.90F : 0.68F)
                         * individualFade
                         * (0.78F + unit(particleSeed, 5) * 0.20F);
                     billboard(pose, buffer, px, py, pz, particleRadius,

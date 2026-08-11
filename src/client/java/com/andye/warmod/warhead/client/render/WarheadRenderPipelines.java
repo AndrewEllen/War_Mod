@@ -146,8 +146,10 @@ public final class WarheadRenderPipelines {
         PARTICLE_MASK);
     private static final RenderType IRIS_FIREBALL_HOT = irisEmissive("war_mod_fireball_hot_iris",
         PARTICLE_MASK);
-    private static final RenderType IRIS_FIREBALL_COOL = irisParticle("war_mod_fireball_cool_iris",
-        PARTICLE_MASK, true);
+    /* The insulated nuclear stem uses the cool-fire pass for its crimson glow. Keep
+       that pass emissive under Iris too, matching the vanilla/Sodium pipeline. */
+    private static final RenderType IRIS_FIREBALL_COOL = irisEmissive("war_mod_fireball_cool_iris",
+        PARTICLE_MASK);
     private static final RenderType IRIS_PLASMA_CORE = irisEmissive("war_mod_plasma_core_iris",
         PLASMA_MASK);
     private static final RenderType IRIS_EXPLOSION_PUFF = irisEmissive("war_mod_explosion_puff_iris",

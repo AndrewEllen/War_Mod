@@ -56,8 +56,10 @@ public final class ArtilleryCannonBlockEntityRenderer
 
         Vec3 origin = Vec3.atCenterOf(cannon.getBlockPos()).add(0.0,
             ArtilleryConstants.BARREL_PIVOT_HEIGHT, 0.0);
-        ArtilleryTrajectory.solve(origin, cannon.target().position()).ifPresent(velocity -> {
-            state.yawDegrees = (float)Math.toDegrees(Math.atan2(velocity.x, -velocity.z));
+        ArtilleryTrajectory.solveFromCannon(origin, cannon.target().position()).ifPresent(launch -> {
+            Vec3 velocity = launch.velocity();
+            // The hand-built barrel points along local -Z; positive Axis.Y rotation turns it west.
+            state.yawDegrees = (float)-Math.toDegrees(Math.atan2(velocity.x, -velocity.z));
             state.elevationDegrees = (float)Math.toDegrees(
                 Math.atan2(velocity.y, velocity.horizontalDistance()));
         });

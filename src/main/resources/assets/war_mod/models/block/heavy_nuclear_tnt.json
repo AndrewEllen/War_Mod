@@ -1,1 +1,1 @@
-{"parent":"minecraft:block/cube_bottom_top","textures":{"top":"minecraft:block/tnt_top","bottom":"minecraft:block/tnt_bottom","side":"minecraft:block/tnt_side"}}
+{"parent":"minecraft:block/cube_bottom_top","textures":{"top":"war_mod:block/heavy_nuclear_tnt_top","bottom":"war_mod:block/heavy_nuclear_tnt_bottom","side":"war_mod:block/heavy_nuclear_tnt_side"}}

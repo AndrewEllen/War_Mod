@@ -5,7 +5,6 @@
   "client": [
     "CameraShakeMixin",
     "GameRendererCleanupMixin",
-    "IrisParticleSubmitMixin",
     "WarheadTerrainVisualTimingMixin",
     "WarheadWorldVisualTimingMixin"
   ],

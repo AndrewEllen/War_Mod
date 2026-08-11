@@ -180,6 +180,9 @@ public final class WarheadWorldRenderer {
             && frame.impacts().isEmpty() && frame.debris().isEmpty())) return;
         PoseStack poseStack = context.poseStack();
         if (poseStack == null) return;
+        if (!frame.impacts().isEmpty()) {
+            GroundDustFrontRenderer.beginFrame();
+        }
         for (WarheadFrame warhead : frame.warheads()) {
             renderWarhead(context, poseStack, frame.cameraPosition(), warhead);
         }
@@ -555,8 +558,9 @@ public final class WarheadWorldRenderer {
         forward.normalize();
         double facing = (delta.x * forward.x + delta.y * forward.y
             + delta.z * forward.z) / Math.max(1.0E-6, distance);
-        double angularAllowance = Math.min(0.82, radius / Math.max(1.0, distance));
-        return facing + angularAllowance > -0.08;
+        double angularAllowance = Math.min(0.74,
+            radius * 1.35 / Math.max(1.0, distance));
+        return facing + angularAllowance > 0.04;
     }
 
     private static boolean groundEffects(final WarheadEffectProfile effect) {

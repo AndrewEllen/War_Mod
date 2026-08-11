@@ -445,8 +445,11 @@ public final class NuclearParticleCloudRenderer {
             float dome = Mth.sqrt(Math.max(0.0F, 1.0F - radialFraction * radialFraction));
             float px = (float) source.offset().x + Mth.cos(angle) * radial;
             float pz = (float) source.offset().z + Mth.sin(angle) * radial;
+            /* The old hemispherical launch distribution made a detached, fully formed
+               dome before the feed column reached it. Keep the initial fireball dense,
+               but deliberately flat: the cap is now built by the rising stem. */
             float py = (float) source.offset().y + craterFloor + 0.8F
-                + dome * craterRadius * 0.82F + signed(random, 2) * 0.72F;
+                + dome * craterRadius * 0.34F + signed(random, 2) * 0.96F;
             float inward = -0.0034F * radial;
             float coreBias = 1.0F - radialFraction;
             spawn(REGION_FIREBALL, px, py, pz,
@@ -551,17 +554,22 @@ public final class NuclearParticleCloudRenderer {
         }
 
         private float capCenterY(final int tick) {
-            float launch = craterRadius * 0.42F;
-            float early = Math.min(tick, 170) * (0.24F + 0.046F * yield);
-            float late = Mth.sqrt(Math.max(0.0F, tick - 170.0F))
-                * (1.55F + 0.32F * yield);
+            /* Start attached to the rising feed instead of placing a small detached
+               mushroom above it. The first phase is intentionally quicker, so the
+               cap and stem read as one evolving cloud rather than a delayed dome. */
+            float launch = craterRadius * 0.20F;
+            float early = Math.min(tick, 150) * (0.33F + 0.055F * yield);
+            float late = Mth.sqrt(Math.max(0.0F, tick - 150.0F))
+                * (1.82F + 0.36F * yield);
             return launch + early + late;
         }
 
         private float capRadius(final int tick) {
-            float growth = Mth.sqrt(Mth.clamp(tick / 720.0F, 0.0F, 1.0F));
+            /* A near-zero initial cap prevents the isolated launch dome. Its shorter
+               ramp still reaches the mature mushroom sooner than the previous curve. */
+            float growth = Mth.sqrt(Mth.clamp(tick / 520.0F, 0.0F, 1.0F));
             float mature = 24.0F + 44.0F * yield;
-            return mature * (0.16F + 0.84F * growth);
+            return mature * (0.025F + 0.975F * growth);
         }
 
         private float capDepth(final int tick) {
@@ -778,6 +786,24 @@ public final class NuclearParticleCloudRenderer {
                 float px = Mth.lerp(partial, previousX[index], x[index]);
                 float py = Mth.lerp(partial, previousY[index], y[index]);
                 float pz = Mth.lerp(partial, previousZ[index], z[index]);
+                /* Deterministic render-space turbulence breaks up the spherical cap
+                   without increasing the simulated population or allocating per frame. */
+                float noiseAmplitude = switch (region[index]) {
+                    case REGION_CAP -> 1.15F;
+                    case REGION_OUTER_CURL -> 1.55F;
+                    case REGION_UNDER_CAP -> 1.30F;
+                    case REGION_STEM -> 0.62F;
+                    default -> 0.34F;
+                };
+                float noiseTime = tick + partial;
+                float phase = noiseTime * (0.036F + unit(particleSeed[index], 12) * 0.042F)
+                    + unit(particleSeed[index], 13) * Mth.TWO_PI;
+                px += Mth.sin(phase) * noiseAmplitude
+                    + signed(particleSeed[index], 14) * noiseAmplitude * 0.34F;
+                pz += Mth.cos(phase * 1.17F + unit(particleSeed[index], 15) * Mth.PI)
+                    * noiseAmplitude + signed(particleSeed[index], 16) * noiseAmplitude * 0.34F;
+                py += Mth.sin(phase * 0.71F + unit(particleSeed[index], 17) * Mth.PI)
+                    * noiseAmplitude * 0.30F;
                 Colour colour = colour(temperature[index], progress, particleSeed[index], pass,
                     region[index]);
                 float drawRadius = radius[index] * renderScale(index, tick, pass);
@@ -842,7 +868,10 @@ public final class NuclearParticleCloudRenderer {
                 if (region[index] == REGION_OUTER_CURL) density *= 0.90F;
                 if (region[index] == REGION_UNDER_CAP) density *= 1.24F;
             }
-            if (pass == Pass.SMOKE) density *= 1.52F;
+            /* Larger smoke cards cover the intentionally culled interior and remove
+               visible holes at no extra billboard count. Lower alpha below balances
+               their fill rate on the translucent pass. */
+            if (pass == Pass.SMOKE) density *= 1.68F;
             return density;
         }
 
@@ -889,13 +918,14 @@ public final class NuclearParticleCloudRenderer {
             float heat = Mth.clamp(temperature, 0.0F, 1.0F);
             if (pass == Pass.SMOKE || heat < 0.28F) {
                 int variation = Math.floorMod(seed, 42);
-                int ageDarkening = (int) (progress * 42.0F);
-                int base = particleRegion == REGION_BASE ? 72
-                    : particleRegion == REGION_STEM ? 64 : 76;
-                int tone = Mth.clamp(base - ageDarkening + variation, 24, 124);
-                int warm = Math.floorMod(seed >>> 8, 13);
-                return new Colour(tone + warm / 3,
-                    Math.min(130, tone + 2), Math.min(136, tone + 7));
+                int ageDarkening = (int) (progress * 48.0F);
+                int base = particleRegion == REGION_BASE ? 68
+                    : particleRegion == REGION_STEM ? 58 : 74;
+                int tone = Mth.clamp(base - ageDarkening + variation, 20, 132);
+                int greyShift = Math.floorMod(seed >>> 8, 19) - 9;
+                return new Colour(Mth.clamp(tone + greyShift, 18, 136),
+                    Mth.clamp(tone + greyShift / 2, 18, 136),
+                    Mth.clamp(tone - greyShift / 3, 18, 136));
             }
             if (heat > 0.90F) {
                 float t = (heat - 0.90F) / 0.10F;
@@ -907,7 +937,13 @@ public final class NuclearParticleCloudRenderer {
                 return new Colour(255, Mth.lerpInt(t, 92, 214),
                     Mth.lerpInt(t, 12, 62));
             }
+            /* The insulated inner stem stays a dark, emissive crimson before it
+               becomes orange. It is routed through the existing cool-fire pass. */
             float t = (heat - 0.28F) / 0.30F;
+            if (particleRegion == REGION_STEM) {
+                return new Colour(Mth.lerpInt(t, 112, 255),
+                    Mth.lerpInt(t, 18, 92), Mth.lerpInt(t, 16, 12));
+            }
             return new Colour(Mth.lerpInt(t, 108, 255),
                 Mth.lerpInt(t, 32, 92), Mth.lerpInt(t, 26, 12));
         }

@@ -56,14 +56,10 @@ public final class ArtilleryCannonBlockEntity extends BlockEntity implements Con
         Vec3 destination = target.position();
         Vec3 pivot = barrelPivot();
         if (!level.getWorldBorder().isWithinBounds(destination) || level.isOutsideBuildHeight(BlockPos.containing(destination)) || pivot.distanceTo(destination) > ArtilleryConstants.MAX_RANGE_BLOCKS) return fail("Target exceeds 1,000-block artillery range");
-        Vec3 initialVelocity = ArtilleryTrajectory.solve(pivot, destination).orElse(null);
-        if (initialVelocity == null) return fail("Target is outside the ballistic envelope");
-        // The selected target, rather than placement facing, determines both the displayed tube
-        // and physical muzzle. Re-solve from that muzzle to keep the landing point exact.
-        Vec3 origin = pivot.add(initialVelocity.normalize().scale(ArtilleryConstants.BARREL_MUZZLE_OFFSET));
-        if (ArtilleryTrajectory.solve(origin, destination).isEmpty()) return fail("Target is outside the ballistic envelope");
+        ArtilleryTrajectory.LaunchSolution launch = ArtilleryTrajectory.solveFromCannon(pivot, destination).orElse(null);
+        if (launch == null) return fail("Target is outside the ballistic envelope");
         ItemStack reserved = ammunition.split(1);
-        if (ArtilleryLaunchService.launch(level, player == null ? null : player.getUUID(), origin, destination, payload).isEmpty()) { if (ammunition.isEmpty()) ammunition = reserved; else ammunition.grow(reserved.getCount()); return fail("Unable to launch artillery warhead"); }
+        if (ArtilleryLaunchService.launch(level, player == null ? null : player.getUUID(), launch.muzzle(), destination, payload).isEmpty()) { if (ammunition.isEmpty()) ammunition = reserved; else ammunition.grow(reserved.getCount()); return fail("Unable to launch artillery warhead"); }
         cooldown = ArtilleryConstants.FIRE_COOLDOWN_TICKS; lastError = ""; sync(); return true;
     }
     private boolean fail(final String error) { lastError = error; sync(); return false; }

@@ -11,7 +11,6 @@ import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
-import net.minecraft.core.SectionPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -63,20 +62,23 @@ public final class ArtilleryWarheadEntity extends Entity {
         if (impacted || !(level() instanceof ServerLevel server)) return;
         if (!position().isFinite() || !target.isFinite() || !velocity.isFinite() || tickCount > 1_200) { discard(); return; }
         Set<ChunkPos> desired = desiredChunks();
-        if (!prepareChunks(server, desired)) { chunkWaitTicks++; if (chunkWaitTicks >= ArtilleryConstants.CHUNK_WAIT_TIMEOUT_TICKS) discard(); return; }
-        chunkWaitTicks = 0;
         Vec3 from = position();
+        Vec3 next = from.add(velocity);
+        if (!prepareChunks(server, desired, from, next)) { chunkWaitTicks++; if (chunkWaitTicks >= ArtilleryConstants.CHUNK_WAIT_TIMEOUT_TICKS) discard(); return; }
+        chunkWaitTicks = 0;
         setDeltaMovement(velocity);
         HitResult hit = ProjectileUtil.getHitResultOnMoveVector(this, entity -> entity.isAlive() && (ownerId == null || tickCount > 4 || !ownerId.equals(entity.getUUID())));
         if (hit.getType() != HitResult.Type.MISS) { impact(server, hit.getLocation()); return; }
-        Vec3 next = from.add(velocity);
-        if (!next.isFinite() || !server.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(next.x), SectionPos.blockToSectionCoord(next.z))) return;
+        if (!next.isFinite()) { discard(); return; }
         setPos(next);
         velocity = velocity.add(0.0, -ArtilleryConstants.GRAVITY_PER_TICK, 0.0);
         setDeltaMovement(velocity);
-        entityData.set(DATA_ACTIVE_TICKS, entityData.get(DATA_ACTIVE_TICKS) + 1);
+        int activeTicks = entityData.get(DATA_ACTIVE_TICKS) + 1;
+        entityData.set(DATA_ACTIVE_TICKS, activeTicks);
         updateRotation(velocity);
-        if (next.distanceToSqr(target) <= Math.max(2.25, velocity.lengthSqr())) impact(server, target);
+        // The solver chooses a fractional final tick.  Impact at the commanded coordinates on
+        // the first complete flight tick rather than exploding several blocks short at speed.
+        if (activeTicks >= entityData.get(DATA_FLIGHT_TICKS)) impact(server, target);
     }
     private Set<ChunkPos> desiredChunks() {
         Set<ChunkPos> desired = new HashSet<>();
@@ -85,11 +87,16 @@ public final class ArtilleryWarheadEntity extends Entity {
         if (position().distanceTo(target) <= ArtilleryConstants.MAX_MUZZLE_SPEED * ArtilleryConstants.TARGET_LEAD_TICKS) IcbmChunkTicketRegistry.addWindow(desired, IcbmChunkTicketRegistry.chunk(target), IcbmConstants.IMPACT_CHUNK_RADIUS);
         return desired;
     }
-    private boolean prepareChunks(final ServerLevel level, final Set<ChunkPos> desired) {
+    private boolean prepareChunks(final ServerLevel level, final Set<ChunkPos> desired,
+        final Vec3 from, final Vec3 next) {
         for (ChunkPos chunk : desired) if (heldChunks.add(chunk)) IcbmChunkTicketRegistry.acquire(level, chunk);
-        if (!IcbmChunkTicketRegistry.allLoaded(level, desired)) return false;
         for (ChunkPos chunk : Set.copyOf(heldChunks)) if (!desired.contains(chunk)) { IcbmChunkTicketRegistry.release(level, chunk); heldChunks.remove(chunk); }
-        return true;
+        // Stream the twelve-tick corridor in the background, but only stall when this exact
+        // movement crosses an unloaded chunk.  Waiting for the whole corridor made a newly
+        // fired shell visibly freeze above the muzzle while its future chunks loaded.
+        Set<ChunkPos> immediate = new HashSet<>();
+        IcbmChunkTicketRegistry.addSegmentWindow(immediate, from, next, 0, 4.0);
+        return IcbmChunkTicketRegistry.allLoaded(level, immediate);
     }
     private void impact(final ServerLevel level, final Vec3 position) {
         if (impacted || !position.isFinite()) return;
