@@ -319,35 +319,39 @@ public final class WarheadWorldRenderer {
         if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
             if (renderCloud) {
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.FIREBALL_HOT,
-                    (pose, buffer) -> NuclearCentralColumnRenderer.renderFire(pose, buffer,
-                        cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(), impact.lod(),
-                        true, frame.cameraOrientation()));
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.FIREBALL_HOT,
-                    (pose, buffer) -> NuclearParticleCloudRenderer.renderFire(pose, buffer,
-                        cloud.ageTicks(), cloud.visualScale(), cloud.profile(), cloud.visualSeed(),
-                        impact.lod(), true, cloud.sources(), frame.cameraOrientation()));
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.FIREBALL_COOL,
-                    (pose, buffer) -> NuclearCentralColumnRenderer.renderFire(pose, buffer,
-                        cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(), impact.lod(),
-                        false, frame.cameraOrientation()));
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.FIREBALL_COOL,
-                    (pose, buffer) -> NuclearParticleCloudRenderer.renderFire(pose, buffer,
-                        cloud.ageTicks(), cloud.visualScale(), cloud.profile(), cloud.visualSeed(),
-                        impact.lod(), false, cloud.sources(), frame.cameraOrientation()));
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
                     WarheadRenderPipelines.NUCLEAR_SMOKE,
-                    (pose, buffer) -> NuclearParticleCloudRenderer.renderSmoke(pose, buffer,
-                        cloud.ageTicks(), cloud.visualScale(), cloud.profile(), cloud.visualSeed(),
-                        impact.lod(), cloud.sources(), frame.cameraOrientation()));
+                    (pose, buffer) -> {
+                        NuclearParticleCloudRenderer.renderSmoke(pose, buffer,
+                            cloud.ageTicks(), cloud.visualScale(), cloud.profile(),
+                            cloud.visualSeed(), impact.lod(), cloud.sources(),
+                            frame.cameraOrientation());
+                        NuclearCentralColumnRenderer.renderSmoke(pose, buffer,
+                            cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(),
+                            impact.lod(), frame.cameraOrientation());
+                    });
+
+                /* Submit every nuclear temperature band through one sorted,
+                   non-additive type after smoke has established the visible
+                   cloud surface. This prevents the analytical stalk from
+                   painting unsorted white cards over the mushroom. */
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.NUCLEAR_SMOKE,
-                    (pose, buffer) -> NuclearCentralColumnRenderer.renderSmoke(pose, buffer,
-                        cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(), impact.lod(),
-                        frame.cameraOrientation()));
+                    WarheadRenderPipelines.NUCLEAR_FIRE,
+                    (pose, buffer) -> {
+                        NuclearCentralColumnRenderer.renderFire(pose, buffer,
+                            cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(),
+                            impact.lod(), true, frame.cameraOrientation());
+                        NuclearParticleCloudRenderer.renderFire(pose, buffer,
+                            cloud.ageTicks(), cloud.visualScale(), cloud.profile(),
+                            cloud.visualSeed(), impact.lod(), true, cloud.sources(),
+                            frame.cameraOrientation());
+                        NuclearCentralColumnRenderer.renderFire(pose, buffer,
+                            cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(),
+                            impact.lod(), false, frame.cameraOrientation());
+                        NuclearParticleCloudRenderer.renderFire(pose, buffer,
+                            cloud.ageTicks(), cloud.visualScale(), cloud.profile(),
+                            cloud.visualSeed(), impact.lod(), false, cloud.sources(),
+                            frame.cameraOrientation());
+                    });
             }
             double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(
                 impact.ageTicks(), yieldRadiusScale);

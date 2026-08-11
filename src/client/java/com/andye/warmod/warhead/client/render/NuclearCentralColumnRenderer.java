@@ -48,7 +48,7 @@ public final class NuclearCentralColumnRenderer {
                helper particle flare at the end of its independent lifetime made a
                second, late little dome above the packed mushroom. */
             float lateCooling = Math.max(0.0F, ((float) age - 4_650.0F) / 1_100.0F);
-            float heat = Mth.clamp(1.15F - progress * 0.32F - lateCooling * 0.44F
+            float heat = Mth.clamp(1.02F - progress * 0.30F - lateCooling * 0.44F
                 + signed(random, 3) * 0.10F, 0.0F, 1.0F);
             boolean hot = heat >= 0.61F;
             if (hot != hotPass || heat < 0.10F) continue;
@@ -98,15 +98,15 @@ public final class NuclearCentralColumnRenderer {
                 py = craterFloor + 0.18F + rise;
                 particleRadius = Mth.lerp(radialFraction,
                     4.8F + 0.62F * scale, 1.85F + 0.30F * scale)
-                    * (0.96F + unit(random, 10) * 0.48F);
+                    * (1.16F + unit(random, 10) * 0.54F);
             }
             float remaining = Mth.clamp(1.0F - progress, 0.0F, 1.0F);
             float globalFade = age < 5_150.0 ? 1.0F : smoothstep(Mth.clamp(
                 (float) ((5_750.0 - age) / 600.0), 0.0F, 1.0F));
-            float alpha = (hotPass ? 0.98F : 0.84F)
+            float alpha = (hotPass ? 0.99F : 0.90F)
                 * smoothstep(Mth.clamp(localAge / 6.0F, 0.0F, 1.0F))
                 * (craterBase ? (float) Math.pow(remaining, 0.40F) : globalFade);
-            Colour colour = fireColour(heat);
+            Colour colour = fireColour(heat, random);
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 11) * Mth.TWO_PI
                     + localAge * signed(random, 12) * 0.006F,
@@ -136,8 +136,8 @@ public final class NuclearCentralColumnRenderer {
         /* Share the packed cloud's exact cap curve so this hot core cannot outrun
            it and read as an independent dome. Keep it inside the lower cap. */
         float capCenter = packedCapCenterY(age, scale);
-        float capBase = capCenter - packedCapDepth(age, scale) * 0.36F;
-        float capDepth = packedCapDepth(age, scale) * 0.56F;
+        float capBase = capCenter - packedCapDepth(age, scale) * 0.74F;
+        float capDepth = packedCapDepth(age, scale) * 0.50F;
         float lateFade = age < 5_050.0 ? 1.0F
             : smoothstep(Mth.clamp((float) ((5_600.0 - age) / 550.0),
                 0.0F, 1.0F));
@@ -173,13 +173,13 @@ public final class NuclearCentralColumnRenderer {
                 + Mth.sin(angle + Mth.HALF_PI) * corkscrew;
             float py = capBase + rise * capDepth
                 + signed(random, 7) * (0.7F + scale * 0.18F);
-            float particleRadius = (1.85F + unit(random, 8) * 3.40F)
+            float particleRadius = (2.65F + unit(random, 8) * 4.45F)
                 * (0.98F + scale * 0.13F)
                 * (0.94F + heat * 0.34F);
-            float alpha = (hotPass ? 0.94F : 0.78F)
+            float alpha = (hotPass ? 0.99F : 0.88F)
                 * smoothstep(Mth.clamp(heat / 0.18F, 0.0F, 1.0F))
                 * lateFade;
-            Colour colour = fireColour(heat);
+            Colour colour = fireColour(heat, random);
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 9) * Mth.TWO_PI
                     + (float) age * signed(random, 10) * 0.005F,
@@ -373,11 +373,15 @@ public final class NuclearCentralColumnRenderer {
         return Mth.clamp(base + variation - (int) (progress * 20.0F), 24, 188);
     }
 
-    private static Colour fireColour(final float heat) {
-        if (heat > 0.86F) {
-            float t = (heat - 0.86F) / 0.14F;
-            return new Colour(255, Mth.lerpInt(t, 214, 255),
-                Mth.lerpInt(t, 54, 214));
+    private static Colour fireColour(final float heat, final long random) {
+        if (heat > 0.84F) {
+            float t = (heat - 0.84F) / 0.16F;
+            if (heat > 0.92F && Math.floorMod((int) (random >>> 17), 4) == 0) {
+                return new Colour(255, Mth.lerpInt(t, 244, 255),
+                    Mth.lerpInt(t, 178, 230));
+            }
+            return new Colour(255, Mth.lerpInt(t, 204, 246),
+                Mth.lerpInt(t, 32, 112));
         }
         if (heat > 0.48F) {
             float t = (heat - 0.48F) / 0.38F;

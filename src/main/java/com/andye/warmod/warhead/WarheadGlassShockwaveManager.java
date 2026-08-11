@@ -2,7 +2,6 @@ package com.andye.warmod.warhead;
 
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
 import java.util.HashMap;
@@ -37,8 +36,9 @@ public final class WarheadGlassShockwaveManager {
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final double NUCLEAR_AFTERMATH_RADIUS_SCALE = 3.0;
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
-    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 768;
-    private static final int PREPARED_MUTATIONS_PER_WAVE_TICK = 4_096;
+    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 1_024;
+    private static final int PREPARED_MUTATIONS_PER_WAVE_TICK = 6_144;
+    private static final int PREPARED_SURFACE_MUTATIONS_PER_WAVE_TICK = 4_096;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static final Map<Block, Boolean> GLASS_BLOCK_CACHE = new IdentityHashMap<>();
     private static final Predicate<BlockState> PRESSURE_RELEVANT = state ->
@@ -150,15 +150,18 @@ public final class WarheadGlassShockwaveManager {
         Iterator<Map.Entry<java.util.UUID, NuclearTerrainPreparation>> iterator =
             preparations.entrySet().iterator();
         int remaining = NUCLEAR_PREPARATION_COLUMNS_PER_TICK;
+        int entriesRemaining = preparations.size();
         while (iterator.hasNext()) {
             Map.Entry<java.util.UUID, NuclearTerrainPreparation> entry = iterator.next();
             NuclearTerrainPreparation preparation = entry.getValue();
+            int slice = Math.max(1, remaining / Math.max(1, entriesRemaining));
+            entriesRemaining--;
             if (now >= preparation.expiresAt) {
                 iterator.remove();
                 continue;
             }
             if (remaining <= 0 || preparation.complete()) continue;
-            remaining -= preparation.advance(level, Math.min(192, remaining));
+            remaining -= preparation.advance(level, Math.min(slice, remaining));
         }
         if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
     }
@@ -271,7 +274,19 @@ public final class WarheadGlassShockwaveManager {
             final double targetRadius) {
             int shell = NuclearTerrainPreparation.shellFor(targetRadius);
             int remaining = PREPARED_MUTATIONS_PER_WAVE_TICK;
-            int fairShare = Math.max(1, remaining / 3);
+            int surfaceBudget = Math.min(remaining,
+                PREPARED_SURFACE_MUTATIONS_PER_WAVE_TICK);
+            for (long packed : preparation.takeSurfaceColumns(shell, surfaceBudget)) {
+                BlockPos column = BlockPos.of(packed);
+                if (!level.getChunkSource().hasChunk(column.getX() >> 4, column.getZ() >> 4)) continue;
+                double dx = column.getX() + 0.5 - center.x;
+                double dz = column.getZ() + 0.5 - center.z;
+                transformNuclearColumn(level, column.getX(), column.getZ(), Math.sqrt(dx * dx + dz * dz));
+                remaining--;
+                if (remaining <= 0) return;
+            }
+
+            int fairShare = Math.max(1, remaining / 2);
             for (long packed : preparation.takeLeaves(shell, fairShare)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!level.getChunkSource().hasChunk(position.getX() >> 4, position.getZ() >> 4)) continue;
@@ -281,7 +296,6 @@ public final class WarheadGlassShockwaveManager {
                 remaining--;
                 if (remaining <= 0) return;
             }
-            fairShare = Math.max(1, remaining / 2);
             for (long packed : preparation.takeLogs(shell, fairShare)) {
                 BlockPos position = BlockPos.of(packed);
                 if (!level.getChunkSource().hasChunk(position.getX() >> 4, position.getZ() >> 4)) continue;
@@ -291,21 +305,12 @@ public final class WarheadGlassShockwaveManager {
                 remaining--;
                 if (remaining <= 0) return;
             }
-            for (long packed : preparation.takeSurfaceColumns(shell, remaining)) {
-                BlockPos column = BlockPos.of(packed);
-                if (!level.getChunkSource().hasChunk(column.getX() >> 4, column.getZ() >> 4)) continue;
-                double dx = column.getX() + 0.5 - center.x;
-                double dz = column.getZ() + 0.5 - center.z;
-                transformNuclearColumn(level, column.getX(), column.getZ(), Math.sqrt(dx * dx + dz * dz));
-                remaining--;
-                if (remaining <= 0) return;
-            }
         }
 
         private void processPressureColumn(final ServerLevel level, final int x, final int z,
             final double radialDistance) {
             if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return;
-            int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
+            int surfaceY = terrainSurfaceY(level, x, z);
             int belowSurface = nuclear ? 8 : 5;
             int aboveSurface = nuclear ? 52 : 36;
             double normalizedDistance = Mth.clamp(radialDistance / maximumRadius, 0.0, 1.0);
@@ -385,7 +390,7 @@ public final class WarheadGlassShockwaveManager {
             final int z, final double radialDistance) {
             double craterNormalized = radialDistance / Math.max(1.0, craterRadius);
             double aftermathNormalized = radialDistance / Math.max(1.0, aftermathRadius);
-            int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+            int surfaceY = terrainSurfaceY(level, x, z);
             if (surfaceY < level.dimensionType().minY()) return;
             long columnHash = seed ^ ((long) x << 32) ^ (z & 0xFFFFFFFFL)
                 ^ 0x4E55434C45415235L;
@@ -430,7 +435,8 @@ public final class WarheadGlassShockwaveManager {
                  * rather than producing a perfectly circular scar.
                  */
                 double edgeFalloff = Math.pow(Math.max(0.0, 1.0 - aftermathNormalized), 0.65);
-                double outerReplacementChance = 0.12 + edgeFalloff * 0.74;
+                double outerReplacementChance = aftermathNormalized <= 0.78
+                    ? 1.0 : 0.18 + edgeFalloff * 0.82;
                 if (isSoil(state) && unit(hash ^ 0x4F555445525F4153L)
                     < outerReplacementChance) {
                     level.setBlock(cursor, outerScorchedSoil(hash), UPDATE_FLAGS);
@@ -556,6 +562,28 @@ public final class WarheadGlassShockwaveManager {
     }
 
     /**
+     * Finds the actual terrain below fluids and vegetation. Heightmaps treat
+     * trunks as motion-blocking, which previously started the tree scan near a
+     * treetop and left the lower trunk, canopy edges and ground untouched.
+     */
+    private static int terrainSurfaceY(final ServerLevel level, final int x, final int z) {
+        int minimumY = level.dimensionType().minY();
+        int y = level.getHeight(Heightmap.Types.OCEAN_FLOOR, x, z) - 1;
+        BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos(x, y, z);
+        while (y >= minimumY) {
+            position.set(x, y, z);
+            BlockState state = level.getBlockState(position);
+            if (!state.isAir() && state.getFluidState().isEmpty()
+                && !state.is(BlockTags.LEAVES) && !state.is(BlockTags.LOGS)
+                && !Wave.isFragileSurface(state)) {
+                return y;
+            }
+            y--;
+        }
+        return minimumY - 1;
+    }
+
+    /**
      * Incremental, loaded-chunk-only discovery of the surface and exposed
      * vegetation the nuclear pressure front will reach.  The scan stores no
      * block states: mutations re-check the live block state when the front
@@ -573,6 +601,7 @@ public final class WarheadGlassShockwaveManager {
         private final Map<Integer, LongArrayList> surfacesByShell = new HashMap<>();
         private long expiresAt;
         private final LongOpenHashSet deferredColumns = new LongOpenHashSet();
+        private final ArrayDeque<Long> deferredQueue = new ArrayDeque<>();
         private int scanRing;
         private int scanPerimeterOffset;
         private boolean mainScanComplete;
@@ -581,7 +610,7 @@ public final class WarheadGlassShockwaveManager {
             final double craterRadius, final int radius, final long expiresAt) {
             this.center = center;
             this.seed = seed;
-            this.treeRadius = craterRadius * 2.55;
+            this.treeRadius = radius;
             this.radius = radius;
             this.expiresAt = expiresAt;
             this.scanRing = 0;
@@ -600,6 +629,7 @@ public final class WarheadGlassShockwaveManager {
         private void stopDiscovery() {
             mainScanComplete = true;
             deferredColumns.clear();
+            deferredQueue.clear();
         }
 
         private boolean complete() {
@@ -622,14 +652,16 @@ public final class WarheadGlassShockwaveManager {
             double radiusSqr = (double) radius * radius;
             double treeRadiusSqr = treeRadius * treeRadius;
             int retryBudget = Math.max(1, budget / 4);
-            LongIterator retry = deferredColumns.iterator();
-            while (retry.hasNext() && used < retryBudget) {
-                long packed = retry.nextLong();
+            while (!deferredQueue.isEmpty() && used < retryBudget) {
+                long packed = deferredQueue.removeFirst();
                 int x = (int) (packed >> 32);
                 int z = (int) packed;
                 used++;
-                if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) continue;
-                retry.remove();
+                if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) {
+                    deferredQueue.addLast(packed);
+                    continue;
+                }
+                deferredColumns.remove(packed);
                 discoverColumn(level, centerX, centerZ, x, z, radiusSqr, treeRadiusSqr);
             }
             while (!mainScanComplete && used < budget) {
@@ -645,7 +677,8 @@ public final class WarheadGlassShockwaveManager {
                 int x = centerX + dx;
                 int z = centerZ + dz;
                 if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) {
-                    deferredColumns.add(((long) x << 32) ^ (z & 0xFFFFFFFFL));
+                    long packed = ((long) x << 32) ^ (z & 0xFFFFFFFFL);
+                    if (deferredColumns.add(packed)) deferredQueue.addLast(packed);
                     continue;
                 }
                 discoverColumn(level, centerX, centerZ, x, z, radiusSqr, treeRadiusSqr);
@@ -686,7 +719,7 @@ public final class WarheadGlassShockwaveManager {
             int dz = z - centerZ;
             double distanceSqr = (double) dx * dx + (double) dz * dz;
             if (distanceSqr > radiusSqr) return;
-            int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+            int surfaceY = terrainSurfaceY(level, x, z);
             if (surfaceY < level.dimensionType().minY()) return;
             int shell = shellFor(Math.sqrt(distanceSqr));
             surfacesByShell.computeIfAbsent(shell, ignored -> new LongArrayList())

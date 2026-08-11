@@ -745,9 +745,10 @@ public final class NuclearParticleCloudRenderer {
                    while its outer billboards cool into smoke. This is an in-place
                    temperature adjustment, not a second particle system. */
                 if ((region[index] == REGION_CAP || region[index] == REGION_UNDER_CAP)
-                    && radial < capR * 0.58F && y[index] < capY + capD * 0.28F
+                    && radial < capR * 0.58F && y[index] < capY - capD * 0.10F
+                    && y[index] > capY - capD * 1.06F
                     && tick < hotFeedEnd + 760) {
-                    float coreHeat = 0.72F + 0.24F * Mth.clamp(
+                    float coreHeat = 0.78F + 0.20F * Mth.clamp(
                         1.0F - tick / (float) Math.max(1, hotFeedEnd + 760), 0.0F, 1.0F);
                     temperature[index] = Math.max(temperature[index], coreHeat);
                 }
@@ -900,9 +901,9 @@ public final class NuclearParticleCloudRenderer {
                visible holes at no extra billboard count. Lower alpha below balances
                their fill rate on the translucent pass. */
             if (pass == Pass.SMOKE) density *= 2.04F;
-            else if (region[index] == REGION_STEM) density *= 1.56F;
+            else if (region[index] == REGION_STEM) density *= 1.86F;
             else if (region[index] == REGION_CAP || region[index] == REGION_UNDER_CAP) {
-                density *= 1.42F;
+                density *= 1.76F;
             }
             return density;
         }
@@ -937,9 +938,9 @@ public final class NuclearParticleCloudRenderer {
             float remaining = Mth.clamp(1.0F - progress, 0.0F, 1.0F);
             float fadeOut = (float) Math.pow(remaining, pass == Pass.SMOKE ? 0.74F : 0.58F);
             return switch (pass) {
-                case HOT_FIRE -> Mth.clamp(0.90F * fadeIn * fadeOut
-                    * (0.72F + heat * 0.28F), 0.0F, 0.95F);
-                case COOL_FIRE -> Mth.clamp(0.74F * fadeIn * fadeOut, 0.0F, 0.82F);
+                case HOT_FIRE -> Mth.clamp(0.99F * fadeIn * fadeOut
+                    * (0.76F + heat * 0.24F), 0.0F, 0.99F);
+                case COOL_FIRE -> Mth.clamp(0.88F * fadeIn * fadeOut, 0.0F, 0.92F);
                 case SMOKE -> Mth.clamp(0.86F * fadeIn * fadeOut
                     * (0.86F + (1.0F - heat) * 0.14F), 0.0F, 0.92F);
             };
@@ -972,10 +973,14 @@ public final class NuclearParticleCloudRenderer {
                     Mth.clamp(tone, 18, 244),
                     Mth.clamp(tone - greyShift, 18, 244));
             }
-            if (heat > 0.90F) {
-                float t = (heat - 0.90F) / 0.10F;
-                return new Colour(255, Mth.lerpInt(t, 214, 252),
-                    Mth.lerpInt(t, 62, 205));
+            if (heat > 0.86F) {
+                float t = (heat - 0.86F) / 0.14F;
+                if (heat > 0.92F && Math.floorMod(seed >>> 10, 4) == 0) {
+                    return new Colour(255, Mth.lerpInt(t, 244, 255),
+                        Mth.lerpInt(t, 178, 230));
+                }
+                return new Colour(255, Mth.lerpInt(t, 206, 246),
+                    Mth.lerpInt(t, 34, 116));
             }
             if (heat > 0.58F) {
                 float t = (heat - 0.58F) / 0.32F;

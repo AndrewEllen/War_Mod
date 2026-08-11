@@ -38,6 +38,7 @@ public final class WarheadRenderPipelines {
         smokeCutout("pipeline/war_mod_heavy_smoke_core", 0.085F);
     private static final RenderPipeline NUCLEAR_SMOKE_PIPELINE =
         smokeCutout("pipeline/war_mod_nuclear_smoke", 0.045F);
+    private static final RenderPipeline NUCLEAR_FIRE_PIPELINE = nuclearFire();
     private static final RenderPipeline COOL_FIRE_PIPELINE =
         emissiveTranslucent("pipeline/war_mod_cooling_fire", false, 0.025F);
     private static final RenderPipeline FIREBALL_CORE_PIPELINE =
@@ -96,6 +97,8 @@ public final class WarheadRenderPipelines {
         HEAVY_SMOKE_CORE_PIPELINE, PARTICLE_MASK, true, false, false);
     private static final RenderType NORMAL_NUCLEAR_SMOKE = create("war_mod_nuclear_smoke",
         NUCLEAR_SMOKE_PIPELINE, PARTICLE_MASK, true, false, false);
+    private static final RenderType NORMAL_NUCLEAR_FIRE = createClamped("war_mod_nuclear_fire",
+        NUCLEAR_FIRE_PIPELINE, PARTICLE_MASK, false, true);
     private static final RenderType NORMAL_FIREBALL_CORE = createClamped("war_mod_fireball_core",
         FIREBALL_CORE_PIPELINE, PARTICLE_MASK, false, false);
     private static final RenderType NORMAL_FIREBALL_COOL = createClamped("war_mod_fireball_cool",
@@ -142,6 +145,8 @@ public final class WarheadRenderPipelines {
         PARTICLE_MASK, true);
     private static final RenderType IRIS_NUCLEAR_SMOKE = irisParticle("war_mod_nuclear_smoke_iris",
         PARTICLE_MASK, true);
+    private static final RenderType IRIS_NUCLEAR_FIRE = irisSortedEmissive("war_mod_nuclear_fire_iris",
+        PARTICLE_MASK, true);
     private static final RenderType IRIS_FIREBALL_CORE = irisEmissive("war_mod_fireball_core_iris",
         PARTICLE_MASK);
     private static final RenderType IRIS_FIREBALL_HOT = irisEmissive("war_mod_fireball_hot_iris",
@@ -173,6 +178,7 @@ public final class WarheadRenderPipelines {
     public static RenderType HEAVY_SMOKE = NORMAL_HEAVY_SMOKE;
     public static RenderType HEAVY_SMOKE_CORE = NORMAL_HEAVY_SMOKE_CORE;
     public static RenderType NUCLEAR_SMOKE = NORMAL_NUCLEAR_SMOKE;
+    public static RenderType NUCLEAR_FIRE = NORMAL_NUCLEAR_FIRE;
     public static RenderType FIREBALL_CORE = NORMAL_FIREBALL_CORE;
     public static RenderType FIREBALL_COOL = NORMAL_FIREBALL_COOL;
     public static RenderType FIREBALL_HOT = NORMAL_FIREBALL_HOT;
@@ -209,6 +215,7 @@ public final class WarheadRenderPipelines {
         HEAVY_SMOKE = active ? IRIS_HEAVY_SMOKE : NORMAL_HEAVY_SMOKE;
         HEAVY_SMOKE_CORE = active ? IRIS_HEAVY_SMOKE_CORE : NORMAL_HEAVY_SMOKE_CORE;
         NUCLEAR_SMOKE = active ? IRIS_NUCLEAR_SMOKE : NORMAL_NUCLEAR_SMOKE;
+        NUCLEAR_FIRE = active ? IRIS_NUCLEAR_FIRE : NORMAL_NUCLEAR_FIRE;
         FIREBALL_CORE = active ? IRIS_FIREBALL_CORE : NORMAL_FIREBALL_CORE;
         FIREBALL_HOT = active ? IRIS_FIREBALL_HOT : NORMAL_FIREBALL_HOT;
         FIREBALL_COOL = active ? IRIS_FIREBALL_COOL : NORMAL_FIREBALL_COOL;
@@ -239,6 +246,16 @@ public final class WarheadRenderPipelines {
                 () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
             .setOutline(RenderSetup.OutlineProperty.NONE)
             .createRenderSetup());
+    }
+
+    private static RenderType irisSortedEmissive(final String name, final Identifier texture,
+        final boolean sortOnUpload) {
+        RenderSetup.RenderSetupBuilder builder = RenderSetup.builder(RenderPipelines.EYES)
+            .withTexture("Sampler0", texture,
+                () -> RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR))
+            .setOutline(RenderSetup.OutlineProperty.NONE);
+        if (sortOnUpload) builder.sortOnUpload();
+        return RenderType.create(name, builder.createRenderSetup());
     }
 
     private static RenderType createClamped(final String name, final RenderPipeline pipeline,
@@ -284,6 +301,19 @@ public final class WarheadRenderPipelines {
             .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, writeDepth))
             .withCull(false).build());
+    }
+
+    private static RenderPipeline nuclearFire() {
+        return RenderPipelines.register(
+            RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+                .withLocation("pipeline/war_mod_nuclear_fire")
+                .withShaderDefine("ALPHA_CUTOUT", 0.045F)
+                .withShaderDefine("NO_OVERLAY")
+                .withShaderDefine("NO_CARDINAL_LIGHTING")
+                .withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
+                .withDepthStencilState(
+                    new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+                .withCull(false).build());
     }
 
     private static RenderPipeline translucent(final String location, final boolean writeDepth) {
