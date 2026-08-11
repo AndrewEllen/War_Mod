@@ -21,6 +21,17 @@ loom {
 	}
 }
 
+/* These generated textures and particle definitions are client-only.  They
+ * are mirrored under src/client/resources for particle-atlas discovery; keep
+ * their historical main-resource copies out of the combined production JAR
+ * so splitEnvironmentSourceSets does not package every asset twice. */
+sourceSets.main.resources {
+	exclude "assets/war_mod/particles/warhead_fireball.json"
+	exclude "assets/war_mod/particles/warhead_smoke.json"
+	exclude "assets/war_mod/textures/effect/**"
+	exclude "assets/war_mod/textures/particle/**"
+}
+
 repositories {
 	maven { url = "https://api.modrinth.com/maven" }
 }
