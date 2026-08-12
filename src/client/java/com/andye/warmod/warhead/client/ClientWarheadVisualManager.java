@@ -109,6 +109,9 @@ public final class ClientWarheadVisualManager {
 		for (ImpactVisualState state : this.activeImpacts.values()) {
 			if (remainingTerrainBudget <= 0) break;
 			double age = state.ageTicks(gameTime, 0.0);
+			if (state.payloadType() == WarheadPayloadType.NUCLEAR) {
+				age *= WarheadVisualMath.NUCLEAR_TIME_SCALE;
+			}
 			float radiusScale = WarheadYieldScaling.radiusScale(state.payloadType(), state.visualScale());
 			double requiredDistance = Math.min(
 				TerrainShockfrontField.MAX_HORIZONTAL_RANGE,

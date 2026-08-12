@@ -21,15 +21,13 @@ loom {
 	}
 }
 
-/* These generated textures and particle definitions are client-only.  They
- * are mirrored under src/client/resources for particle-atlas discovery; keep
- * their historical main-resource copies out of the combined production JAR
- * so splitEnvironmentSourceSets does not package every asset twice. */
-sourceSets.main.resources {
-	exclude "assets/war_mod/particles/warhead_fireball.json"
-	exclude "assets/war_mod/particles/warhead_smoke.json"
-	exclude "assets/war_mod/textures/effect/**"
-	exclude "assets/war_mod/textures/particle/**"
+/* Generated visual resources are deliberately mirrored between the common
+ * and client source sets. Particle-atlas discovery needs the client copy,
+ * while direct mesh render types need the common copy during split-source-set
+ * development runs. The mirrored files are byte-identical, so collapse them
+ * only when assembling the distributable JAR. */
+tasks.withType(Jar).configureEach {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 repositories {

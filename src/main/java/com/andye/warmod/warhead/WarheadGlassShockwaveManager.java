@@ -46,7 +46,7 @@ public final class WarheadGlassShockwaveManager {
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
     private static final long LEVEL_WORK_BUDGET_NANOS = 8_000_000L;
     private static final long PREPARATION_WORK_BUDGET_NANOS = 3_000_000L;
-    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 2_048;
+    private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 8_192;
     /* These are already-discovered mutations, not scan work. Keep enough headroom
        to drain a dense forest annulus during the same tick that the pressure front
        crosses it; preprocessing remains separately time-bounded. */
@@ -249,7 +249,6 @@ public final class WarheadGlassShockwaveManager {
         private final LongOpenHashSet pressureColumns = new LongOpenHashSet(MAX_COLUMNS_PER_WAVE_TICK * 2);
 		private final LongOpenHashSet dirtyBiomeChunks = new LongOpenHashSet();
 		private Holder<Biome> basaltDeltas;
-        private long lastPressureGameTime;
         private double processedRadius;
         private boolean pressureComplete;
 
@@ -267,7 +266,6 @@ public final class WarheadGlassShockwaveManager {
             this.aftermathRadius = nuclear
                 ? Mth.ceil(nuclearAftermathRadius(craterRadius, visualScale)) : 0;
             this.preparation = preparation;
-            this.lastPressureGameTime = startGameTime - 1L;
         }
 
         private boolean advance(final ServerLevel level, final long gameTime) {
@@ -280,9 +278,11 @@ public final class WarheadGlassShockwaveManager {
                 }
             }
             if (!pressureComplete) {
-                long pressureGameTime = Math.min(gameTime, lastPressureGameTime + 1L);
+                /* Never let a busy server leave this wave permanently behind.
+                 * Prepared changes jump to the same current-time radius used by
+                 * the client instead of catching up only one missed tick per tick. */
+                long pressureGameTime = gameTime;
                 advancePressure(level, pressureGameTime);
-                lastPressureGameTime = pressureGameTime;
                 if (processedRadius + 0.01 < maximumRadius) return false;
                 pressureComplete = true;
             }
@@ -293,8 +293,10 @@ public final class WarheadGlassShockwaveManager {
         }
 
         private void advancePressure(final ServerLevel level, final long gameTime) {
+            double elapsedTicks = Math.max(0.0, gameTime - startGameTime + 1.0);
+            if (nuclear) elapsedTicks *= WarheadVisualMath.NUCLEAR_TIME_SCALE;
             double targetRadius = Math.min(maximumRadius,
-                Math.max(0.0, gameTime - startGameTime + 1.0) * SPEED_BLOCKS_PER_TICK);
+                elapsedTicks * SPEED_BLOCKS_PER_TICK);
             if (targetRadius <= processedRadius + 0.01) return;
 
             if (nuclear && preparation != null) {

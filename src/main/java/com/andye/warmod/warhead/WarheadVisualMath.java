@@ -7,6 +7,8 @@ public final class WarheadVisualMath {
     private static final double CONE_ACTIVATION_START = 0.32;
     private static final double CONE_ACTIVATION_FULL = 0.55;
     private static final double CONE_ATTACK_TICKS = 4.0;
+    /** Nuclear impact animation and its authoritative terrain front share this clock. */
+    public static final double NUCLEAR_TIME_SCALE = 1.33;
     public static final double AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK = 343.0 / 20.0;
     public static final double AIR_SHOCKWAVE_DURATION_TICKS = 72.0;
 
