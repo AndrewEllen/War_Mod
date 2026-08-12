@@ -1,6 +1,7 @@
 package com.andye.warmod.item.component;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.fire.FireIntensity;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -21,6 +22,8 @@ public final class ModDataComponents {
         .<IcbmTestDeliveryMode>builder().persistent(IcbmTestDeliveryMode.CODEC).build();
     public static final DataComponentType<MasterExplosiveConfig> MASTER_EXPLOSIVE_CONFIG = DataComponentType
         .<MasterExplosiveConfig>builder().persistent(MasterExplosiveConfig.CODEC).build();
+    public static final DataComponentType<FireIntensity> FIRE_DEBUG_INTENSITY = DataComponentType
+        .<FireIntensity>builder().persistent(FireIntensity.CODEC).build();
     private static boolean registered;
 
     private ModDataComponents() {
@@ -35,6 +38,7 @@ public final class ModDataComponents {
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_radar_station"), LINKED_RADAR_STATION);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("icbm_test_delivery_mode"), ICBM_TEST_DELIVERY_MODE);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("master_explosive_config"), MASTER_EXPLOSIVE_CONFIG);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_intensity"), FIRE_DEBUG_INTENSITY);
         registered = true;
     }
 

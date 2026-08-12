@@ -48,5 +48,8 @@
   "item.war_mod.pipe_wrench": "Pipe Wrench",
   "item.war_mod.master_explosive_test_stick": "Master Explosive Test Stick",
   "block.war_mod.artillery_cannon": "Artillery Cannon",
-  "item.war_mod.artillery_cannon": "Artillery Cannon"
+  "item.war_mod.artillery_cannon": "Artillery Cannon",
+  "item.war_mod.fire_debug_stick": "Custom Fire Debug Stick",
+  "item.war_mod.fire_hose": "Fire Hose",
+  "item.war_mod.fire_extinguisher": "Fire Extinguisher"
 }

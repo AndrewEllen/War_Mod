@@ -11,6 +11,8 @@ import com.andye.warmod.compat.DistantHorizonsCompat;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.entity.client.TimedWarheadTntRenderer;
+import com.andye.warmod.fire.client.ClientFireNetworking;
+import com.andye.warmod.fire.client.render.FireWorldRenderer;
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.silo.client.MissileSiloBlockEntityRenderer;
 import com.andye.warmod.silo.client.gui.MissileSiloScreen;
@@ -46,6 +48,7 @@ public final class WarModClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
+		ClientFireNetworking.register();
 		ClientIcbmNetworking.register();
         ClientAntiAirNetworking.register();
 		ClientPhalanxNetworking.register();
@@ -72,6 +75,7 @@ public final class WarModClient implements ClientModInitializer {
 		WarheadParticleClient.register();
 		WarheadRenderCommands.register();
 		WarheadWorldRenderer.register();
+		FireWorldRenderer.register();
 		IcbmWorldRenderer.register();
         AntiAirWorldRenderer.register();
 		PhalanxTracerRenderer.register();

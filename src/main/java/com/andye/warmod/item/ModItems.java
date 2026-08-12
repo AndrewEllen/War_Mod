@@ -44,6 +44,9 @@ public final class ModItems {
     public static final ResourceKey<Item> ITEM_PIPE_KEY = key("item_pipe");
     public static final ResourceKey<Item> PIPE_WRENCH_KEY = key("pipe_wrench");
     public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
+    public static final ResourceKey<Item> FIRE_DEBUG_STICK_KEY = key("fire_debug_stick");
+    public static final ResourceKey<Item> FIRE_HOSE_KEY = key("fire_hose");
+    public static final ResourceKey<Item> FIRE_EXTINGUISHER_KEY = key("fire_extinguisher");
 
     public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
     public static final Item ANTI_AIR_TEST_STICK = new AntiAirTestStickItem(properties(ANTI_AIR_TEST_STICK_KEY, 1));
@@ -76,6 +79,9 @@ public final class ModItems {
     );
     public static final Item PIPE_WRENCH = new PipeWrenchItem(properties(PIPE_WRENCH_KEY, 1));
     public static final Item ARTILLERY_CANNON = new BlockItem(ModBlocks.ARTILLERY_CANNON, properties(ARTILLERY_CANNON_KEY, 1));
+    public static final Item FIRE_DEBUG_STICK = new FireDebugStickItem(properties(FIRE_DEBUG_STICK_KEY, 1));
+    public static final Item FIRE_HOSE = new FireHoseItem(properties(FIRE_HOSE_KEY, 1));
+    public static final Item FIRE_EXTINGUISHER = new FireExtinguisherItem(properties(FIRE_EXTINGUISHER_KEY, 1));
     private static final Map<WarheadYield, Map<PayloadKind, Item>> YIELD_ITEMS = createYieldItems();
 
     private static boolean registered;
@@ -110,6 +116,9 @@ public final class ModItems {
         register(ITEM_PIPE_KEY, ITEM_PIPE);
         register(PIPE_WRENCH_KEY, PIPE_WRENCH);
         register(ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        register(FIRE_DEBUG_STICK_KEY, FIRE_DEBUG_STICK);
+        register(FIRE_HOSE_KEY, FIRE_HOSE);
+        register(FIRE_EXTINGUISHER_KEY, FIRE_EXTINGUISHER);
         for (WarheadYield yield : WarheadYield.values()) for (PayloadKind kind : PayloadKind.values()) register(key(kind.path(yield)), item(yield, kind));
         registered = true;
     }

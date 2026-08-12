@@ -50,6 +50,15 @@ The mod is built around battles that feel dramatic and dangerous. Missiles trave
 - Configure pipe connections with the Pipe Wrench.
 - Use dedicated interfaces for silos, artillery cannons, radar equipment, and defensive weapons.
 
+### Dynamic fire
+
+- Start custom, particle-rendered fires with the Custom Fire Debug Stick.
+- Crouch-use the stick to cycle Small, Structure, and Inferno ignition strengths.
+- Fire climbs exposed vegetation and structures, follows local wind, and can carry embers across gaps.
+- Strategic explosions create an outward pressure wind followed by a weaker return flow for fire only.
+- Flowing or placed Minecraft water suppresses fire; the Fire Hose and Fire Extinguisher provide directed suppression.
+- Fire fuel overrides are data-packable through the `war_mod:fire_fuel_high`, `fire_fuel_medium`, `fire_fuel_low`, and `fire_immune` block tags.
+
 ### Visual compatibility
 
 War Mod includes rendering paths for standard Minecraft, Sodium, Iris shaders, and Distant Horizons. Explosion effects are designed to remain visible at long range while respecting nearby terrain and distant terrain detail.

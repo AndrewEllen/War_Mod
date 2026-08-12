@@ -9,6 +9,9 @@ import com.andye.warmod.antiair.network.AntiAirNetworking;
 import com.andye.warmod.block.ModBlocks;
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.entity.ModEntityTypes;
+import com.andye.warmod.fire.FireSimulationManager;
+import com.andye.warmod.fire.network.FireNetworking;
+import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.icbm.IcbmChunkTicketType;
 import com.andye.warmod.icbm.IcbmCommand;
 import com.andye.warmod.icbm.IcbmFlightControllerManager;
@@ -58,6 +61,7 @@ public final class WarMod implements ModInitializer {
         AntiAirNetworking.register();
         PhalanxNetworking.register();
         WarheadVisualNetworking.registerPayloadTypes();
+        FireNetworking.registerPayloadTypes();
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
         SiloNetworking.register();
@@ -76,6 +80,8 @@ public final class WarMod implements ModInitializer {
         com.andye.warmod.warhead.WarheadImpactChunkLeaseManager.registerLifecycle();
         WarheadExplosionWorkManager.registerLifecycle();
         WarheadGlassShockwaveManager.registerLifecycle();
+        FireWindEngine.registerLifecycle();
+        FireSimulationManager.registerLifecycle();
         WarheadYieldRegistry.registerLifecycle();
         IcbmFlightControllerManager.register();
         AntiAirFlightControllerManager.register();
@@ -100,6 +106,8 @@ public final class WarMod implements ModInitializer {
             RadarTrackingService.clearAll();
             IncomingWarheadRegistry.clearAll();
             com.andye.warmod.warhead.StrategicMissilePayloadRegistry.clear();
+            FireSimulationManager.clearAll();
+            FireWindEngine.clearAll();
         });
 
         LOGGER.info("War Mod initialized.");

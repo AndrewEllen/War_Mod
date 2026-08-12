@@ -3,6 +3,7 @@ package com.andye.warmod.warhead;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticEngine;
 import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.testtool.TestExplosionService;
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
@@ -69,6 +70,10 @@ public final class WarheadImpactService {
 		WarheadYield yield = WarheadYieldRegistry.resolve(level, id, radarRootTrackId, payloadType);
 		StrategicExplosionProfile craterProfile = StrategicExplosionProfiles.get(yield);
 		Vec3 effectivePosition = WarheadExplosionWorkManager.resolveDetonationCenter(level, pos, yield);
+		FireWindEngine.addExplosionImpulse(level, effectivePosition,
+			48.0 + yield.visualScale() * (yield.nuclear() ? 72.0 : 38.0),
+			0.55 + yield.visualScale() * (yield.nuclear() ? 0.72 : 0.34),
+			yield.nuclear() ? 110 : 56);
 		if (registerRadarImpact) {
 			RadarTrackingService.registerImpact(
 				level,
