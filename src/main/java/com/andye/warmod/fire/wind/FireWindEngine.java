@@ -50,12 +50,16 @@ public final class FireWindEngine {
 
     public static synchronized Vec3 windAt(final ServerLevel level, final Vec3 position) {
         if (level == null || position == null || !position.isFinite()) return Vec3.ZERO;
-        double time = level.getGameTime() * 0.0017;
-        double spatial = position.x * 0.0031 + position.z * 0.0023;
-        double angle = time + Math.sin(spatial) * 1.35
-            + Math.cos(position.z * 0.0017 - time * 0.43) * 0.55;
-        double speed = 0.045 + 0.055 * (0.5 + 0.5 * Math.sin(
-            position.x * 0.0047 - position.z * 0.0039 + time * 1.7));
+        /* A slowly evolving prevailing field gives smoke enough coherent travel
+           time to show direction. Local gusts vary strength without rotating the
+           plume every few seconds. Values are blocks/tick for fire advection. */
+        double time = level.getGameTime() * 0.00042;
+        double spatial = position.x * 0.0016 + position.z * 0.0012;
+        double angle = time + Math.sin(spatial) * 0.72
+            + Math.cos(position.z * 0.0011 - time * 0.31) * 0.26;
+        double gust = 0.5 + 0.5 * Math.sin(position.x * 0.0032
+            - position.z * 0.0027 + level.getGameTime() * 0.0034);
+        double speed = 0.14 + 0.15 * gust;
         Vec3 result = new Vec3(Math.cos(angle) * speed, 0.0,
             Math.sin(angle) * speed);
 

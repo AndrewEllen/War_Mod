@@ -24,6 +24,8 @@ public final class ModDataComponents {
         .<MasterExplosiveConfig>builder().persistent(MasterExplosiveConfig.CODEC).build();
     public static final DataComponentType<FireIntensity> FIRE_DEBUG_INTENSITY = DataComponentType
         .<FireIntensity>builder().persistent(FireIntensity.CODEC).build();
+    public static final DataComponentType<FireDebugConfig> FIRE_DEBUG_CONFIG = DataComponentType
+        .<FireDebugConfig>builder().persistent(FireDebugConfig.CODEC).build();
     private static boolean registered;
 
     private ModDataComponents() {
@@ -39,6 +41,7 @@ public final class ModDataComponents {
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("icbm_test_delivery_mode"), ICBM_TEST_DELIVERY_MODE);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("master_explosive_config"), MASTER_EXPLOSIVE_CONFIG);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_intensity"), FIRE_DEBUG_INTENSITY);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_config"), FIRE_DEBUG_CONFIG);
         registered = true;
     }
 

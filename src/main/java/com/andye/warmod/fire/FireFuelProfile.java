@@ -4,12 +4,20 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.state.BlockState;
 
-public record FireFuelProfile(boolean flammable, boolean consumable, float ignition, int burnTicks) {
-    public static final FireFuelProfile NONE = new FireFuelProfile(false, false, 0.0F, 60);
-    public static final FireFuelProfile HIGH = new FireFuelProfile(true, true, 1.00F, 95);
-    public static final FireFuelProfile MEDIUM = new FireFuelProfile(true, true, 0.72F, 360);
+public record FireFuelProfile(boolean flammable, boolean consumable,
+    float ignitionThreshold, int burnTicks, float heatRelease,
+    float smokeSoot, float emberSusceptibility) {
+    public static final FireFuelProfile NONE = new FireFuelProfile(false, false,
+        2.4F, 600, 0.35F, 0.12F, 0.05F);
+    /** Leaves, plants and dry crown fuel: quick ignition, meaningful burn duration. */
+    public static final FireFuelProfile HIGH = new FireFuelProfile(true, true,
+        0.72F, 1_050, 0.86F, 0.30F, 1.00F);
+    /** Structural wood and wool: slower ignition and a long fuel-driven burn. */
+    public static final FireFuelProfile MEDIUM = new FireFuelProfile(true, true,
+        1.22F, 3_200, 1.00F, 0.46F, 0.62F);
     /** Organic ground supports a spreading surface burn but must not become a terrain hole. */
-    public static final FireFuelProfile LOW = new FireFuelProfile(true, false, 0.45F, 150);
+    public static final FireFuelProfile LOW = new FireFuelProfile(true, false,
+        0.92F, 780, 0.58F, 0.23F, 0.78F);
 
     public static FireFuelProfile of(final BlockState state) {
         if (state.isAir() || state.is(FireFuelTags.IMMUNE)) return NONE;

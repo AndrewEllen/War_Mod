@@ -11,6 +11,7 @@ import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.fire.FireSimulationManager;
 import com.andye.warmod.fire.network.FireNetworking;
+import com.andye.warmod.fire.network.FireDebugNetworking;
 import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.icbm.IcbmChunkTicketType;
 import com.andye.warmod.icbm.IcbmCommand;
@@ -62,6 +63,7 @@ public final class WarMod implements ModInitializer {
         PhalanxNetworking.register();
         WarheadVisualNetworking.registerPayloadTypes();
         FireNetworking.registerPayloadTypes();
+        FireDebugNetworking.register();
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
         SiloNetworking.register();

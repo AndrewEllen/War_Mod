@@ -1,7 +1,7 @@
 package com.andye.warmod.fire;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
-public record FireCellSnapshot(BlockPos position, float intensity, float heat,
-    FirePhase phase, long seed, Vec3 wind) { }
+public record FireCellSnapshot(long id, FireSurfaceAnchor anchor, float intensity,
+    float heat, float coverage, float smoke, FirePhase phase, long seed,
+    long ignitionGameTime, Vec3 wind) { }

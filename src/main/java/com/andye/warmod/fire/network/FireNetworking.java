@@ -32,8 +32,8 @@ public final class FireNetworking {
         int chunkRadius = (int) Math.ceil(VISUAL_RANGE / 16.0);
         Map<Long, List<FireCellSnapshot>> buckets = new HashMap<>();
         for (FireCellSnapshot snapshot : snapshots) {
-            int chunkX = snapshot.position().getX() >> 4;
-            int chunkZ = snapshot.position().getZ() >> 4;
+            int chunkX = snapshot.anchor().host().getX() >> 4;
+            int chunkZ = snapshot.anchor().host().getZ() >> 4;
             buckets.computeIfAbsent(chunkKey(chunkX, chunkZ), ignored -> new ArrayList<>())
                 .add(snapshot);
         }
@@ -43,14 +43,16 @@ public final class FireNetworking {
                 Comparator.comparingDouble(RankedSnapshot::distanceSquared).reversed());
             int playerChunkX = player.blockPosition().getX() >> 4;
             int playerChunkZ = player.blockPosition().getZ() >> 4;
+            int visibleCandidateCount = 0;
             for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
                 for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
                     List<FireCellSnapshot> candidates = buckets.get(
                         chunkKey(playerChunkX + dx, playerChunkZ + dz));
                     if (candidates == null) continue;
                     for (FireCellSnapshot snapshot : candidates) {
-                        double distanceSquared = player.distanceToSqr(Vec3.atCenterOf(snapshot.position()));
+                        double distanceSquared = player.distanceToSqr(snapshot.anchor().position());
                         if (distanceSquared > rangeSquared) continue;
+                        visibleCandidateCount++;
                         nearest.add(new RankedSnapshot(snapshot, distanceSquared));
                         if (nearest.size() > ClientboundFireStatePayload.MAX_ENTRIES) nearest.poll();
                     }
@@ -61,13 +63,17 @@ public final class FireNetworking {
                 .map(RankedSnapshot::snapshot).toList();
             List<ClientboundFireStatePayload.Entry> entries = new ArrayList<>(visible.size());
             for (FireCellSnapshot snapshot : visible) {
-                entries.add(new ClientboundFireStatePayload.Entry(snapshot.position().asLong(),
-                    snapshot.intensity(), snapshot.heat(), snapshot.phase(), snapshot.seed(),
+                entries.add(new ClientboundFireStatePayload.Entry(snapshot.id(),
+                    snapshot.anchor().host().asLong(), (byte) snapshot.anchor().face().ordinal(),
+                    snapshot.anchor().localX(), snapshot.anchor().localY(), snapshot.anchor().localZ(),
+                    snapshot.intensity(), snapshot.heat(), snapshot.coverage(), snapshot.smoke(),
+                    snapshot.phase(), snapshot.seed(), snapshot.ignitionGameTime(),
                     (float) snapshot.wind().x, (float) snapshot.wind().y,
                     (float) snapshot.wind().z));
             }
             ServerPlayNetworking.send(player, new ClientboundFireStatePayload(
-                level.getGameTime(), List.copyOf(entries)));
+                level.getGameTime(), visibleCandidateCount <= ClientboundFireStatePayload.MAX_ENTRIES,
+                List.copyOf(entries)));
         }
     }
 

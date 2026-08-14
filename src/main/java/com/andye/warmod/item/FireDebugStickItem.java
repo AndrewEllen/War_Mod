@@ -1,13 +1,14 @@
 package com.andye.warmod.item;
 
-import com.andye.warmod.fire.FireFuelProfile;
 import com.andye.warmod.fire.FireIntensity;
 import com.andye.warmod.fire.FireSimulationManager;
+import com.andye.warmod.fire.FireSurfaceAnchor;
+import com.andye.warmod.fire.network.FireDebugNetworking;
+import com.andye.warmod.item.component.FireDebugConfig;
 import com.andye.warmod.item.component.ModDataComponents;
 import com.andye.warmod.testtool.TestTargeting;
 import java.util.Optional;
 import java.util.function.Consumer;
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -32,10 +33,12 @@ public final class FireDebugStickItem extends Item {
         if (!(context.getLevel() instanceof ServerLevel level)
             || !(context.getPlayer() instanceof ServerPlayer player)) return InteractionResult.PASS;
         ItemStack stack = context.getItemInHand();
-        if (player.isShiftKeyDown()) return cycle(player, stack);
-        BlockPos clicked = context.getClickedPos();
-        BlockPos anchor = FireFuelProfile.of(level.getBlockState(clicked)).flammable()
-            ? clicked : clicked.relative(context.getClickedFace());
+        if (player.isShiftKeyDown()) {
+            FireDebugNetworking.open(player, context.getHand(), stack);
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        FireSurfaceAnchor anchor = FireSurfaceAnchor.fromHit(context.getClickedPos(),
+            context.getClickedFace(), context.getClickLocation());
         return ignite(level, player, stack, anchor);
     }
 
@@ -44,46 +47,48 @@ public final class FireDebugStickItem extends Item {
         if (level.isClientSide() || !(level instanceof ServerLevel server)
             || !(player instanceof ServerPlayer serverPlayer)) return InteractionResult.PASS;
         ItemStack stack = player.getItemInHand(hand);
-        if (player.isShiftKeyDown()) return cycle(serverPlayer, stack);
-        Optional<BlockHitResult> hit = TestTargeting.findTarget(serverPlayer, RANGE);
-        if (hit.isEmpty()) {
-            serverPlayer.sendOverlayMessage(Component.literal("No loaded surface found within 256 blocks"));
+        if (player.isShiftKeyDown()) {
+            FireDebugNetworking.open(serverPlayer, hand, stack);
             return InteractionResult.SUCCESS_SERVER;
         }
-        BlockPos clicked = hit.get().getBlockPos();
-        BlockPos anchor = FireFuelProfile.of(server.getBlockState(clicked)).flammable()
-            ? clicked : clicked.relative(hit.get().getDirection());
-        return ignite(server, serverPlayer, stack, anchor);
+        Optional<BlockHitResult> hit = TestTargeting.findTarget(serverPlayer, RANGE);
+        if (hit.isEmpty()) {
+            serverPlayer.sendOverlayMessage(Component.literal(
+                "No loaded surface found within 256 blocks"));
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        BlockHitResult result = hit.get();
+        return ignite(server, serverPlayer, stack, FireSurfaceAnchor.fromHit(
+            result.getBlockPos(), result.getDirection(), result.getLocation()));
     }
 
     private static InteractionResult ignite(final ServerLevel level,
-        final ServerPlayer player, final ItemStack stack, final BlockPos position) {
-        FireIntensity intensity = intensity(stack);
+        final ServerPlayer player, final ItemStack stack, final FireSurfaceAnchor anchor) {
         if (player.getCooldowns().isOnCooldown(stack)) return InteractionResult.PASS;
-        boolean ignited = FireSimulationManager.ignite(level, position, intensity,
-            level.getRandom().nextLong() ^ position.asLong(), true);
-        player.sendOverlayMessage(Component.literal(ignited
-            ? "Custom fire started: " + intensity.displayName()
-            : "Fire could not start here (water, wet surface, unloaded area, or capacity reached)"));
-        player.getCooldowns().addCooldown(stack, 2);
+        FireDebugConfig config = config(stack);
+        int placed = FireSimulationManager.igniteSurface(level, anchor, config,
+            level.getRandom().nextLong() ^ anchor.host().asLong());
+        player.sendOverlayMessage(Component.literal(placed > 0
+            ? "Custom fire placed on " + placed + " surface" + (placed == 1 ? "" : "s")
+                + " | " + config.summary()
+            : "Fire could not attach to this exposed surface"));
+        player.getCooldowns().addCooldown(stack, 3);
         return InteractionResult.SUCCESS_SERVER;
     }
 
-    private static InteractionResult cycle(final ServerPlayer player, final ItemStack stack) {
-        FireIntensity next = intensity(stack).next();
-        stack.set(ModDataComponents.FIRE_DEBUG_INTENSITY, next);
-        player.sendOverlayMessage(Component.literal("Fire Debug Stick: " + next.displayName()));
-        return InteractionResult.SUCCESS_SERVER;
-    }
-
-    private static FireIntensity intensity(final ItemStack stack) {
-        return stack.getOrDefault(ModDataComponents.FIRE_DEBUG_INTENSITY, FireIntensity.MEDIUM);
+    /** Reads the new slider config while preserving old enum-configured sticks. */
+    public static FireDebugConfig config(final ItemStack stack) {
+        FireDebugConfig configured = stack.get(ModDataComponents.FIRE_DEBUG_CONFIG);
+        if (configured != null) return configured;
+        FireIntensity legacy = stack.get(ModDataComponents.FIRE_DEBUG_INTENSITY);
+        return legacy == null ? FireDebugConfig.DEFAULT
+            : new FireDebugConfig(legacy.heat(), 1);
     }
 
     @Override public void appendHoverText(final ItemStack stack, final TooltipContext context,
         final TooltipDisplay display, final Consumer<Component> tooltip, final TooltipFlag flag) {
-        tooltip.accept(Component.literal("Starts server-authoritative custom fire"));
-        tooltip.accept(Component.literal("Crouch-use to change strength"));
-        tooltip.accept(Component.literal("Strength: " + intensity(stack).displayName()));
+        tooltip.accept(Component.literal("Places custom fire at the exact targeted surface"));
+        tooltip.accept(Component.literal("Crouch-use: intensity and size menu"));
+        tooltip.accept(Component.literal(config(stack).summary()));
     }
 }

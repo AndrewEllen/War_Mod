@@ -12,6 +12,7 @@ import com.andye.warmod.entity.ModEntityTypes;
 import com.andye.warmod.entity.client.WarheadDebrisRenderer;
 import com.andye.warmod.entity.client.TimedWarheadTntRenderer;
 import com.andye.warmod.fire.client.ClientFireNetworking;
+import com.andye.warmod.fire.client.ClientFireDebugNetworking;
 import com.andye.warmod.fire.client.render.FireWorldRenderer;
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.silo.client.MissileSiloBlockEntityRenderer;
@@ -49,6 +50,7 @@ public final class WarModClient implements ClientModInitializer {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
 		ClientFireNetworking.register();
+		ClientFireDebugNetworking.register();
 		ClientIcbmNetworking.register();
         ClientAntiAirNetworking.register();
 		ClientPhalanxNetworking.register();
