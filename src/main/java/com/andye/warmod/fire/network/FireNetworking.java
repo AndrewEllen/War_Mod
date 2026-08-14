@@ -1,6 +1,7 @@
 package com.andye.warmod.fire.network;
 
 import com.andye.warmod.fire.FireCellSnapshot;
+import com.andye.warmod.fire.FireEmberSnapshot;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,7 +28,8 @@ public final class FireNetworking {
         registered = true;
     }
 
-    public static void sendSnapshot(final ServerLevel level, final List<FireCellSnapshot> snapshots) {
+    public static void sendSnapshot(final ServerLevel level, final List<FireCellSnapshot> snapshots,
+		final List<FireEmberSnapshot> emberSnapshots) {
         double rangeSquared = VISUAL_RANGE * VISUAL_RANGE;
         int chunkRadius = (int) Math.ceil(VISUAL_RANGE / 16.0);
         Map<Long, List<FireCellSnapshot>> buckets = new HashMap<>();
@@ -71,9 +73,32 @@ public final class FireNetworking {
                     (float) snapshot.wind().x, (float) snapshot.wind().y,
                     (float) snapshot.wind().z));
             }
+			PriorityQueue<RankedEmber> nearestEmbers = new PriorityQueue<>(
+				ClientboundFireStatePayload.MAX_EMBERS + 1,
+				Comparator.comparingDouble(RankedEmber::distanceSquared).reversed());
+			int visibleEmberCount = 0;
+			for (FireEmberSnapshot ember : emberSnapshots) {
+				double distanceSquared = player.distanceToSqr(ember.position());
+				if (distanceSquared > rangeSquared) continue;
+				visibleEmberCount++;
+				nearestEmbers.add(new RankedEmber(ember, distanceSquared));
+				if (nearestEmbers.size() > ClientboundFireStatePayload.MAX_EMBERS)
+					nearestEmbers.poll();
+			}
+			List<ClientboundFireStatePayload.EmberEntry> emberEntries = nearestEmbers.stream()
+				.sorted(Comparator.comparingDouble(RankedEmber::distanceSquared))
+				.map(ranked -> {
+					FireEmberSnapshot ember = ranked.snapshot();
+					return new ClientboundFireStatePayload.EmberEntry(ember.id(),
+						ember.position().x, ember.position().y, ember.position().z,
+						(float) ember.velocity().x, (float) ember.velocity().y,
+						(float) ember.velocity().z, ember.intensity(), ember.seed(),
+						ember.startGameTime(), ember.lifetime());
+				}).toList();
             ServerPlayNetworking.send(player, new ClientboundFireStatePayload(
                 level.getGameTime(), visibleCandidateCount <= ClientboundFireStatePayload.MAX_ENTRIES,
-                List.copyOf(entries)));
+                List.copyOf(entries), visibleEmberCount <= ClientboundFireStatePayload.MAX_EMBERS,
+				List.copyOf(emberEntries)));
         }
     }
 
@@ -82,4 +107,5 @@ public final class FireNetworking {
     }
 
     private record RankedSnapshot(FireCellSnapshot snapshot, double distanceSquared) { }
+	private record RankedEmber(FireEmberSnapshot snapshot, double distanceSquared) { }
 }

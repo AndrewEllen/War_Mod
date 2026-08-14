@@ -48,7 +48,8 @@ public final class MasterExplosiveNetworking {
 		if (!(stack.getItem() instanceof MasterExplosiveStickItem)) return;
 		stack.set(ModDataComponents.MASTER_EXPLOSIVE_CONFIG, payload.config());
 		player.sendOverlayMessage(net.minecraft.network.chat.Component.literal(
-			"Master Explosive: " + payload.config().summary()
+			"Master Explosive: " + payload.config().summary() + " | Fire: "
+				+ (payload.config().customFire() ? "Custom" : "Vanilla")
 		));
 	}
 }

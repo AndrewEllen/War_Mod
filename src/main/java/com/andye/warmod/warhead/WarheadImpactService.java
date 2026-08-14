@@ -68,6 +68,7 @@ public final class WarheadImpactService {
 		if (!pos.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
 
 		WarheadYield yield = WarheadYieldRegistry.resolve(level, id, radarRootTrackId, payloadType);
+		boolean customFire = WarheadYieldRegistry.usesCustomFire(level, id, radarRootTrackId);
 		StrategicExplosionProfile craterProfile = StrategicExplosionProfiles.get(yield);
 		Vec3 effectivePosition = WarheadExplosionWorkManager.resolveDetonationCenter(level, pos, yield);
 		FireWindEngine.addExplosionImpulse(level, effectivePosition,
@@ -95,7 +96,7 @@ public final class WarheadImpactService {
 			yield.payloadType(),
 			yield.visualScale(),
 			yield.effectProfile()
-		), effectivePosition);
+		), effectivePosition, customFire);
 
 		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks = TestExplosionService.createExplosion(
 			level,
@@ -103,7 +104,8 @@ public final class WarheadImpactService {
 			id,
 			effectivePosition,
 			yield,
-			seed
+			seed,
+			customFire
 		);
 		spawnDebris(level, id, effectivePosition, seed, destroyedBlocks, yield, craterProfile);
 

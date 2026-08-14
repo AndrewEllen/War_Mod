@@ -66,7 +66,7 @@ public final class FireDebugStickItem extends Item {
         final ServerPlayer player, final ItemStack stack, final FireSurfaceAnchor anchor) {
         if (player.getCooldowns().isOnCooldown(stack)) return InteractionResult.PASS;
         FireDebugConfig config = config(stack);
-        int placed = FireSimulationManager.igniteSurface(level, anchor, config,
+        int placed = FireSimulationManager.igniteSurfacePrioritized(level, anchor, config,
             level.getRandom().nextLong() ^ anchor.host().asLong());
         player.sendOverlayMessage(Component.literal(placed > 0
             ? "Custom fire placed on " + placed + " surface" + (placed == 1 ? "" : "s")

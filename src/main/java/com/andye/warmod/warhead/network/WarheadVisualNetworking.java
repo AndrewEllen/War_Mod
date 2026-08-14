@@ -44,6 +44,12 @@ public final class WarheadVisualNetworking {
 
     public static synchronized void sendImpact(final ServerLevel level,
         final ClientboundWarheadImpactPayload payload, final Vec3 impact) {
+		sendImpact(level, payload, impact, false);
+	}
+
+    public static synchronized void sendImpact(final ServerLevel level,
+        final ClientboundWarheadImpactPayload payload, final Vec3 impact,
+		final boolean customFire) {
         if (!payload.isWellFormed()) return;
         while (RECENT_IMPACTS.size() >= MAX_RECENT_IMPACTS) {
             UUID oldest = RECENT_IMPACTS.keySet().iterator().next();
@@ -51,7 +57,7 @@ public final class WarheadVisualNetworking {
         }
         RECENT_IMPACTS.put(payload.warheadId(), new ImpactDescriptor(payload.impactVisualScale(),
             payload.payloadType() == WarheadPayloadType.NUCLEAR));
-        WarheadGlassShockwaveManager.schedule(level, payload, impact);
+        WarheadGlassShockwaveManager.schedule(level, payload, impact, customFire);
         sendToNearby(level, payload, impact);
     }
 

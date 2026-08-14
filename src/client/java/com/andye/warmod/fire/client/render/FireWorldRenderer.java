@@ -3,6 +3,7 @@ package com.andye.warmod.fire.client.render;
 import com.andye.warmod.fire.FirePhase;
 import com.andye.warmod.fire.client.ClientFireVisualManager;
 import com.andye.warmod.fire.client.ClientFireVisualManager.VisualPatch;
+import com.andye.warmod.fire.client.ClientFireVisualManager.VisualEmber;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 
@@ -51,21 +53,35 @@ public final class FireWorldRenderer {
             patches.add(new FireRenderPatch(worldPosition.subtract(cameraPosition),
                 patch.anchor().face(), patch.intensity(), patch.heat(), patch.coverage(),
                 patch.smoke(), patch.phase(), patch.seed(), patch.ignitionGameTime(),
-                patch.wind(), distance));
+				patch.wind(), patch.clumpStrength(), distance));
         }
-        currentFrame = patches.isEmpty() ? RenderFrame.EMPTY
-            : new RenderFrame(gameTime, orientation, List.copyOf(patches));
+		List<FireRenderEmber> embers = new ArrayList<>();
+		for (VisualEmber ember : ClientFireVisualManager.INSTANCE.emberSnapshot(level)) {
+			double extrapolation = Mth.clamp(gameTime - ember.lastSeenClientTick(), 0.0, 10.0);
+			Vec3 worldPosition = ember.position().add(ember.velocity().scale(extrapolation));
+			double distance = worldPosition.distanceTo(cameraPosition);
+			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
+			embers.add(new FireRenderEmber(worldPosition.subtract(cameraPosition),
+				ember.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
+				ember.lifetime(), distance));
+		}
+        currentFrame = patches.isEmpty() && embers.isEmpty() ? RenderFrame.EMPTY
+            : new RenderFrame(gameTime, orientation, List.copyOf(patches), List.copyOf(embers));
     }
 
     private static void collectSubmits(final LevelRenderContext context) {
         RenderFrame frame = currentFrame;
-        if (frame == RenderFrame.EMPTY || frame.patches().isEmpty()) return;
+		if (frame == RenderFrame.EMPTY || (frame.patches().isEmpty() && frame.embers().isEmpty())) return;
         PoseStack poseStack = context.poseStack();
         if (poseStack == null) return;
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.FIREBALL_HOT,
             (pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
                 frame.gameTime(), frame.patches(), frame.cameraOrientation()));
+		if (!frame.embers().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+			WarheadRenderPipelines.FIREBALL_HOT,
+			(pose, buffer) -> FireParticleRenderer.renderFirebrands(pose, buffer,
+				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.FIREBALL_COOL,
             (pose, buffer) -> FireParticleRenderer.renderEmbers(pose, buffer,
@@ -74,13 +90,20 @@ public final class FireWorldRenderer {
             WarheadRenderPipelines.HEAVY_SMOKE,
             (pose, buffer) -> FireParticleRenderer.renderSmoke(pose, buffer,
                 frame.gameTime(), frame.patches(), frame.cameraOrientation()));
+		if (!frame.embers().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+			WarheadRenderPipelines.HEAVY_SMOKE,
+			(pose, buffer) -> FireParticleRenderer.renderFirebrandSmoke(pose, buffer,
+				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
     }
 
     record FireRenderPatch(Vec3 relativePosition, Direction face, float intensity,
         float heat, float coverage, float smoke, FirePhase phase, long seed,
-        long ignitionGameTime, Vec3 wind, double distance) { }
+		long ignitionGameTime, Vec3 wind, float clumpStrength, double distance) { }
+	record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
+		long seed, long startGameTime, int lifetime, double distance) { }
     private record RenderFrame(double gameTime, Quaternionf cameraOrientation,
-        List<FireRenderPatch> patches) {
-        private static final RenderFrame EMPTY = new RenderFrame(0.0, new Quaternionf(), List.of());
+		List<FireRenderPatch> patches, List<FireRenderEmber> embers) {
+		private static final RenderFrame EMPTY = new RenderFrame(0.0, new Quaternionf(),
+			List.of(), List.of());
     }
 }

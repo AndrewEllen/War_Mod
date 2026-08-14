@@ -54,8 +54,10 @@ The mod is built around battles that feel dramatic and dangerous. Missiles trave
 
 - Start custom, particle-rendered fires with the Custom Fire Debug Stick.
 - Crouch-use the stick to open its intensity and placement-size sliders; normal use anchors fire to the exact clicked face and point.
-- Fire patches preheat, grow, engulf exposed vegetation and structures, follow local wind, and can carry travelling embers across gaps.
+- Nearby fire patches clump into larger flame and smoke bodies; stronger clumps consume fuel and destroy blocks faster.
+- Windborne firebrands use the same visible, smoke-trailed path for server collision and chance-based ignition across gaps.
 - Strategic explosions create an outward pressure wind followed by a weaker return flow for fire only.
+- The Master Explosive Test Stick can opt an individual launch into custom aftermath fire; vanilla fire remains its default.
 - Flowing or placed Minecraft water suppresses fire; the Fire Hose and Fire Extinguisher provide directed suppression.
 - Fire fuel overrides are data-packable through the `war_mod:fire_fuel_high`, `fire_fuel_medium`, `fire_fuel_low`, and `fire_immune` block tags.
 

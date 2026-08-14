@@ -144,7 +144,7 @@ public final class WarheadExplosionWorkManager {
 		final WarheadYield yield,
 		final long seed
 	) {
-		ExplosionWork work = scheduleDetonation(level, source, warheadId, position, yield, seed);
+		ExplosionWork work = scheduleDetonation(level, source, warheadId, position, yield, seed, false);
 		return work == null ? List.of() : work.sampleInitialDebris(level);
 	}
 
@@ -160,7 +160,19 @@ public final class WarheadExplosionWorkManager {
 		final WarheadYield yield,
 		final long seed
 	) {
-		scheduleDetonation(level, source, warheadId, position, yield, seed);
+		detonateWithoutDebrisSample(level, source, warheadId, position, yield, seed, false);
+	}
+
+	public static synchronized void detonateWithoutDebrisSample(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadYield yield,
+		final long seed,
+		final boolean customFire
+	) {
+		scheduleDetonation(level, source, warheadId, position, yield, seed, customFire);
 	}
 
 	private static ExplosionWork scheduleDetonation(
@@ -169,7 +181,8 @@ public final class WarheadExplosionWorkManager {
 		final UUID warheadId,
 		final Vec3 position,
 		final WarheadYield yield,
-		final long seed
+		final long seed,
+		final boolean customFire
 	) {
 		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid staged explosion position");
@@ -184,7 +197,8 @@ public final class WarheadExplosionWorkManager {
 			profile,
 			seed,
 			templateFuture(yield),
-			level.getGameTime()
+			level.getGameTime(),
+			customFire
 		);
 		levelWork.works.add(work);
 		levelWork.byWarhead.put(warheadId, work);
@@ -407,6 +421,7 @@ public final class WarheadExplosionWorkManager {
 		private final CompletableFuture<ShapeTemplate> templateFuture;
 		private final VoidVolume voidVolume;
 		private final long detonationGameTime;
+		private final boolean customFire;
 		private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		private final BlockPos.MutableBlockPos surfaceScan = new BlockPos.MutableBlockPos();
 		private final BlockPos.MutableBlockPos supportScan = new BlockPos.MutableBlockPos();
@@ -441,7 +456,8 @@ public final class WarheadExplosionWorkManager {
 			final StrategicExplosionProfile profile,
 			final long seed,
 			final CompletableFuture<ShapeTemplate> templateFuture,
-			final long gameTime
+			final long gameTime,
+			final boolean customFire
 		) {
 			this.warheadId = warheadId;
 			this.center = center;
@@ -450,6 +466,7 @@ public final class WarheadExplosionWorkManager {
 			this.templateFuture = templateFuture;
 			this.voidVolume = new VoidVolume(center, profile);
 			this.detonationGameTime = gameTime;
+			this.customFire = customFire;
 			this.centerX = Mth.floor(center.x);
 			this.centerY = Mth.floor(center.y);
 			this.centerZ = Mth.floor(center.z);
@@ -818,7 +835,10 @@ public final class WarheadExplosionWorkManager {
 				if (profile.yield().nuclear() && unit(hash ^ 0x464952455F504F53L) < 0.025) {
 					cursor.set(x, groundY + 1, z);
 					if (level.isInWorldBounds(cursor) && level.getBlockState(cursor).isAir()) {
-						level.setBlock(cursor, Blocks.FIRE.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+						WarheadFirePlacement.placeAbove(level, cursor.below(), customFire,
+							Mth.clamp(0.68F + profile.yield().visualScale() * 0.08F, 0.10F, 1.0F),
+							hash ^ 0x464952455F504F53L,
+							Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
 					}
 				}
 				return true;

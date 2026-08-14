@@ -10,9 +10,11 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
 /** Sparse authoritative fire-patch snapshot; particles are reconstructed client-side. */
-public record ClientboundFireStatePayload(long serverGameTime, boolean complete, List<Entry> entries)
+public record ClientboundFireStatePayload(long serverGameTime, boolean complete, List<Entry> entries,
+    boolean emberComplete, List<EmberEntry> embers)
     implements CustomPacketPayload {
     public static final int MAX_ENTRIES = 768;
+	public static final int MAX_EMBERS = 96;
     public static final Type<ClientboundFireStatePayload> TYPE = new Type<>(
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "fire_state"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundFireStatePayload> STREAM_CODEC =
@@ -36,6 +38,18 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
             buffer.writeFloat(entry.windX); buffer.writeFloat(entry.windY);
             buffer.writeFloat(entry.windZ);
         }
+		buffer.writeBoolean(payload.emberComplete);
+		int emberCount = Math.min(MAX_EMBERS, payload.embers.size());
+		buffer.writeVarInt(emberCount);
+		for (int index = 0; index < emberCount; index++) {
+			EmberEntry ember = payload.embers.get(index);
+			buffer.writeLong(ember.id); buffer.writeDouble(ember.x);
+			buffer.writeDouble(ember.y); buffer.writeDouble(ember.z);
+			buffer.writeFloat(ember.velocityX); buffer.writeFloat(ember.velocityY);
+			buffer.writeFloat(ember.velocityZ); buffer.writeFloat(ember.intensity);
+			buffer.writeLong(ember.seed); buffer.writeLong(ember.startGameTime);
+			buffer.writeVarInt(ember.lifetime);
+		}
     }
 
     private static ClientboundFireStatePayload read(final RegistryFriendlyByteBuf buffer) {
@@ -59,12 +73,24 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
                 intensity, heat, coverage, smoke, phase, seed, ignition,
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat()));
         }
-        return new ClientboundFireStatePayload(gameTime, complete, List.copyOf(entries));
+		boolean emberComplete = buffer.readBoolean();
+		int emberCount = buffer.readVarInt();
+		if (emberCount < 0 || emberCount > MAX_EMBERS)
+			throw new IllegalArgumentException("Invalid firebrand entry count");
+		List<EmberEntry> embers = new ArrayList<>(emberCount);
+		for (int index = 0; index < emberCount; index++) embers.add(new EmberEntry(
+			buffer.readLong(), buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
+			buffer.readFloat(), buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
+			buffer.readLong(), buffer.readLong(), buffer.readVarInt()));
+        return new ClientboundFireStatePayload(gameTime, complete, List.copyOf(entries),
+			emberComplete, List.copyOf(embers));
     }
 
     public boolean isWellFormed() {
-        if (entries == null || entries.size() > MAX_ENTRIES) return false;
+        if (entries == null || entries.size() > MAX_ENTRIES || embers == null
+			|| embers.size() > MAX_EMBERS) return false;
         for (Entry entry : entries) if (entry == null || !entry.isWellFormed()) return false;
+		for (EmberEntry ember : embers) if (ember == null || !ember.isWellFormed()) return false;
         return true;
     }
 
@@ -87,4 +113,22 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
             return Float.isFinite(value) && value >= minimum && value <= maximum;
         }
     }
+
+	public record EmberEntry(long id, double x, double y, double z,
+		float velocityX, float velocityY, float velocityZ, float intensity,
+		long seed, long startGameTime, int lifetime) {
+		public boolean isWellFormed() {
+			return id > 0L && Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z)
+				&& finite(velocityX, 4.0F) && finite(velocityY, 4.0F)
+				&& finite(velocityZ, 4.0F) && finiteRange(intensity, 0.0F, 1.2F)
+				&& lifetime > 0 && lifetime <= 200;
+		}
+		private static boolean finite(final float value, final float limit) {
+			return Float.isFinite(value) && Math.abs(value) <= limit;
+		}
+		private static boolean finiteRange(final float value, final float minimum,
+			final float maximum) {
+			return Float.isFinite(value) && value >= minimum && value <= maximum;
+		}
+	}
 }

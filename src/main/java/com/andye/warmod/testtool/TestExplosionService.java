@@ -48,6 +48,18 @@ public final class TestExplosionService {
 		final WarheadYield yield,
 		final long seed
 	) {
+		return createExplosion(level, source, warheadId, position, yield, seed, false);
+	}
+
+	public static List<WarheadExplosionDropContext.DestroyedBlock> createExplosion(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadYield yield,
+		final long seed,
+		final boolean customFire
+	) {
 		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid explosion arguments");
 		/*
@@ -68,7 +80,8 @@ public final class TestExplosionService {
 		 */
 		WarheadPreImpactPreparationManager.invalidateAround(
 			level, warheadId, position, yield, preparationInvalidationRadius(yield));
-		WarheadExplosionWorkManager.detonateWithoutDebrisSample(level, source, warheadId, position, yield, seed);
+		WarheadExplosionWorkManager.detonateWithoutDebrisSample(level, source, warheadId,
+			position, yield, seed, customFire);
 		return debris;
 	}
 

@@ -28,6 +28,7 @@ public record ServerboundMasterExplosiveConfigPayload(
 		buffer.writeByte(payload.config.delivery().ordinal());
 		buffer.writeBoolean(payload.config.cluster());
 		buffer.writeByte(payload.config.yield().ordinal());
+		buffer.writeBoolean(payload.config.customFire());
 	}
 
 	private static ServerboundMasterExplosiveConfigPayload read(final RegistryFriendlyByteBuf buffer) {
@@ -37,9 +38,10 @@ public record ServerboundMasterExplosiveConfigPayload(
 		MasterExplosiveDelivery delivery = deliveries[Math.min(buffer.readUnsignedByte(), deliveries.length - 1)];
 		boolean cluster = buffer.readBoolean();
 		WarheadYield yield = yields[Math.min(buffer.readUnsignedByte(), yields.length - 1)];
+		boolean customFire = buffer.readBoolean();
 		return new ServerboundMasterExplosiveConfigPayload(
 			hand,
-			new MasterExplosiveConfig(delivery, cluster, yield)
+			new MasterExplosiveConfig(delivery, cluster, yield, customFire)
 		);
 	}
 

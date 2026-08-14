@@ -77,7 +77,8 @@ public final class WarheadGlassShockwaveManager {
     }
 
     public static synchronized void schedule(final ServerLevel level,
-        final ClientboundWarheadImpactPayload payload, final Vec3 center) {
+        final ClientboundWarheadImpactPayload payload, final Vec3 center,
+        final boolean customFire) {
         if (level == null || payload == null || center == null || !center.isFinite()) return;
         if (payload.effectProfile() == WarheadEffectProfile.ANTI_AIR_INTERCEPTION
             || payload.effectProfile() == WarheadEffectProfile.ANTI_AIR_SAFE_SELF_DESTRUCT) return;
@@ -101,7 +102,7 @@ public final class WarheadGlassShockwaveManager {
         }
         WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(new Wave(
             center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
-            visualScale, nuclear, preparation));
+            visualScale, nuclear, preparation, customFire));
     }
 
     /**
@@ -241,6 +242,7 @@ public final class WarheadGlassShockwaveManager {
         private final double maximumRadius;
         private final float visualScale;
         private final boolean nuclear;
+		private final boolean customFire;
         private final double craterRadius;
         private final int aftermathRadius;
         private final NuclearTerrainPreparation preparation;
@@ -254,13 +256,14 @@ public final class WarheadGlassShockwaveManager {
 
         private Wave(final Vec3 center, final long startGameTime, final long seed,
             final double maximumRadius, final float visualScale, final boolean nuclear,
-            final NuclearTerrainPreparation preparation) {
+            final NuclearTerrainPreparation preparation, final boolean customFire) {
             this.center = center;
             this.startGameTime = startGameTime;
             this.seed = seed;
             this.maximumRadius = maximumRadius;
             this.visualScale = visualScale;
             this.nuclear = nuclear;
+			this.customFire = customFire;
             this.craterRadius = nuclear ? 12.0 + 13.0 * visualScale : 0.0;
             /* Keep the excavated crater unchanged; only the burned surface reaches out further. */
             this.aftermathRadius = nuclear
@@ -516,10 +519,9 @@ public final class WarheadGlassShockwaveManager {
             final double normalized, final long packed) {
             double chance = 0.22 * Mth.clamp((0.82 - normalized) / 0.48, 0.0, 1.0);
             if (unit(seed ^ packed ^ 0x545245455F464952L) >= chance) return;
-            neighbour.set(trunk.getX(), trunk.getY() + 1, trunk.getZ());
-            if (level.isInWorldBounds(neighbour) && level.getBlockState(neighbour).isAir()) {
-                level.setBlock(neighbour, Blocks.FIRE.defaultBlockState(), UPDATE_FLAGS);
-            }
+			WarheadFirePlacement.placeAbove(level, trunk, customFire,
+				(float) Mth.clamp(0.62 + (1.0 - normalized) * 0.38, 0.10, 1.0),
+				seed ^ packed ^ 0x545245455F464952L, UPDATE_FLAGS);
         }
 
         private void processPressureColumn(final ServerLevel level, final int x, final int z,
@@ -682,7 +684,9 @@ public final class WarheadGlassShockwaveManager {
                 }
                 cursor.set(x, surfaceY + 1, z);
                 if (level.isInWorldBounds(cursor) && level.getBlockState(cursor).isAir()) {
-                    level.setBlock(cursor, Blocks.FIRE.defaultBlockState(), UPDATE_FLAGS);
+					WarheadFirePlacement.placeAbove(level, cursor.below(), customFire,
+						Mth.clamp(0.72F + visualScale * 0.07F, 0.10F, 1.0F),
+						columnHash ^ 0x464952455F504F53L, UPDATE_FLAGS);
                 }
             } else if (aftermathNormalized > 0.30 && aftermathNormalized < 0.96) {
                 placeAshDecoration(level, x, surfaceY, z, columnHash, aftermathNormalized);

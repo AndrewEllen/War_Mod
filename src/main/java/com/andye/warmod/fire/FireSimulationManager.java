@@ -7,15 +7,18 @@ import com.andye.warmod.item.component.FireDebugConfig;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SplittableRandom;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
@@ -38,13 +41,21 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class FireSimulationManager {
     private static final int MAX_ACTIVE_PATCHES = 4_096;
-    private static final int MAX_PATCH_UPDATES_PER_TICK = 512;
-    private static final int MAX_NEW_IGNITIONS_PER_TICK = 48;
+    private static final int MAX_PATCH_UPDATES_PER_TICK = 256;
+    private static final int MAX_NEW_IGNITIONS_PER_TICK = 32;
     private static final int MAX_PREHEAT_SURFACES = 8_192;
     private static final int MAX_WET_POSITIONS = 8_192;
-    private static final int MAX_EMBERS = 256;
-    private static final int NETWORK_INTERVAL_TICKS = 6;
+	private static final int MAX_EMBERS = 96;
+    private static final int NETWORK_INTERVAL_TICKS = 10;
+    private static final int MAX_WET_POSITIONS_PER_JET = 512;
+    private static final int MAX_EMBER_COLLISION_STEPS = 12;
     private static final Direction[] DIRECTIONS = Direction.values();
+	private static final Direction[] HORIZONTAL_TANGENTS = {Direction.NORTH, Direction.SOUTH,
+		Direction.EAST, Direction.WEST};
+	private static final Direction[] NORTH_SOUTH_TANGENTS = {Direction.UP, Direction.DOWN,
+		Direction.EAST, Direction.WEST};
+	private static final Direction[] EAST_WEST_TANGENTS = {Direction.UP, Direction.DOWN,
+		Direction.NORTH, Direction.SOUTH};
     private static final int[][] SURFACE_OFFSETS = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
     private static final Map<ServerLevel, LevelState> LEVELS = new IdentityHashMap<>();
     private static boolean registered;
@@ -75,9 +86,29 @@ public final class FireSimulationManager {
     /** Places an exact clicked surface plus a bounded radius of exposed fuel surfaces. */
     public static synchronized int igniteSurface(final ServerLevel level,
         final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
+        return igniteSurface(level, primary, config, seed, false);
+    }
+
+    /** Debug placement may displace one dying patch when the global cap is full. */
+    public static synchronized int igniteSurfacePrioritized(final ServerLevel level,
+        final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
+        return igniteSurface(level, primary, config, seed, true);
+    }
+
+    private static int igniteSurface(final ServerLevel level,
+        final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed,
+        final boolean prioritizeAtCapacity) {
         if (level == null || primary == null || config == null) return 0;
         LevelState state = LEVELS.computeIfAbsent(level, ignored -> new LevelState());
         if (!validSurface(level, primary, true)) return 0;
+        if (state.wetness.getOrDefault(primary.host().asLong(), 0.0F) > 0.40F) return 0;
+        if (!state.surfaceIndex.containsKey(primary.key())
+            && state.patches.size() >= MAX_ACTIVE_PATCHES) {
+            long now = level.getGameTime();
+            if (!prioritizeAtCapacity || state.lastPriorityEvictionTick == now
+                || !evictLowestPriorityPatch(state)) return 0;
+            state.lastPriorityEvictionTick = now;
+        }
         int placed = igniteInternal(level, state, primary, config.intensity(), seed,
             true, true) ? 1 : 0;
         if (config.size() <= 1 || placed == 0) return placed;
@@ -120,32 +151,68 @@ public final class FireSimulationManager {
 
     public static synchronized int suppress(final ServerLevel level, final ServerPlayer source,
         final Vec3 center, final double radius, final float amount) {
+        return suppressJet(level, source, center, center, radius, amount);
+    }
+
+    /** Applies one straight suppression jet with a single bounded scan of active fire. */
+    public static synchronized int suppressJet(final ServerLevel level,
+        final ServerPlayer source, final Vec3 start, final Vec3 end,
+        final double radius, final float amount) {
         LevelState state = LEVELS.get(level);
-        if (state == null || center == null || !center.isFinite() || radius <= 0.0
+        if (state == null || start == null || end == null || !start.isFinite()
+            || !end.isFinite() || radius <= 0.0
             || amount <= 0.0F) return 0;
         double radiusSquared = radius * radius;
         int affected = 0;
-        for (Patch patch : state.patches.values()) {
-            Vec3 position = patch.anchor.position();
-            if (position.distanceToSqr(center) > radiusSquared) continue;
-            if (source != null && !visibleFrom(level, source, center, position)) continue;
-            patch.heat = Math.max(0.0F, patch.heat - amount);
-            patch.coverage = Math.max(0.02F, patch.coverage - amount * 0.16F);
-            if (patch.heat < 0.24F) patch.phase = FirePhase.SMOLDERING;
-            addWetness(state, patch.anchor.host().asLong(), amount * 1.35F, true);
-            affected++;
-        }
-        int reach = Mth.ceil(radius);
-        BlockPos origin = BlockPos.containing(center);
-        for (int dx = -reach; dx <= reach; dx++) {
-            for (int dy = -reach; dy <= reach; dy++) {
-                for (int dz = -reach; dz <= reach; dz++) {
-                    BlockPos host = origin.offset(dx, dy, dz);
-                    if (!isLoaded(level, host)
-                        || Vec3.atCenterOf(host).distanceToSqr(center) > radiusSquared) continue;
-                    if (FireFuelProfile.of(level.getBlockState(host)).flammable())
-                        addWetness(state, host.asLong(), amount, false);
+        int minChunkX = Mth.floor(Math.min(start.x, end.x) - radius) >> 4;
+        int maxChunkX = Mth.floor(Math.max(start.x, end.x) + radius) >> 4;
+        int minChunkZ = Mth.floor(Math.min(start.z, end.z) - radius) >> 4;
+        int maxChunkZ = Mth.floor(Math.max(start.z, end.z) + radius) >> 4;
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                Set<Long> patchIds = state.patchChunkIndex.get(chunkKey(chunkX, chunkZ));
+                if (patchIds == null) continue;
+                for (long patchId : patchIds) {
+                    Patch patch = state.patches.get(patchId);
+                    if (patch == null) continue;
+                    Vec3 position = patch.anchor.position();
+                    if (distanceToSegmentSquared(position, start, end) > radiusSquared) continue;
+                    if (source != null && !visibleFrom(level, source, start, position)) continue;
+                    patch.heat = Math.max(0.0F, patch.heat - amount);
+                    patch.coverage = Math.max(0.02F, patch.coverage - amount * 0.16F);
+                    if (patch.heat < 0.24F) patch.phase = FirePhase.SMOLDERING;
+                    addWetness(state, patch.anchor.host().asLong(), amount * 1.35F, true);
+                    affected++;
                 }
+            }
+        }
+
+        Vec3 travel = end.subtract(start);
+        double length = travel.length();
+        int samples = Math.max(1, Mth.ceil(length / Math.max(0.85, radius * 0.72)));
+        Set<Long> wetted = new HashSet<>();
+        int reach = Mth.ceil(radius);
+        for (int sampleIndex = 0; sampleIndex <= samples
+            && wetted.size() < MAX_WET_POSITIONS_PER_JET; sampleIndex++) {
+            Vec3 center = start.add(travel.scale(sampleIndex / (double) samples));
+            BlockPos origin = BlockPos.containing(center);
+            for (int dx = -reach; dx <= reach; dx++) {
+                for (int dy = -reach; dy <= reach; dy++) {
+                    for (int dz = -reach; dz <= reach; dz++) {
+                        BlockPos host = origin.offset(dx, dy, dz);
+                        long key = host.asLong();
+                        if (wetted.contains(key) || !isLoaded(level, host)
+                            || Vec3.atCenterOf(host).distanceToSqr(center) > radiusSquared)
+                            continue;
+                        if (FireFuelProfile.of(level.getBlockState(host)).flammable()) {
+                            addWetness(state, key, amount, false);
+                            wetted.add(key);
+                            if (wetted.size() >= MAX_WET_POSITIONS_PER_JET) break;
+                        }
+                    }
+                    if (wetted.size() >= MAX_WET_POSITIONS_PER_JET) break;
+                }
+                if (wetted.size() >= MAX_WET_POSITIONS_PER_JET) break;
             }
         }
         return affected;
@@ -164,7 +231,7 @@ public final class FireSimulationManager {
         long now = level.getGameTime();
         boolean hadPatches = !state.patches.isEmpty();
         state.newIgnitionsThisTick = 0;
-        decayWetness(state);
+        if (now % 5L == 0L) decayWetness(state, 5);
         if (now % 20L == 0L) decayPreheat(state, now);
         tickEmbers(level, state, now);
 
@@ -184,7 +251,7 @@ public final class FireSimulationManager {
             && state.preheat.isEmpty() && state.embers.isEmpty()) {
             checkpoint(level, null);
             LEVELS.remove(level);
-        } else if (now % 100L == 0L) checkpoint(level, state);
+        } else if (now % 400L == 0L) checkpoint(level, state);
     }
 
     private static void updatePatch(final ServerLevel level, final LevelState state,
@@ -201,6 +268,9 @@ public final class FireSimulationManager {
         boolean water = level.getFluidState(host).is(FluidTags.WATER)
             || level.getFluidState(host.relative(patch.anchor.face())).is(FluidTags.WATER);
         float wetness = state.wetness.getOrDefault(host.asLong(), 0.0F);
+		float clump = clumpFactor(state, patch);
+		float combustionPressure = 0.35F + patch.targetIntensity * patch.targetIntensity * 1.65F
+			+ clump * 0.22F;
         if (water) {
             addWetness(state, host.asLong(), 1.5F, true);
             patch.heat -= 0.18F * elapsed;
@@ -219,8 +289,10 @@ public final class FireSimulationManager {
             }
             case GROWING -> {
                 patch.heat += (patch.targetIntensity - patch.heat)
-                    * Math.min(1.0F, elapsed * (0.018F + patch.targetIntensity * 0.018F));
-                patch.coverage += elapsed * (0.0022F + patch.targetIntensity * 0.0036F);
+                    * Math.min(1.0F, elapsed * (0.018F + patch.targetIntensity * 0.018F)
+					* (1.0F + clump * 0.20F));
+                patch.coverage += elapsed * (0.0022F + patch.targetIntensity * 0.0036F)
+					* (1.0F + clump * 0.24F);
                 patch.fuel -= elapsed / (float) Math.max(600, patch.burnTicks * 3);
                 if (patch.coverage >= 0.94F) {
                     patch.coverage = 0.94F;
@@ -231,11 +303,13 @@ public final class FireSimulationManager {
                 patch.heat += (patch.targetIntensity * profile.heatRelease() - patch.heat)
                     * Math.min(1.0F, elapsed * 0.026F);
                 patch.coverage = Math.min(1.0F, patch.coverage + elapsed * 0.0007F);
-                patch.fuel -= elapsed / (float) Math.max(400, patch.burnTicks);
+                patch.fuel -= elapsed * combustionPressure
+					/ (float) Math.max(400, patch.burnTicks);
                 if (patch.fuel < 0.28F) patch.phase = FirePhase.DECAYING;
             }
             case DECAYING -> {
-                patch.fuel -= elapsed / (float) Math.max(300, patch.burnTicks);
+                patch.fuel -= elapsed * combustionPressure
+					/ (float) Math.max(300, patch.burnTicks);
                 patch.heat -= elapsed * 0.0018F;
                 patch.coverage = Math.max(0.20F, patch.coverage - elapsed * 0.0014F);
                 if (patch.fuel <= 0.05F || patch.heat < 0.24F)
@@ -272,7 +346,8 @@ public final class FireSimulationManager {
         }
         if (patch.phase == FirePhase.FLAMING && patch.coverage > 0.65F
             && state.embers.size() < MAX_EMBERS
-            && unit(mix(patch.seed ^ now)) < patch.targetIntensity * profile.emberSusceptibility() * 0.055) {
+            && unit(mix(patch.seed ^ now)) < patch.targetIntensity
+                * profile.emberSusceptibility() * (0.045 + clump * 0.025)) {
             spawnEmber(level, state, patch, now);
         }
     }
@@ -280,10 +355,6 @@ public final class FireSimulationManager {
     private static void transferHeat(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile sourceProfile, final long now) {
         Vec3 origin = source.anchor.position();
-        Vec3 wind = FireWindEngine.windAt(level, origin);
-        double windLength = Math.sqrt(wind.x * wind.x + wind.z * wind.z);
-        Vec3 windDirection = windLength > 1.0E-5
-            ? new Vec3(wind.x / windLength, 0.0, wind.z / windLength) : Vec3.ZERO;
         SplittableRandom random = new SplittableRandom(mix(source.seed ^ now));
 
         for (int[] offset : SURFACE_OFFSETS) {
@@ -294,20 +365,22 @@ public final class FireSimulationManager {
 
         for (Direction direction : DIRECTIONS) {
             BlockPos candidate = source.anchor.host().relative(direction);
-            depositToBlock(level, state, source, sourceProfile, candidate, origin, windDirection,
-                windLength, now, 1.0F);
+			depositToBlock(level, state, source, sourceProfile, candidate, origin, now, 1.0F);
         }
-        int radius = 2 + Mth.ceil(source.targetIntensity * 4.0F);
-        int samples = 8 + Mth.ceil(source.targetIntensity * 14.0F);
+        /* Only close radiation/convection may heat without contact. Long-range,
+           wind-biased ignition is carried by the authoritative firebrands below. */
+        int radius = 2;
+        int samples = 5 + Mth.ceil(source.targetIntensity * 5.0F);
         for (int index = 0; index < samples; index++) {
             int dx = random.nextInt(-radius, radius + 1);
             int dy = random.nextInt(-Math.max(1, radius / 2), radius + 1);
             int dz = random.nextInt(-radius, radius + 1);
             if (dx == 0 && dy == 0 && dz == 0) continue;
             BlockPos candidate = source.anchor.host().offset(dx, dy, dz);
+			if (candidate.distSqr(source.anchor.host()) > 5.0) continue;
             float sampling = dy > 0 ? 1.28F : 0.62F;
             depositToBlock(level, state, source, sourceProfile, candidate, origin,
-                windDirection, windLength, now, sampling);
+				now, sampling);
         }
     }
 
@@ -324,8 +397,7 @@ public final class FireSimulationManager {
 
     private static void depositToBlock(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile sourceProfile, final BlockPos candidate,
-        final Vec3 origin, final Vec3 windDirection, final double windLength,
-        final long now, final float samplingScale) {
+		final Vec3 origin, final long now, final float samplingScale) {
         if (!isLoaded(level, candidate) || candidate.equals(source.anchor.host())) return;
         FireFuelProfile targetProfile = FireFuelProfile.of(level.getBlockState(candidate));
         if (!targetProfile.flammable()
@@ -337,14 +409,10 @@ public final class FireSimulationManager {
             target.position())) return;
         Vec3 delta = target.position().subtract(origin);
         double distance = Math.max(0.65, delta.length());
-        Vec3 horizontal = new Vec3(delta.x, 0.0, delta.z);
-        double alignment = horizontal.lengthSqr() > 1.0E-5 && windLength > 0.0
-            ? horizontal.normalize().dot(windDirection) : 0.0;
         double convection = delta.y > 0.0 ? Math.min(1.25, delta.y * 0.32) : -0.18;
-        double windBias = alignment * Math.min(0.85, windLength * 2.1);
         double distanceFalloff = 1.0 / Math.max(1.0, distance * distance * 0.72);
         float dose = (float) (source.heat * source.coverage * sourceProfile.heatRelease()
-            * (0.16 + source.targetIntensity * 0.22 + convection + windBias)
+			* (0.16 + source.targetIntensity * 0.22 + convection)
             * distanceFalloff * samplingScale);
         if (dose <= 0.004F) return;
         addPreheat(level, state, target, dose, source.targetIntensity, source.seed, now,
@@ -400,6 +468,8 @@ public final class FireSimulationManager {
             burnTicks, seed, now, surfaceFlame);
         state.patches.put(id, patch);
         state.surfaceIndex.put(anchor.key(), id);
+		state.facePatchCounts.merge(faceHostKey(anchor), 1, Integer::sum);
+        indexPatch(state, patch);
         state.workQueue.addLast(id);
         return true;
     }
@@ -409,10 +479,12 @@ public final class FireSimulationManager {
         if (!isLoaded(level, anchor.host())
             || !level.getWorldBorder().isWithinBounds(anchor.host())
             || level.getFluidState(anchor.host()).is(FluidTags.WATER)) return false;
-        FireFuelProfile profile = FireFuelProfile.of(level.getBlockState(anchor.host()));
+		BlockState hostState = level.getBlockState(anchor.host());
+		if (hostState.isAir()) return false;
+        FireFuelProfile profile = FireFuelProfile.of(hostState);
         if (!profile.flammable() && !allowSurfaceFlame) return false;
         BlockPos outside = anchor.host().relative(anchor.face());
-        return isLoaded(level, outside) && level.getBlockState(outside).isAir();
+        return isOpenSurfaceSpace(level, outside);
     }
 
     private static Direction bestExposedFace(final ServerLevel level, final BlockPos host,
@@ -423,12 +495,44 @@ public final class FireSimulationManager {
         Vec3 towardSource = source.subtract(center);
         for (Direction face : DIRECTIONS) {
             BlockPos outside = host.relative(face);
-            if (!isLoaded(level, outside) || !level.getBlockState(outside).isAir()) continue;
+            if (!isOpenSurfaceSpace(level, outside)) continue;
             double score = towardSource.x * face.getStepX() + towardSource.y * face.getStepY()
                 + towardSource.z * face.getStepZ();
             if (score > bestScore) { bestScore = score; best = face; }
         }
         return best;
+    }
+
+    private static boolean isOpenSurfaceSpace(final ServerLevel level,
+        final BlockPos position) {
+        if (!isLoaded(level, position)) return false;
+        BlockState state = level.getBlockState(position);
+        return state.isAir() || (state.getFluidState().isEmpty() && state.canBeReplaced());
+    }
+
+    /** Direct tools remain usable at the global cap without allowing unbounded state. */
+    private static boolean evictLowestPriorityPatch(final LevelState state) {
+        Patch selected = null;
+        double selectedScore = Double.MAX_VALUE;
+        for (Patch patch : state.patches.values()) {
+            int phasePriority = switch (patch.phase) {
+                case SMOLDERING -> 0;
+                case DECAYING -> 1;
+                case IGNITION -> 2;
+                case GROWING -> 3;
+                case FLAMING -> 4;
+            };
+            double score = phasePriority * 5.0 + patch.heat * patch.coverage * 3.0
+                + patch.targetIntensity + patch.fuel * 0.5;
+            if (score < selectedScore || (score == selectedScore && selected != null
+                && patch.ignitionGameTime < selected.ignitionGameTime)) {
+                selected = patch;
+                selectedScore = score;
+            }
+        }
+        if (selected == null) return false;
+        removePatch(state, selected);
+        return true;
     }
 
     private static void spawnEmber(final ServerLevel level, final LevelState state,
@@ -439,8 +543,9 @@ public final class FireSimulationManager {
         Vec3 velocity = new Vec3(wind.x * random.nextDouble(0.55, 1.25)
             + random.nextDouble(-0.035, 0.035), random.nextDouble(0.055, 0.13),
             wind.z * random.nextDouble(0.55, 1.25) + random.nextDouble(-0.035, 0.035));
-        state.embers.addLast(new Ember(patch.anchor.position().add(0.0, 0.12, 0.0),
-            velocity, patch.targetIntensity, seed, now, random.nextInt(38, 86)));
+        state.embers.addLast(new Ember(state.nextEmberId++,
+            patch.anchor.position().add(0.0, 0.12, 0.0), velocity,
+            patch.targetIntensity, seed, now, random.nextInt(38, 86)));
     }
 
     private static void tickEmbers(final ServerLevel level, final LevelState state, final long now) {
@@ -451,22 +556,38 @@ public final class FireSimulationManager {
             Vec3 wind = FireWindEngine.windAt(level, ember.position);
             ember.velocity = ember.velocity.scale(0.97).add(wind.scale(0.032)).add(0.0, -0.006, 0.0);
             Vec3 next = ember.position.add(ember.velocity);
-            BlockPos host = BlockPos.containing(next);
-            if (!isLoaded(level, host)) { iterator.remove(); continue; }
-            BlockState stateAt = level.getBlockState(host);
-            if (!stateAt.isAir()) {
-                FireFuelProfile profile = FireFuelProfile.of(stateAt);
-                if (profile.flammable()) {
-                    Direction face = oppositeDominant(ember.velocity);
-                    FireSurfaceAnchor anchor = FireSurfaceAnchor.center(host, face);
-                    addPreheat(level, state, anchor,
-                        0.18F + ember.intensity * profile.emberSusceptibility() * 0.48F,
-                        ember.intensity, ember.seed, now, profile);
-                }
-                iterator.remove();
-            } else ember.position = next;
+			if (advanceEmber(level, state, ember, next, now)) iterator.remove();
+			else ember.position = next;
         }
     }
+
+	private static boolean advanceEmber(final ServerLevel level, final LevelState fireState,
+		final Ember ember, final Vec3 next, final long now) {
+		Vec3 travel = next.subtract(ember.position);
+		int steps = Math.min(MAX_EMBER_COLLISION_STEPS,
+			Math.max(1, Mth.ceil(travel.length() * 4.0)));
+		for (int step = 1; step <= steps; step++) {
+			Vec3 sample = ember.position.add(travel.scale(step / (double) steps));
+			BlockPos host = BlockPos.containing(sample);
+			if (!isLoaded(level, host)) return true;
+			BlockState stateAt = level.getBlockState(host);
+			if (stateAt.isAir()) continue;
+			FireFuelProfile profile = FireFuelProfile.of(stateAt);
+			if (profile.flammable()) {
+				Direction face = oppositeDominant(ember.velocity);
+				FireSurfaceAnchor anchor = FireSurfaceAnchor.center(host, face);
+				double ignitionChance = Mth.clamp(0.18 + ember.intensity * 0.58
+					* profile.emberSusceptibility(), 0.12, 0.88);
+				float contactDose = unit(mix(ember.seed ^ host.asLong() ^ now)) < ignitionChance
+					? 0.34F + ember.intensity * profile.emberSusceptibility() * 0.62F
+					: 0.07F + ember.intensity * 0.10F;
+				addPreheat(level, fireState, anchor, contactDose, ember.intensity,
+					ember.seed, now, profile);
+			}
+			return true;
+		}
+		return false;
+	}
 
     private static Direction oppositeDominant(final Vec3 velocity) {
         double ax = Math.abs(velocity.x), ay = Math.abs(velocity.y), az = Math.abs(velocity.z);
@@ -478,7 +599,56 @@ public final class FireSimulationManager {
     private static void removePatch(final LevelState state, final Patch patch) {
         state.patches.remove(patch.id);
         state.surfaceIndex.remove(patch.anchor.key());
+		unindexPatch(state, patch);
+		FaceHostKey key = faceHostKey(patch.anchor);
+		int remaining = state.facePatchCounts.getOrDefault(key, 1) - 1;
+		if (remaining <= 0) state.facePatchCounts.remove(key);
+		else state.facePatchCounts.put(key, remaining);
     }
+
+	private static void indexPatch(final LevelState state, final Patch patch) {
+		state.patchChunkIndex.computeIfAbsent(chunkKey(patch.anchor.host()),
+			ignored -> new HashSet<>()).add(patch.id);
+	}
+
+	private static void unindexPatch(final LevelState state, final Patch patch) {
+		long key = chunkKey(patch.anchor.host());
+		Set<Long> ids = state.patchChunkIndex.get(key);
+		if (ids == null) return;
+		ids.remove(patch.id);
+		if (ids.isEmpty()) state.patchChunkIndex.remove(key);
+	}
+
+	private static long chunkKey(final BlockPos position) {
+		return chunkKey(position.getX() >> 4, position.getZ() >> 4);
+	}
+
+	private static long chunkKey(final int x, final int z) {
+		return ((long) x << 32) ^ (z & 0xFFFF_FFFFL);
+	}
+
+	private static float clumpFactor(final LevelState state, final Patch patch) {
+		BlockPos host = patch.anchor.host();
+		byte face = (byte) patch.anchor.face().ordinal();
+		int neighbours = Math.max(0,
+			state.facePatchCounts.getOrDefault(new FaceHostKey(host.asLong(), face), 1) - 1);
+		for (Direction direction : tangentDirections(patch.anchor.face()))
+			neighbours += state.facePatchCounts.getOrDefault(
+				new FaceHostKey(host.relative(direction).asLong(), face), 0);
+		return Mth.clamp(neighbours / 10.0F, 0.0F, 1.5F);
+	}
+
+	private static FaceHostKey faceHostKey(final FireSurfaceAnchor anchor) {
+		return new FaceHostKey(anchor.host().asLong(), (byte) anchor.face().ordinal());
+	}
+
+	private static Direction[] tangentDirections(final Direction face) {
+		return switch (face) {
+			case UP, DOWN -> HORIZONTAL_TANGENTS;
+			case NORTH, SOUTH -> NORTH_SOUTH_TANGENTS;
+			case EAST, WEST -> EAST_WEST_TANGENTS;
+		};
+	}
 
     private static void removeHostPatches(final LevelState state, final BlockPos host) {
         List<Patch> matches = new ArrayList<>();
@@ -488,24 +658,36 @@ public final class FireSimulationManager {
     }
 
     private static void sendSnapshot(final ServerLevel level, final LevelState state) {
+        if (PlayerLookup.level(level).isEmpty()) return;
         List<FireCellSnapshot> snapshots = new ArrayList<>(state.patches.size());
+        Map<Long, Vec3> sampledWind = new HashMap<>();
         for (Patch patch : state.patches.values()) {
             FireFuelProfile profile = FireFuelProfile.of(level.getBlockState(patch.anchor.host()));
             float smoke = smokeProduction(patch, profile);
+            BlockPos host = patch.anchor.host();
+            long windCell = BlockPos.asLong(host.getX() >> 3, host.getY() >> 3,
+                host.getZ() >> 3);
+            Vec3 wind = sampledWind.computeIfAbsent(windCell,
+                ignored -> FireWindEngine.windAt(level, patch.anchor.position()));
             snapshots.add(new FireCellSnapshot(patch.id, patch.anchor,
                 patch.targetIntensity, patch.heat, patch.coverage, smoke, patch.phase,
-                patch.seed, patch.ignitionGameTime,
-                FireWindEngine.windAt(level, patch.anchor.position())));
+                patch.seed, patch.ignitionGameTime, wind));
         }
-        FireNetworking.sendSnapshot(level, List.copyOf(snapshots));
+		List<FireEmberSnapshot> embers = new ArrayList<>(state.embers.size());
+		for (Ember ember : state.embers) embers.add(new FireEmberSnapshot(ember.id,
+			ember.position, ember.velocity, ember.intensity, ember.seed,
+			ember.startTick, ember.lifetime));
+        FireNetworking.sendSnapshot(level, snapshots, embers);
     }
 
     private static void checkpoint(final ServerLevel level, final LevelState state) {
-        if (state == null || state.patches.isEmpty()) {
-            if (!FireSavedData.get(level).entries().isEmpty())
-                FireSavedData.get(level).replace(List.of());
-            return;
-        }
+		FireSavedData patchData = FireSavedData.get(level);
+		FireEmberSavedData emberData = FireEmberSavedData.get(level);
+		if (state == null) {
+			if (!patchData.entries().isEmpty()) patchData.replace(List.of());
+			if (!emberData.entries().isEmpty()) emberData.replace(List.of());
+			return;
+		}
         long now = level.getGameTime();
         List<FireSavedData.Entry> entries = new ArrayList<>(state.patches.size());
         for (Patch patch : state.patches.values()) entries.add(new FireSavedData.Entry(
@@ -514,12 +696,22 @@ public final class FireSimulationManager {
             patch.phase.ordinal(), patch.heat, patch.coverage, patch.fuel, patch.burnTicks,
             patch.seed, patch.ignitionGameTime, Math.max(0L, patch.nextTransferTick - now),
             patch.surfaceFlame, patch.consumed));
-        FireSavedData.get(level).replace(entries);
+		patchData.replace(entries);
+		List<FireEmberSavedData.Entry> savedEmbers = new ArrayList<>(state.embers.size());
+		for (Ember ember : state.embers) {
+			int remaining = ember.lifetime - (int) Math.max(0L, now - ember.startTick);
+			if (remaining <= 0) continue;
+			savedEmbers.add(new FireEmberSavedData.Entry(ember.position.x, ember.position.y,
+				ember.position.z, ember.velocity.x, ember.velocity.y, ember.velocity.z,
+				ember.intensity, ember.seed, remaining));
+		}
+		emberData.replace(savedEmbers);
     }
 
     private static void restore(final ServerLevel level) {
         List<FireSavedData.Entry> saved = FireSavedData.get(level).entries();
-        if (saved.isEmpty()) return;
+		List<FireEmberSavedData.Entry> savedEmbers = FireEmberSavedData.get(level).entries();
+		if (saved.isEmpty() && savedEmbers.isEmpty()) return;
         LevelState state = new LevelState();
         long now = level.getGameTime();
         for (FireSavedData.Entry entry : saved) {
@@ -542,9 +734,25 @@ public final class FireSimulationManager {
             patch.consumed = entry.consumed();
             state.patches.put(id, patch);
             state.surfaceIndex.put(anchor.key(), id);
+			state.facePatchCounts.merge(faceHostKey(anchor), 1, Integer::sum);
+            indexPatch(state, patch);
             state.workQueue.addLast(id);
         }
-        if (!state.patches.isEmpty()) LEVELS.put(level, state);
+		for (FireEmberSavedData.Entry entry : savedEmbers) {
+			if (state.embers.size() >= MAX_EMBERS || !Double.isFinite(entry.x())
+				|| !Double.isFinite(entry.y()) || !Double.isFinite(entry.z())
+				|| !Double.isFinite(entry.velocityX()) || !Double.isFinite(entry.velocityY())
+				|| !Double.isFinite(entry.velocityZ()) || Math.abs(entry.velocityX()) > 4.0
+				|| Math.abs(entry.velocityY()) > 4.0 || Math.abs(entry.velocityZ()) > 4.0
+				|| !Float.isFinite(entry.intensity())
+				|| entry.remainingLifetime() <= 0 || entry.remainingLifetime() > 200) continue;
+			state.embers.addLast(new Ember(state.nextEmberId++,
+				new Vec3(entry.x(), entry.y(), entry.z()),
+				new Vec3(entry.velocityX(), entry.velocityY(), entry.velocityZ()),
+				Mth.clamp(entry.intensity(), 0.10F, 1.0F), entry.seed(), now,
+				entry.remainingLifetime()));
+		}
+		if (!state.patches.isEmpty() || !state.embers.isEmpty()) LEVELS.put(level, state);
     }
 
     private static float smokeProduction(final Patch patch, final FireFuelProfile profile) {
@@ -564,8 +772,10 @@ public final class FireSimulationManager {
         Iterator<Patch> iterator = state.patches.values().iterator();
         Patch patch = iterator.next();
         for (int index = 0; index < selected && iterator.hasNext(); index++) patch = iterator.next();
+		float clump = clumpFactor(state, patch);
         level.playSound(null, patch.anchor.host(), SoundEvents.CAMPFIRE_CRACKLE,
-            SoundSource.BLOCKS, 0.20F + patch.targetIntensity * 0.42F,
+			SoundSource.BLOCKS, Mth.clamp(0.20F + patch.targetIntensity * 0.42F
+				+ clump * 0.12F, 0.20F, 0.95F),
             0.84F + (float) unit(patch.seed ^ now) * 0.34F);
     }
 
@@ -593,11 +803,21 @@ public final class FireSimulationManager {
             || hit.getLocation().distanceToSqr(target) <= 0.90;
     }
 
-    private static void decayWetness(final LevelState state) {
+    private static double distanceToSegmentSquared(final Vec3 point,
+        final Vec3 start, final Vec3 end) {
+        Vec3 segment = end.subtract(start);
+        double lengthSquared = segment.lengthSqr();
+        if (lengthSquared <= 1.0E-8) return point.distanceToSqr(start);
+        double progress = Mth.clamp(point.subtract(start).dot(segment) / lengthSquared,
+            0.0, 1.0);
+        return point.distanceToSqr(start.add(segment.scale(progress)));
+    }
+
+    private static void decayWetness(final LevelState state, final int elapsedTicks) {
         Iterator<Map.Entry<Long, Float>> iterator = state.wetness.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, Float> entry = iterator.next();
-            float remaining = entry.getValue() - 0.006F;
+            float remaining = entry.getValue() - 0.006F * elapsedTicks;
             if (remaining <= 0.0F) iterator.remove(); else entry.setValue(remaining);
         }
     }
@@ -632,11 +852,15 @@ public final class FireSimulationManager {
     private static final class LevelState {
         private final LinkedHashMap<Long, Patch> patches = new LinkedHashMap<>();
         private final HashMap<SurfaceKey, Long> surfaceIndex = new HashMap<>();
+		private final HashMap<FaceHostKey, Integer> facePatchCounts = new HashMap<>();
+        private final HashMap<Long, HashSet<Long>> patchChunkIndex = new HashMap<>();
         private final ArrayDeque<Long> workQueue = new ArrayDeque<>();
         private final HashMap<Long, Float> wetness = new HashMap<>();
         private final HashMap<SurfaceKey, Exposure> preheat = new HashMap<>();
         private final ArrayDeque<Ember> embers = new ArrayDeque<>();
         private long nextId = 1L;
+		private long nextEmberId = 1L;
+        private long lastPriorityEvictionTick = Long.MIN_VALUE;
         private int newIgnitionsThisTick;
     }
 
@@ -669,19 +893,21 @@ public final class FireSimulationManager {
     }
 
     private static final class Ember {
+		private final long id;
         private Vec3 position;
         private Vec3 velocity;
         private final float intensity;
         private final long seed;
         private final long startTick;
         private final int lifetime;
-        private Ember(final Vec3 position, final Vec3 velocity, final float intensity,
+        private Ember(final long id, final Vec3 position, final Vec3 velocity, final float intensity,
             final long seed, final long startTick, final int lifetime) {
-            this.position = position; this.velocity = velocity; this.intensity = intensity;
+			this.id = id; this.position = position; this.velocity = velocity; this.intensity = intensity;
             this.seed = seed; this.startTick = startTick; this.lifetime = lifetime;
         }
     }
 
     private record Exposure(float dose, long lastTouched) { }
     private record RankedSurface(FireSurfaceAnchor anchor, double distance, long rank) { }
+	private record FaceHostKey(long packedHost, byte face) { }
 }

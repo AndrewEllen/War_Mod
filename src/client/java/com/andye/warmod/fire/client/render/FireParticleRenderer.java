@@ -2,6 +2,7 @@ package com.andye.warmod.fire.client.render;
 
 import com.andye.warmod.fire.FirePhase;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderPatch;
+import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmber;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
@@ -27,9 +28,11 @@ public final class FireParticleRenderer {
             if (patch.phase() == FirePhase.SMOLDERING || patch.heat() < 0.075F) continue;
             double patchAge = Math.max(0.0, gameTime - patch.ignitionGameTime());
             float stageScale = stageScale(patch.phase(), patch.coverage());
+			float clumpScale = 1.0F + patch.clumpStrength() * 0.55F;
             int samples = flameSamples(patch);
-            double footprint = 0.055 + patch.coverage() * 0.48;
-            double height = (0.22 + patch.intensity() * 1.85) * stageScale;
+            double footprint = (0.055 + patch.coverage() * 0.48)
+				* (1.0 + patch.clumpStrength() * 0.18);
+            double height = (0.22 + patch.intensity() * 1.85) * stageScale * clumpScale;
             for (int index = 0; index < samples; index++) {
                 long value = mix(patch.seed() ^ FLAME_SEED
                     ^ (long) index * 0x9E3779B97F4A7C15L);
@@ -52,6 +55,7 @@ public final class FireParticleRenderer {
                     -curl * 0.48 + patch.wind().z * windAge);
                 float size = (float) ((0.095 + unit(value, 7) * 0.19)
                     * (0.55 + patch.coverage() * 0.72)
+					* (1.0 + patch.clumpStrength() * 0.28)
                     * (1.0 - progress * 0.38));
                 float temperature = Mth.clamp(patch.heat()
                     * (1.16F - (float) progress * 0.48F), 0.0F, 1.0F);
@@ -79,14 +83,16 @@ public final class FireParticleRenderer {
                     ^ (long) index * 0xD1B54A32D192ED03L);
                 double delay = 20.0 + index * 7.0 + unit(value, 0) * 18.0;
                 if (patchAge < delay) continue;
-                double life = 34.0 + unit(value, 1) * 48.0;
+				/* These are short local sparks only. Networked firebrands below own
+				   every long windborne path capable of ignition. */
+				double life = 12.0 + unit(value, 1) * 16.0;
                 double particleAge = positiveModulo(patchAge - delay, life);
                 double progress = particleAge / life;
-                double windAge = particleAge * (0.42 + patch.intensity() * 0.34);
+				double windAge = particleAge * (0.055 + patch.intensity() * 0.035);
                 Vec3 center = patch.relativePosition().add(
                     (unit(value, 2) - 0.5) * patch.coverage()
                         + patch.wind().x * windAge,
-                    0.20 + progress * (1.5 + patch.intensity() * 3.4),
+					0.20 + progress * (0.65 + patch.intensity() * 0.75),
                     (unit(value, 3) - 0.5) * patch.coverage()
                         + patch.wind().z * windAge);
                 float radius = 0.025F + (float) unit(value, 4) * 0.038F;
@@ -97,6 +103,60 @@ public final class FireParticleRenderer {
         }
     }
 
+	/** Renders the same authoritative firebrands that perform server collision. */
+	public static void renderFirebrands(final PoseStack.Pose pose, final VertexConsumer buffer,
+		final double gameTime, final List<FireRenderEmber> embers,
+		final Quaternionf camera) {
+		Basis basis = Basis.from(camera);
+		for (FireRenderEmber ember : embers) {
+			double age = Math.max(0.0, gameTime - ember.startGameTime());
+			double progress = Mth.clamp(age / Math.max(1.0, ember.lifetime()), 0.0, 1.0);
+			Vec3 direction = ember.velocity().lengthSqr() > 1.0E-6
+				? ember.velocity().normalize() : new Vec3(0.0, 1.0, 0.0);
+			int tongues = ember.distance() < 72.0 ? 4 : 2;
+			for (int index = 0; index < tongues; index++) {
+				long value = mix(ember.seed() ^ index * 0x9E3779B97F4A7C15L);
+				double trail = index * (0.065 + ember.intensity() * 0.055);
+				Vec3 center = ember.relativePosition().subtract(direction.scale(trail)).add(
+					(unit(value, 0) - 0.5) * 0.045,
+					(unit(value, 1) - 0.5) * 0.045,
+					(unit(value, 2) - 0.5) * 0.045);
+				float radius = (float) ((0.045 + ember.intensity() * 0.075)
+					* (1.0 - index * 0.13) * (1.0 - progress * 0.30));
+				Colour colour = fireColour((float) (0.95 - progress * 0.35));
+				billboard(pose, buffer, center, radius,
+					(float) (gameTime * 0.08 + unit(value, 3) * Mth.TWO_PI),
+					colour.red(), colour.green(), colour.blue(),
+					(float) (0.88 - progress * 0.36), 0xF000F0, basis);
+			}
+		}
+	}
+
+	public static void renderFirebrandSmoke(final PoseStack.Pose pose,
+		final VertexConsumer buffer, final double gameTime,
+		final List<FireRenderEmber> embers, final Quaternionf camera) {
+		Basis basis = Basis.from(camera);
+		for (FireRenderEmber ember : embers) {
+			double age = Math.max(0.0, gameTime - ember.startGameTime());
+			if (age < 5.0) continue;
+			Vec3 direction = ember.velocity().lengthSqr() > 1.0E-6
+				? ember.velocity().normalize() : new Vec3(0.0, 1.0, 0.0);
+			int wisps = ember.distance() < 96.0 ? 3 : 1;
+			for (int index = 0; index < wisps; index++) {
+				long value = mix(ember.seed() ^ SMOKE_SEED ^ index * 0xD1B54A32D192ED03L);
+				double trail = 0.16 + index * 0.20;
+				Vec3 center = ember.relativePosition().subtract(direction.scale(trail)).add(
+					0.0, index * 0.035, 0.0);
+				float radius = (float) ((0.07 + index * 0.025 + ember.intensity() * 0.045)
+					* (0.85 + unit(value, 0) * 0.30));
+				int shade = 112 + (int) (unit(value, 1) * 28.0);
+				billboard(pose, buffer, center, radius,
+					(float) (unit(value, 2) * Mth.TWO_PI), shade, shade + 4, shade + 8,
+					0.11F + ember.intensity() * 0.07F, 0xA000A0, basis);
+			}
+		}
+	}
+
     public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double gameTime, final List<FireRenderPatch> patches,
         final Quaternionf camera) {
@@ -105,9 +165,11 @@ public final class FireParticleRenderer {
             if (patch.smoke() < 0.018F) continue;
             double patchAge = Math.max(0.0, gameTime - patch.ignitionGameTime());
             int desired = patch.phase() == FirePhase.IGNITION ? 1
-                : Math.max(1, Mth.ceil(1.0F + patch.smoke() * 11.0F));
+				: Math.max(1, Mth.ceil((1.0F + patch.smoke() * 11.0F)
+					* (1.0F + patch.clumpStrength() * 0.48F)));
             int samples = lodSamples(patch, 1, desired);
-            double footprint = 0.08 + patch.coverage() * 0.50;
+            double footprint = (0.08 + patch.coverage() * 0.50)
+				* (1.0 + patch.clumpStrength() * 0.22);
             for (int index = 0; index < samples; index++) {
                 long value = mix(patch.seed() ^ SMOKE_SEED
                     ^ (long) index * 0x94D049BB133111EBL);
@@ -127,11 +189,13 @@ public final class FireParticleRenderer {
                 double windAge = particleAge * (0.32 + patch.intensity() * 0.24);
                 Vec3 center = patch.relativePosition().add(base).add(
                     turbulence + patch.wind().x * windAge,
-                    0.20 + progress * (2.0 + patch.intensity() * 4.0),
+					0.20 + progress * (2.0 + patch.intensity() * 4.0)
+						* (1.0 + patch.clumpStrength() * 0.28),
                     -turbulence * 0.46 + patch.wind().z * windAge);
                 float radius = (float) ((0.16 + unit(value, 5) * 0.31)
                     * (0.70 + progress * 1.20)
-                    * (0.58 + patch.coverage() * 0.58));
+					* (0.58 + patch.coverage() * 0.58)
+					* (1.0 + patch.clumpStrength() * 0.20));
                 int shade = Mth.clamp(150 - (int) (patch.smoke() * 72.0F)
                     - (int) (progress * 18.0) + (int) (unit(value, 6) * 18.0), 52, 168);
                 float fade = (float) Math.pow(1.0 - progress, 0.62);
@@ -146,7 +210,8 @@ public final class FireParticleRenderer {
 
     private static int flameSamples(final FireRenderPatch patch) {
         int maximum = Math.max(1, Mth.ceil((2.0F + patch.intensity() * 15.0F)
-            * (0.18F + patch.coverage() * 0.82F)));
+			* (0.18F + patch.coverage() * 0.82F)
+			* (1.0F + patch.clumpStrength() * 0.42F)));
         if (patch.phase() == FirePhase.IGNITION) maximum = Math.min(2, maximum);
         return lodSamples(patch, 1, maximum);
     }
