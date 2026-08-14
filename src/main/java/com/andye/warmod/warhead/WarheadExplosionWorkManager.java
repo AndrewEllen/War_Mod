@@ -7,9 +7,11 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SplittableRandom;
 import java.util.UUID;
 import java.util.WeakHashMap;
@@ -65,6 +67,12 @@ public final class WarheadExplosionWorkManager {
 	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 4_000_000L;
 	private static final int MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 8_192;
 	private static final int APPLICATION_SLICE = 256;
+	/* Nuclear geometry is fully precomputed. Spend the requested 20x catch-up
+	 * budget only while a nuclear crater is active so its authoritative writes
+	 * reach the same front as the visual shockwave. */
+	private static final long NUCLEAR_APPLICATION_BUDGET_NANOS = 20_000_000L;
+	private static final int NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 163_840;
+	private static final int NUCLEAR_APPLICATION_SLICE = 8_192;
 	private static final int TIME_CHECK_INTERVAL = 32;
 	private static final int MAX_RESOLVED_DESCENT_BLOCKS = 768;
 	private static final int MAX_DEBRIS_SAMPLE = 512;
@@ -175,6 +183,15 @@ public final class WarheadExplosionWorkManager {
 		scheduleDetonation(level, source, warheadId, position, yield, seed, customFire);
 	}
 
+	/** True once the destructive crater columns can no longer overwrite its final skin. */
+	public static synchronized boolean isCraterExcavationComplete(
+		final ServerLevel level, final UUID warheadId
+	) {
+		LevelWork levelWork = LEVELS.get(level);
+		ExplosionWork work = levelWork == null ? null : levelWork.byWarhead.get(warheadId);
+		return work == null || work.craterExcavationComplete();
+	}
+
 	private static ExplosionWork scheduleDetonation(
 		final ServerLevel level,
 		final @Nullable ServerPlayer source,
@@ -248,16 +265,15 @@ public final class WarheadExplosionWorkManager {
 		LevelWork levelWork = LEVELS.get(level);
 		if (levelWork == null) return;
 		long now = level.getGameTime();
-		long deadline = System.nanoTime() + BLOCK_APPLICATION_BUDGET_NANOS;
-		int remaining = MAX_BLOCK_CHANGES_PER_LEVEL_TICK;
-
-		while (remaining > 0 && System.nanoTime() < deadline) {
-			ExplosionWork work = levelWork.nextApplicationWork();
-			if (work == null) break;
-			int changed = work.apply(level, levelWork, Math.min(APPLICATION_SLICE, remaining), deadline);
-			remaining -= Math.max(1, changed);
-			if (changed == 0 && !work.finished && !work.templateReady()) break;
-		}
+		/*
+		 * Nuclear catch-up is intentionally isolated from ordinary explosion work.
+		 * A front-gated crater is skipped for the rest of this tick instead of
+		 * spinning until the deadline while waiting for the visual shockwave.
+		 */
+		applyWorkClass(level, levelWork, true, NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
+			NUCLEAR_APPLICATION_SLICE, NUCLEAR_APPLICATION_BUDGET_NANOS);
+		applyWorkClass(level, levelWork, false, MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
+			APPLICATION_SLICE, BLOCK_APPLICATION_BUDGET_NANOS);
 
 		Iterator<ExplosionWork> iterator = levelWork.works.iterator();
 		while (iterator.hasNext()) {
@@ -269,6 +285,29 @@ public final class WarheadExplosionWorkManager {
 		}
 		levelWork.normaliseCursor();
 		if (levelWork.works.isEmpty()) LEVELS.remove(level);
+	}
+
+	private static void applyWorkClass(
+		final ServerLevel level,
+		final LevelWork levelWork,
+		final boolean nuclear,
+		final int changeBudget,
+		final int applicationSlice,
+		final long timeBudgetNanos
+	) {
+		if (!levelWork.hasActiveWork(nuclear)) return;
+		long deadline = System.nanoTime() + timeBudgetNanos;
+		int remaining = changeBudget;
+		Set<UUID> unavailableThisTick = new HashSet<>();
+		while (remaining > 0 && System.nanoTime() < deadline) {
+			ExplosionWork work = levelWork.nextApplicationWork(nuclear, unavailableThisTick);
+			if (work == null) break;
+			int changed = work.apply(level, levelWork, Math.min(applicationSlice, remaining), deadline);
+			remaining -= Math.max(1, changed);
+			if (work.frontBlockedThisApply || (!work.finished && !work.templateReady())) {
+				unavailableThisTick.add(work.warheadId);
+			}
+		}
 	}
 
 	private static synchronized void clear() {
@@ -398,14 +437,23 @@ public final class WarheadExplosionWorkManager {
 			pendingBlocks.remove(packed);
 		}
 
-		private ExplosionWork nextApplicationWork() {
+		private ExplosionWork nextApplicationWork(final boolean nuclear, final Set<UUID> unavailable) {
 			if (works.isEmpty()) return null;
 			for (int checked = 0; checked < works.size(); checked++) {
 				if (applicationCursor >= works.size()) applicationCursor = 0;
 				ExplosionWork work = works.get(applicationCursor++);
-				if (!work.finished) return work;
+				if (!work.finished
+					&& work.profile.yield().nuclear() == nuclear
+					&& !unavailable.contains(work.warheadId)) return work;
 			}
 			return null;
+		}
+
+		private boolean hasActiveWork(final boolean nuclear) {
+			for (ExplosionWork work : works) {
+				if (!work.finished && work.profile.yield().nuclear() == nuclear) return true;
+			}
+			return false;
 		}
 
 		private void normaliseCursor() {
@@ -448,6 +496,7 @@ public final class WarheadExplosionWorkManager {
 		private boolean mirror;
 		private boolean finished;
 		private long finishedAt;
+		private boolean frontBlockedThisApply;
 		private FastExplosion explosionContext;
 
 		private ExplosionWork(
@@ -486,12 +535,17 @@ public final class WarheadExplosionWorkManager {
 			return template != null || templateFuture.isDone();
 		}
 
+		private boolean craterExcavationComplete() {
+			return template != null && columnIndex >= template.columns.length;
+		}
+
 		private int apply(
 			final ServerLevel level,
 			final LevelWork levelWork,
 			final int budget,
 			final long deadline
 		) {
+			frontBlockedThisApply = false;
 			if (template == null) {
 				if (!templateFuture.isDone()) return 0;
 				template = templateFuture.join();
@@ -503,7 +557,14 @@ public final class WarheadExplosionWorkManager {
 			while (changed < budget && System.nanoTime() < deadline && !finished) {
 				if (columnIndex < template.columns.length) {
 					if (currentColumn == null) {
-						currentColumn = template.columns[columnIndex];
+						Column nextColumn = template.columns[columnIndex];
+						if (profile.yield().nuclear()
+							&& nextColumn.radial * profile.horizontalRadius()
+								> currentNuclearCraterFront(level) + 0.75) {
+							frontBlockedThisApply = true;
+							break;
+						}
+						currentColumn = nextColumn;
 						setCurrentWorldColumn(currentColumn.dx, currentColumn.dz);
 						int top = currentColumn.topY;
 						if (level.getChunkSource().hasChunk(currentWorldX >> 4, currentWorldZ >> 4)) {
@@ -660,7 +721,9 @@ public final class WarheadExplosionWorkManager {
 
 		private int advanceSurfaceWave(final ServerLevel level, final int budget, final long deadline) {
 			if (template == null || surfaceIndex >= template.surfacePoints.length || budget <= 0) return 0;
-			double age = Math.max(0.0, level.getGameTime() - detonationGameTime);
+			double age = Math.max(0.0, level.getGameTime() - detonationGameTime
+				+ (profile.yield().nuclear() ? 1.0 : 0.0));
+			if (profile.yield().nuclear()) age *= WarheadVisualMath.NUCLEAR_TIME_SCALE;
 			double maximumRadius = Math.max(1.0, profile.horizontalRadius() * profile.aftermathRadiusScale());
 			double currentRadius = Math.min(maximumRadius,
 				age * WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK);
@@ -688,7 +751,9 @@ public final class WarheadExplosionWorkManager {
 					boolean fragile = isFragileSurface(state);
 					boolean glass = state.getBlock().getDescriptionId().contains("glass");
 					double removalChance = fragile ? 0.35 + pressure * 0.65
-						: leaves ? (profile.yield().nuclear() ? 0.18 + pressure * 0.88 : pressure * 0.42)
+					: leaves ? (profile.yield().nuclear()
+						? (customFire ? 0.30 + pressure * 0.48 : 0.18 + pressure * 0.88)
+						: pressure * 0.42)
 						: glass ? (profile.yield().nuclear() ? pressure * 1.15 : pressure * 0.54) : 0.0;
 					if (unit(hash ^ surfaceScan.asLong() ^ up) < Math.min(1.0, removalChance)) {
 						if (level.setBlock(surfaceScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS)) changed++;
@@ -711,6 +776,13 @@ public final class WarheadExplosionWorkManager {
 				}
 			}
 			return changed;
+		}
+
+		private double currentNuclearCraterFront(final ServerLevel level) {
+			double age = Math.max(0.0, level.getGameTime() - detonationGameTime + 1.0)
+				* WarheadVisualMath.NUCLEAR_TIME_SCALE;
+			return Math.min(profile.horizontalRadius(),
+				age * WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK);
 		}
 
 		private void removeUnsupportedAbove(final ServerLevel level, final BlockPos removedSupport) {
@@ -829,7 +901,11 @@ public final class WarheadExplosionWorkManager {
 					if (!level.isInWorldBounds(cursor)) break;
 					BlockState state = level.getBlockState(cursor);
 					if (state.is(BlockTags.LEAVES) || state.is(BlockTags.FLOWERS)) {
-						level.setBlock(cursor, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+						boolean retainCrown = customFire && state.is(BlockTags.LEAVES)
+							&& unit(hash ^ cursor.asLong() ^ 0x43524F574E5F4B50L) < 0.30;
+						if (!retainCrown) {
+							level.setBlock(cursor, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
+						}
 					}
 				}
 				if (profile.yield().nuclear() && unit(hash ^ 0x464952455F504F53L) < 0.025) {

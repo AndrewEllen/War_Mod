@@ -1,10 +1,12 @@
 package com.andye.warmod.fire.client;
 
 import com.andye.warmod.fire.FirePhase;
+import com.andye.warmod.fire.FireSimulationManager;
 import com.andye.warmod.fire.FireSurfaceAnchor;
 import com.andye.warmod.fire.network.ClientboundFireStatePayload;
 import java.util.HashSet;
-	import java.util.HashMap;
+import java.util.HashMap;
+import java.util.ArrayDeque;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,7 +27,7 @@ public final class ClientFireVisualManager {
 	private static final Direction[] EAST_WEST_TANGENTS = {Direction.UP, Direction.DOWN,
 		Direction.NORTH, Direction.SOUTH};
     private final Map<Long, VisualPatch> patches = new LinkedHashMap<>();
-	private final Map<Long, VisualEmber> embers = new LinkedHashMap<>();
+	private final Map<Long, EmberVisual> embers = new LinkedHashMap<>();
     private ClientLevel activeLevel;
 
     private ClientFireVisualManager() { }
@@ -58,14 +60,15 @@ public final class ClientFireVisualManager {
 		HashSet<Long> receivedEmbers = new HashSet<>(payload.embers().size());
 		for (ClientboundFireStatePayload.EmberEntry entry : payload.embers()) {
 			receivedEmbers.add(entry.id());
-			VisualEmber previous = embers.get(entry.id());
 			Vec3 incoming = new Vec3(entry.x(), entry.y(), entry.z());
-			Vec3 position = incoming;
 			Vec3 velocity = new Vec3(entry.velocityX(), entry.velocityY(), entry.velocityZ());
 			Vec3 wind = new Vec3(entry.windX(), entry.windY(), entry.windZ());
-			embers.put(entry.id(), new VisualEmber(entry.id(), position, velocity, wind,
-				entry.intensity(), entry.seed(), entry.startGameTime(), entry.lifetime(),
-                payload.serverGameTime(), receivedAt));
+			EmberVisual visual = embers.get(entry.id());
+			if (visual == null) embers.put(entry.id(), new EmberVisual(entry.id(), incoming,
+				velocity, wind, entry.intensity(), entry.seed(), entry.startGameTime(),
+				entry.lifetime(), payload.serverGameTime(), receivedAt));
+			else visual.accept(incoming, velocity, wind, entry.intensity(), entry.seed(),
+				entry.startGameTime(), entry.lifetime(), payload.serverGameTime(), receivedAt);
 		}
 		if (payload.emberComplete()) embers.keySet().removeIf(id -> !receivedEmbers.contains(id));
     }
@@ -76,11 +79,12 @@ public final class ClientFireVisualManager {
         Iterator<VisualPatch> iterator = patches.values().iterator();
         while (iterator.hasNext())
             if (now - iterator.next().lastSeenClientTick() > EXPIRY_TICKS) iterator.remove();
-		Iterator<VisualEmber> emberIterator = embers.values().iterator();
+		Iterator<EmberVisual> emberIterator = embers.values().iterator();
 		while (emberIterator.hasNext()) {
-			VisualEmber ember = emberIterator.next();
-			if (now - ember.lastSeenClientTick() > 24
-				|| now - ember.startGameTime() > ember.lifetime() + 4L) emberIterator.remove();
+			EmberVisual ember = emberIterator.next();
+			if (now - ember.lastSeenClientTick > 24
+				|| now - ember.startGameTime > ember.lifetime + 4L) emberIterator.remove();
+			else ember.simulate(now);
 		}
     }
 
@@ -89,7 +93,8 @@ public final class ClientFireVisualManager {
     }
 
 	public synchronized List<VisualEmber> emberSnapshot(final ClientLevel level) {
-		return level == null || activeLevel != level ? List.of() : List.copyOf(embers.values());
+		if (level == null || activeLevel != level) return List.of();
+		return embers.values().stream().map(EmberVisual::snapshot).toList();
 	}
 
     public synchronized void clear() { patches.clear(); embers.clear(); activeLevel = null; }
@@ -150,6 +155,76 @@ public final class ClientFireVisualManager {
         long ignitionGameTime, Vec3 wind, float clumpStrength, long lastSeenClientTick) { }
 	public record VisualEmber(long id, Vec3 position, Vec3 velocity, Vec3 wind,
         float intensity, long seed, long startGameTime, int lifetime,
-        long serverSampleGameTime, long lastSeenClientTick) { }
+		long serverSampleGameTime, long lastSeenClientTick, List<EmberTrailSample> trail) { }
+	public record EmberTrailSample(Vec3 position, Vec3 wind, long gameTime) { }
+
+	/** Eight history samples make the renderer follow the real local path instead of
+	 * drawing a rigid billboard chain behind the latest server position. */
+	private static final class EmberVisual {
+		private static final int MAX_TRAIL_SAMPLES = 8;
+		private final long id;
+		private Vec3 position;
+		private Vec3 velocity;
+		private Vec3 wind;
+		private float intensity;
+		private long seed;
+		private long startGameTime;
+		private int lifetime;
+		private long serverSampleGameTime;
+		private long lastSeenClientTick;
+		private long simulatedGameTime;
+		private final ArrayDeque<EmberTrailSample> trail = new ArrayDeque<>();
+
+		private EmberVisual(final long id, final Vec3 position, final Vec3 velocity,
+			final Vec3 wind, final float intensity, final long seed, final long startGameTime,
+			final int lifetime, final long serverSampleGameTime, final long receivedAt) {
+			this.id = id; this.position = position; this.velocity = velocity; this.wind = wind;
+			this.intensity = intensity; this.seed = seed; this.startGameTime = startGameTime;
+			this.lifetime = lifetime; this.serverSampleGameTime = serverSampleGameTime;
+			this.lastSeenClientTick = receivedAt; this.simulatedGameTime = receivedAt;
+			appendTrail(receivedAt);
+		}
+
+		private void accept(final Vec3 incomingPosition, final Vec3 incomingVelocity,
+			final Vec3 incomingWind, final float incomingIntensity, final long incomingSeed,
+			final long incomingStart, final int incomingLifetime, final long serverTime,
+			final long receivedAt) {
+			/* Correct gentle packet drift without visually snapping a windborne path. */
+			if (position.distanceToSqr(incomingPosition) > 2.25) {
+				position = incomingPosition; velocity = incomingVelocity; trail.clear();
+			} else {
+				position = position.lerp(incomingPosition, 0.46);
+				velocity = velocity.lerp(incomingVelocity, 0.42);
+			}
+			wind = wind.lerp(incomingWind, 0.48); intensity = incomingIntensity;
+			seed = incomingSeed; startGameTime = incomingStart; lifetime = incomingLifetime;
+			serverSampleGameTime = serverTime; lastSeenClientTick = receivedAt;
+			simulatedGameTime = Math.max(simulatedGameTime, receivedAt);
+			if (trail.isEmpty()) appendTrail(receivedAt);
+		}
+
+		private void simulate(final long now) {
+			while (simulatedGameTime < now) {
+				simulatedGameTime++;
+				double progress = Math.min(1.0, Math.max(0.0,
+					(simulatedGameTime - startGameTime) / (double) Math.max(1, lifetime)));
+				velocity = FireSimulationManager.stepEmberVelocity(velocity, wind, seed,
+					startGameTime, simulatedGameTime, progress);
+				position = position.add(velocity);
+				appendTrail(simulatedGameTime);
+			}
+		}
+
+		private void appendTrail(final long gameTime) {
+			trail.addLast(new EmberTrailSample(position, wind, gameTime));
+			while (trail.size() > MAX_TRAIL_SAMPLES) trail.removeFirst();
+		}
+
+		private VisualEmber snapshot() {
+			return new VisualEmber(id, position, velocity, wind, intensity, seed,
+				startGameTime, lifetime, serverSampleGameTime, lastSeenClientTick,
+				List.copyOf(trail));
+		}
+	}
 	private record FaceHostKey(long packedHost, byte face) { }
 }

@@ -3,6 +3,7 @@ package com.andye.warmod.fire.client.render;
 import com.andye.warmod.fire.FirePhase;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderPatch;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmber;
+import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmberTrail;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
@@ -111,21 +112,22 @@ public final class FireParticleRenderer {
 		for (FireRenderEmber ember : embers) {
 			double age = Math.max(0.0, gameTime - ember.startGameTime());
 			double progress = Mth.clamp(age / Math.max(1.0, ember.lifetime()), 0.0, 1.0);
-			Vec3 direction = ember.velocity().lengthSqr() > 1.0E-6
-				? ember.velocity().normalize() : new Vec3(0.0, 1.0, 0.0);
-			int tongues = ember.distance() < 72.0 ? 4 : 2;
+			/* Keep the flame at the hot firebrand. Older positions become smoke below;
+			   a fixed backward chain looked like a detached, static flame object. */
+			int tongues = ember.distance() < 72.0 ? 3 : 1;
 			for (int index = 0; index < tongues; index++) {
 				long value = mix(ember.seed() ^ index * 0x9E3779B97F4A7C15L);
-				double trail = index * (0.065 + ember.intensity() * 0.055);
-				Vec3 center = ember.relativePosition().subtract(direction.scale(trail)).add(
-					(unit(value, 0) - 0.5) * 0.045,
-					(unit(value, 1) - 0.5) * 0.045,
-					(unit(value, 2) - 0.5) * 0.045);
+				double flutter = Math.sin(gameTime * (0.24 + unit(value, 0) * 0.12)
+					+ unit(value, 1) * Mth.TWO_PI) * 0.030;
+				Vec3 center = ember.relativePosition().add(
+					flutter + (unit(value, 2) - 0.5) * 0.035,
+					(unit(value, 3) - 0.5) * 0.050,
+					-flutter * 0.62 + (unit(value, 4) - 0.5) * 0.035);
 				float radius = (float) ((0.045 + ember.intensity() * 0.075)
 					* (1.0 - index * 0.13) * (1.0 - progress * 0.30));
 				Colour colour = fireColour((float) (0.95 - progress * 0.35));
 				billboard(pose, buffer, center, radius,
-					(float) (gameTime * 0.08 + unit(value, 3) * Mth.TWO_PI),
+					(float) (gameTime * 0.08 + unit(value, 5) * Mth.TWO_PI),
 					colour.red(), colour.green(), colour.blue(),
 					(float) (0.88 - progress * 0.36), 0xF000F0, basis);
 			}
@@ -139,20 +141,29 @@ public final class FireParticleRenderer {
 		for (FireRenderEmber ember : embers) {
 			double age = Math.max(0.0, gameTime - ember.startGameTime());
 			if (age < 5.0) continue;
-			Vec3 direction = ember.velocity().lengthSqr() > 1.0E-6
-				? ember.velocity().normalize() : new Vec3(0.0, 1.0, 0.0);
-			int wisps = ember.distance() < 96.0 ? 3 : 1;
-			for (int index = 0; index < wisps; index++) {
-				long value = mix(ember.seed() ^ SMOKE_SEED ^ index * 0xD1B54A32D192ED03L);
-				double trail = 0.16 + index * 0.20;
-				Vec3 center = ember.relativePosition().subtract(direction.scale(trail)).add(
-					0.0, index * 0.035, 0.0);
-				float radius = (float) ((0.07 + index * 0.025 + ember.intensity() * 0.045)
-					* (0.85 + unit(value, 0) * 0.30));
-				int shade = 112 + (int) (unit(value, 1) * 28.0);
+			List<FireRenderEmberTrail> trail = ember.trail();
+			int wisps = ember.distance() < 72.0 ? 8 : ember.distance() < 112.0 ? 4 : 2;
+			int first = Math.max(0, trail.size() - wisps);
+			for (int index = first; index < trail.size(); index++) {
+				FireRenderEmberTrail sample = trail.get(index);
+				double trailAge = Math.max(0.0, gameTime - sample.gameTime());
+				double rank = trail.size() - 1 - index + trailAge;
+				long value = mix(ember.seed() ^ SMOKE_SEED
+					^ (long) index * 0xD1B54A32D192ED03L);
+				/* Each wisp departs from an actual older firebrand position, then rises
+				   and continues to drift with that sampled local wind. */
+				Vec3 center = sample.relativePosition().add(
+					sample.wind().x * rank * 0.030,
+					rank * 0.028 + Math.sin(gameTime * 0.10 + unit(value, 0) * Mth.TWO_PI) * 0.018,
+					sample.wind().z * rank * 0.030);
+				float radius = (float) ((0.065 + rank * 0.018 + ember.intensity() * 0.040)
+					* (0.85 + unit(value, 1) * 0.30));
+				int shade = 112 + (int) (unit(value, 2) * 28.0);
+				float alpha = (float) ((0.10F + ember.intensity() * 0.065F)
+					* Math.max(0.18, 1.0 - rank / 10.0));
 				billboard(pose, buffer, center, radius,
-					(float) (unit(value, 2) * Mth.TWO_PI), shade, shade + 4, shade + 8,
-					0.11F + ember.intensity() * 0.07F, 0xA000A0, basis);
+					(float) (unit(value, 3) * Mth.TWO_PI), shade, shade + 4, shade + 8,
+					alpha, 0xA000A0, basis);
 			}
 		}
 	}

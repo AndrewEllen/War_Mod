@@ -15,7 +15,6 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.Direction;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 
@@ -57,38 +56,19 @@ public final class FireWorldRenderer {
         }
 		List<FireRenderEmber> embers = new ArrayList<>();
 		for (VisualEmber ember : ClientFireVisualManager.INSTANCE.emberSnapshot(level)) {
-			double extrapolation = Mth.clamp(gameTime - ember.serverSampleGameTime(), 0.0, 5.0);
-            PredictedEmber predicted = predict(ember, extrapolation);
-			Vec3 worldPosition = predicted.position();
+			Vec3 worldPosition = ember.position();
 			double distance = worldPosition.distanceTo(cameraPosition);
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
+			List<FireRenderEmberTrail> trail = ember.trail().stream()
+				.map(sample -> new FireRenderEmberTrail(
+					sample.position().subtract(cameraPosition), sample.wind(), sample.gameTime()))
+				.toList();
 			embers.add(new FireRenderEmber(worldPosition.subtract(cameraPosition),
-				predicted.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
-				ember.lifetime(), distance));
+				ember.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
+				ember.lifetime(), distance, trail));
 		}
         currentFrame = patches.isEmpty() && embers.isEmpty() ? RenderFrame.EMPTY
             : new RenderFrame(gameTime, orientation, List.copyOf(patches), List.copyOf(embers));
-    }
-
-    private static PredictedEmber predict(final VisualEmber ember, final double ticks) {
-        Vec3 position = ember.position();
-        Vec3 velocity = ember.velocity();
-        double remaining = ticks;
-        double progressed = 0.0;
-        while (remaining > 1.0E-4) {
-            double step = Math.min(1.0, remaining);
-            double sampleTime = ember.serverSampleGameTime() + progressed + step;
-            double ageProgress = Mth.clamp((sampleTime - ember.startGameTime())
-                / Math.max(1.0, ember.lifetime()), 0.0, 1.0);
-            double lift = 0.010 * (1.0 - ageProgress) - 0.006 * ageProgress;
-            Vec3 nextVelocity = velocity.scale(0.90).add(ember.wind().scale(0.10))
-                .add(0.0, lift, 0.0);
-            position = position.add(nextVelocity.scale(step));
-            velocity = velocity.lerp(nextVelocity, step);
-            remaining -= step;
-            progressed += step;
-        }
-        return new PredictedEmber(position, velocity);
     }
 
     private static void collectSubmits(final LevelRenderContext context) {
@@ -122,8 +102,9 @@ public final class FireWorldRenderer {
         float heat, float coverage, float smoke, FirePhase phase, long seed,
 		long ignitionGameTime, Vec3 wind, float clumpStrength, double distance) { }
 	record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
-		long seed, long startGameTime, int lifetime, double distance) { }
-    private record PredictedEmber(Vec3 position, Vec3 velocity) { }
+		long seed, long startGameTime, int lifetime, double distance,
+		List<FireRenderEmberTrail> trail) { }
+	record FireRenderEmberTrail(Vec3 relativePosition, Vec3 wind, long gameTime) { }
     private record RenderFrame(double gameTime, Quaternionf cameraOrientation,
 		List<FireRenderPatch> patches, List<FireRenderEmber> embers) {
 		private static final RenderFrame EMPTY = new RenderFrame(0.0, new Quaternionf(),

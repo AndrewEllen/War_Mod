@@ -47,6 +47,8 @@ public final class FireSimulationManager {
     private static final int MAX_PREHEAT_SURFACES = 8_192;
     private static final int MAX_WET_POSITIONS = 8_192;
 	private static final int MAX_EMBERS = 96;
+    private static final int NUCLEAR_DYING_EVICTION_BATCH = 128;
+    private static final int NUCLEAR_HEALTHY_EVICTION_BATCH = 128;
     private static final int NETWORK_INTERVAL_TICKS = 10;
     private static final int EMBER_NETWORK_INTERVAL_TICKS = 3;
     private static final int MAX_WET_POSITIONS_PER_JET = 512;
@@ -89,18 +91,28 @@ public final class FireSimulationManager {
     /** Places an exact clicked surface plus a bounded radius of exposed fuel surfaces. */
     public static synchronized int igniteSurface(final ServerLevel level,
         final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
-        return igniteSurface(level, primary, config, seed, false);
+        return igniteSurface(level, primary, config, seed, false, false);
     }
 
     /** Debug placement may displace one dying patch when the global cap is full. */
     public static synchronized int igniteSurfacePrioritized(final ServerLevel level,
         final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
-        return igniteSurface(level, primary, config, seed, true);
+        return igniteSurface(level, primary, config, seed, true, false);
+    }
+
+    /**
+     * Nuclear seeding is allowed to replace one dying patch for every requested
+     * seed. This remains under the global 4,096-patch cap; unlike the debug
+     * stick it is not artificially restricted to one eviction per game tick.
+     */
+    public static synchronized int igniteSurfaceNuclear(final ServerLevel level,
+        final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
+        return igniteSurface(level, primary, config, seed, true, true);
     }
 
     private static int igniteSurface(final ServerLevel level,
         final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed,
-        final boolean prioritizeAtCapacity) {
+        final boolean prioritizeAtCapacity, final boolean unrestrictedEvictions) {
         if (level == null || primary == null || config == null) return 0;
         LevelState state = LEVELS.computeIfAbsent(level, ignored -> new LevelState());
         if (!validSurface(level, primary, true)) return 0;
@@ -108,9 +120,14 @@ public final class FireSimulationManager {
         if (!state.surfaceIndex.containsKey(primary.key())
             && state.patches.size() >= MAX_ACTIVE_PATCHES) {
             long now = level.getGameTime();
-            if (!prioritizeAtCapacity || state.lastPriorityEvictionTick == now
-                || !evictLowestPriorityPatch(state)) return 0;
-            state.lastPriorityEvictionTick = now;
+            if (!prioritizeAtCapacity) return 0;
+            if (unrestrictedEvictions) {
+                if (!evictNuclearBatch(state, now)) return 0;
+            } else {
+                if (state.lastPriorityEvictionTick == now
+                    || !evictLowestPriorityPatch(state)) return 0;
+                state.lastPriorityEvictionTick = now;
+            }
         }
         int placed = igniteInternal(level, state, primary, config.intensity(), seed,
             true, true) ? 1 : 0;
@@ -397,10 +414,16 @@ public final class FireSimulationManager {
         if ((patch.phase == FirePhase.GROWING || patch.phase == FirePhase.FLAMING)
             && patch.heat > 0.075F && now >= patch.nextTransferTick
             && state.newIgnitionsThisTick < MAX_NEW_IGNITIONS_PER_TICK) {
-            transferHeat(level, state, patch, profile, now);
-            patch.nextTransferTick = now + Math.max(6,
+            int transferInterval = Math.max(6,
                 18 - (int) (patch.targetIntensity * 10.0F)
                     - (int) Math.min(3.0F, clump * 2.0F));
+            int dueTransfers = 1 + Math.min(3, (int) Math.max(0L,
+                (now - patch.nextTransferTick) / transferInterval));
+            /* A patch can be revisited far less often than its desired transfer
+               cadence when the fixed 256-update budget is busy. Scale the one
+               bounded scan by missed intervals instead of paying for repeats. */
+            transferHeat(level, state, patch, profile, now, dueTransfers);
+            patch.nextTransferTick = now + transferInterval;
         }
         if ((patch.phase == FirePhase.FLAMING || patch.phase == FirePhase.GROWING)
             && patch.heat > 0.22F && patch.coverage > 0.28F
@@ -413,7 +436,8 @@ public final class FireSimulationManager {
     }
 
     private static void transferHeat(final ServerLevel level, final LevelState state,
-        final Patch source, final FireFuelProfile sourceProfile, final long now) {
+        final Patch source, final FireFuelProfile sourceProfile, final long now,
+        final int dueTransfers) {
         Vec3 origin = source.anchor.position();
         Vec3 wind = FireWindEngine.windAt(level, origin);
         double horizontalWind = Math.sqrt(wind.x * wind.x + wind.z * wind.z);
@@ -424,13 +448,13 @@ public final class FireSimulationManager {
         for (int[] offset : SURFACE_OFFSETS) {
             FireSurfaceAnchor target = source.anchor.gridOffset(offset[0], offset[1]);
             if (target != null) depositAlongSurface(level, state, source,
-                sourceProfile, target, now);
+                sourceProfile, target, now, dueTransfers);
         }
 
         for (Direction direction : DIRECTIONS) {
             BlockPos candidate = source.anchor.host().relative(direction);
 			depositToBlock(level, state, source, sourceProfile, candidate, origin,
-                windDirection, horizontalWind, now, 1.0F);
+                windDirection, horizontalWind, now, 1.0F, dueTransfers, true);
         }
         /* Only close radiation/convection may heat without contact. Long-range,
            wind-biased ignition is carried by the authoritative firebrands below. */
@@ -445,15 +469,18 @@ public final class FireSimulationManager {
 			if (candidate.distSqr(source.anchor.host()) > 5.0) continue;
             float sampling = dy > 0 ? 1.28F : 0.62F;
             depositToBlock(level, state, source, sourceProfile, candidate, origin,
-				windDirection, horizontalWind, now, sampling);
+				windDirection, horizontalWind, now, sampling, dueTransfers, false);
         }
     }
 
     private static void depositAlongSurface(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile profile, final FireSurfaceAnchor target,
-        final long now) {
+        final long now, final int dueTransfers) {
         float dose = 0.025F + source.heat * source.coverage * profile.heatRelease()
             * (0.12F + source.targetIntensity * 0.16F);
+        if (source.heat > 0.45F && source.coverage > 0.18F)
+            dose *= 1.55F + Math.min(0.35F, source.targetIntensity * 0.35F);
+        dose *= dueTransfers;
         if (dose <= 0.003F) return;
         addPreheat(level, state, target, dose, source.targetIntensity,
             source.seed, now, profile);
@@ -462,7 +489,8 @@ public final class FireSimulationManager {
     private static void depositToBlock(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile sourceProfile, final BlockPos candidate,
 		final Vec3 origin, final Vec3 windDirection, final double windSpeed,
-        final long now, final float samplingScale) {
+        final long now, final float samplingScale, final int dueTransfers,
+        final boolean directContact) {
         if (!isLoaded(level, candidate) || candidate.equals(source.anchor.host())) return;
         FireFuelProfile targetProfile = FireFuelProfile.of(level.getBlockState(candidate));
         if (!targetProfile.flammable()
@@ -470,7 +498,9 @@ public final class FireSimulationManager {
         Direction face = bestExposedFace(level, candidate, origin);
         if (face == null) return;
         FireSurfaceAnchor target = FireSurfaceAnchor.center(candidate, face);
-        if (!clearHeatPath(level, origin, target.position())) return;
+        /* Touching fuel is conductive/radiative contact, not a long ray. Dense
+           crowns otherwise reject their own adjacent leaves as path blockers. */
+        if (!directContact && !clearHeatPath(level, origin, target.position())) return;
         Vec3 delta = target.position().subtract(origin);
         double distance = Math.max(0.65, delta.length());
         Vec3 horizontal = new Vec3(delta.x, 0.0, delta.z);
@@ -481,9 +511,17 @@ public final class FireSimulationManager {
         double convection = delta.y > 0.0 ? Math.min(1.10, delta.y * 0.42) : -0.10;
         double verticalContact = delta.y > 0.25 && distance < 1.8 ? 1.55 : 1.0;
         double distanceFalloff = 1.0 / Math.max(1.0, distance * distance * 0.72);
+        double directCanopyCoupling = 1.0;
+        if (directContact && source.heat > 0.45F && source.coverage > 0.18F) {
+            boolean crownFuel = sourceProfile.emberSusceptibility() >= 0.95F
+                || targetProfile.emberSusceptibility() >= 0.95F;
+            directCanopyCoupling = crownFuel ? 2.45 : 1.42;
+            if (delta.y > 0.10) directCanopyCoupling *= 1.22;
+        }
         float dose = (float) (source.heat * source.coverage * sourceProfile.heatRelease()
 			* (0.24 + source.targetIntensity * 0.32 + convection)
-            * distanceFalloff * samplingScale * verticalContact * windBias);
+            * distanceFalloff * samplingScale * verticalContact * windBias
+            * directCanopyCoupling * dueTransfers);
         if (dose <= 0.004F) return;
         addPreheat(level, state, target, dose, source.targetIntensity, source.seed, now,
             targetProfile);
@@ -633,6 +671,54 @@ public final class FireSimulationManager {
         return true;
     }
 
+    /** Opens a bounded group of slots with one O(n log batch) scan, avoiding
+     * one full 4,096-patch scan per nuclear seed. Dying fire is always chosen
+     * first; at most one small healthy batch may be displaced per tick. */
+    private static boolean evictNuclearBatch(final LevelState state, final long now) {
+        int limit = NUCLEAR_DYING_EVICTION_BATCH;
+        boolean dyingOnly = true;
+        PriorityQueue<Patch> selected = lowestPriorityPatches(state, limit, true);
+        if (selected.isEmpty()) {
+            if (state.lastHealthyNuclearEvictionTick == now) return false;
+            dyingOnly = false;
+            limit = NUCLEAR_HEALTHY_EVICTION_BATCH;
+            selected = lowestPriorityPatches(state, limit, false);
+            state.lastHealthyNuclearEvictionTick = now;
+        }
+        if (selected.isEmpty()) return false;
+        for (Patch patch : selected) removePatch(state, patch);
+        /* Batched removal otherwise leaves enough stale IDs to consume the
+           entire 256-patch update poll budget on the following ticks. */
+        state.workQueue.clear();
+        state.workQueue.addAll(state.patches.keySet());
+        return dyingOnly || !selected.isEmpty();
+    }
+
+    private static PriorityQueue<Patch> lowestPriorityPatches(final LevelState state,
+        final int limit, final boolean dyingOnly) {
+        PriorityQueue<Patch> selected = new PriorityQueue<>(limit + 1,
+            (left, right) -> Double.compare(patchPriority(right), patchPriority(left)));
+        for (Patch patch : state.patches.values()) {
+            if (dyingOnly && patch.phase != FirePhase.SMOLDERING
+                && patch.phase != FirePhase.DECAYING) continue;
+            selected.add(patch);
+            if (selected.size() > limit) selected.poll();
+        }
+        return selected;
+    }
+
+    private static double patchPriority(final Patch patch) {
+        int phasePriority = switch (patch.phase) {
+            case SMOLDERING -> 0;
+            case DECAYING -> 1;
+            case IGNITION -> 2;
+            case GROWING -> 3;
+            case FLAMING -> 4;
+        };
+        return phasePriority * 5.0 + patch.heat * patch.coverage * 3.0
+            + patch.targetIntensity + patch.fuel * 0.5;
+    }
+
     private static void spawnEmber(final ServerLevel level, final LevelState state,
         final Patch patch, final long now) {
         Vec3 wind = FireWindEngine.windAt(level, patch.anchor.position());
@@ -651,12 +737,11 @@ public final class FireSimulationManager {
         while (iterator.hasNext()) {
             Ember ember = iterator.next();
             if (now - ember.startTick >= ember.lifetime) { iterator.remove(); continue; }
-            Vec3 wind = FireWindEngine.windAt(level, ember.position);
             double progress = Mth.clamp((now - ember.startTick)
                 / (double) Math.max(1, ember.lifetime), 0.0, 1.0);
-            double lift = 0.010 * (1.0 - progress) - 0.006 * progress;
-            ember.velocity = ember.velocity.scale(0.90).add(wind.scale(0.10))
-                .add(0.0, lift, 0.0);
+            ember.velocity = stepEmberVelocity(ember.velocity,
+                FireWindEngine.windAt(level, ember.position), ember.seed,
+                ember.startTick, now, progress);
             Vec3 next = ember.position.add(ember.velocity);
 			if (advanceEmber(level, state, ember, next, now)) iterator.remove();
 			else ember.position = next;
@@ -690,6 +775,32 @@ public final class FireSimulationManager {
 		}
 		return false;
 	}
+
+    /** Shared deterministic ember integrator used by server collision and client prediction. */
+    public static Vec3 stepEmberVelocity(final Vec3 velocity, final Vec3 wind,
+        final long seed, final long startTick, final double sampleTick,
+        final double ageProgress) {
+        Vec3 safeWind = wind == null ? Vec3.ZERO : wind;
+        double horizontalSpeed = Math.sqrt(safeWind.x * safeWind.x + safeWind.z * safeWind.z);
+        double seedAngle = unit(seed ^ 0x454D4245525F4355L) * Mth.TWO_PI;
+        Vec3 lateral = horizontalSpeed > 1.0E-5
+            ? new Vec3(-safeWind.z / horizontalSpeed, 0.0, safeWind.x / horizontalSpeed)
+            : new Vec3(Math.cos(seedAngle), 0.0, Math.sin(seedAngle));
+        double age = Math.max(0.0, sampleTick - startTick);
+        double amplitude = 0.008 + Math.min(0.040, horizontalSpeed * 0.040)
+            * (0.55 + 0.45 * (1.0 - Mth.clamp(ageProgress, 0.0, 1.0)));
+        double sway = Math.sin(age * 0.19 + seedAngle)
+            + Math.sin(age * 0.071 + seedAngle * 1.73) * 0.46;
+        double forwardFlutter = Math.cos(age * 0.127 + seedAngle * 0.61) * amplitude * 0.22;
+        Vec3 forward = horizontalSpeed > 1.0E-5
+            ? new Vec3(safeWind.x / horizontalSpeed, 0.0, safeWind.z / horizontalSpeed)
+            : new Vec3(-lateral.z, 0.0, lateral.x);
+        double lift = 0.010 * (1.0 - ageProgress) - 0.006 * ageProgress
+            + Math.sin(age * 0.163 + seedAngle * 0.79) * 0.0045;
+        return velocity.scale(0.90).add(safeWind.scale(0.10))
+            .add(lateral.scale(sway * amplitude)).add(forward.scale(forwardFlutter))
+            .add(0.0, lift, 0.0);
+    }
 
     private static Direction oppositeDominant(final Vec3 velocity) {
         double ax = Math.abs(velocity.x), ay = Math.abs(velocity.y), az = Math.abs(velocity.z);
@@ -973,6 +1084,7 @@ public final class FireSimulationManager {
         private long nextId = 1L;
 		private long nextEmberId = 1L;
         private long lastPriorityEvictionTick = Long.MIN_VALUE;
+        private long lastHealthyNuclearEvictionTick = Long.MIN_VALUE;
         private int newIgnitionsThisTick;
     }
 
