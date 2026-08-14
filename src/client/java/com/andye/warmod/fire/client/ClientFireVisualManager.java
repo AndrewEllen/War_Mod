@@ -34,6 +34,7 @@ public final class ClientFireVisualManager {
         ClientLevel level = Minecraft.getInstance().level;
         if (!payload.isWellFormed() || !ensureCurrentLevel(level)) return;
         long receivedAt = level.getGameTime();
+        boolean patchUpdate = payload.complete() || !payload.entries().isEmpty();
         HashSet<Long> received = new HashSet<>(payload.entries().size());
         for (ClientboundFireStatePayload.Entry entry : payload.entries()) {
             received.add(entry.id());
@@ -53,16 +54,18 @@ public final class ClientFireVisualManager {
                 wind, previous == null ? 0.0F : previous.clumpStrength(), receivedAt));
         }
         if (payload.complete()) patches.keySet().removeIf(id -> !received.contains(id));
-		recomputeClumps();
+		if (patchUpdate) recomputeClumps();
 		HashSet<Long> receivedEmbers = new HashSet<>(payload.embers().size());
 		for (ClientboundFireStatePayload.EmberEntry entry : payload.embers()) {
 			receivedEmbers.add(entry.id());
 			VisualEmber previous = embers.get(entry.id());
 			Vec3 incoming = new Vec3(entry.x(), entry.y(), entry.z());
-			Vec3 position = previous == null ? incoming : previous.position().lerp(incoming, 0.72);
+			Vec3 position = incoming;
 			Vec3 velocity = new Vec3(entry.velocityX(), entry.velocityY(), entry.velocityZ());
-			embers.put(entry.id(), new VisualEmber(entry.id(), position, velocity,
-				entry.intensity(), entry.seed(), entry.startGameTime(), entry.lifetime(), receivedAt));
+			Vec3 wind = new Vec3(entry.windX(), entry.windY(), entry.windZ());
+			embers.put(entry.id(), new VisualEmber(entry.id(), position, velocity, wind,
+				entry.intensity(), entry.seed(), entry.startGameTime(), entry.lifetime(),
+                payload.serverGameTime(), receivedAt));
 		}
 		if (payload.emberComplete()) embers.keySet().removeIf(id -> !receivedEmbers.contains(id));
     }
@@ -76,7 +79,7 @@ public final class ClientFireVisualManager {
 		Iterator<VisualEmber> emberIterator = embers.values().iterator();
 		while (emberIterator.hasNext()) {
 			VisualEmber ember = emberIterator.next();
-			if (now - ember.lastSeenClientTick() > 12
+			if (now - ember.lastSeenClientTick() > 24
 				|| now - ember.startGameTime() > ember.lifetime() + 4L) emberIterator.remove();
 		}
     }
@@ -145,7 +148,8 @@ public final class ClientFireVisualManager {
     public record VisualPatch(long id, FireSurfaceAnchor anchor, float intensity,
         float heat, float coverage, float smoke, FirePhase phase, long seed,
         long ignitionGameTime, Vec3 wind, float clumpStrength, long lastSeenClientTick) { }
-	public record VisualEmber(long id, Vec3 position, Vec3 velocity, float intensity,
-		long seed, long startGameTime, int lifetime, long lastSeenClientTick) { }
+	public record VisualEmber(long id, Vec3 position, Vec3 velocity, Vec3 wind,
+        float intensity, long seed, long startGameTime, int lifetime,
+        long serverSampleGameTime, long lastSeenClientTick) { }
 	private record FaceHostKey(long packedHost, byte face) { }
 }

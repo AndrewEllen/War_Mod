@@ -46,7 +46,9 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
 			buffer.writeLong(ember.id); buffer.writeDouble(ember.x);
 			buffer.writeDouble(ember.y); buffer.writeDouble(ember.z);
 			buffer.writeFloat(ember.velocityX); buffer.writeFloat(ember.velocityY);
-			buffer.writeFloat(ember.velocityZ); buffer.writeFloat(ember.intensity);
+			buffer.writeFloat(ember.velocityZ); buffer.writeFloat(ember.windX);
+            buffer.writeFloat(ember.windY); buffer.writeFloat(ember.windZ);
+            buffer.writeFloat(ember.intensity);
 			buffer.writeLong(ember.seed); buffer.writeLong(ember.startGameTime);
 			buffer.writeVarInt(ember.lifetime);
 		}
@@ -81,6 +83,7 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
 		for (int index = 0; index < emberCount; index++) embers.add(new EmberEntry(
 			buffer.readLong(), buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
 			buffer.readFloat(), buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
+			buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
 			buffer.readLong(), buffer.readLong(), buffer.readVarInt()));
         return new ClientboundFireStatePayload(gameTime, complete, List.copyOf(entries),
 			emberComplete, List.copyOf(embers));
@@ -115,12 +118,15 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
     }
 
 	public record EmberEntry(long id, double x, double y, double z,
-		float velocityX, float velocityY, float velocityZ, float intensity,
+		float velocityX, float velocityY, float velocityZ,
+        float windX, float windY, float windZ, float intensity,
 		long seed, long startGameTime, int lifetime) {
 		public boolean isWellFormed() {
 			return id > 0L && Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z)
 				&& finite(velocityX, 4.0F) && finite(velocityY, 4.0F)
-				&& finite(velocityZ, 4.0F) && finiteRange(intensity, 0.0F, 1.2F)
+				&& finite(velocityZ, 4.0F) && finite(windX, 2.5F)
+                && finite(windY, 2.5F) && finite(windZ, 2.5F)
+                && finiteRange(intensity, 0.0F, 1.2F)
 				&& lifetime > 0 && lifetime <= 200;
 		}
 		private static boolean finite(final float value, final float limit) {

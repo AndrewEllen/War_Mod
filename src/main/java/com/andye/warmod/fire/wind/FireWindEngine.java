@@ -6,7 +6,6 @@ import java.util.Iterator;
 import java.util.Map;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 /** Spatial wind queried only by the custom fire subsystem. */
@@ -50,16 +49,15 @@ public final class FireWindEngine {
 
     public static synchronized Vec3 windAt(final ServerLevel level, final Vec3 position) {
         if (level == null || position == null || !position.isFinite()) return Vec3.ZERO;
-        /* A slowly evolving prevailing field gives smoke enough coherent travel
-           time to show direction. Local gusts vary strength without rotating the
-           plume every few seconds. Values are blocks/tick for fire advection. */
-        double time = level.getGameTime() * 0.00042;
-        double spatial = position.x * 0.0016 + position.z * 0.0012;
-        double angle = time + Math.sin(spatial) * 0.72
-            + Math.cos(position.z * 0.0011 - time * 0.31) * 0.26;
-        double gust = 0.5 + 0.5 * Math.sin(position.x * 0.0032
-            - position.z * 0.0027 + level.getGameTime() * 0.0034);
-        double speed = 0.14 + 0.15 * gust;
+        /* Coherent regional wind: direction evolves over roughly a minute while
+           neighbouring fires still share a readable plume direction. */
+        double time = level.getGameTime() * 0.0032;
+        double spatial = position.x * 0.0090 + position.z * 0.0070;
+        double angle = time + Math.sin(spatial) * 0.78
+            + Math.cos(position.z * 0.0060 - time * 0.47) * 0.34;
+        double gust = 0.5 + 0.5 * Math.sin(position.x * 0.012
+            - position.z * 0.009 + level.getGameTime() * 0.017);
+        double speed = 0.15 + 0.17 * gust;
         Vec3 result = new Vec3(Math.cos(angle) * speed, 0.0,
             Math.sin(angle) * speed);
 
@@ -74,24 +72,37 @@ public final class FireWindEngine {
 
     private record WindImpulse(Vec3 center, double radius, double strength,
         long startTick, int durationTicks) {
-        private boolean expired(final long now) { return now > startTick + durationTicks; }
+        private boolean expired(final long now) {
+            double travelTicks = radius / 17.15;
+            double pulseWidth = Math.max(5.0, Math.min(14.0, durationTicks * 0.13));
+            double returnStart = Math.max(travelTicks + 6.0, durationTicks * 0.56);
+            long effectiveDuration = (long) Math.ceil(Math.max(durationTicks,
+                returnStart + travelTicks + pulseWidth * 1.18));
+            return now > startTick + effectiveDuration;
+        }
 
         private Vec3 sample(final Vec3 position, final long now) {
             Vec3 delta = position.subtract(center);
             double distance = delta.length();
             if (distance < 0.05 || distance >= radius) return Vec3.ZERO;
-            double age = Mth.clamp((now - startTick) / (double) durationTicks, 0.0, 1.0);
-            double temporal;
-            if (age < 0.58) {
-                double outward = 1.0 - age / 0.58;
-                temporal = outward * outward;
-            } else {
-                double returning = 1.0 - (age - 0.58) / 0.42;
-                temporal = -0.34 * Math.max(0.0, returning);
-            }
-            double falloff = 1.0 - distance / radius;
-            falloff *= falloff;
+            double elapsed = now - startTick;
+            double shockSpeed = 17.15;
+            double travelTicks = radius / shockSpeed;
+            double pulseWidth = Math.max(5.0, Math.min(14.0, durationTicks * 0.13));
+            double outwardAge = elapsed - distance / shockSpeed;
+            double temporal = pulse(outwardAge, pulseWidth);
+            double returnStart = Math.max(travelTicks + 6.0, durationTicks * 0.56);
+            double returnAge = elapsed - returnStart - (radius - distance) / shockSpeed;
+            temporal -= pulse(returnAge, pulseWidth * 1.18) * 0.42;
+            if (Math.abs(temporal) < 1.0E-5) return Vec3.ZERO;
+            double falloff = 0.35 + 0.65 * (1.0 - distance / radius);
             return delta.scale(1.0 / distance).scale(strength * temporal * falloff);
+        }
+
+        private static double pulse(final double age, final double width) {
+            if (age < 0.0 || age >= width) return 0.0;
+            double normalized = age / width;
+            return Math.sin(normalized * Math.PI) * (1.0 - normalized * 0.35);
         }
     }
 }

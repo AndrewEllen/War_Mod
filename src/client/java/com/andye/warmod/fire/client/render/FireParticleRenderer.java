@@ -77,7 +77,7 @@ public final class FireParticleRenderer {
             if (patch.heat() < 0.22F || patch.coverage() < 0.26F) continue;
             double patchAge = Math.max(0.0, gameTime - patch.ignitionGameTime());
             int samples = lodSamples(patch, 1,
-                Math.max(1, Mth.ceil(patch.coverage() * patch.intensity() * 7.0F)));
+                Math.max(1, Mth.ceil(patch.coverage() * patch.intensity() * 3.0F)));
             for (int index = 0; index < samples; index++) {
                 long value = mix(patch.seed() ^ EMBER_SEED
                     ^ (long) index * 0xD1B54A32D192ED03L);
@@ -85,14 +85,14 @@ public final class FireParticleRenderer {
                 if (patchAge < delay) continue;
 				/* These are short local sparks only. Networked firebrands below own
 				   every long windborne path capable of ignition. */
-				double life = 12.0 + unit(value, 1) * 16.0;
+				double life = 8.0 + unit(value, 1) * 6.0;
                 double particleAge = positiveModulo(patchAge - delay, life);
                 double progress = particleAge / life;
-				double windAge = particleAge * (0.055 + patch.intensity() * 0.035);
+				double windAge = particleAge * 0.015;
                 Vec3 center = patch.relativePosition().add(
                     (unit(value, 2) - 0.5) * patch.coverage()
                         + patch.wind().x * windAge,
-					0.20 + progress * (0.65 + patch.intensity() * 0.75),
+					0.16 + progress * (0.32 + patch.intensity() * 0.36),
                     (unit(value, 3) - 0.5) * patch.coverage()
                         + patch.wind().z * windAge);
                 float radius = 0.025F + (float) unit(value, 4) * 0.038F;

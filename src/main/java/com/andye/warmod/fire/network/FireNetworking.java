@@ -30,6 +30,16 @@ public final class FireNetworking {
 
     public static void sendSnapshot(final ServerLevel level, final List<FireCellSnapshot> snapshots,
 		final List<FireEmberSnapshot> emberSnapshots) {
+        send(level, snapshots, emberSnapshots, true);
+    }
+
+    public static void sendEmberSnapshot(final ServerLevel level,
+        final List<FireEmberSnapshot> emberSnapshots) {
+        send(level, List.of(), emberSnapshots, false);
+    }
+
+    private static void send(final ServerLevel level, final List<FireCellSnapshot> snapshots,
+        final List<FireEmberSnapshot> emberSnapshots, final boolean patchesComplete) {
         double rangeSquared = VISUAL_RANGE * VISUAL_RANGE;
         int chunkRadius = (int) Math.ceil(VISUAL_RANGE / 16.0);
         Map<Long, List<FireCellSnapshot>> buckets = new HashMap<>();
@@ -46,8 +56,9 @@ public final class FireNetworking {
             int playerChunkX = player.blockPosition().getX() >> 4;
             int playerChunkZ = player.blockPosition().getZ() >> 4;
             int visibleCandidateCount = 0;
-            for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
-                for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
+            int patchSearchRadius = patchesComplete ? chunkRadius : -1;
+            for (int dx = -patchSearchRadius; dx <= patchSearchRadius; dx++) {
+                for (int dz = -patchSearchRadius; dz <= patchSearchRadius; dz++) {
                     List<FireCellSnapshot> candidates = buckets.get(
                         chunkKey(playerChunkX + dx, playerChunkZ + dz));
                     if (candidates == null) continue;
@@ -92,11 +103,14 @@ public final class FireNetworking {
 					return new ClientboundFireStatePayload.EmberEntry(ember.id(),
 						ember.position().x, ember.position().y, ember.position().z,
 						(float) ember.velocity().x, (float) ember.velocity().y,
-						(float) ember.velocity().z, ember.intensity(), ember.seed(),
+						(float) ember.velocity().z, (float) ember.wind().x,
+                        (float) ember.wind().y, (float) ember.wind().z,
+                        ember.intensity(), ember.seed(),
 						ember.startGameTime(), ember.lifetime());
 				}).toList();
             ServerPlayNetworking.send(player, new ClientboundFireStatePayload(
-                level.getGameTime(), visibleCandidateCount <= ClientboundFireStatePayload.MAX_ENTRIES,
+                level.getGameTime(), patchesComplete
+                    && visibleCandidateCount <= ClientboundFireStatePayload.MAX_ENTRIES,
                 List.copyOf(entries), visibleEmberCount <= ClientboundFireStatePayload.MAX_EMBERS,
 				List.copyOf(emberEntries)));
         }
