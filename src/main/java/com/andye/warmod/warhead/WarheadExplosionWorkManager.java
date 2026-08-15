@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead;
 
+import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
@@ -67,13 +68,15 @@ public final class WarheadExplosionWorkManager {
 	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 4_000_000L;
 	private static final int MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 8_192;
 	private static final int APPLICATION_SLICE = 256;
-	/* Nuclear geometry is fully precomputed. Spend the requested 20x catch-up
-	 * budget only while a nuclear crater is active so its authoritative writes
-	 * reach the same front as the visual shockwave. */
-	private static final long NUCLEAR_APPLICATION_BUDGET_NANOS = 20_000_000L;
-	private static final int NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 163_840;
-	private static final int NUCLEAR_APPLICATION_SLICE = 8_192;
+	/* World mutation is main-thread-only. Keep nuclear application bounded and
+	 * let the independent destruction curtain mask deliberately staged writes. */
+	private static final long NUCLEAR_APPLICATION_BUDGET_NANOS = 6_000_000L;
+	private static final int NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 32_768;
+	private static final int NUCLEAR_APPLICATION_SLICE = 2_048;
 	private static final int TIME_CHECK_INTERVAL = 32;
+	/* Heightmaps are the authoritative starting point; only peel a small surface
+	 * cap, never descend through an entire terrain column looking for ground. */
+	private static final int SURFACE_SUPPORT_DESCENT = 8;
 	private static final int MAX_RESOLVED_DESCENT_BLOCKS = 768;
 	private static final int MAX_DEBRIS_SAMPLE = 512;
 	private static final int IMMEDIATE_SUPPORT_SCAN_HEIGHT = 12;
@@ -263,7 +266,16 @@ public final class WarheadExplosionWorkManager {
 
 	private static synchronized void tickLevel(final ServerLevel level) {
 		LevelWork levelWork = LEVELS.get(level);
-		if (levelWork == null) return;
+		if (levelWork == null) {
+			WarModPerformanceDiagnostics.gauge(
+				WarModPerformanceDiagnostics.Gauge.ACTIVE_NUCLEAR_CRATERS, 0L);
+			return;
+		}
+		long diagnosticsStarted = WarModPerformanceDiagnostics.begin();
+		long activeNuclear = levelWork.works.stream()
+			.filter(work -> !work.finished && work.profile.yield().nuclear()).count();
+		WarModPerformanceDiagnostics.gauge(
+			WarModPerformanceDiagnostics.Gauge.ACTIVE_NUCLEAR_CRATERS, activeNuclear);
 		long now = level.getGameTime();
 		/*
 		 * Nuclear catch-up is intentionally isolated from ordinary explosion work.
@@ -285,6 +297,8 @@ public final class WarheadExplosionWorkManager {
 		}
 		levelWork.normaliseCursor();
 		if (levelWork.works.isEmpty()) LEVELS.remove(level);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.NUCLEAR_CRATER, diagnosticsStarted);
 	}
 
 	private static void applyWorkClass(
@@ -492,11 +506,18 @@ public final class WarheadExplosionWorkManager {
 		private int structuralX;
 		private int structuralZ;
 		private int structuralStep;
+		private int structuralCleanupX = Integer.MIN_VALUE;
+		private int structuralCleanupZ;
+		private int structuralCleanupY;
+		private int structuralCleanupEnd;
 		private int rotation;
 		private boolean mirror;
 		private boolean finished;
 		private long finishedAt;
 		private boolean frontBlockedThisApply;
+		/* Set by the bounded heightmap support resolver so snow cleanup counts
+		 * against the same surface-work budget as the column that discovered it. */
+		private int resolvedSnowChanges;
 		private FastExplosion explosionContext;
 
 		private ExplosionWork(
@@ -593,7 +614,7 @@ public final class WarheadExplosionWorkManager {
 						visited++;
 						continue;
 					}
-					if (!advanceStructuralCleanup(level)) {
+					if (!advanceStructuralCleanup(level, deadline)) {
 						if (surfaceIndex >= template.surfacePoints.length) {
 							finished = true;
 							finishedAt = level.getGameTime();
@@ -658,7 +679,8 @@ public final class WarheadExplosionWorkManager {
 						nuclearCraterShell(state, position, normalized), FAST_REMOVE_FLAGS);
 				}
 				boolean changed = level.setBlock(position, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
-				if (changed && topOfColumn) removeUnsupportedAbove(level, position);
+				if (changed && topOfColumn) removeUnsupportedAbove(level, position,
+					profile.yield().nuclear());
 				return changed;
 			} finally {
 				levelWork.release(packed);
@@ -670,7 +692,7 @@ public final class WarheadExplosionWorkManager {
 			long packed = position.asLong();
 			long hash = mix(seed ^ packed ^ 0x4352415445525F53L);
 			double selector = unit(hash);
-			if (magmaFissure(position, hash, normalized)) {
+			if (magmaFissure(position, normalized)) {
 				return Blocks.MAGMA_BLOCK.defaultBlockState();
 			}
 			if (original.is(Blocks.SAND)) {
@@ -686,11 +708,8 @@ public final class WarheadExplosionWorkManager {
 				if (selector < 0.78) return Blocks.TERRACOTTA.defaultBlockState();
 				return Blocks.RED_SANDSTONE.defaultBlockState();
 			}
-			/* Keep magma rare and central; the remainder forms a continuous mottled
-				basalt/deepslate/tuff skin across floor and walls. */
-			if (normalized < 0.48 && selector < 0.055) {
-				return Blocks.MAGMA_BLOCK.defaultBlockState();
-			}
+			/* Magma is reserved for the connected fissure field. The remainder forms
+				a continuous mottled basalt/deepslate/tuff skin across floor and walls. */
 			if (selector < 0.22) return Blocks.BASALT.defaultBlockState();
 			if (selector < 0.40) return Blocks.BLACKSTONE.defaultBlockState();
 			if (selector < 0.64) return Blocks.DEEPSLATE.defaultBlockState();
@@ -698,29 +717,22 @@ public final class WarheadExplosionWorkManager {
 			return Blocks.TUFF.defaultBlockState();
 		}
 
-		private boolean magmaFissure(final BlockPos position, final long hash,
-			final double normalized) {
+		private boolean magmaFissure(final BlockPos position, final double normalized) {
 			if (normalized > 0.94) return false;
-			double dx = position.getX() + 0.5 - center.x;
-			double dz = position.getZ() + 0.5 - center.z;
-			double radial = Math.hypot(dx, dz);
-			if (radial < 2.2) return unit(hash ^ 0x4D41474D415F4345L) < 0.58;
-			int arms = 6 + Math.floorMod((int) (seed >>> 19), 4);
-			double phase = unit(seed ^ 0x4D41474D415F5048L) * Math.PI * 2.0;
-			double angle = Math.atan2(dz, dx)
-				+ Math.sin(radial * 0.29 + phase * 2.0) * 0.105
-				+ Math.sin(radial * 0.117 - phase) * 0.065;
-			double armDelta = (angle - phase) * arms;
-			double nearestArm = Math.abs(Math.atan2(
-				Math.sin(armDelta), Math.cos(armDelta))) / arms;
-			double halfWidth = (0.72 + unit(hash ^ 0x4D41474D415F5744L) * 0.50)
-				/ Math.max(3.0, radial);
-			return nearestArm <= halfWidth
-				&& unit(hash ^ 0x4D41474D415F4741L) < 0.90;
+			return NuclearCrackField.contains(seed, center.x, center.z,
+				position.getX() + 0.5, position.getZ() + 0.5,
+				profile.horizontalRadius() * 0.94);
 		}
 
 		private int advanceSurfaceWave(final ServerLevel level, final int budget, final long deadline) {
 			if (template == null || surfaceIndex >= template.surfacePoints.length || budget <= 0) return 0;
+			if (profile.yield().nuclear()) {
+				/* The prepared aftermath wave owns nuclear ground and vegetation.
+				 * Advancing this older duplicate path made tree canopies disappear
+				 * before the coherent ground transformation reached them. */
+				surfaceIndex = template.surfacePoints.length;
+				return 0;
+			}
 			double age = Math.max(0.0, level.getGameTime() - detonationGameTime
 				+ (profile.yield().nuclear() ? 1.0 : 0.0));
 			if (profile.yield().nuclear()) age *= WarheadVisualMath.NUCLEAR_TIME_SCALE;
@@ -730,7 +742,8 @@ public final class WarheadExplosionWorkManager {
 			int changed = 0;
 			int visited = 0;
 			int scanHeight = profile.yield().nuclear() ? 22 : 10;
-			while (surfaceIndex < template.surfacePoints.length && visited < budget && System.nanoTime() < deadline) {
+			while (surfaceIndex < template.surfacePoints.length && visited < budget
+				&& changed < budget && System.nanoTime() < deadline) {
 				SurfacePoint point = template.surfacePoints[surfaceIndex];
 				if (point.radial > currentRadius) break;
 				surfaceIndex++;
@@ -738,7 +751,9 @@ public final class WarheadExplosionWorkManager {
 				int worldX = centerX + point.dx;
 				int worldZ = centerZ + point.dz;
 				if (!level.getChunkSource().hasChunk(worldX >> 4, worldZ >> 4)) continue;
-				int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, worldX, worldZ) - 1;
+				int groundY = resolveSurfaceSupport(level, worldX, worldZ);
+				changed += resolvedSnowChanges;
+				if (changed >= budget) break;
 				double normalized = point.radial / maximumRadius;
 				double pressure = Math.max(0.0, 1.0 - normalized);
 				long hash = mix(seed ^ ((long) point.dx << 32) ^ (point.dz & 0xFFFFFFFFL) ^ 0x5355524641434557L);
@@ -785,13 +800,15 @@ public final class WarheadExplosionWorkManager {
 				age * WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK);
 		}
 
-		private void removeUnsupportedAbove(final ServerLevel level, final BlockPos removedSupport) {
+		private void removeUnsupportedAbove(final ServerLevel level, final BlockPos removedSupport,
+			final boolean preserveVegetation) {
 			for (int offset = 1; offset <= IMMEDIATE_SUPPORT_SCAN_HEIGHT; offset++) {
 				supportScan.set(removedSupport.getX(), removedSupport.getY() + offset, removedSupport.getZ());
 				if (!level.isInWorldBounds(supportScan)) break;
 				BlockState state = level.getBlockState(supportScan);
 				if (state.isAir()) continue;
 				if (state.is(BlockTags.LEAVES)) {
+					if (preserveVegetation) continue;
 					level.setBlock(supportScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 					continue;
 				}
@@ -801,7 +818,45 @@ public final class WarheadExplosionWorkManager {
 			}
 		}
 
-		private boolean advanceStructuralCleanup(final ServerLevel level) {
+		/**
+		 * Clears only the shallow snow cap reported by the heightmap, then returns
+		 * the first durable local support. This prevents floating snow layers while
+		 * keeping terrain discovery bounded over tall trees and cliffs.
+		 */
+		private int resolveSurfaceSupport(final ServerLevel level, final int x, final int z) {
+			resolvedSnowChanges = 0;
+			int startY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+			int minimumY = level.dimensionType().minY();
+			for (int descent = 0; descent <= SURFACE_SUPPORT_DESCENT; descent++) {
+				int y = startY - descent;
+				if (y < minimumY) break;
+				surfaceScan.set(x, y, z);
+				if (!level.isInWorldBounds(surfaceScan)) break;
+				BlockState state = level.getBlockState(surfaceScan);
+				if (isSnowLike(state)) {
+					if (level.setBlock(surfaceScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS)) {
+						resolvedSnowChanges++;
+					}
+					continue;
+				}
+				if (!state.isAir() && state.getFluidState().isEmpty()
+					&& !state.is(BlockTags.LEAVES) && !state.is(BlockTags.LOGS)
+					&& !state.is(BlockTags.PLANKS) && !isFragileSurface(state)) {
+					return y;
+				}
+			}
+			return startY;
+		}
+
+		private boolean advanceStructuralCleanup(final ServerLevel level, final long deadline) {
+			if (structuralCleanupX != Integer.MIN_VALUE) {
+				if (!level.getChunkSource().hasChunk(structuralCleanupX >> 4, structuralCleanupZ >> 4)) {
+					clearStructuralCleanupCursor();
+					return true;
+				}
+				if (cleanupColumn(level, deadline)) clearStructuralCleanupCursor();
+				return true;
+			}
 			int radius = Mth.ceil(profile.horizontalRadius() * 1.08);
 			while (structuralX <= radius) {
 				int dx = structuralX;
@@ -823,21 +878,23 @@ public final class WarheadExplosionWorkManager {
 					level.dimensionType().minY() + level.dimensionType().height() - 1,
 					Math.max(craterFloor + STRUCTURAL_SCAN_HEIGHT, Mth.floor(center.y + profile.upwardRadius() + 36.0))
 				);
-				cleanupColumn(level, x, z, scanStart, scanEnd);
+				structuralCleanupX = x;
+				structuralCleanupZ = z;
+				structuralCleanupY = scanStart;
+				structuralCleanupEnd = scanEnd;
+				if (cleanupColumn(level, deadline)) clearStructuralCleanupCursor();
 				return true;
 			}
 			return false;
 		}
 
-		private void cleanupColumn(
-			final ServerLevel level,
-			final int x,
-			final int z,
-			final int minimumY,
-			final int maximumY
-		) {
-			for (int y = minimumY; y <= maximumY; y++) {
-				structuralScan.set(x, y, z);
+		private boolean cleanupColumn(final ServerLevel level, final long deadline) {
+			for (; structuralCleanupY <= structuralCleanupEnd; structuralCleanupY++) {
+				if ((structuralCleanupY & (TIME_CHECK_INTERVAL - 1)) == 0
+					&& System.nanoTime() >= deadline) {
+					return false;
+				}
+				structuralScan.set(structuralCleanupX, structuralCleanupY, structuralCleanupZ);
 				BlockState state = level.getBlockState(structuralScan);
 				if (state.isAir()) continue;
 				if (state.is(BlockTags.LEAVES)) {
@@ -848,6 +905,11 @@ public final class WarheadExplosionWorkManager {
 					level.setBlock(structuralScan, Blocks.AIR.defaultBlockState(), FAST_REMOVE_FLAGS);
 				}
 			}
+			return true;
+		}
+
+		private void clearStructuralCleanupCursor() {
+			structuralCleanupX = Integer.MIN_VALUE;
 		}
 
 		private static boolean isFragileSurface(final BlockState state) {
@@ -857,10 +919,14 @@ public final class WarheadExplosionWorkManager {
 				|| state.is(Blocks.FERN)
 				|| state.is(Blocks.LARGE_FERN)
 				|| state.is(Blocks.DEAD_BUSH)
-				|| state.is(Blocks.SNOW)
+				|| isSnowLike(state)
 				|| state.is(Blocks.VINE)
 				|| state.is(Blocks.BROWN_MUSHROOM)
 				|| state.is(Blocks.RED_MUSHROOM);
+		}
+
+		private static boolean isSnowLike(final BlockState state) {
+			return state.is(Blocks.SNOW) || state.is(Blocks.SNOW_BLOCK);
 		}
 
 		private boolean advanceAftermath(final ServerLevel level) {
@@ -883,7 +949,7 @@ public final class WarheadExplosionWorkManager {
 				int x = centerX + dx;
 				int z = centerZ + dz;
 				if (!level.getChunkSource().hasChunk(x >> 4, z >> 4)) return true;
-				int groundY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+				int groundY = resolveSurfaceSupport(level, x, z);
 				cursor.set(x, groundY, z);
 				if (!level.isInWorldBounds(cursor)) return true;
 				BlockState surface = level.getBlockState(cursor);

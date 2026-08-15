@@ -10,6 +10,8 @@ import net.minecraft.world.phys.Vec3;
 
 /** Spatial wind queried only by the custom fire subsystem. */
 public final class FireWindEngine {
+    private static final int WIND_CELL_SIZE = 48;
+    private static final long WIND_EPOCH_TICKS = 1_800L;
     private static final Map<ServerLevel, ArrayDeque<WindImpulse>> IMPULSES =
         new IdentityHashMap<>();
     private static boolean registered;
@@ -49,17 +51,17 @@ public final class FireWindEngine {
 
     public static synchronized Vec3 windAt(final ServerLevel level, final Vec3 position) {
         if (level == null || position == null || !position.isFinite()) return Vec3.ZERO;
-        /* Coherent regional wind: direction evolves over roughly a minute while
-           neighbouring fires still share a readable plume direction. */
-        double time = level.getGameTime() * 0.0032;
-        double spatial = position.x * 0.0090 + position.z * 0.0070;
-        double angle = time + Math.sin(spatial) * 0.78
-            + Math.cos(position.z * 0.0060 - time * 0.47) * 0.34;
-        double gust = 0.5 + 0.5 * Math.sin(position.x * 0.012
-            - position.z * 0.009 + level.getGameTime() * 0.017);
-        double speed = 0.15 + 0.17 * gust;
-        Vec3 result = new Vec3(Math.cos(angle) * speed, 0.0,
-            Math.sin(angle) * speed);
+        /* Wind is spatially local rather than one world-wide rotating vector.
+           Each broad cell owns a persistent direction, blending gently into its
+           next random state only every ninety seconds.  Bilinear interpolation
+           keeps neighbouring forests related while allowing different valleys
+           to blow in genuinely different directions. */
+        long epoch = Math.floorDiv(level.getGameTime(), WIND_EPOCH_TICKS);
+        double epochProgress = (level.getGameTime() - epoch * (double) WIND_EPOCH_TICKS)
+            / WIND_EPOCH_TICKS;
+        Vec3 present = sampledField(level.getSeed(), position, epoch);
+        Vec3 future = sampledField(level.getSeed(), position, epoch + 1L);
+        Vec3 result = present.lerp(future, smoothstep(epochProgress));
 
         ArrayDeque<WindImpulse> impulses = IMPULSES.get(level);
         if (impulses != null) {
@@ -68,6 +70,46 @@ public final class FireWindEngine {
         }
         double length = result.length();
         return length > 2.5 ? result.scale(2.5 / length) : result;
+    }
+
+    private static Vec3 sampledField(final long levelSeed, final Vec3 position,
+        final long epoch) {
+        double cellX = position.x / WIND_CELL_SIZE;
+        double cellZ = position.z / WIND_CELL_SIZE;
+        int baseX = (int) Math.floor(cellX);
+        int baseZ = (int) Math.floor(cellZ);
+        double x = smoothstep(cellX - baseX);
+        double z = smoothstep(cellZ - baseZ);
+        Vec3 southWest = cellWind(levelSeed, baseX, baseZ, epoch);
+        Vec3 southEast = cellWind(levelSeed, baseX + 1, baseZ, epoch);
+        Vec3 northWest = cellWind(levelSeed, baseX, baseZ + 1, epoch);
+        Vec3 northEast = cellWind(levelSeed, baseX + 1, baseZ + 1, epoch);
+        return southWest.lerp(southEast, x).lerp(northWest.lerp(northEast, x), z);
+    }
+
+    private static Vec3 cellWind(final long levelSeed, final int cellX, final int cellZ,
+        final long epoch) {
+        long value = mix(levelSeed ^ ((long) cellX * 0x9E3779B97F4A7C15L)
+            ^ ((long) cellZ * 0xC2B2AE3D27D4EB4FL)
+            ^ (epoch * 0xD1B54A32D192ED03L));
+        double angle = unit(value) * Math.PI * 2.0;
+        double speed = 0.12 + unit(value ^ 0x475553545F535045L) * 0.23;
+        return new Vec3(Math.cos(angle) * speed, 0.0, Math.sin(angle) * speed);
+    }
+
+    private static double smoothstep(final double value) {
+        double t = Math.max(0.0, Math.min(1.0, value));
+        return t * t * (3.0 - 2.0 * t);
+    }
+
+    private static double unit(final long value) {
+        return (mix(value) >>> 11) * 0x1.0p-53;
+    }
+
+    private static long mix(long value) {
+        value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L;
+        value ^= value >>> 27; value *= 0x94D049BB133111EBL;
+        return value ^ value >>> 31;
     }
 
     private record WindImpulse(Vec3 center, double radius, double strength,

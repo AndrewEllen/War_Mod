@@ -70,6 +70,7 @@ public final class WarheadWorldRenderer {
             currentFrame = RenderFrame.EMPTY;
             RETURN_WAVE_SOUND_PLAYED.clear();
             RETURN_WAVE_PREVIOUS_RADIUS.clear();
+            NuclearParticleCloudRenderer.retainFields(Set.of());
             return;
         }
         Vec3 cameraPosition = camera.pos;
@@ -98,11 +99,13 @@ public final class WarheadWorldRenderer {
 
         List<ImpactFrame> impacts = new ArrayList<>();
         Set<UUID> activeReturnWaveIds = new HashSet<>();
+        Set<Long> activeNuclearCloudSeeds = new HashSet<>();
         for (ImpactVisualState state : snapshot.impacts()) {
             double age = state.ageTicks(gameTime, partialTick);
             if (state.isExpired(gameTime, partialTick)) continue;
             if (state.payloadType() == WarheadPayloadType.NUCLEAR) {
                 activeReturnWaveIds.add(state.warheadId());
+                activeNuclearCloudSeeds.add(state.visualSeed());
                 playReturnWaveSound(level, state, age, cameraPosition);
             }
             double distance = cameraPosition.distanceTo(state.impactPosition());
@@ -146,6 +149,7 @@ public final class WarheadWorldRenderer {
         }
         RETURN_WAVE_SOUND_PLAYED.retainAll(activeReturnWaveIds);
         RETURN_WAVE_PREVIOUS_RADIUS.keySet().retainAll(activeReturnWaveIds);
+        NuclearParticleCloudRenderer.retainFields(activeNuclearCloudSeeds);
 
         List<DebrisFrame> debris = new ArrayList<>();
         for (ClientDebrisBatchManager.RenderSample sample
@@ -172,8 +176,8 @@ public final class WarheadWorldRenderer {
             lastDebugTick = gameTime;
             DebugSnapshot debug = debugSnapshot();
             com.andye.warmod.WarMod.LOGGER.info(
-                "Stage8 particles={} spawned/tick={} culled={} debris={} backend={}",
-                debug.activeParticles(), debug.spawnedParticlesPerTick(),
+                "Stage8 simulated={} represented={} spawned/tick={} culled={} debris={} backend={}",
+                debug.activeParticles(), debug.representedParticles(), debug.spawnedParticlesPerTick(),
                 debug.culledParticles(), debug.activeDebrisFragments(),
                 debug.activeRenderBackend());
         }
@@ -482,15 +486,17 @@ public final class WarheadWorldRenderer {
             NuclearParticleCloudRenderer.debugSnapshot();
         return new DebugSnapshot(
             conventional.activeParticles() + returnFront.activeParticles()
-                + nuclear.activeParticles(),
+                + nuclear.simulatedParticles(),
+            conventional.activeParticles() + returnFront.activeParticles()
+                + nuclear.representedParticles(),
             conventional.spawnedParticlesPerTick() + returnFront.spawnedParticlesPerTick()
-                + nuclear.spawnedParticlesPerTick(),
+                + nuclear.spawnedSimulatedParticlesPerTick(),
             conventional.culledParticles() + returnFront.culledParticles()
-                + nuclear.culledParticles(),
+                + nuclear.culledSimulatedParticles(),
             ClientDebrisBatchManager.INSTANCE.activeFragmentCount(),
             WarheadRenderPipelines.compatibilityRendererActive()
-                ? "fabric_entity_pipeline_external_renderer"
-                : "war_mod_custom_pipeline");
+                ? "cpu_assembled_fabric_gpu_raster_pipeline"
+                : "cpu_assembled_custom_gpu_raster_pipeline");
     }
 
     private static void playReturnWaveSound(final ClientLevel level,
@@ -629,7 +635,8 @@ public final class WarheadWorldRenderer {
             * 0.74 * scale), 0.0F, 1.0F);
     }
 
-    public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick,
+    public record DebugSnapshot(int activeParticles, int representedParticles,
+        int spawnedParticlesPerTick,
         int culledParticles, int activeDebrisFragments, String activeRenderBackend) { }
 
     private record WarheadFrame(Vec3 position, Vec3 velocity, float progress,

@@ -9,6 +9,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -58,15 +59,23 @@ public final class NuclearParticleCloudRenderer {
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
-        int active = 0;
+        int simulated = 0;
         int spawned = 0;
         int culled = 0;
         for (Field field : FIELDS.values()) {
-            active += field.activeCount * LOGICAL_PARTICLES_PER_SIMULATED;
-            spawned += field.spawnedLastTick * LOGICAL_PARTICLES_PER_SIMULATED;
-            culled += field.culledLastRender * LOGICAL_PARTICLES_PER_SIMULATED;
+            simulated += field.activeCount;
+            spawned += field.spawnedLastTick;
+            culled += field.culledLastRender;
         }
-        return new DebugSnapshot(active, spawned, culled, FIELDS.size());
+        return new DebugSnapshot(simulated,
+            simulated * LOGICAL_PARTICLES_PER_SIMULATED,
+            spawned, culled, FIELDS.size());
+    }
+
+    /** Releases expired cloud arrays and keeps debug/memory totals tied to live impacts. */
+    public static synchronized void retainFields(final Set<Long> activeSeeds) {
+        if (activeSeeds == null || activeSeeds.isEmpty()) FIELDS.clear();
+        else FIELDS.keySet().removeIf(seed -> !activeSeeds.contains(seed));
     }
 
     private static boolean valid(final WarheadClientVisualProfile profile, final double age) {
@@ -198,8 +207,9 @@ public final class NuclearParticleCloudRenderer {
         }
     }
 
-    public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick,
-        int culledParticles, int activeFields) { }
+    public record DebugSnapshot(int simulatedParticles, int representedParticles,
+        int spawnedSimulatedParticlesPerTick, int culledSimulatedParticles,
+        int activeFields) { }
 
     private enum Pass { HOT_FIRE, COOL_FIRE, SMOKE }
 
@@ -812,9 +822,16 @@ public final class NuclearParticleCloudRenderer {
                 case SMOKE -> { bucket = smokeBucket; count = smokeCount; }
                 default -> throw new IllegalStateException("Unknown nuclear pass " + pass);
             }
-            int orderedCount = depthOrder(bucket, count, basis.normal);
+            /* Additive fire is order-independent. Sorting it twice per frame was
+               pure render-thread CPU work; translucent smoke alone needs depth order. */
+            int[] drawOrder = bucket;
+            int orderedCount = count;
+            if (pass == Pass.SMOKE) {
+                orderedCount = depthOrder(bucket, count, basis.normal);
+                drawOrder = ordered;
+            }
             for (int position = 0; position < orderedCount; position++) {
-                int index = ordered[position];
+                int index = drawOrder[position];
                 int life = lifetime[index] & 0xFFFF;
                 float progress = (particleAge[index] & 0xFFFF) / (float) Math.max(1, life);
                 float alpha = alpha(pass, progress, temperature[index]);

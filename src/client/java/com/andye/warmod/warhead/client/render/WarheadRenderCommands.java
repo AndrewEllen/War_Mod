@@ -119,10 +119,12 @@ public final class WarheadRenderCommands {
 			"War Mod renderer=" + WarheadRenderSettings.displayName()
 				+ ", budget=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
 				+ ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()
-				+ ", particles=" + debug.activeParticles()
+				+ ", simulatedParticles=" + debug.activeParticles()
+				+ ", representedParticles=" + debug.representedParticles()
 				+ ", spawned/tick=" + debug.spawnedParticlesPerTick()
 				+ ", culled=" + debug.culledParticles()
 				+ ", debris=" + debug.activeDebrisFragments()
+				+ ", backend=" + debug.activeRenderBackend()
 		));
 		return 1;
 	}

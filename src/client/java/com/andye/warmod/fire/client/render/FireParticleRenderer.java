@@ -4,6 +4,7 @@ import com.andye.warmod.fire.FirePhase;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderPatch;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmber;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmberTrail;
+import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderSmokeCluster;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
@@ -215,6 +216,77 @@ public final class FireParticleRenderer {
                 billboard(pose, buffer, center, radius,
                     (float) (unit(value, 7) * Mth.TWO_PI + gameTime * 0.0022),
                     shade, shade + 4, shade + 9, alpha, 0xA000A0, basis);
+            }
+        }
+    }
+
+    /**
+     * Long-range wildfires are transmitted as spatial clusters rather than as
+     * every individual flame patch.  A few broad analytical lobes are cheaper
+     * to assemble than the thousands of small smoke billboards they replace.
+     */
+    public static void renderSmokeClusters(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final double gameTime, final List<FireRenderSmokeCluster> clusters,
+        final Quaternionf camera) {
+        Basis basis = Basis.from(camera);
+        for (FireRenderSmokeCluster cluster : clusters) {
+            int lobes = cluster.distance() < 480.0 ? 5 : cluster.distance() < 960.0 ? 3 : 2;
+            float baseRadius = cluster.radius() * (0.48F + cluster.smoke() * 0.38F);
+            float baseHeight = cluster.radius() * (0.72F + cluster.smoke() * 0.65F);
+            for (int index = 0; index < lobes; index++) {
+                long value = mix(cluster.seed() ^ SMOKE_SEED
+                    ^ (long) index * 0xD1B54A32D192ED03L);
+                double cycle = positiveModulo(gameTime * 0.018 + unit(value, 0), 1.0);
+                double angle = unit(value, 1) * Mth.TWO_PI;
+                double lateral = (unit(value, 2) - 0.5) * baseRadius * 0.82;
+                double rise = cycle * baseHeight;
+                double drift = cycle * (7.0 + cluster.radius() * 0.16);
+                double curl = Math.sin(gameTime * 0.041 + unit(value, 3) * Mth.TWO_PI)
+                    * (0.35 + cluster.radius() * 0.09);
+                Vec3 center = cluster.relativePosition().add(
+                    Math.cos(angle) * lateral + cluster.wind().x * drift + curl,
+                    rise,
+                    Math.sin(angle) * lateral + cluster.wind().z * drift - curl * 0.42);
+                float radius = baseRadius * (0.42F + (float) cycle * 0.48F)
+                    * (0.76F + (float) unit(value, 4) * 0.34F);
+                int shade = Mth.clamp(132 - (int) (cluster.smoke() * 58.0F)
+                    - (int) (cycle * 22.0F) + (int) (unit(value, 5) * 15.0), 48, 146);
+                float alpha = (float) ((0.10 + cluster.smoke() * 0.20)
+                    * Math.pow(1.0 - cycle, 0.54));
+                billboard(pose, buffer, center, radius,
+                    (float) (unit(value, 6) * Mth.TWO_PI + gameTime * 0.0014),
+                    shade, shade + 4, shade + 9, alpha, 0xA000A0, basis);
+            }
+        }
+    }
+
+    /** Low-count emissive cores keep a distant wildfire visibly alight without
+        transmitting or rebuilding every individual surface flame. */
+    public static void renderFlameClusters(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final double gameTime,
+        final List<FireRenderSmokeCluster> clusters, final Quaternionf camera) {
+        Basis basis = Basis.from(camera);
+        for (FireRenderSmokeCluster cluster : clusters) {
+            if (cluster.heat() < 0.12F) continue;
+            int lobes = cluster.distance() < 480.0 ? 3 : cluster.distance() < 960.0 ? 2 : 1;
+            float intensity = Mth.clamp(cluster.heat(), 0.0F, 1.0F);
+            for (int index = 0; index < lobes; index++) {
+                long value = mix(cluster.seed() ^ FLAME_SEED
+                    ^ (long) index * 0x9E3779B97F4A7C15L);
+                double phase = positiveModulo(gameTime * (0.045 + unit(value, 0) * 0.018)
+                    + unit(value, 1), 1.0);
+                double angle = unit(value, 2) * Mth.TWO_PI;
+                double spread = cluster.radius() * (0.10 + unit(value, 3) * 0.22);
+                Vec3 center = cluster.relativePosition().add(Math.cos(angle) * spread,
+                    0.30 + cluster.radius() * (0.035 + phase * 0.055),
+                    Math.sin(angle) * spread);
+                float size = cluster.radius() * (0.075F + intensity * 0.085F)
+                    * (0.82F + (float) unit(value, 4) * 0.32F);
+                Colour colour = fireColour(intensity * (1.0F - (float) phase * 0.18F));
+                float alpha = 0.34F + intensity * 0.42F;
+                billboard(pose, buffer, center, size,
+                    (float) (unit(value, 5) * Mth.TWO_PI + gameTime * 0.004),
+                    colour.red(), colour.green(), colour.blue(), alpha, 0xF000F0, basis);
             }
         }
     }

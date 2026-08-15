@@ -41,6 +41,8 @@ import com.andye.warmod.warhead.client.ClientWarheadNetworking;
 import com.andye.warmod.warhead.client.render.WarheadRenderCommands;
 import com.andye.warmod.warhead.client.render.WarheadWorldRenderer;
 import com.andye.warmod.warhead.client.render.NuclearFlashOverlay;
+import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainNetworking;
+import com.andye.warmod.warhead.client.curtain.NuclearDestructionCurtainRenderer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 
@@ -49,6 +51,7 @@ public final class WarModClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
+		ClientNuclearCurtainNetworking.register();
 		ClientFireNetworking.register();
 		ClientFireDebugNetworking.register();
 		ClientIcbmNetworking.register();
@@ -77,6 +80,7 @@ public final class WarModClient implements ClientModInitializer {
 		WarheadParticleClient.register();
 		WarheadRenderCommands.register();
 		WarheadWorldRenderer.register();
+		NuclearDestructionCurtainRenderer.register();
 		FireWorldRenderer.register();
 		IcbmWorldRenderer.register();
         AntiAirWorldRenderer.register();

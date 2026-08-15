@@ -4,6 +4,7 @@ import com.andye.warmod.fire.FirePhase;
 import com.andye.warmod.fire.client.ClientFireVisualManager;
 import com.andye.warmod.fire.client.ClientFireVisualManager.VisualPatch;
 import com.andye.warmod.fire.client.ClientFireVisualManager.VisualEmber;
+import com.andye.warmod.fire.client.ClientFireVisualManager.VisualSmokeCluster;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -21,6 +22,8 @@ import org.joml.Quaternionf;
 /** Packed analytical surface-fire renderer; only custom fire reads wind. */
 public final class FireWorldRenderer {
     private static final double MAX_DISTANCE = 192.0;
+    private static final double MIN_SMOKE_CLUSTER_DISTANCE = 224.0;
+    private static final double MAX_SMOKE_CLUSTER_DISTANCE = 1_536.0;
     private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
     private static boolean registered;
 
@@ -67,13 +70,27 @@ public final class FireWorldRenderer {
 				ember.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
 				ember.lifetime(), distance, trail));
 		}
-        currentFrame = patches.isEmpty() && embers.isEmpty() ? RenderFrame.EMPTY
-            : new RenderFrame(gameTime, orientation, List.copyOf(patches), List.copyOf(embers));
+        List<FireRenderSmokeCluster> smokeClusters = new ArrayList<>();
+        for (VisualSmokeCluster cluster : ClientFireVisualManager.INSTANCE.smokeClusterSnapshot(level)) {
+            Vec3 worldPosition = cluster.position();
+            double distance = worldPosition.distanceTo(cameraPosition);
+            /* Local patches supply detailed smoke.  Larger clustered plumes take
+               over beyond that without duplicating the near-field effect. */
+            if (!Double.isFinite(distance) || distance < MIN_SMOKE_CLUSTER_DISTANCE
+                || distance > MAX_SMOKE_CLUSTER_DISTANCE) continue;
+            smokeClusters.add(new FireRenderSmokeCluster(worldPosition.subtract(cameraPosition),
+                cluster.smoke(), cluster.heat(), cluster.radius(), cluster.wind(), cluster.seed(),
+                cluster.memberCount(), distance));
+        }
+        currentFrame = patches.isEmpty() && embers.isEmpty() && smokeClusters.isEmpty()
+            ? RenderFrame.EMPTY : new RenderFrame(gameTime, orientation, List.copyOf(patches),
+                List.copyOf(embers), List.copyOf(smokeClusters));
     }
 
     private static void collectSubmits(final LevelRenderContext context) {
         RenderFrame frame = currentFrame;
-		if (frame == RenderFrame.EMPTY || (frame.patches().isEmpty() && frame.embers().isEmpty())) return;
+		if (frame == RenderFrame.EMPTY || (frame.patches().isEmpty() && frame.embers().isEmpty()
+            && frame.smokeClusters().isEmpty())) return;
         PoseStack poseStack = context.poseStack();
         if (poseStack == null) return;
         context.submitNodeCollector().submitCustomGeometry(poseStack,
@@ -84,6 +101,10 @@ public final class FireWorldRenderer {
 			WarheadRenderPipelines.FIREBALL_HOT,
 			(pose, buffer) -> FireParticleRenderer.renderFirebrands(pose, buffer,
 				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
+		if (!frame.smokeClusters().isEmpty()) context.submitNodeCollector().submitCustomGeometry(
+			poseStack, WarheadRenderPipelines.FIREBALL_HOT,
+			(pose, buffer) -> FireParticleRenderer.renderFlameClusters(pose, buffer,
+				frame.gameTime(), frame.smokeClusters(), frame.cameraOrientation()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.FIREBALL_COOL,
             (pose, buffer) -> FireParticleRenderer.renderEmbers(pose, buffer,
@@ -92,6 +113,10 @@ public final class FireWorldRenderer {
             WarheadRenderPipelines.HEAVY_SMOKE,
             (pose, buffer) -> FireParticleRenderer.renderSmoke(pose, buffer,
                 frame.gameTime(), frame.patches(), frame.cameraOrientation()));
+		if (!frame.smokeClusters().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+            WarheadRenderPipelines.HEAVY_SMOKE,
+            (pose, buffer) -> FireParticleRenderer.renderSmokeClusters(pose, buffer,
+                frame.gameTime(), frame.smokeClusters(), frame.cameraOrientation()));
 		if (!frame.embers().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
 			WarheadRenderPipelines.HEAVY_SMOKE,
 			(pose, buffer) -> FireParticleRenderer.renderFirebrandSmoke(pose, buffer,
@@ -105,9 +130,12 @@ public final class FireWorldRenderer {
 		long seed, long startGameTime, int lifetime, double distance,
 		List<FireRenderEmberTrail> trail) { }
 	record FireRenderEmberTrail(Vec3 relativePosition, Vec3 wind, long gameTime) { }
+    record FireRenderSmokeCluster(Vec3 relativePosition, float smoke, float heat, float radius,
+        Vec3 wind, long seed, int memberCount, double distance) { }
     private record RenderFrame(double gameTime, Quaternionf cameraOrientation,
-		List<FireRenderPatch> patches, List<FireRenderEmber> embers) {
+		List<FireRenderPatch> patches, List<FireRenderEmber> embers,
+        List<FireRenderSmokeCluster> smokeClusters) {
 		private static final RenderFrame EMPTY = new RenderFrame(0.0, new Quaternionf(),
-			List.of(), List.of());
+			List.of(), List.of(), List.of());
     }
 }

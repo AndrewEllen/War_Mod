@@ -15,19 +15,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 public final class ClientFireVisualManager {
     public static final ClientFireVisualManager INSTANCE = new ClientFireVisualManager();
-    private static final int EXPIRY_TICKS = 28;
-	private static final Direction[] HORIZONTAL_TANGENTS = {Direction.NORTH, Direction.SOUTH,
-		Direction.EAST, Direction.WEST};
-	private static final Direction[] NORTH_SOUTH_TANGENTS = {Direction.UP, Direction.DOWN,
-		Direction.EAST, Direction.WEST};
-	private static final Direction[] EAST_WEST_TANGENTS = {Direction.UP, Direction.DOWN,
-		Direction.NORTH, Direction.SOUTH};
+    /* A complete authoritative snapshot is deliberately built over several
+       bounded server ticks. Keep the last published visual stable between cycles. */
+    private static final int EXPIRY_TICKS = 160;
     private final Map<Long, VisualPatch> patches = new LinkedHashMap<>();
 	private final Map<Long, EmberVisual> embers = new LinkedHashMap<>();
+	private final Map<Long, VisualSmokeCluster> smokeClusters = new LinkedHashMap<>();
     private ClientLevel activeLevel;
 
     private ClientFireVisualManager() { }
@@ -71,6 +69,16 @@ public final class ClientFireVisualManager {
 				entry.startGameTime(), entry.lifetime(), payload.serverGameTime(), receivedAt);
 		}
 		if (payload.emberComplete()) embers.keySet().removeIf(id -> !receivedEmbers.contains(id));
+        HashSet<Long> receivedSmokeClusters = new HashSet<>(payload.smokeClusters().size());
+        for (ClientboundFireStatePayload.SmokeClusterEntry entry : payload.smokeClusters()) {
+            receivedSmokeClusters.add(entry.id());
+            smokeClusters.put(entry.id(), new VisualSmokeCluster(entry.id(),
+                new Vec3(entry.x(), entry.y(), entry.z()), entry.smoke(), entry.heat(),
+                entry.radius(), new Vec3(entry.windX(), entry.windY(), entry.windZ()),
+                entry.seed(), entry.memberCount(), receivedAt));
+        }
+        if (payload.smokeClusterComplete())
+            smokeClusters.keySet().removeIf(id -> !receivedSmokeClusters.contains(id));
     }
 
     public synchronized void tick(final Minecraft client) {
@@ -86,6 +94,10 @@ public final class ClientFireVisualManager {
 				|| now - ember.startGameTime > ember.lifetime + 4L) emberIterator.remove();
 			else ember.simulate(now);
 		}
+		Iterator<VisualSmokeCluster> smokeClusterIterator = smokeClusters.values().iterator();
+		while (smokeClusterIterator.hasNext())
+			if (now - smokeClusterIterator.next().lastSeenClientTick() > EXPIRY_TICKS)
+				smokeClusterIterator.remove();
     }
 
     public synchronized List<VisualPatch> snapshot(final ClientLevel level) {
@@ -97,11 +109,20 @@ public final class ClientFireVisualManager {
 		return embers.values().stream().map(EmberVisual::snapshot).toList();
 	}
 
-    public synchronized void clear() { patches.clear(); embers.clear(); activeLevel = null; }
+    public synchronized List<VisualSmokeCluster> smokeClusterSnapshot(final ClientLevel level) {
+        return level == null || activeLevel != level ? List.of()
+            : List.copyOf(smokeClusters.values());
+    }
+
+    public synchronized void clear() {
+        patches.clear(); embers.clear(); smokeClusters.clear(); activeLevel = null;
+    }
 
     private boolean ensureCurrentLevel(final ClientLevel level) {
         if (level == null) { clear(); return false; }
-		if (activeLevel != level) { patches.clear(); embers.clear(); activeLevel = level; }
+		if (activeLevel != level) {
+            patches.clear(); embers.clear(); smokeClusters.clear(); activeLevel = level;
+        }
         return true;
     }
 
@@ -111,44 +132,37 @@ public final class ClientFireVisualManager {
 
 	private void recomputeClumps() {
 		List<VisualPatch> visible = List.copyOf(patches.values());
-		Map<FaceHostKey, List<VisualPatch>> buckets = new HashMap<>();
-		for (VisualPatch patch : visible) buckets.computeIfAbsent(faceHostKey(patch),
-			ignored -> new java.util.ArrayList<>()).add(patch);
+		Map<Long, Float> hostEnergy = new HashMap<>();
+		for (VisualPatch patch : visible) {
+			if (patch.phase() == FirePhase.SMOLDERING || patch.phase() == FirePhase.DECAYING)
+				continue;
+			hostEnergy.merge(patch.anchor().host().asLong(), patch.heat() * patch.coverage(),
+				Math::max);
+		}
 		for (VisualPatch patch : visible) {
 			float energy = 0.0F;
-			int members = 0;
-			List<VisualPatch> candidates = new java.util.ArrayList<>(
-				buckets.getOrDefault(faceHostKey(patch), List.of()));
-			for (Direction direction : tangentDirections(patch.anchor().face()))
-				candidates.addAll(buckets.getOrDefault(new FaceHostKey(
-					patch.anchor().host().relative(direction).asLong(),
-					(byte) patch.anchor().face().ordinal()), List.of()));
-			for (VisualPatch candidate : candidates) {
-				if (candidate.phase() == FirePhase.SMOLDERING
-					|| candidate.phase() == FirePhase.DECAYING) continue;
-				energy += candidate.heat() * candidate.coverage();
-				members++;
+			int burningHosts = 0;
+			BlockPos host = patch.anchor().host();
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = -1; dy <= 1; dy++) {
+					for (int dz = -1; dz <= 1; dz++) {
+						Float candidateEnergy = hostEnergy.get(BlockPos.asLong(
+							host.getX() + dx, host.getY() + dy, host.getZ() + dz));
+						if (candidateEnergy == null) continue;
+						energy += candidateEnergy;
+						burningHosts++;
+					}
+				}
 			}
-			float strength = members < 2 ? 0.0F
-				: Math.min(1.75F, Math.max(0.0F, (energy - 0.45F) / 3.25F));
+			float density = Mth.clamp((burningHosts - 6) / 12.0F, 0.0F, 1.5F);
+			float averageEnergy = burningHosts == 0 ? 0.0F : energy / burningHosts;
+			float strength = density * Mth.clamp(averageEnergy * 1.25F, 0.0F, 1.0F);
 			patches.put(patch.id(), new VisualPatch(patch.id(), patch.anchor(), patch.intensity(),
 				patch.heat(), patch.coverage(), patch.smoke(), patch.phase(), patch.seed(),
 				patch.ignitionGameTime(), patch.wind(), strength, patch.lastSeenClientTick()));
 		}
 	}
 
-	private static FaceHostKey faceHostKey(final VisualPatch patch) {
-		return new FaceHostKey(patch.anchor().host().asLong(),
-			(byte) patch.anchor().face().ordinal());
-	}
-
-	private static Direction[] tangentDirections(final Direction face) {
-		return switch (face) {
-			case UP, DOWN -> HORIZONTAL_TANGENTS;
-			case NORTH, SOUTH -> NORTH_SOUTH_TANGENTS;
-			case EAST, WEST -> EAST_WEST_TANGENTS;
-		};
-	}
 
     public record VisualPatch(long id, FireSurfaceAnchor anchor, float intensity,
         float heat, float coverage, float smoke, FirePhase phase, long seed,
@@ -157,6 +171,8 @@ public final class ClientFireVisualManager {
         float intensity, long seed, long startGameTime, int lifetime,
 		long serverSampleGameTime, long lastSeenClientTick, List<EmberTrailSample> trail) { }
 	public record EmberTrailSample(Vec3 position, Vec3 wind, long gameTime) { }
+	public record VisualSmokeCluster(long id, Vec3 position, float smoke, float heat,
+        float radius, Vec3 wind, long seed, int memberCount, long lastSeenClientTick) { }
 
 	/** Eight history samples make the renderer follow the real local path instead of
 	 * drawing a rigid billboard chain behind the latest server position. */
@@ -226,5 +242,4 @@ public final class ClientFireVisualManager {
 				List.copyOf(trail));
 		}
 	}
-	private record FaceHostKey(long packedHost, byte face) { }
 }
