@@ -20,6 +20,16 @@ from **Various Sound Effects**.
 - Retrieved: 2026-08-23
 - Licence shown: CC0
 
+`bullet_impact_cc0.wav` is the CC0 `snd_bullethit.wav` from the same collection. It is used
+only for projectile impacts; the crack recording remains available for a future supersonic
+fly-by path.
+
+- Direct file: https://opengameart.org/sites/default/files/snd_bullethit.wav
+- Retrieved: 2026-08-24
+- Licence shown: CC0
+
 Run `tools/audio/build_firearm_audio.ps1` with ffmpeg available to regenerate the shipped mono
 OGG distance profiles. Near and medium use their matching microphone perspectives; far and
-extreme are filtered from the real mid-distance recordings.
+extreme are filtered from the real mid-distance recordings. The firearm stereo masters contain
+spaced microphones with phase differences, so the mono game assets deliberately use one coherent
+microphone channel instead of averaging both channels and cancelling the pressure-wave body.

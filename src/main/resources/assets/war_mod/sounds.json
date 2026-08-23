@@ -288,5 +288,9 @@
     "bullet_crack_near": { "sounds": ["war_mod:firearm/bullet_crack_near"] },
     "bullet_crack_medium": { "sounds": ["war_mod:firearm/bullet_crack_medium"] },
     "bullet_crack_far": { "sounds": ["war_mod:firearm/bullet_crack_far"] },
-    "bullet_crack_extreme": { "sounds": ["war_mod:firearm/bullet_crack_extreme"] }
+    "bullet_crack_extreme": { "sounds": ["war_mod:firearm/bullet_crack_extreme"] },
+    "bullet_impact_near": { "sounds": ["war_mod:firearm/bullet_impact_near"] },
+    "bullet_impact_medium": { "sounds": ["war_mod:firearm/bullet_impact_medium"] },
+    "bullet_impact_far": { "sounds": ["war_mod:firearm/bullet_impact_far"] },
+    "bullet_impact_extreme": { "sounds": ["war_mod:firearm/bullet_impact_extreme"] }
 }

@@ -15,4 +15,10 @@ final class AcousticPropagationTest {
 	void negativeElapsedTimeDoesNotProduceNegativeWaveRadius() {
 		assertEquals(0.0, AcousticPropagation.waveRadiusBlocks(-1L, 343.0));
 	}
+
+	@Test
+	void reflectionDelayUsesOnlyTheExtraTravelPath() {
+		assertEquals(20L, AcousticPropagation.reflectedDelayTicks(343.0, 686.0, 343.0));
+		assertEquals(0L, AcousticPropagation.reflectedDelayTicks(343.0, 343.0, 343.0));
+	}
 }

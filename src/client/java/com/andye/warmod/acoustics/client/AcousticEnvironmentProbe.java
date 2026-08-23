@@ -1,5 +1,8 @@
 package com.andye.warmod.acoustics.client;
 
+import com.andye.warmod.acoustics.model.AcousticResponseProfile;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
@@ -12,6 +15,9 @@ import net.minecraft.client.multiplayer.ClientLevel;
 
 public final class AcousticEnvironmentProbe {
 	private static final double MAX_RAY_DISTANCE = 24.0;
+	private static final int[] TERRAIN_REFLECTION_DISTANCES = {48, 96, 160, 240};
+	private static final int TERRAIN_REFLECTION_SPOKES = 12;
+	private static final int MAX_TERRAIN_REFLECTIONS = 2;
 	private static final List<Vec3> RAY_DIRECTIONS = List.of(
 		new Vec3(1.0, 0.0, 0.0),
 		new Vec3(-1.0, 0.0, 0.0),
@@ -29,8 +35,9 @@ public final class AcousticEnvironmentProbe {
 	}
 
 	public static AcousticEnvironment probe(final ClientLevel level, final Vec3 sourcePosition,
-		final Vec3 listenerPosition) {
+		final Vec3 listenerPosition, final AcousticResponseProfile responseProfile) {
 		BlockPos listenerBlock = BlockPos.containing(listenerPosition);
+		boolean openSky = level.canSeeSky(listenerBlock);
 		int hitCount = 0;
 		double reflectionDistanceTotal = 0.0;
 		for (Vec3 direction : RAY_DIRECTIONS) {
@@ -59,14 +66,81 @@ public final class AcousticEnvironmentProbe {
 		double obstruction = directObstruction(level, sourcePosition, listenerPosition);
 		double[] terrain = terrainPath(level, sourcePosition, listenerPosition);
 		obstruction = Math.max(obstruction, terrain[0]);
+		List<AcousticReflection> reflections = responseProfile.distantTerrainReflections() && openSky
+			? terrainReflections(level, sourcePosition, listenerPosition) : List.of();
+		double terrainRelief = terrain[1];
+		for (AcousticReflection reflection : reflections) {
+			terrainRelief = Math.max(terrainRelief, reflection.strength());
+		}
 		return new AcousticEnvironment(
 			hitCount / 10.0,
 			hitCount == 0 ? 0.0 : reflectionDistanceTotal / hitCount,
-			level.canSeeSky(listenerBlock),
+			openSky,
 			obstruction,
-			terrain[1],
-			foliageAbsorption(level, listenerBlock)
+			terrainRelief,
+			foliageAbsorption(level, listenerBlock),
+			reflections
 		);
+	}
+
+	private static List<AcousticReflection> terrainReflections(final ClientLevel level,
+		final Vec3 source, final Vec3 listener) {
+		List<TerrainReflectionCandidate> candidates = new ArrayList<>();
+		scanTerrainAround(level, source, listener, listener, candidates);
+		if (source.distanceToSqr(listener) >= 48.0 * 48.0) {
+			scanTerrainAround(level, source, listener, source, candidates);
+		}
+		candidates.sort(Comparator.comparingDouble(TerrainReflectionCandidate::score).reversed());
+		List<AcousticReflection> selected = new ArrayList<>(MAX_TERRAIN_REFLECTIONS);
+		for (TerrainReflectionCandidate candidate : candidates) {
+			boolean separated = selected.stream().allMatch(existing ->
+				existing.position().distanceToSqr(candidate.reflection().position()) >= 48.0 * 48.0);
+			if (!separated) continue;
+			selected.add(candidate.reflection());
+			if (selected.size() >= MAX_TERRAIN_REFLECTIONS) break;
+		}
+		return List.copyOf(selected);
+	}
+
+	private static void scanTerrainAround(final ClientLevel level, final Vec3 source,
+		final Vec3 listener, final Vec3 anchor,
+		final List<TerrainReflectionCandidate> candidates) {
+		BlockPos anchorBlock = BlockPos.containing(anchor);
+		if (!level.isLoaded(anchorBlock)) return;
+		int anchorHeight = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+			anchorBlock.getX(), anchorBlock.getZ());
+		double directDistance = source.distanceTo(listener);
+		for (int spoke = 0; spoke < TERRAIN_REFLECTION_SPOKES; spoke++) {
+			double angle = Math.PI * 2.0 * spoke / TERRAIN_REFLECTION_SPOKES;
+			double directionX = Math.cos(angle);
+			double directionZ = Math.sin(angle);
+			for (int distance : TERRAIN_REFLECTION_DISTANCES) {
+				int x = (int) Math.floor(anchor.x + directionX * distance);
+				int z = (int) Math.floor(anchor.z + directionZ * distance);
+				BlockPos column = new BlockPos(x, anchorBlock.getY(), z);
+				if (!level.isLoaded(column)) continue;
+				int height = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+				double prominence = height - anchorHeight;
+				if (prominence < 7.0) continue;
+
+				Vec3 position = new Vec3(x + 0.5, height + 1.25, z + 0.5);
+				double reflectedPath = source.distanceTo(position) + position.distanceTo(listener);
+				double extraPath = reflectedPath - directDistance;
+				if (!Double.isFinite(reflectedPath) || extraPath < 8.0) continue;
+
+				Vec3 towardSource = source.subtract(position).normalize();
+				Vec3 towardListener = listener.subtract(position).normalize();
+				double sameSide = Math.max(0.0, (towardSource.dot(towardListener) + 1.0) * 0.5);
+				double heightStrength = Math.min(1.0, prominence / 56.0);
+				double distanceStrength = Math.max(0.42, 1.0 - distance / 430.0);
+				double strength = Math.min(1.0, heightStrength * distanceStrength
+					* (0.62 + sameSide * 0.38));
+				if (strength < 0.10) continue;
+				double score = strength * Math.min(1.35, 0.82 + extraPath / 280.0);
+				candidates.add(new TerrainReflectionCandidate(
+					new AcousticReflection(position, reflectedPath, strength), score));
+			}
+		}
 	}
 
 	private static double directObstruction(final ClientLevel level, final Vec3 source,
@@ -130,5 +204,8 @@ public final class AcousticEnvironmentProbe {
 			}
 		}
 		return sampled == 0 ? 0.0 : Math.min(1.0, foliage / (sampled * 0.22));
+	}
+
+	private record TerrainReflectionCandidate(AcousticReflection reflection, double score) {
 	}
 }

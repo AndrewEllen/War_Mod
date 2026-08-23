@@ -180,7 +180,7 @@ public final class FirearmBulletManager {
         final Vec3 position) {
         FirearmNetworking.send(level, position,
             new ClientboundFirearmImpactPayload(bullet.id, position));
-        AcousticEngine.playSound(level, position, AcousticSounds.BULLET_CRACK_ID,
+        AcousticEngine.playSound(level, position, AcousticSounds.BULLET_IMPACT_ID,
             SoundSource.PLAYERS, 0.88F, 0.96F + (float) ((bullet.seed >>> 8) & 15L) / 200.0F);
     }
 

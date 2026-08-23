@@ -3,8 +3,8 @@ package com.andye.warmod.acoustics.client;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticSoundRegistry;
 import com.andye.warmod.acoustics.AcousticSounds;
-import com.andye.warmod.acoustics.model.AcousticDistanceProfile;
 import com.andye.warmod.acoustics.model.AcousticDistanceSound;
+import com.andye.warmod.acoustics.model.AcousticResponseProfile;
 import com.andye.warmod.acoustics.model.AcousticSoundDefinition;
 import com.andye.warmod.acoustics.network.ClientboundAcousticEventPayload;
 import com.andye.warmod.acoustics.physics.AcousticAttenuation;
@@ -119,13 +119,12 @@ public final class ClientAcousticEngine {
 
 		double gain = AcousticAttenuation.gain(listenerDistance, selectedSound, payload.volume());
 		AcousticEnvironment environment = AcousticEnvironmentProbe.probe(activeLevel,
-			sourcePosition, listenerEyePosition);
-		gain *= environment.transmissionGain();
-		float distancePitch = explosionDistancePitch(payload, selectedSound, listenerDistance);
+			sourcePosition, listenerEyePosition, definition.responseProfile());
+		gain *= environment.transmissionGain(definition.responseProfile());
 		float primaryPitch = Math.max(0.10F,
 			payload.pitch() * selectedSound.pitchMultiplier()
-				* deterministicPitch(payload.randomSeed()) * distancePitch
-				* environment.transmissionPitch());
+				* deterministicPitch(payload.randomSeed())
+				* environment.transmissionPitch(definition.responseProfile()));
 		int echoCount = 0;
 		if (gain >= definition.minimumAudibleGain()) {
 			schedule(new ScheduledAcousticSound(clientTick, sourcePosition,
@@ -139,7 +138,7 @@ public final class ClientAcousticEngine {
 
 			if (definition.environmentEchoesEnabled()) {
 				echoCount = scheduleEchoes(payload, definition, sourcePosition,
-					selectedSound, gain, primaryPitch, environment);
+					selectedSound, gain, primaryPitch, environment, listenerDistance);
 			}
 		}
 
@@ -156,15 +155,21 @@ public final class ClientAcousticEngine {
 	private int scheduleEchoes(final ClientboundAcousticEventPayload payload,
 		final AcousticSoundDefinition definition, final Vec3 sourcePosition,
 		final AcousticDistanceSound selectedSound, final double primaryGain,
-		final float primaryPitch, final AcousticEnvironment environment) {
-		double reflection = environment.reflectionStrength();
-		if (reflection < 0.16) return 0;
+		final float primaryPitch, final AcousticEnvironment environment,
+		final double listenerDistance) {
+		AcousticResponseProfile response = definition.responseProfile();
+		int added = scheduleTerrainEchoes(payload, definition, selectedSound,
+			primaryGain, primaryPitch, environment, response, listenerDistance);
+		if (added >= response.maximumEchoes()) return added;
+
+		double reflection = environment.reflectionStrength(response);
+		if (reflection < 0.16) return added;
 		int firstDelay = (int) Math.round((2.0 * environment.effectiveReflectionDistance()
 			/ definition.propagationSpeedBlocksPerSecond()) * 20.0);
-		firstDelay = Math.max(2, Math.min(28, firstDelay));
-		float firstVolume = (float) (primaryGain
-			* Math.min(0.24, 0.06 + reflection * 0.18));
-		int added = 0;
+		firstDelay = Math.max(2, Math.min(40, firstDelay));
+		double firstRatio = Math.min(response.maximumEchoVolumeRatio(),
+			(0.06 + reflection * 0.18) * response.reflectionGain());
+		float firstVolume = (float) (primaryGain * firstRatio);
 		if (firstVolume >= definition.minimumAudibleGain()) {
 			schedule(new ScheduledAcousticSound(clientTick + firstDelay, sourcePosition,
 				selectedSound.soundEventId(), payload.soundSource(), firstVolume,
@@ -173,8 +178,10 @@ public final class ClientAcousticEngine {
 				true));
 			added++;
 		}
-		if (environment.enclosure() >= 0.70 || environment.terrainRelief() >= 0.55) {
-			float secondVolume = (float) (primaryGain * (0.035 + reflection * 0.065));
+		if (added < response.maximumEchoes()
+			&& (environment.enclosure() >= 0.70 || environment.terrainRelief() >= 0.55)) {
+			float secondVolume = (float) (primaryGain
+				* (0.035 + reflection * 0.065) * response.reflectionGain());
 			if (secondVolume >= definition.minimumAudibleGain()) {
 				schedule(new ScheduledAcousticSound(
 					clientTick + firstDelay + Math.round(firstDelay * 1.7F), sourcePosition,
@@ -188,24 +195,31 @@ public final class ClientAcousticEngine {
 		return added;
 	}
 
-	private static float explosionDistancePitch(
-		final ClientboundAcousticEventPayload payload,
-		final AcousticDistanceSound selectedSound,
-		final double listenerDistance
-	) {
-		if (selectedSound.profile() != AcousticDistanceProfile.EXTREME
-			|| !(payload.definitionId().equals(AcousticSounds.LARGE_EXPLOSION_ID)
-				|| payload.definitionId().equals(AcousticSounds.TACTICAL_HE_EXPLOSION_ID))) {
-			return 1.0F;
+	private int scheduleTerrainEchoes(final ClientboundAcousticEventPayload payload,
+		final AcousticSoundDefinition definition, final AcousticDistanceSound selectedSound,
+		final double primaryGain, final float primaryPitch,
+		final AcousticEnvironment environment, final AcousticResponseProfile response,
+		final double directDistance) {
+		if (!response.distantTerrainReflections() || !environment.openSky()) return 0;
+		int added = 0;
+		for (AcousticReflection reflection : environment.terrainReflections()) {
+			if (added >= response.maximumEchoes()) break;
+			double reflectedPath = Math.max(directDistance, reflection.reflectedPathLength());
+			long delay = Math.max(2L, AcousticPropagation.reflectedDelayTicks(directDistance,
+				reflectedPath, definition.propagationSpeedBlocksPerSecond()));
+			double pathGain = Math.sqrt((directDistance + 32.0) / (reflectedPath + 32.0));
+			double ratio = Math.min(response.maximumEchoVolumeRatio(),
+				(0.10 + reflection.strength() * 0.26) * response.reflectionGain());
+			float volume = (float) (primaryGain * pathGain * ratio);
+			if (volume < definition.minimumAudibleGain()) continue;
+			schedule(new ScheduledAcousticSound(clientTick + delay, reflection.position(),
+				selectedSound.soundEventId(), payload.soundSource(), volume,
+				Math.max(0.10F, primaryPitch * 0.985F),
+				payload.randomSeed() ^ selectedSound.soundEventId().hashCode()
+					^ reflection.position().hashCode(), true));
+			added++;
 		}
-		double width = selectedSound.maximumListenerDistance()
-			- selectedSound.minimumListenerDistance();
-		double progress = width <= 0.0 ? 1.0
-			: (listenerDistance - selectedSound.minimumListenerDistance()) / width;
-		progress = Math.max(0.0, Math.min(1.0, progress));
-		/* Smooth falloff: normal at the inner edge, implosion-like 0.1 at the limit. */
-		double smooth = progress * progress * (3.0 - 2.0 * progress);
-		return (float) (1.0 - smooth * 0.90);
+		return added;
 	}
 
 	private static float deterministicPitch(final long seed) {

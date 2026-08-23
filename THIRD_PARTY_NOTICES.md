@@ -10,4 +10,4 @@ The first Distant Acoustics prototype uses these CC0 OpenGameArt sound sources. 
 | Chunky Explosion | Joth | https://opengameart.org/content/chunky-explosion | CC0 |
 | Synthesized explosion | qubodup | https://lpc.opengameart.org/content/synthesized-explosion | CC0 |
 | The Free Firearm Sound Library | Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney | https://opengameart.org/content/the-free-firearm-sound-library | CC0 |
-| Various Sound Effects (`snd_bulletcrackle.wav`) | Julie Damsgaard / Spring Spring | https://opengameart.org/content/various-sound-effects-0 | CC0 |
+| Various Sound Effects (`snd_bulletcrackle.wav`, `snd_bullethit.wav`) | Julie Damsgaard / Spring Spring | https://opengameart.org/content/various-sound-effects-0 | CC0 |

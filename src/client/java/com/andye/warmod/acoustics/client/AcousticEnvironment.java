@@ -1,14 +1,24 @@
 package com.andye.warmod.acoustics.client;
 
+import com.andye.warmod.acoustics.model.AcousticResponseProfile;
+import java.util.List;
+import java.util.Objects;
+
 public record AcousticEnvironment(
 	double enclosure,
 	double averageReflectionDistance,
 	boolean openSky,
 	double obstruction,
 	double terrainRelief,
-	double foliageAbsorption
+	double foliageAbsorption,
+	List<AcousticReflection> terrainReflections
 ) {
 	public AcousticEnvironment {
+		Objects.requireNonNull(terrainReflections, "terrainReflections");
+		terrainReflections = List.copyOf(terrainReflections);
+		if (terrainReflections.stream().anyMatch(Objects::isNull)) {
+			throw new IllegalArgumentException("terrainReflections cannot contain null");
+		}
 		if (!Double.isFinite(enclosure) || enclosure < 0.0 || enclosure > 1.0) {
 			throw new IllegalArgumentException("enclosure must be between zero and one");
 		}
@@ -20,21 +30,27 @@ public record AcousticEnvironment(
 		}
 	}
 
-	public double transmissionGain() {
-		return Math.max(0.12, (1.0 - obstruction * 0.72)
-			* (1.0 - foliageAbsorption * 0.38));
+	public double transmissionGain(final AcousticResponseProfile response) {
+		Objects.requireNonNull(response, "response");
+		return Math.max(response.minimumTransmissionGain(),
+			(1.0 - obstruction * response.obstructionAbsorption())
+				* (1.0 - foliageAbsorption * response.foliageAbsorption()));
 	}
 
-	public float transmissionPitch() {
-		return (float) Math.max(0.82, 1.0 - obstruction * 0.075
-			- foliageAbsorption * 0.035);
+	public float transmissionPitch(final AcousticResponseProfile response) {
+		Objects.requireNonNull(response, "response");
+		return (float) Math.max(0.82, 1.0
+			- obstruction * response.obstructionPitchDamping()
+			- foliageAbsorption * response.foliagePitchDamping());
 	}
 
-	public double reflectionStrength() {
+	public double reflectionStrength(final AcousticResponseProfile response) {
+		Objects.requireNonNull(response, "response");
 		double indoor = enclosure * 0.78;
-		double outdoorTerrain = openSky ? terrainRelief * 0.62 : terrainRelief * 0.30;
+		double outdoorTerrain = openSky ? terrainRelief * 0.75 : terrainRelief * 0.34;
 		return Math.max(0.0, Math.min(1.0,
-			Math.max(indoor, outdoorTerrain) * (1.0 - foliageAbsorption * 0.62)));
+			Math.max(indoor, outdoorTerrain)
+				* (1.0 - foliageAbsorption * response.foliageAbsorption())));
 	}
 
 	public double effectiveReflectionDistance() {
