@@ -1,0 +1,1 @@
+{"type":"minecraft:crafting_shaped","category":"misc","pattern":["III","GTG","CCC"],"key":{"I":"minecraft:iron_ingot","G":"minecraft:gunpowder","T":"minecraft:tnt","C":"minecraft:copper_ingot"},"result":{"id":"war_mod:sniper_ammo","count":12}}

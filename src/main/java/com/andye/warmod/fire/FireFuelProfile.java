@@ -11,13 +11,13 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
         2.4F, 600, 0.35F, 0.12F, 0.05F);
     /** Leaves, plants and fibrous surface fuel: quick ignition, meaningful burn duration. */
     public static final FireFuelProfile HIGH = new FireFuelProfile(true, true,
-        0.34F, 900, 0.90F, 0.34F, 1.00F);
+        0.16F, 320, 0.96F, 0.48F, 1.00F);
     /** Structural wood: slower ignition and a long fuel-driven burn. */
     public static final FireFuelProfile MEDIUM = new FireFuelProfile(true, true,
-        0.64F, 3_200, 1.00F, 0.46F, 0.66F);
+        0.34F, 1_250, 1.00F, 0.58F, 0.82F);
     /** Organic ground supports a spreading surface burn but must not become a terrain hole. */
     public static final FireFuelProfile LOW = new FireFuelProfile(true, false,
-        0.62F, 780, 0.58F, 0.23F, 0.78F);
+        0.40F, 520, 0.68F, 0.34F, 0.86F);
 
     public static FireFuelProfile of(final BlockState state) {
         if (state.isAir() || state.is(FireFuelTags.IMMUNE)) return NONE;

@@ -17,7 +17,7 @@ public final class ModCreativeModeTabs {
         Registries.CREATIVE_MODE_TAB,
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
     );
-    private static final int ENTRY_COUNT = 66;
+    private static final int ENTRY_COUNT = 72;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
@@ -59,6 +59,12 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.ROCKET_LAUNCHER);
                 output.accept(ModItems.HE_ROCKET);
                 output.accept(ModItems.ANTI_AIR_GUN_AMMO);
+                output.accept(ModItems.PISTOL);
+                output.accept(ModItems.PISTOL_AMMO);
+                output.accept(ModItems.ASSAULT_RIFLE);
+                output.accept(ModItems.RIFLE_AMMO);
+                output.accept(ModItems.SNIPER_RIFLE);
+                output.accept(ModItems.SNIPER_AMMO);
                 output.accept(ModItems.TARGET_DESIGNATOR);
                 output.accept(ModItems.REMOTE_LAUNCH_DESIGNATOR);
                 output.accept(ModItems.RADAR);

@@ -6,15 +6,18 @@ import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import com.andye.warmod.warhead.WarheadImpactService;
+import com.andye.warmod.warhead.WarheadGlassShockwaveManager;
 import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
 import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.HashSet;
+import java.util.SplittableRandom;
 import java.util.Set;
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -22,6 +25,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
@@ -34,6 +38,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     private static final EntityDataAccessor<Long> DATA_VISUAL_SEED = SynchedEntityData.defineId(ArtilleryWarheadEntity.class, EntityDataSerializers.LONG);
     private static final EntityDataAccessor<Integer> DATA_FLIGHT_TICKS = SynchedEntityData.defineId(ArtilleryWarheadEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_ACTIVE_TICKS = SynchedEntityData.defineId(ArtilleryWarheadEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> DATA_CLUSTER_CARRIER = SynchedEntityData.defineId(ArtilleryWarheadEntity.class, EntityDataSerializers.BOOLEAN);
     private UUID id = UUID.randomUUID();
     private UUID ownerId;
     private Vec3 target = Vec3.ZERO;
@@ -45,19 +50,23 @@ public final class ArtilleryWarheadEntity extends Entity {
     private boolean cleaned;
     private boolean terrainPreparationScheduled;
     private int chunkWaitTicks;
+    private boolean clusterCarrier;
+    private boolean split;
 
     public ArtilleryWarheadEntity(final EntityType<? extends ArtilleryWarheadEntity> type, final Level level) { super(type, level); noPhysics = true; setNoGravity(true); }
-    public ArtilleryWarheadEntity(final ServerLevel level, final UUID id, final UUID ownerId, final Vec3 origin, final Vec3 target, final Vec3 velocity, final WarheadYield yield, final long seed) {
+    public ArtilleryWarheadEntity(final ServerLevel level, final UUID id, final UUID ownerId, final Vec3 origin, final Vec3 target, final Vec3 velocity, final WarheadYield yield, final long seed, final boolean clusterCarrier) {
         this(ModEntityTypes.ARTILLERY_WARHEAD, level);
-        this.id = id; this.ownerId = ownerId; this.target = target; this.velocity = velocity; this.yield = yield; this.seed = seed;
+        this.id = id; this.ownerId = ownerId; this.target = target; this.velocity = velocity; this.yield = yield; this.seed = seed; this.clusterCarrier = clusterCarrier;
         entityData.set(DATA_VISUAL_SEED, seed);
         entityData.set(DATA_FLIGHT_TICKS, ArtilleryTrajectory.flightTicks(origin, target, velocity));
+        entityData.set(DATA_CLUSTER_CARRIER, clusterCarrier);
         setPos(origin); setDeltaMovement(velocity);
     }
     @Override protected void defineSynchedData(final SynchedEntityData.Builder builder) {
         builder.define(DATA_VISUAL_SEED, 0L);
         builder.define(DATA_FLIGHT_TICKS, 1);
         builder.define(DATA_ACTIVE_TICKS, 0);
+        builder.define(DATA_CLUSTER_CARRIER, false);
     }
     @Override public void tick() {
         super.tick();
@@ -77,8 +86,20 @@ public final class ArtilleryWarheadEntity extends Entity {
         if (!prepareChunks(server, desired, from, next)) { chunkWaitTicks++; if (chunkWaitTicks >= ArtilleryConstants.CHUNK_WAIT_TIMEOUT_TICKS) discard(); return; }
         chunkWaitTicks = 0;
         setDeltaMovement(velocity);
-        HitResult hit = ProjectileUtil.getHitResultOnMoveVector(this, entity -> entity.isAlive() && (ownerId == null || tickCount > 4 || !ownerId.equals(entity.getUUID())));
-        if (hit.getType() != HitResult.Type.MISS) { impact(server, hit.getLocation()); return; }
+        int remainingTicks = entityData.get(DATA_FLIGHT_TICKS) - entityData.get(DATA_ACTIVE_TICKS);
+        if (clusterCarrier && !split && velocity.y < 0.0
+            && remainingTicks <= Math.max(24, Math.min(52, entityData.get(DATA_FLIGHT_TICKS) / 6))) {
+            splitCluster(server, Math.max(8, remainingTicks));
+            return;
+        }
+        /* Ignore the cannon and its muzzle-adjacent blocks while the shell arms;
+         * sibling submunitions are never valid projectile collision targets. */
+        if (tickCount > 5) {
+            HitResult hit = ProjectileUtil.getHitResultOnMoveVector(this,
+                entity -> entity.isAlive() && !(entity instanceof ArtilleryWarheadEntity)
+                    && (ownerId == null || !ownerId.equals(entity.getUUID())));
+            if (hit.getType() != HitResult.Type.MISS) { impact(server, hit.getLocation()); return; }
+        }
         if (!next.isFinite()) { discard(); return; }
         setPos(next);
         velocity = velocity.add(0.0, -ArtilleryConstants.GRAVITY_PER_TICK, 0.0);
@@ -89,6 +110,49 @@ public final class ArtilleryWarheadEntity extends Entity {
         // The solver chooses a fractional final tick.  Impact at the commanded coordinates on
         // the first complete flight tick rather than exploding several blocks short at speed.
         if (activeTicks >= entityData.get(DATA_FLIGHT_TICKS)) impact(server, target);
+    }
+
+    private void splitCluster(final ServerLevel level, final int remainingTicks) {
+        if (split) return;
+        split = true;
+        SplittableRandom random = new SplittableRandom(seed ^ id.getMostSignificantBits()
+            ^ level.getGameTime());
+        Set<ArtilleryWarheadEntity> children = new HashSet<>();
+        for (int index = 0; index < 7; index++) {
+            double radius = index == 0 ? 0.0 : 10.0 + random.nextDouble() * 13.0;
+            double angle = index == 0 ? 0.0
+                : Mth.TWO_PI * (index - 1) / 6.0 + random.nextDouble(-0.16, 0.16);
+            Vec3 childTarget = target.add(Math.cos(angle) * radius, 0.0,
+                Math.sin(angle) * radius);
+            Vec3 delta = childTarget.subtract(position());
+            double ticks = remainingTicks;
+            Vec3 childVelocity = new Vec3(delta.x / ticks,
+                (delta.y + ArtilleryConstants.GRAVITY_PER_TICK * ticks * (ticks - 1) * 0.5)
+                    / ticks,
+                delta.z / ticks);
+            UUID childId = UUID.randomUUID();
+            ArtilleryWarheadEntity child = new ArtilleryWarheadEntity(level, childId, ownerId,
+                position(), childTarget, childVelocity, yield, random.nextLong(), false);
+            children.add(child);
+        }
+        for (ArtilleryWarheadEntity child : children) {
+            if (!level.addFreshEntity(child)) {
+                children.forEach(ArtilleryWarheadEntity::discard);
+                split = false;
+                return;
+            }
+        }
+        for (ArtilleryWarheadEntity child : children) {
+            WarheadImpactChunkLeaseManager.holdApproach(level, child.id, position(), child.target,
+                remainingTicks + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS + 80);
+        }
+        level.sendParticles(ParticleTypes.FLAME, getX(), getY(), getZ(), 24,
+            0.55, 0.35, 0.55, 0.025);
+        level.sendParticles(ParticleTypes.SMOKE, getX(), getY(), getZ(), 34,
+            0.70, 0.45, 0.70, 0.045);
+        WarheadGlassShockwaveManager.cancelNuclearPreparation(level, id);
+        WarheadImpactChunkLeaseManager.release(level, id);
+        discard();
     }
     private Set<ChunkPos> desiredChunks() {
         Set<ChunkPos> desired = new HashSet<>();
@@ -128,9 +192,10 @@ public final class ArtilleryWarheadEntity extends Entity {
     public long visualSeed() { return level().isClientSide() ? entityData.get(DATA_VISUAL_SEED) : seed; }
     public int flightTicks() { return entityData.get(DATA_FLIGHT_TICKS); }
     public int activeTicks() { return entityData.get(DATA_ACTIVE_TICKS); }
+    public boolean clusterCarrier() { return entityData.get(DATA_CLUSTER_CARRIER); }
     private void updateRotation(final Vec3 value) { if (value.lengthSqr() < 1.0E-8) return; setYRot((float)(Math.atan2(value.z, value.x) * 180.0 / Math.PI) - 90.0F); setXRot((float)(-Math.atan2(value.y, value.horizontalDistance()) * 180.0 / Math.PI)); }
-    @Override protected void addAdditionalSaveData(final ValueOutput out) { out.store("id", UUIDUtil.CODEC, id); out.storeNullable("owner", UUIDUtil.CODEC, ownerId); out.store("target", Vec3.CODEC, target); out.store("velocity", Vec3.CODEC, velocity); out.putString("yield", yield.getSerializedName()); out.putLong("seed", seed); out.putInt("flightTicks", entityData.get(DATA_FLIGHT_TICKS)); out.putInt("activeTicks", entityData.get(DATA_ACTIVE_TICKS)); out.putBoolean("impacted", impacted); }
-    @Override protected void readAdditionalSaveData(final ValueInput in) { id = in.read("id", UUIDUtil.CODEC).orElseGet(UUID::randomUUID); ownerId = in.read("owner", UUIDUtil.CODEC).orElse(null); target = in.read("target", Vec3.CODEC).orElse(Vec3.ZERO); velocity = in.read("velocity", Vec3.CODEC).orElse(Vec3.ZERO); yield = WarheadYield.fromSerializedName(in.getStringOr("yield", "conventional")).orElse(WarheadYield.CONVENTIONAL); seed = in.getLongOr("seed", 0L); impacted = in.getBooleanOr("impacted", false); entityData.set(DATA_VISUAL_SEED, seed); entityData.set(DATA_FLIGHT_TICKS, Math.max(1, in.getIntOr("flightTicks", ArtilleryTrajectory.flightTicks(position(), target, velocity)))); entityData.set(DATA_ACTIVE_TICKS, Math.max(0, in.getIntOr("activeTicks", 0))); setDeltaMovement(velocity); }
+    @Override protected void addAdditionalSaveData(final ValueOutput out) { out.store("id", UUIDUtil.CODEC, id); out.storeNullable("owner", UUIDUtil.CODEC, ownerId); out.store("target", Vec3.CODEC, target); out.store("velocity", Vec3.CODEC, velocity); out.putString("yield", yield.getSerializedName()); out.putLong("seed", seed); out.putInt("flightTicks", entityData.get(DATA_FLIGHT_TICKS)); out.putInt("activeTicks", entityData.get(DATA_ACTIVE_TICKS)); out.putBoolean("impacted", impacted); out.putBoolean("clusterCarrier", clusterCarrier); out.putBoolean("split", split); }
+    @Override protected void readAdditionalSaveData(final ValueInput in) { id = in.read("id", UUIDUtil.CODEC).orElseGet(UUID::randomUUID); ownerId = in.read("owner", UUIDUtil.CODEC).orElse(null); target = in.read("target", Vec3.CODEC).orElse(Vec3.ZERO); velocity = in.read("velocity", Vec3.CODEC).orElse(Vec3.ZERO); yield = WarheadYield.fromSerializedName(in.getStringOr("yield", "conventional")).orElse(WarheadYield.CONVENTIONAL); seed = in.getLongOr("seed", 0L); impacted = in.getBooleanOr("impacted", false); clusterCarrier = in.getBooleanOr("clusterCarrier", false); split = in.getBooleanOr("split", false); entityData.set(DATA_VISUAL_SEED, seed); entityData.set(DATA_FLIGHT_TICKS, Math.max(1, in.getIntOr("flightTicks", ArtilleryTrajectory.flightTicks(position(), target, velocity)))); entityData.set(DATA_ACTIVE_TICKS, Math.max(0, in.getIntOr("activeTicks", 0))); entityData.set(DATA_CLUSTER_CARRIER, clusterCarrier); setDeltaMovement(velocity); }
     @Override public void remove(final RemovalReason reason) { if (level() instanceof ServerLevel server && !cleaned) { for (ChunkPos chunk : Set.copyOf(heldChunks)) IcbmChunkTicketRegistry.release(server, chunk); heldChunks.clear(); cleaned = true; } super.remove(reason); }
     @Override public boolean hurtServer(final ServerLevel level, final DamageSource source, final float amount) { return false; }
     @Override public boolean isPickable() { return false; }

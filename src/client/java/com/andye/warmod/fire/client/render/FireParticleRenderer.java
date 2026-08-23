@@ -178,9 +178,9 @@ public final class FireParticleRenderer {
             if (patch.smoke() < 0.018F) continue;
             SmokeFlow flow = patch.smokeFlow();
             double patchAge = Math.max(0.0, gameTime - patch.ignitionGameTime());
-            int desired = patch.phase() == FirePhase.IGNITION ? 1
-				: Math.max(1, Mth.ceil((1.0F + patch.smoke() * 11.0F)
-					* (1.0F + patch.clumpStrength() * 0.48F)));
+            int desired = patch.phase() == FirePhase.IGNITION ? 2
+				: Math.max(2, Mth.ceil((2.0F + patch.smoke() * 24.0F)
+					* (1.0F + patch.clumpStrength() * 0.62F)));
             int samples = lodSamples(patch, 1, desired);
             double footprint = (0.08 + patch.coverage() * 0.50)
 				* (1.0 + patch.clumpStrength() * 0.22);
@@ -200,7 +200,7 @@ public final class FireParticleRenderer {
                     + unit(value, 4) * Mth.TWO_PI) * (0.09 + progress * 0.34);
                 /* Integrating local wind over particle age creates a readable,
                    shared downwind trail instead of a tiny static offset. */
-                double windAge = particleAge * (0.32 + patch.intensity() * 0.24);
+                double windAge = particleAge * (0.46 + patch.intensity() * 0.36);
                 double unconstrainedRise = 0.20 + progress
                     * (2.0 + patch.intensity() * 4.0)
                     * (1.0 + patch.clumpStrength() * 0.28);
@@ -233,8 +233,8 @@ public final class FireParticleRenderer {
                 int shade = Mth.clamp(150 - (int) (patch.smoke() * 72.0F)
                     - (int) (progress * 18.0) + (int) (unit(value, 6) * 18.0), 52, 168);
                 float fade = (float) Math.pow(1.0 - progress, 0.62);
-                float alpha = Mth.clamp((0.055F + patch.smoke() * 0.27F) * fade,
-                    0.012F, 0.34F);
+                float alpha = Mth.clamp((0.10F + patch.smoke() * 0.44F) * fade,
+					0.025F, 0.58F);
                 billboard(pose, buffer, center, radius,
                     (float) (unit(value, 7) * Mth.TWO_PI + gameTime * 0.0022),
                     shade, shade + 4, shade + 9, alpha, 0xA000A0, basis);
@@ -252,7 +252,7 @@ public final class FireParticleRenderer {
         final Quaternionf camera) {
         Basis basis = Basis.from(camera);
         for (FireRenderSmokeCluster cluster : clusters) {
-            int lobes = cluster.distance() < 480.0 ? 5 : cluster.distance() < 960.0 ? 3 : 2;
+            int lobes = cluster.distance() < 480.0 ? 9 : cluster.distance() < 960.0 ? 6 : 4;
             float baseRadius = cluster.radius() * (0.48F + cluster.smoke() * 0.38F);
             float baseHeight = cluster.radius() * (0.72F + cluster.smoke() * 0.65F);
             for (int index = 0; index < lobes; index++) {
@@ -273,7 +273,7 @@ public final class FireParticleRenderer {
                     * (0.76F + (float) unit(value, 4) * 0.34F);
                 int shade = Mth.clamp(132 - (int) (cluster.smoke() * 58.0F)
                     - (int) (cycle * 22.0F) + (int) (unit(value, 5) * 15.0), 48, 146);
-                float alpha = (float) ((0.10 + cluster.smoke() * 0.20)
+                float alpha = (float) ((0.17 + cluster.smoke() * 0.34)
                     * Math.pow(1.0 - cycle, 0.54));
                 billboard(pose, buffer, center, radius,
                     (float) (unit(value, 6) * Mth.TWO_PI + gameTime * 0.0014),

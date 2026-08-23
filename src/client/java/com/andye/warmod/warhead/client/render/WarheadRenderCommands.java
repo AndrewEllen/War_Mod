@@ -18,7 +18,7 @@ public final class WarheadRenderCommands {
 	public static void register() {
 		if (registered) return;
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
-			literal("warmod")
+			literal("war_mod")
 				.then(literal("renderer")
 					.then(literal("packed").executes(context -> setMode(context.getSource(),
 						WarheadRenderSettings.ParticleRenderer.PACKED)))

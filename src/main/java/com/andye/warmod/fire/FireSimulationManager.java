@@ -44,26 +44,26 @@ import net.minecraft.world.phys.Vec3;
  * no vanilla fire blocks or Minecraft Particle instances are used.
  */
 public final class FireSimulationManager {
-    private static final int MAX_ACTIVE_PATCHES = 4_096;
-    private static final int MAX_PATCH_UPDATES_PER_TICK = 256;
-    private static final int MAX_NEW_IGNITIONS_PER_TICK = 32;
-    private static final int MAX_PREHEAT_SURFACES = 8_192;
+    private static final int MAX_ACTIVE_PATCHES = 12_288;
+    private static final int MAX_PATCH_UPDATES_PER_TICK = 1_536;
+    private static final int MAX_NEW_IGNITIONS_PER_TICK = 256;
+    private static final int MAX_PREHEAT_SURFACES = 24_576;
     private static final int MAX_WET_POSITIONS = 8_192;
-	private static final int MAX_EMBERS = 96;
+	private static final int MAX_EMBERS = 768;
     private static final int NUCLEAR_DYING_EVICTION_BATCH = 128;
     private static final int NUCLEAR_HEALTHY_EVICTION_BATCH = 128;
     private static final int NETWORK_INTERVAL_TICKS = 10;
     private static final int EMBER_NETWORK_INTERVAL_TICKS = 3;
     private static final int MAX_WET_POSITIONS_PER_JET = 512;
     private static final int MAX_EMBER_COLLISION_STEPS = 12;
-	/* Authoritative fire remains on the server thread, but it may not consume an
-	 * unbounded share of a 50 ms tick when a nuclear ignition fills the queue. */
-	private static final long FIRE_TICK_BUDGET_NANOS = 3_000_000L;
-	private static final long FIRE_SNAPSHOT_PREP_BUDGET_NANOS = 2_000_000L;
+	/* This is the showcase fire budget: enough headroom for crown fires to climb
+	 * and throw firebrands while still leaving the rest of the server tick intact. */
+	private static final long FIRE_TICK_BUDGET_NANOS = 14_000_000L;
+	private static final long FIRE_SNAPSHOT_PREP_BUDGET_NANOS = 4_000_000L;
 	private static final int MIN_SNAPSHOT_PATCHES_PER_TICK = 256;
 	private static final int MAX_DECAY_ENTRIES_PER_TICK = 256;
-    private static final int FIRE_DAMAGE_INTERVAL_TICKS = 10;
-    private static final int VENTILATION_CACHE_TICKS = 80;
+    private static final int FIRE_DAMAGE_INTERVAL_TICKS = 6;
+    private static final int VENTILATION_CACHE_TICKS = 120;
     private static final int MAX_PLACEMENT_PROBES = 8_192;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static final int[][] SURFACE_OFFSETS = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
@@ -325,7 +325,7 @@ public final class FireSimulationManager {
 			snapshotDiagnosticsStarted);
         if ((hadEmbers || !state.embers.isEmpty())
             && now % EMBER_NETWORK_INTERVAL_TICKS == 0L) sendEmberSnapshot(level, state);
-        if (now % 24L == 0L && !state.patches.isEmpty()) playCrackle(level, state, now);
+        if (now % 10L == 0L && !state.patches.isEmpty()) playCrackle(level, state, now);
         if (state.patches.isEmpty() && state.wetness.isEmpty()
             && state.preheat.isEmpty() && state.embers.isEmpty()) {
             checkpoint(level, null);
@@ -376,8 +376,8 @@ public final class FireSimulationManager {
                 + patch.coverage * 0.30F + Math.min(1.5F, clump) * 0.16F,
                 0.10F, 1.0F);
             if (fuelPotential > patch.targetIntensity) {
-                float growthRate = 0.00055F + patch.heat * patch.coverage * 0.0034F
-                    + Math.min(1.5F, clump) * 0.0008F;
+                float growthRate = 0.0050F + patch.heat * patch.coverage * 0.018F
+					+ Math.min(1.5F, clump) * 0.0040F;
                 patch.targetIntensity += (fuelPotential - patch.targetIntensity)
                     * Math.min(1.0F, elapsed * growthRate);
             }
@@ -406,35 +406,35 @@ public final class FireSimulationManager {
         }
         switch (patch.phase) {
             case IGNITION -> {
-                patch.heat += (patch.targetIntensity * 0.34F - patch.heat)
-                    * Math.min(1.0F, elapsed * 0.045F);
-                patch.coverage = Math.min(0.10F, patch.coverage + elapsed * 0.0008F);
-                if (age >= 24L + (long) ((1.0F - patch.targetIntensity) * 54.0F))
+                patch.heat += (patch.targetIntensity * 0.52F - patch.heat)
+					* Math.min(1.0F, elapsed * 0.095F);
+                patch.coverage = Math.min(0.18F, patch.coverage + elapsed * 0.0040F);
+                if (age >= 10L + (long) ((1.0F - patch.targetIntensity) * 24.0F))
                     patch.phase = FirePhase.GROWING;
             }
             case GROWING -> {
                 patch.heat += (patch.targetIntensity - patch.heat)
-                    * Math.min(1.0F, elapsed * (0.018F + patch.targetIntensity * 0.018F)
-					* (1.0F + clump * 0.20F));
-                patch.coverage += elapsed * (0.0022F + patch.targetIntensity * 0.0036F)
-					* (1.0F + clump * 0.24F);
-                patch.fuel -= elapsed / (float) Math.max(600, patch.burnTicks * 3);
-                if (patch.coverage >= 0.94F) {
-                    patch.coverage = 0.94F;
+                    * Math.min(1.0F, elapsed * (0.050F + patch.targetIntensity * 0.045F)
+					* (1.0F + clump * 0.28F));
+                patch.coverage += elapsed * (0.0090F + patch.targetIntensity * 0.012F)
+					* (1.0F + clump * 0.34F);
+                patch.fuel -= elapsed / (float) Math.max(180, patch.burnTicks * 2);
+                if (patch.coverage >= 0.88F) {
+                    patch.coverage = 0.88F;
                     patch.phase = FirePhase.FLAMING;
                 }
             }
             case FLAMING -> {
                 patch.heat += (patch.targetIntensity * profile.heatRelease() - patch.heat)
                     * Math.min(1.0F, elapsed * 0.026F);
-                patch.coverage = Math.min(1.0F, patch.coverage + elapsed * 0.0007F);
+                patch.coverage = Math.min(1.0F, patch.coverage + elapsed * 0.0032F);
                 patch.fuel -= elapsed * combustionPressure
-					/ (float) Math.max(400, patch.burnTicks);
+					/ (float) Math.max(160, patch.burnTicks);
                 if (patch.fuel < 0.28F) patch.phase = FirePhase.DECAYING;
             }
             case DECAYING -> {
-                patch.fuel -= elapsed * combustionPressure
-					/ (float) Math.max(300, patch.burnTicks);
+				patch.fuel -= elapsed * combustionPressure
+					/ (float) Math.max(140, patch.burnTicks);
                 patch.heat -= elapsed * 0.0018F;
                 patch.coverage = Math.max(0.20F, patch.coverage - elapsed * 0.0014F);
                 if (patch.fuel <= 0.05F || patch.heat < 0.24F)
@@ -467,8 +467,8 @@ public final class FireSimulationManager {
             && patch.heat > 0.075F && now >= patch.nextTransferTick
             && now >= state.nextHostTransferTick.getOrDefault(hostKey, 0L)
             && state.newIgnitionsThisTick < MAX_NEW_IGNITIONS_PER_TICK) {
-            int transferInterval = Math.max(6,
-                18 - (int) (patch.targetIntensity * 10.0F)
+            int transferInterval = Math.max(3,
+                11 - (int) (patch.targetIntensity * 7.0F)
                     - (int) Math.min(3.0F, clump * 2.0F));
             int dueTransfers = 1 + Math.min(3, (int) Math.max(0L,
                 (now - patch.nextTransferTick) / transferInterval));
@@ -489,10 +489,10 @@ public final class FireSimulationManager {
             && patch.heat > 0.22F && patch.coverage > 0.28F
             && state.embers.size() < MAX_EMBERS
             && now >= state.nextHostEmberAttemptTick.getOrDefault(hostKey, 0L)) {
-            int attemptInterval = Math.max(8, 24 - (int) (clump * 10.0F));
+            int attemptInterval = Math.max(3, 9 - (int) (clump * 4.0F));
             state.nextHostEmberAttemptTick.put(hostKey, now + attemptInterval);
             double emberChance = patch.heat * patch.coverage * patch.targetIntensity
-                * profile.emberSusceptibility() * (0.12 + clump * 0.18);
+                * profile.emberSusceptibility() * (0.46 + clump * 0.28);
             if (unit(mix(patch.seed ^ hostKey ^ now)) < emberChance) {
                 spawnEmber(level, state, patch, now);
             }
@@ -523,16 +523,23 @@ public final class FireSimulationManager {
         }
         /* Only close radiation/convection may heat without contact. Long-range,
            wind-biased ignition is carried by the authoritative firebrands below. */
-        int radius = 2;
-        int samples = 5 + Mth.ceil(source.targetIntensity * 5.0F);
+        /* Buoyant convection is independent of atmospheric wind. Explicit
+		 * upward probes make a leaf crown race vertically even in a sealed calm. */
+		for (int rise = 2; rise <= 5; rise++) {
+			BlockPos candidate = source.anchor.host().above(rise);
+			depositToBlock(level, state, source, sourceProfile, candidate, origin,
+				windDirection, horizontalWind, now, 2.3F / rise, dueTransfers, false);
+		}
+        int radius = 3;
+        int samples = 12 + Mth.ceil(source.targetIntensity * 14.0F);
         for (int index = 0; index < samples; index++) {
             int dx = random.nextInt(-radius, radius + 1);
             int dy = random.nextInt(-Math.max(1, radius / 2), radius + 1);
             int dz = random.nextInt(-radius, radius + 1);
             if (dx == 0 && dy == 0 && dz == 0) continue;
             BlockPos candidate = source.anchor.host().offset(dx, dy, dz);
-			if (candidate.distSqr(source.anchor.host()) > 5.0) continue;
-            float sampling = dy > 0 ? 1.28F : 0.62F;
+			if (candidate.distSqr(source.anchor.host()) > 12.0) continue;
+            float sampling = dy > 0 ? 1.85F : 0.74F;
             depositToBlock(level, state, source, sourceProfile, candidate, origin,
 				windDirection, horizontalWind, now, sampling, dueTransfers, false);
         }
@@ -541,8 +548,8 @@ public final class FireSimulationManager {
     private static void depositAlongSurface(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile profile, final FireSurfaceAnchor target,
         final long now, final int dueTransfers) {
-        float dose = 0.025F + source.heat * source.coverage * profile.heatRelease()
-            * (0.12F + source.targetIntensity * 0.16F);
+        float dose = 0.055F + source.heat * source.coverage * profile.heatRelease()
+			* (0.24F + source.targetIntensity * 0.30F);
         if (source.heat > 0.45F && source.coverage > 0.18F)
             dose *= 1.55F + Math.min(0.35F, source.targetIntensity * 0.35F);
         dose *= dueTransfers;
@@ -657,7 +664,7 @@ public final class FireSimulationManager {
         long id = state.nextId++;
         Patch patch = new Patch(id, anchor, Mth.clamp(intensity, 0.10F, 1.0F),
             direct ? FirePhase.GROWING : FirePhase.IGNITION,
-            direct ? 0.12F : 0.055F, direct ? 0.045F : 0.018F,
+            direct ? 0.30F : 0.12F, direct ? 0.14F : 0.055F,
             burnTicks, seed, now, surfaceFlame);
         state.patches.put(id, patch);
         state.membershipGeneration++;
@@ -795,12 +802,12 @@ public final class FireSimulationManager {
             ventilationFactor(level, state, patch.anchor.host(), now));
         long seed = mix(patch.seed ^ now ^ state.embers.size());
         SplittableRandom random = new SplittableRandom(seed);
-        Vec3 velocity = new Vec3(wind.x * random.nextDouble(0.55, 1.25)
-            + random.nextDouble(-0.035, 0.035), random.nextDouble(0.055, 0.13),
-            wind.z * random.nextDouble(0.55, 1.25) + random.nextDouble(-0.035, 0.035));
+        Vec3 velocity = new Vec3(wind.x * random.nextDouble(0.90, 1.85)
+			+ random.nextDouble(-0.055, 0.055), random.nextDouble(0.13, 0.30),
+			wind.z * random.nextDouble(0.90, 1.85) + random.nextDouble(-0.055, 0.055));
         state.embers.addLast(new Ember(state.nextEmberId++,
             patch.anchor.position().add(0.0, 0.12, 0.0), velocity,
-            patch.targetIntensity, seed, now, random.nextInt(80, 171)));
+            patch.targetIntensity, seed, now, random.nextInt(120, 281)));
     }
 
     private static void tickEmbers(final ServerLevel level, final LevelState state, final long now,
@@ -812,8 +819,9 @@ public final class FireSimulationManager {
 			if (now - ember.startTick >= ember.lifetime) continue;
             double progress = Mth.clamp((now - ember.startTick)
                 / (double) Math.max(1, ember.lifetime), 0.0, 1.0);
-            ember.velocity = stepEmberVelocity(ember.velocity,
-                FireWindEngine.windAt(level, ember.position), ember.seed,
+            Vec3 emberWind = FireWindEngine.windAt(level, ember.position).scale(
+				ventilationFactor(level, state, BlockPos.containing(ember.position), now));
+            ember.velocity = stepEmberVelocity(ember.velocity, emberWind, ember.seed,
                 ember.startTick, now, progress);
             Vec3 next = ember.position.add(ember.velocity);
 			if (!advanceEmber(level, state, ember, next, now)) {
@@ -870,9 +878,9 @@ public final class FireSimulationManager {
         Vec3 forward = horizontalSpeed > 1.0E-5
             ? new Vec3(safeWind.x / horizontalSpeed, 0.0, safeWind.z / horizontalSpeed)
             : new Vec3(-lateral.z, 0.0, lateral.x);
-        double lift = 0.010 * (1.0 - ageProgress) - 0.006 * ageProgress
+        double lift = 0.018 * (1.0 - ageProgress) - 0.005 * ageProgress
             + Math.sin(age * 0.163 + seedAngle * 0.79) * 0.0045;
-        return velocity.scale(0.90).add(safeWind.scale(0.10))
+        return velocity.scale(0.86).add(safeWind.scale(0.14))
             .add(lateral.scale(sway * amplitude)).add(forward.scale(forwardFlutter))
             .add(0.0, lift, 0.0);
     }
@@ -1077,34 +1085,41 @@ public final class FireSimulationManager {
 
     private static float smokeProduction(final Patch patch, final FireFuelProfile profile) {
         float stage = switch (patch.phase) {
-            case IGNITION -> 0.035F;
-            case GROWING -> 0.08F + patch.coverage * 0.10F;
-            case FLAMING -> 0.10F + profile.smokeSoot() * 0.22F;
-            case DECAYING -> 0.28F + profile.smokeSoot() * 0.32F;
-            case SMOLDERING -> 0.48F + profile.smokeSoot() * 0.40F;
+            case IGNITION -> 0.08F;
+            case GROWING -> 0.20F + patch.coverage * 0.22F;
+            case FLAMING -> 0.24F + profile.smokeSoot() * 0.52F;
+            case DECAYING -> 0.44F + profile.smokeSoot() * 0.48F;
+            case SMOLDERING -> 0.62F + profile.smokeSoot() * 0.52F;
         };
         return Mth.clamp(stage * (0.28F + patch.targetIntensity * 0.72F)
             * (0.25F + patch.coverage * 0.75F), 0.01F, 1.0F);
     }
 
     private static void playCrackle(final ServerLevel level, final LevelState state, final long now) {
-        int selected = (int) Math.floorMod(mix(now ^ state.patches.size()), state.patches.size());
-        Iterator<Patch> iterator = state.patches.values().iterator();
-        Patch patch = iterator.next();
-        for (int index = 0; index < selected && iterator.hasNext(); index++) patch = iterator.next();
-		float clump = clumpFactor(state, patch);
-        level.playSound(null, patch.anchor.host(), SoundEvents.CAMPFIRE_CRACKLE,
-			SoundSource.BLOCKS, Mth.clamp(0.20F + patch.targetIntensity * 0.42F
-				+ clump * 0.12F, 0.20F, 0.95F),
-            0.84F + (float) unit(patch.seed ^ now) * 0.34F);
+        int voices = Math.min(16, Math.max(2, state.patches.size() / 48 + 1));
+        List<Patch> patches = new ArrayList<>(state.patches.values());
+        int stride = Math.max(1, patches.size() / voices);
+        int start = Math.floorMod((int) mix(now ^ patches.size()), stride);
+        for (int index = start, played = 0; index < patches.size() && played < voices;
+			index += stride, played++) {
+			Patch patch = patches.get(index);
+			float clump = clumpFactor(state, patch);
+			float volume = Mth.clamp(0.70F + patch.targetIntensity * 0.78F
+				+ clump * 0.22F, 0.70F, 2.15F);
+			level.playSound(null, patch.anchor.host(), SoundEvents.FIRE_AMBIENT,
+				SoundSource.BLOCKS, volume, 0.82F + (float) unit(patch.seed ^ now) * 0.28F);
+			if ((played & 1) == 0) level.playSound(null, patch.anchor.host(),
+				SoundEvents.CAMPFIRE_CRACKLE, SoundSource.BLOCKS, volume * 0.72F,
+				0.88F + (float) unit(patch.seed + now) * 0.24F);
+		}
     }
 
     private static void damageEntities(final ServerLevel level, final Patch patch) {
         Vec3 normal = Vec3.atLowerCornerOf(patch.anchor.face().getUnitVec3i()).scale(0.28);
         Vec3 center = patch.anchor.position().add(normal).add(0.0, 0.30, 0.0);
         AABB contact = AABB.ofSize(center, 1.12, 1.55, 1.12);
-        float damage = 0.65F + patch.heat * 0.85F + patch.targetIntensity * 0.50F;
-        float burnSeconds = 2.0F + patch.targetIntensity * 4.0F;
+        float damage = 1.40F + patch.heat * 1.65F + patch.targetIntensity * 1.25F;
+        float burnSeconds = 5.0F + patch.targetIntensity * 8.0F;
         for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, contact,
             candidate -> candidate.isAlive() && !candidate.fireImmune())) {
             entity.igniteForSeconds(burnSeconds);

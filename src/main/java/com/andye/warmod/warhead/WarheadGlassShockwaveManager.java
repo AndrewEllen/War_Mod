@@ -106,13 +106,13 @@ public final class WarheadGlassShockwaveManager {
         boolean nuclear = payload.payloadType() == WarheadPayloadType.NUCLEAR;
         float visualScale = Mth.clamp(payload.impactVisualScale(), 0.28F, 4.2F);
         double craterRadius = nuclear ? 12.0 + 13.0 * visualScale : 0.0;
-        double maximumRadius = nuclear
-            ? Math.max(72.0 + visualScale * 58.0,
-                nuclearAftermathRadius(craterRadius, visualScale))
-            : conventionalGlassRadius(visualScale);
         int aftermathRadius = nuclear
             ? Mth.ceil(nuclearAftermathRadius(craterRadius, visualScale)) : 0;
         int glassRadius = nuclear ? nuclearGlassRadius(aftermathRadius, visualScale) : 0;
+        double maximumRadius = nuclear
+            ? Math.max(Math.max(72.0 + visualScale * 58.0,
+                nuclearAftermathRadius(craterRadius, visualScale)), glassRadius)
+            : conventionalGlassRadius(visualScale);
         NuclearTerrainPreparation preparation = nuclear
             ? takePreparation(level, payload.warheadId()) : null;
         if (nuclear && preparation == null) {
@@ -122,19 +122,19 @@ public final class WarheadGlassShockwaveManager {
                 payload.impactGameTime() + 420L
             );
         }
-        if (nuclear && preparation != null && !preparation.complete()) {
-            preparation.advance(level, IMPACT_PREPARATION_CATCHUP_COLUMNS,
-                System.nanoTime() + IMPACT_PREPARATION_CATCHUP_NANOS);
-        }
+        if (nuclear && preparation != null && !preparation.complete())
+            preparation.finishLoadedDiscovery(level);
         if (nuclear) {
             /* Establish the opaque cover at impact instead of waiting for the
                first terrain-pressure pass to finish under a busy tick. */
             NuclearDestructionCurtainEmitter.crossedShells(level, payload.warheadId(), center,
                 payload.visualSeed(), visualScale, 0.0, Math.min(12.0, maximumRadius), false);
         }
-        WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(new Wave(
+        Wave wave = new Wave(
             payload.warheadId(), center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
-            visualScale, nuclear, preparation, customFire));
+            visualScale, nuclear, preparation, customFire);
+        if (nuclear) wave.applyInstantThermalTerrain(level);
+        WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(wave);
     }
 
     /**
@@ -186,6 +186,17 @@ public final class WarheadGlassShockwaveManager {
 		}
         preparations.put(impactId, new NuclearTerrainPreparation(
             center, seed, aftermathRadius, glassRadius, expiresAt));
+    }
+
+    /** Drops a carrier's speculative scan when it separates without impact. */
+    public static synchronized void cancelNuclearPreparation(final ServerLevel level,
+        final java.util.UUID impactId) {
+        Map<java.util.UUID, NuclearTerrainPreparation> preparations =
+            NUCLEAR_PREPARATIONS.get(level);
+        if (preparations == null) return;
+        NuclearTerrainPreparation removed = preparations.remove(impactId);
+        if (removed != null) removed.stopDiscovery();
+        if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
     }
 
     private static int nuclearGlassRadius(final int aftermathRadius, final float visualScale) {
@@ -413,6 +424,28 @@ public final class WarheadGlassShockwaveManager {
 			return complete;
         }
 
+        /**
+         * Thermal radiation and the fireball alter terrain in the impact frame.
+         * Glass is intentionally excluded and remains queued by pressure shell.
+         */
+        private void applyInstantThermalTerrain(final ServerLevel level) {
+            if (!nuclear || preparation == null) return;
+            applyAllPreparedPhase(level, 0);
+            applyAllPreparedPhase(level, 1);
+            for (int phase = 3; phase < PREPARED_PHASE_COUNT; phase++) {
+                applyAllPreparedPhase(level, phase);
+            }
+            drainPendingSurfaceFire(level, Long.MAX_VALUE);
+        }
+
+        private void applyAllPreparedPhase(final ServerLevel level, final int phase) {
+            while (true) {
+                LongArrayList batch = takePreparedBatch(phase, Integer.MAX_VALUE, 4_096);
+                if (batch.isEmpty()) return;
+                for (long packed : batch) applyPreparedEntry(level, phase, packed);
+            }
+        }
+
         private void advancePressure(final ServerLevel level, final long gameTime,
             final long deadline) {
             double elapsedTicks = Math.max(0.0, gameTime - startGameTime + 1.0);
@@ -426,10 +459,12 @@ public final class WarheadGlassShockwaveManager {
 				curtainRadius = targetRadius;
 			}
 			if (nuclear && preparation != null) {
-				applyPreparedSurfaceTerrain(level, targetRadius, deadline);
-				if (preparation.hasSurfaceThrough(
-					NuclearTerrainPreparation.shellFor(targetRadius))
-					|| System.nanoTime() >= deadline) return;
+				/* All thermal terrain was committed at impact. Glass alone follows
+				 * the finite-speed pressure shell, and crossed shells drain fully so
+				 * physical shattering stays locked to the visible front. */
+				applyPreparedGlassWave(level, targetRadius);
+				processedRadius = targetRadius;
+				return;
 			}
             if (!pressurePassActive) {
                 if (targetRadius <= processedRadius + 0.01) return;
@@ -488,6 +523,16 @@ public final class WarheadGlassShockwaveManager {
             }
             processedRadius = appliedRadius;
             if (passComplete) pressurePassActive = false;
+        }
+
+        private void applyPreparedGlassWave(final ServerLevel level,
+            final double targetRadius) {
+            int shell = NuclearTerrainPreparation.shellFor(targetRadius);
+            while (true) {
+                LongArrayList batch = preparation.takeGlass(shell, 4_096);
+                if (batch.isEmpty()) return;
+                for (long packed : batch) applyPreparedEntry(level, 2, packed);
+            }
         }
 
         private void applyPreparedNuclearTerrain(final ServerLevel level,
@@ -1645,6 +1690,15 @@ public final class WarheadGlassShockwaveManager {
                 discoverColumn(level, centerX, centerZ, x, z, radiusSqr, treeRadiusSqr);
             }
             return used;
+        }
+
+        /** Completes discovery for all currently loaded columns in the impact
+         * call. Missing chunks are never force-loaded merely for aftermath. */
+        private void finishLoadedDiscovery(final ServerLevel level) {
+            while (!mainScanComplete) {
+                advance(level, Integer.MAX_VALUE, Long.MAX_VALUE);
+            }
+            stopDiscovery();
         }
 
         private long nextRadialOffset() {

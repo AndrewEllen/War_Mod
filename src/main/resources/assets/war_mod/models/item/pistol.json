@@ -1,0 +1,11 @@
+{
+  "textures":{"metal":"war_mod:item/field_hardware","grip":"war_mod:item/field_grip","optic":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#metal"},
+  "elements":[
+    {"name":"slide","from":[2,8,6.3],"to":[14.5,11,9.7],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}},
+    {"name":"barrel","from":[0.5,8.5,7],"to":[3,10.5,9],"faces":{"north":{"texture":"#warning"},"south":{"texture":"#warning"},"east":{"texture":"#warning"},"west":{"texture":"#warning"},"up":{"texture":"#warning"},"down":{"texture":"#warning"}}},
+    {"name":"frame","from":[5,5.8,6.6],"to":[14,8.5,9.4],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}},
+    {"name":"grip","from":[9,0.8,6.8],"to":[13.5,6.5,9.2],"rotation":{"origin":[11,6,8],"axis":"z","angle":-22.5},"faces":{"north":{"texture":"#grip"},"south":{"texture":"#grip"},"east":{"texture":"#grip"},"west":{"texture":"#grip"},"up":{"texture":"#grip"},"down":{"texture":"#grip"}}},
+    {"name":"front_sight","from":[2.2,11,7.3],"to":[3.2,12,8.7],"faces":{"north":{"texture":"#optic"},"south":{"texture":"#optic"},"east":{"texture":"#optic"},"west":{"texture":"#optic"},"up":{"texture":"#optic"},"down":{"texture":"#optic"}}}
+  ],
+  "display":{"gui":{"rotation":[20,140,0],"scale":[0.82,0.82,0.82]},"ground":{"rotation":[0,90,0],"scale":[0.42,0.42,0.42]},"firstperson_righthand":{"rotation":[0,90,-8],"translation":[-1,-1,1],"scale":[0.76,0.76,0.76]},"thirdperson_righthand":{"rotation":[0,90,-12],"translation":[0,2,1],"scale":[0.68,0.68,0.68]}}
+}

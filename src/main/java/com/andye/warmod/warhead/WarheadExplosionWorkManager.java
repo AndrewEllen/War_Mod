@@ -64,7 +64,9 @@ import org.jspecify.annotations.Nullable;
  * still given its explosion callback so chain reactions continue to work.</p>
  */
 public final class WarheadExplosionWorkManager {
-	/* Keep strategic terrain work below a tenth of a normal 50 ms server tick. */
+	/* Conventional terrain remains staged. Nuclear terrain is deliberately drained
+	 * in the detonation call: crater excavation represents the effectively
+	 * instantaneous fireball/thermal pulse, not the much slower air-pressure front. */
 	private static final long BLOCK_APPLICATION_BUDGET_NANOS = 4_000_000L;
 	private static final int MAX_BLOCK_CHANGES_PER_LEVEL_TICK = 8_192;
 	private static final int APPLICATION_SLICE = 256;
@@ -225,6 +227,13 @@ public final class WarheadExplosionWorkManager {
 		levelWork.addVoidVolume(work.voidVolume);
 		applyImmediateEntityEffects(level, source, position, profile.entityBlastRadius());
 		work.explosionContext = new FastExplosion(level, source, position, profile.entityBlastRadius());
+		if (yield.nuclear()) {
+			/* Shape templates contain no world reads and are warmed during startup. A
+			 * direct detonation may still arrive before warm-up finishes, in which case
+			 * joining here is preferable to showing terrain crawl behind the flash. */
+			work.template = work.templateFuture.join();
+			work.apply(level, levelWork, Integer.MAX_VALUE, Long.MAX_VALUE);
+		}
 		return work;
 	}
 
@@ -579,12 +588,6 @@ public final class WarheadExplosionWorkManager {
 				if (columnIndex < template.columns.length) {
 					if (currentColumn == null) {
 						Column nextColumn = template.columns[columnIndex];
-						if (profile.yield().nuclear()
-							&& nextColumn.radial * profile.horizontalRadius()
-								> currentNuclearCraterFront(level) + 0.75) {
-							frontBlockedThisApply = true;
-							break;
-						}
 						currentColumn = nextColumn;
 						setCurrentWorldColumn(currentColumn.dx, currentColumn.dz);
 						int top = currentColumn.topY;
@@ -931,6 +934,13 @@ public final class WarheadExplosionWorkManager {
 
 		private boolean advanceAftermath(final ServerLevel level) {
 			int radius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
+			/* Nuclear surface/vegetation transformation is prepared during flight and
+			 * atomically applied by WarheadGlassShockwaveManager at impact. Retaining
+			 * this older second pass would overwrite that thermal result. */
+			if (profile.yield().nuclear()) {
+				aftermathX = radius + 1;
+				return false;
+			}
 			while (aftermathX <= radius) {
 				int dx = aftermathX;
 				int dz = aftermathZ;

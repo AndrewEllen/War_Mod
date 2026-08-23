@@ -13,6 +13,8 @@ import com.andye.warmod.fire.FireSimulationManager;
 import com.andye.warmod.fire.network.FireNetworking;
 import com.andye.warmod.fire.network.FireDebugNetworking;
 import com.andye.warmod.fire.wind.FireWindEngine;
+import com.andye.warmod.firearm.FirearmBulletManager;
+import com.andye.warmod.firearm.network.FirearmNetworking;
 import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.icbm.IcbmChunkTicketType;
 import com.andye.warmod.icbm.IcbmFlightControllerManager;
@@ -66,6 +68,7 @@ public final class WarMod implements ModInitializer {
         WarheadVisualNetworking.registerPayloadTypes();
         NuclearDestructionCurtainNetworking.registerPayloadTypes();
         FireNetworking.registerPayloadTypes();
+        FirearmNetworking.register();
         FireDebugNetworking.register();
         WarModCommand.register();
         WarModPerformanceDiagnostics.registerLifecycle();
@@ -90,6 +93,7 @@ public final class WarMod implements ModInitializer {
         NuclearDestructionCurtainEmitter.registerLifecycle();
         FireWindEngine.registerLifecycle();
         FireSimulationManager.registerLifecycle();
+        FirearmBulletManager.register();
         WarheadYieldRegistry.registerLifecycle();
         IcbmFlightControllerManager.register();
         AntiAirFlightControllerManager.register();

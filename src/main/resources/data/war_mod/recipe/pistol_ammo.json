@@ -1,0 +1,1 @@
+{"type":"minecraft:crafting_shaped","category":"misc","pattern":["NNN","GGG","CCC"],"key":{"N":"minecraft:iron_nugget","G":"minecraft:gunpowder","C":"minecraft:copper_ingot"},"result":{"id":"war_mod:pistol_ammo","count":24}}

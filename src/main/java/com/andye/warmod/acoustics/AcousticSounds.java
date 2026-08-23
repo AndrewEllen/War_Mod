@@ -15,6 +15,10 @@ public final class AcousticSounds {
 	public static final Identifier WARHEAD_IMPACT_THUD_ID = id("warhead_impact_thud");
 	public static final Identifier TACTICAL_HE_EXPLOSION_ID = id("tactical_he_explosion");
 	public static final Identifier ARTILLERY_FIRE_ID = id("artillery_fire");
+	public static final Identifier PISTOL_FIRE_ID = id("pistol_fire");
+	public static final Identifier RIFLE_FIRE_ID = id("rifle_fire");
+	public static final Identifier SNIPER_FIRE_ID = id("sniper_fire");
+	public static final Identifier BULLET_CRACK_ID = id("bullet_crack");
 	private static boolean registered;
 
 	private AcousticSounds() {
@@ -71,6 +75,26 @@ public final class AcousticSounds {
 			ModSoundEvents.PROTOTYPE_EXPLOSION_EXTREME_ID,
 			new double[]{0, 110, 280, 620, 1_200},
 			new float[]{.92F, .72F, .48F, .26F}, .009, true);
+		register(PISTOL_FIRE_ID,
+			ModSoundEvents.PISTOL_NEAR_ID, ModSoundEvents.PISTOL_MEDIUM_ID,
+			ModSoundEvents.PISTOL_FAR_ID, ModSoundEvents.PISTOL_EXTREME_ID,
+			new double[]{0, 75, 190, 430, 900},
+			new float[]{1.0F, .82F, .56F, .30F}, .008, true);
+		register(RIFLE_FIRE_ID,
+			ModSoundEvents.RIFLE_NEAR_ID, ModSoundEvents.RIFLE_MEDIUM_ID,
+			ModSoundEvents.RIFLE_FAR_ID, ModSoundEvents.RIFLE_EXTREME_ID,
+			new double[]{0, 100, 280, 650, 1_400},
+			new float[]{1.12F, .94F, .68F, .38F}, .006, true);
+		register(SNIPER_FIRE_ID,
+			ModSoundEvents.SNIPER_NEAR_ID, ModSoundEvents.SNIPER_MEDIUM_ID,
+			ModSoundEvents.SNIPER_FAR_ID, ModSoundEvents.SNIPER_EXTREME_ID,
+			new double[]{0, 130, 360, 850, 1_900},
+			new float[]{1.24F, 1.08F, .78F, .44F}, .005, true);
+		register(BULLET_CRACK_ID,
+			ModSoundEvents.BULLET_CRACK_NEAR_ID, ModSoundEvents.BULLET_CRACK_MEDIUM_ID,
+			ModSoundEvents.BULLET_CRACK_FAR_ID, ModSoundEvents.BULLET_CRACK_EXTREME_ID,
+			new double[]{0, 45, 130, 320, 700},
+			new float[]{1.0F, .76F, .46F, .22F}, .010, false);
 		registered = true;
 		WarMod.LOGGER.info("Registered propagated acoustic definitions.");
 	}

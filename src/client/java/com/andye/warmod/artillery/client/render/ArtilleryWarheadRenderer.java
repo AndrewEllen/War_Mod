@@ -44,6 +44,7 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
             Math.max(0.0F, shell.activeTicks() + partialTick));
         state.remainingTicks = Math.max(0.0F, state.flightTicks - state.elapsedTicks);
         state.progress = Math.min(1.0F, state.elapsedTicks / state.flightTicks);
+        state.clusterCarrier = shell.clusterCarrier();
         double distance = Math.sqrt(state.distanceToCameraSq);
         state.lod = distance < 192.0 ? WarheadMesh.Lod.NEAR
             : distance < 640.0 ? WarheadMesh.Lod.MEDIUM : WarheadMesh.Lod.FAR;
@@ -53,6 +54,7 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
     public void submit(final ArtilleryWarheadRenderState state, final PoseStack poses,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
         poses.pushPose();
+        if (state.clusterCarrier) poses.scale(1.32F, 1.32F, 1.32F);
         Vector3f direction = new Vector3f((float) state.velocity.x, (float) state.velocity.y,
             (float) state.velocity.z);
         if (direction.lengthSquared() > 1.0E-6F) {

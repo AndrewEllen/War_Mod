@@ -13,18 +13,29 @@ public final class IcbmExhaustRenderer {
 	public static void renderCore(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed) * ignitionBuildup(elapsed);
-		plume(pose, buffer, -2.55F, 0.46F, (float) (4.65 * flicker), 255, 255, 238, 255, 3);
+		float boost = distanceBoost(lod);
+		plume(pose, buffer, -2.55F, 0.46F * boost, (float) (4.65 * flicker * boost), 255, 255, 238, 255, 4);
 		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.58F, 0.63F, (float) (6.35 * flicker), 255, 232, 146, 228, 3);
+			plume(pose, buffer, -2.58F, 0.63F * boost, (float) (6.35 * flicker * boost), 255, 232, 146, 238, 4);
+		} else {
+			/* The world transform preserves angular size at extreme distance, but a
+			 * physically tiny nozzle flame still vanishes into fog. This full-bright
+			 * pilot flare is the long-range signature of a live booster. */
+			plume(pose, buffer, -2.50F, 1.05F * boost, (float) (3.4 * flicker * boost),
+				255, 242, 178, 248, 5);
 		}
 	}
 
 	public static void renderFringe(final PoseStack.Pose pose, final VertexConsumer buffer,
 		final long seed, final double elapsed, final IcbmLongRangeRenderContext.Lod lod) {
 		double flicker = flicker(seed, elapsed) * ignitionBuildup(elapsed);
-		plume(pose, buffer, -2.60F, 0.82F, (float) (8.55 * flicker), 255, 174, 54, 216, 4);
+		float boost = distanceBoost(lod);
+		plume(pose, buffer, -2.60F, 0.82F * boost, (float) (8.55 * flicker * boost), 255, 174, 54, 228, 4);
 		if (lod != IcbmLongRangeRenderContext.Lod.EXTREME) {
-			plume(pose, buffer, -2.64F, 1.08F, (float) (11.25 * flicker), 255, 108, 24, 150, 4);
+			plume(pose, buffer, -2.64F, 1.08F * boost, (float) (11.25 * flicker * boost), 255, 108, 24, 176, 4);
+		} else {
+			plume(pose, buffer, -2.64F, 1.18F * boost, (float) (9.6 * flicker * boost),
+				255, 116, 24, 188, 5);
 		}
 		if (lod == IcbmLongRangeRenderContext.Lod.NEAR || lod == IcbmLongRangeRenderContext.Lod.MEDIUM) {
 			plume(pose, buffer, -2.68F, 1.38F, (float) (14.0 * flicker), 238, 76, 18, 82, 5);
@@ -41,6 +52,15 @@ public final class IcbmExhaustRenderer {
 	private static double flicker(final long seed, final double elapsed) {
 		double phase = elapsed * 2.15 + (seed & 255L) * 0.03125;
 		return 0.91 + 0.065 * Math.sin(phase) + 0.025 * Math.sin(phase * 2.37 + 1.4);
+	}
+
+	private static float distanceBoost(final IcbmLongRangeRenderContext.Lod lod) {
+		return switch (lod) {
+			case NEAR -> 1.0F;
+			case MEDIUM -> 1.12F;
+			case FAR -> 1.75F;
+			case EXTREME -> 2.70F;
+		};
 	}
 
 	private static double ignitionBuildup(final double elapsed) {

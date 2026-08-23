@@ -272,5 +272,21 @@
         "sounds": [
             { "name": "war_mod:warhead/impact_thud_near", "volume": 0.42, "pitch": 1.75 }
         ]
-    }
+    },
+    "pistol_near": { "sounds": ["war_mod:firearm/pistol_near"] },
+    "pistol_medium": { "sounds": ["war_mod:firearm/pistol_medium"] },
+    "pistol_far": { "sounds": ["war_mod:firearm/pistol_far"] },
+    "pistol_extreme": { "sounds": ["war_mod:firearm/pistol_extreme"] },
+    "rifle_near": { "sounds": ["war_mod:firearm/rifle_near"] },
+    "rifle_medium": { "sounds": ["war_mod:firearm/rifle_medium"] },
+    "rifle_far": { "sounds": ["war_mod:firearm/rifle_far"] },
+    "rifle_extreme": { "sounds": ["war_mod:firearm/rifle_extreme"] },
+    "sniper_near": { "sounds": ["war_mod:firearm/sniper_near"] },
+    "sniper_medium": { "sounds": ["war_mod:firearm/sniper_medium"] },
+    "sniper_far": { "sounds": ["war_mod:firearm/sniper_far"] },
+    "sniper_extreme": { "sounds": ["war_mod:firearm/sniper_extreme"] },
+    "bullet_crack_near": { "sounds": ["war_mod:firearm/bullet_crack_near"] },
+    "bullet_crack_medium": { "sounds": ["war_mod:firearm/bullet_crack_medium"] },
+    "bullet_crack_far": { "sounds": ["war_mod:firearm/bullet_crack_far"] },
+    "bullet_crack_extreme": { "sounds": ["war_mod:firearm/bullet_crack_extreme"] }
 }

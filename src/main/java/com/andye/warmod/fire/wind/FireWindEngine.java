@@ -107,7 +107,7 @@ public final class FireWindEngine {
             ^ ((long) cellZ * 0xC2B2AE3D27D4EB4FL)
             ^ (epoch * 0xD1B54A32D192ED03L));
         double angle = unit(value) * Math.PI * 2.0;
-        double speed = 0.12 + unit(value ^ 0x475553545F535045L) * 0.23;
+        double speed = 0.24 + unit(value ^ 0x475553545F535045L) * 0.42;
         return new Vec3(Math.cos(angle) * speed, 0.0, Math.sin(angle) * speed);
     }
 

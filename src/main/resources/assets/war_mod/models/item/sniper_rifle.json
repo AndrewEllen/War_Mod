@@ -1,0 +1,15 @@
+{
+  "textures":{"metal":"war_mod:item/field_hardware","grip":"war_mod:item/field_grip","optic":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#metal"},
+  "elements":[
+    {"name":"receiver","from":[5,6.5,6.1],"to":[13,10.2,9.9],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}},
+    {"name":"long_barrel","from":[-7,7.2,7.15],"to":[5,9.5,8.85],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}},
+    {"name":"brake","from":[-8,6.6,6.6],"to":[-5.8,10.1,9.4],"faces":{"north":{"texture":"#warning"},"south":{"texture":"#warning"},"east":{"texture":"#warning"},"west":{"texture":"#warning"},"up":{"texture":"#warning"},"down":{"texture":"#warning"}}},
+    {"name":"stock","from":[13,5.5,6.2],"to":[22,10,9.8],"faces":{"north":{"texture":"#grip"},"south":{"texture":"#grip"},"east":{"texture":"#grip"},"west":{"texture":"#grip"},"up":{"texture":"#grip"},"down":{"texture":"#grip"}}},
+    {"name":"grip","from":[10,1.3,6.8],"to":[13.2,6.8,9.2],"rotation":{"origin":[11.5,6.5,8],"axis":"z","angle":-22.5},"faces":{"north":{"texture":"#grip"},"south":{"texture":"#grip"},"east":{"texture":"#grip"},"west":{"texture":"#grip"},"up":{"texture":"#grip"},"down":{"texture":"#grip"}}},
+    {"name":"scope_tube","from":[3,11.2,6.8],"to":[14.5,13.4,9.2],"faces":{"north":{"texture":"#optic"},"south":{"texture":"#optic"},"east":{"texture":"#optic"},"west":{"texture":"#optic"},"up":{"texture":"#optic"},"down":{"texture":"#optic"}}},
+    {"name":"scope_front","from":[1.8,10.6,6.2],"to":[4,14,9.8],"faces":{"north":{"texture":"#optic"},"south":{"texture":"#optic"},"east":{"texture":"#optic"},"west":{"texture":"#optic"},"up":{"texture":"#optic"},"down":{"texture":"#optic"}}},
+    {"name":"scope_rear","from":[13.5,10.8,6.4],"to":[16,13.8,9.6],"faces":{"north":{"texture":"#optic"},"south":{"texture":"#optic"},"east":{"texture":"#optic"},"west":{"texture":"#optic"},"up":{"texture":"#optic"},"down":{"texture":"#optic"}}},
+    {"name":"scope_mount","from":[7,9.8,6.9],"to":[10.5,11.4,9.1],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}}
+  ],
+  "display":{"gui":{"rotation":[18,140,0],"scale":[0.56,0.56,0.56]},"ground":{"rotation":[0,90,0],"scale":[0.27,0.27,0.27]},"firstperson_righthand":{"rotation":[0,90,-5],"translation":[-1,-1,1],"scale":[0.52,0.52,0.52]},"thirdperson_righthand":{"rotation":[0,90,-8],"translation":[0,2,1],"scale":[0.46,0.46,0.46]}}
+}

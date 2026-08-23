@@ -26,10 +26,10 @@ import net.minecraft.world.phys.Vec3;
  * The only main-thread work is capturing player positions and sending completed packets.
  */
 final class AsyncFireSnapshotDispatcher {
-    private static final double VISUAL_RANGE = 192.0;
+    private static final double VISUAL_RANGE = 320.0;
     private static final double SMOKE_CLUSTER_RANGE = 1_536.0;
     private static final int SMOKE_CLUSTER_CELL_SIZE = 32;
-    private static final int MIN_SMOKE_CLUSTER_HOSTS = 24;
+    private static final int MIN_SMOKE_CLUSTER_HOSTS = 8;
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "war-mod-fire-visual-preparation");
         thread.setDaemon(true);

@@ -1,0 +1,13 @@
+{
+  "textures":{"metal":"war_mod:item/field_hardware","grip":"war_mod:item/field_grip","optic":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#metal"},
+  "elements":[
+    {"name":"receiver","from":[4,6.5,6],"to":[13,10.5,10],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}},
+    {"name":"barrel","from":[-3,7.3,7.1],"to":[4,9.7,8.9],"faces":{"north":{"texture":"#metal"},"south":{"texture":"#metal"},"east":{"texture":"#metal"},"west":{"texture":"#metal"},"up":{"texture":"#metal"},"down":{"texture":"#metal"}}},
+    {"name":"muzzle","from":[-4,6.9,6.7],"to":[-2,10.1,9.3],"faces":{"north":{"texture":"#warning"},"south":{"texture":"#warning"},"east":{"texture":"#warning"},"west":{"texture":"#warning"},"up":{"texture":"#warning"},"down":{"texture":"#warning"}}},
+    {"name":"stock","from":[13,5.8,6.3],"to":[20,10.2,9.7],"faces":{"north":{"texture":"#grip"},"south":{"texture":"#grip"},"east":{"texture":"#grip"},"west":{"texture":"#grip"},"up":{"texture":"#grip"},"down":{"texture":"#grip"}}},
+    {"name":"grip","from":[9,1.5,6.8],"to":[12.5,6.8,9.2],"rotation":{"origin":[10.5,6.5,8],"axis":"z","angle":-22.5},"faces":{"north":{"texture":"#grip"},"south":{"texture":"#grip"},"east":{"texture":"#grip"},"west":{"texture":"#grip"},"up":{"texture":"#grip"},"down":{"texture":"#grip"}}},
+    {"name":"magazine","from":[5.5,1.2,6.5],"to":[9,6.8,9.5],"rotation":{"origin":[7,6.5,8],"axis":"z","angle":-22.5},"faces":{"north":{"texture":"#warning"},"south":{"texture":"#warning"},"east":{"texture":"#warning"},"west":{"texture":"#warning"},"up":{"texture":"#warning"},"down":{"texture":"#warning"}}},
+    {"name":"optic","from":[6.5,10.5,6.7],"to":[10.5,12.5,9.3],"faces":{"north":{"texture":"#optic"},"south":{"texture":"#optic"},"east":{"texture":"#optic"},"west":{"texture":"#optic"},"up":{"texture":"#optic"},"down":{"texture":"#optic"}}}
+  ],
+  "display":{"gui":{"rotation":[18,140,0],"scale":[0.63,0.63,0.63]},"ground":{"rotation":[0,90,0],"scale":[0.30,0.30,0.30]},"firstperson_righthand":{"rotation":[0,90,-7],"translation":[-1,-1,1],"scale":[0.58,0.58,0.58]},"thirdperson_righthand":{"rotation":[0,90,-10],"translation":[0,2,1],"scale":[0.52,0.52,0.52]}}
+}

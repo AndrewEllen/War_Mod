@@ -19,17 +19,18 @@ import org.joml.Vector3f;
  * of disappearing at a material boundary.
  */
 public final class ConventionalBlastParticleRenderer {
-    private static final int MAX_FIELDS = 8;
-    private static final int CAPACITY = 65_536;
+    private static final int MAX_FIELDS = 16;
+    private static final int CAPACITY = 131_072;
     /*
      * The nuclear return front is a persistent, packed ring.  Keep it below
      * the backing field capacity so the pressure front never has to compete
      * for whatever slots happen to be released that tick.  Its deliberately
      * short trail is still wider than the visible pressure band.
      */
-    private static final int RETURN_ACTIVE_CAP = 54_000;
+    private static final int RETURN_ACTIVE_CAP = 110_000;
     private static final float HE_FIRE_TOP = 4.75F;
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
+    private static final long SURFACE_KEY_MASK = 0x73757266616365L;
     private static final Map<Long, Field> FIELDS = new LinkedHashMap<>(16, 0.75F, true);
 
     private ConventionalBlastParticleRenderer() { }
@@ -97,7 +98,10 @@ public final class ConventionalBlastParticleRenderer {
                 visualScale, seed, lod, camera);
             return;
         }
-        Field field = field(seed, visualScale, false);
+        /* The moving ground front owns a separate packed field. It must not lose
+         * slots to the fireball/cloud simulation at the exact moment a large
+         * detonation needs the most terrain dust. */
+        Field field = field(seed ^ SURFACE_KEY_MASK, visualScale, true);
         field.emitSurfaceFront(age, physicalRadius, lod);
         field.render(pose, buffer, age, lod, camera, Pass.SURFACE_FRONT);
     }
@@ -108,7 +112,7 @@ public final class ConventionalBlastParticleRenderer {
         final float visualScale, final long seed, final WarheadMesh.Lod lod,
         final Quaternionf camera) {
         if (!WarheadRenderSettings.usePackedParticles()) return;
-        Field field = field(seed, visualScale, false);
+        Field field = field(seed ^ SURFACE_KEY_MASK, visualScale, true);
         field.emitSurfaceFront(age, physicalRadius, lod);
         field.render(pose, buffer, age, lod, camera, Pass.EXPLOSION_FRONT);
     }
@@ -459,11 +463,11 @@ public final class ConventionalBlastParticleRenderer {
             lastSurfaceTick = tick;
             if (renderedAge >= WarheadVisualMath.airShockwaveDurationTicks(scale)) return;
             int base = switch (lod) {
-                case NEAR -> 560;
-                case MEDIUM -> 280;
-                case FAR -> 105;
+                case NEAR -> 1_600;
+                case MEDIUM -> 1_200;
+                case FAR -> 800;
             };
-            int count = Math.min(1_700,
+            int count = Math.min(5_000,
                 Math.round(base * (0.72F + (float) Math.pow(scale, 1.10))));
             for (int index = 0; index < count; index++) {
                 long random = mix(seed ^ 0x46524F4E545F5633L ^ ((long) tick << 32)
@@ -496,11 +500,11 @@ public final class ConventionalBlastParticleRenderer {
             if (tick == lastReturnTick || returnRadius <= 0.0) return;
             lastReturnTick = tick;
             int base = switch (lod) {
-                case NEAR -> 620;
-                case MEDIUM -> 310;
-                case FAR -> 120;
+                case NEAR -> 1_800;
+                case MEDIUM -> 1_400;
+                case FAR -> 900;
             };
-            int count = Math.min(1_900,
+            int count = Math.min(5_200,
                 Math.round(base * (0.78F + (float) Math.sqrt(scale))));
             int admitted = Math.min(count,
                 Math.max(0, RETURN_ACTIVE_CAP - activeReturnCount));
@@ -758,9 +762,8 @@ public final class ConventionalBlastParticleRenderer {
             float partial = (float) Mth.clamp(renderedAge - Math.floor(renderedAge), 0.0, 1.0);
             Basis basis = Basis.from(camera);
             int stride = switch (lod) {
-                case NEAR -> 1;
-                case MEDIUM -> 2;
-                case FAR -> 5;
+                case NEAR, MEDIUM -> 1;
+                case FAR -> 2;
             };
             int inspected = 0;
             int rejected = 0;

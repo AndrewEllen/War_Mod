@@ -41,8 +41,8 @@ public final class GroundDustFrontRenderer {
         float budgetScale = Mth.clamp(
             (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
             0.45F, 4.0F);
-        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 2_200
-            : lod == WarheadMesh.Lod.MEDIUM ? 1_050 : 420)
+        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 6_400
+            : lod == WarheadMesh.Lod.MEDIUM ? 3_600 : 1_700)
             * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);
@@ -120,13 +120,12 @@ public final class GroundDustFrontRenderer {
         float budgetScale = Mth.clamp(
             (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
             0.45F, 4.0F);
-        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 1_600
-            : lod == WarheadMesh.Lod.MEDIUM ? 760 : 300)
+        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 4_800
+            : lod == WarheadMesh.Lod.MEDIUM ? 2_600 : 1_200)
             * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);
-        int divisor = lod == WarheadMesh.Lod.NEAR ? 1
-            : lod == WarheadMesh.Lod.MEDIUM ? 2 : 3;
+        int divisor = lod == WarheadMesh.Lod.FAR ? 2 : 1;
         for (int index = 0; index < count; index++) {
             TerrainShockfrontNode node = nodes.get(index);
             long seed = mix(node.surfaceBlock().asLong() ^ 0x4558504C4F444537L);

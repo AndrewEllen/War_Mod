@@ -51,5 +51,11 @@
   "item.war_mod.artillery_cannon": "Artillery Cannon",
   "item.war_mod.fire_debug_stick": "Custom Fire Debug Stick",
   "item.war_mod.fire_hose": "Fire Hose",
-  "item.war_mod.fire_extinguisher": "Fire Extinguisher"
+  "item.war_mod.fire_extinguisher": "Fire Extinguisher",
+  "item.war_mod.pistol": "Service Pistol",
+  "item.war_mod.assault_rifle": "Automatic Rifle",
+  "item.war_mod.sniper_rifle": "Precision Sniper Rifle",
+  "item.war_mod.pistol_ammo": "Pistol Ammunition",
+  "item.war_mod.rifle_ammo": "Rifle Ammunition",
+  "item.war_mod.sniper_ammo": "Precision Rifle Ammunition"
 }

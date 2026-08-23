@@ -19,7 +19,7 @@ import org.joml.Quaternionf;
 
 /** Independent packed analytical dust curtain; it never allocates Minecraft particles. */
 public final class NuclearDestructionCurtainRenderer {
-    private static final double MAX_DISTANCE = 1_536.0;
+    private static final double MAX_DISTANCE = 3_072.0;
     private static final double BAND_HOLD_TICKS = 42.0;
     private static final double BAND_FADE_TICKS = 210.0;
     private static volatile Frame frame = Frame.EMPTY;

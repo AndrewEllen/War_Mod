@@ -43,7 +43,7 @@ import org.joml.Vector3f;
 public final class WarheadWorldRenderer {
     private static final double NEAR_DISTANCE = 192.0;
     private static final double MEDIUM_DISTANCE = 640.0;
-    private static final double MAX_DISTANCE = 1536.0;
+    private static final double MAX_DISTANCE = WarheadConstants.VISUAL_RANGE_BLOCKS;
     private static final Set<UUID> RETURN_WAVE_SOUND_PLAYED = new HashSet<>();
     private static final Map<UUID, Double> RETURN_WAVE_PREVIOUS_RADIUS = new HashMap<>();
     private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
@@ -129,8 +129,8 @@ public final class WarheadWorldRenderer {
             float budgetScale = Mth.clamp(
                 (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 6.0F),
                 0.45F, 4.0F);
-            int dustLimit = Math.round((impactLod == WarheadMesh.Lod.NEAR ? 3_400
-                : impactLod == WarheadMesh.Lod.MEDIUM ? 1_700 : 650) * budgetScale);
+            int dustLimit = Math.round((impactLod == WarheadMesh.Lod.NEAR ? 8_000
+                : impactLod == WarheadMesh.Lod.MEDIUM ? 5_000 : 2_400) * budgetScale);
             List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile())
                 ? state.terrainShockfrontField().activeDustNodes(groundDistance,
                     frontierSpokeCount(impactLod), dustLimit, gameTime)
@@ -286,6 +286,29 @@ public final class WarheadWorldRenderer {
                     groundFrontierAlpha(impact.ageTicks(), alphaScale, yieldRadiusScale)
                         * rangeFade,
                     208, 226, 244));
+            context.submitNodeCollector().submitCustomGeometry(poseStack,
+                WarheadRenderPipelines.GROUND_DUST,
+                (pose, buffer) -> ConventionalBlastParticleRenderer.renderSurfaceFront(
+                    pose, buffer, impact.ageTicks(), impact.groundDistance(),
+                    impact.visualScale(), impact.visualSeed(), impact.lod(),
+                    frame.cameraOrientation()));
+            context.submitNodeCollector().submitCustomGeometry(poseStack,
+                WarheadRenderPipelines.EXPLOSION_PUFF,
+                (pose, buffer) -> ConventionalBlastParticleRenderer.renderSurfaceExplosionPuffs(
+                    pose, buffer, impact.ageTicks(), impact.groundDistance(),
+                    impact.visualScale(), impact.visualSeed(), impact.lod(),
+                    frame.cameraOrientation()));
+        }
+        if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
+            double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(
+                impact.ageTicks(), yieldRadiusScale);
+            if (returnRadius > 0.0) {
+                context.submitNodeCollector().submitCustomGeometry(poseStack,
+                    WarheadRenderPipelines.GROUND_DUST,
+                    (pose, buffer) -> ConventionalBlastParticleRenderer.renderNuclearReturnFront(
+                        pose, buffer, impact.ageTicks(), returnRadius, yieldRadiusScale,
+                        impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+            }
         }
         poseStack.popPose();
 

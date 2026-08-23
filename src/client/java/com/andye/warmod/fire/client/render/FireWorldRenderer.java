@@ -23,8 +23,8 @@ import org.joml.Quaternionf;
 
 /** Packed analytical surface-fire renderer; only custom fire reads wind. */
 public final class FireWorldRenderer {
-    private static final double MAX_DISTANCE = 192.0;
-    private static final double MIN_SMOKE_CLUSTER_DISTANCE = 224.0;
+    private static final double MAX_DISTANCE = 320.0;
+    private static final double MIN_SMOKE_CLUSTER_DISTANCE = 288.0;
     private static final double MAX_SMOKE_CLUSTER_DISTANCE = 1_536.0;
     private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
     private static boolean registered;

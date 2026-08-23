@@ -6,6 +6,7 @@ import com.andye.warmod.block.MissileSiloGuidanceSupportItem;
 import com.andye.warmod.block.PhalanxTurretBlockItem;
 import com.andye.warmod.block.RadarStationBlockItem;
 import com.andye.warmod.artillery.ArtilleryPayload;
+import com.andye.warmod.firearm.FirearmType;
 import com.andye.warmod.block.ModBlocks;
 import com.andye.warmod.warhead.WarheadYield;
 import java.util.EnumMap;
@@ -47,6 +48,12 @@ public final class ModItems {
     public static final ResourceKey<Item> FIRE_DEBUG_STICK_KEY = key("fire_debug_stick");
     public static final ResourceKey<Item> FIRE_HOSE_KEY = key("fire_hose");
     public static final ResourceKey<Item> FIRE_EXTINGUISHER_KEY = key("fire_extinguisher");
+    public static final ResourceKey<Item> PISTOL_KEY = key("pistol");
+    public static final ResourceKey<Item> ASSAULT_RIFLE_KEY = key("assault_rifle");
+    public static final ResourceKey<Item> SNIPER_RIFLE_KEY = key("sniper_rifle");
+    public static final ResourceKey<Item> PISTOL_AMMO_KEY = key("pistol_ammo");
+    public static final ResourceKey<Item> RIFLE_AMMO_KEY = key("rifle_ammo");
+    public static final ResourceKey<Item> SNIPER_AMMO_KEY = key("sniper_ammo");
 
     public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
     public static final Item ANTI_AIR_TEST_STICK = new AntiAirTestStickItem(properties(ANTI_AIR_TEST_STICK_KEY, 1));
@@ -82,6 +89,12 @@ public final class ModItems {
     public static final Item FIRE_DEBUG_STICK = new FireDebugStickItem(properties(FIRE_DEBUG_STICK_KEY, 1));
     public static final Item FIRE_HOSE = new FireHoseItem(properties(FIRE_HOSE_KEY, 1));
     public static final Item FIRE_EXTINGUISHER = new FireExtinguisherItem(properties(FIRE_EXTINGUISHER_KEY, 1));
+    public static final Item PISTOL = new FirearmItem(properties(PISTOL_KEY, 1), FirearmType.PISTOL);
+    public static final Item ASSAULT_RIFLE = new FirearmItem(properties(ASSAULT_RIFLE_KEY, 1), FirearmType.ASSAULT_RIFLE);
+    public static final Item SNIPER_RIFLE = new FirearmItem(properties(SNIPER_RIFLE_KEY, 1), FirearmType.SNIPER_RIFLE);
+    public static final Item PISTOL_AMMO = new Item(properties(PISTOL_AMMO_KEY, 64));
+    public static final Item RIFLE_AMMO = new Item(properties(RIFLE_AMMO_KEY, 64));
+    public static final Item SNIPER_AMMO = new Item(properties(SNIPER_AMMO_KEY, 64));
     private static final Map<WarheadYield, Map<PayloadKind, Item>> YIELD_ITEMS = createYieldItems();
 
     private static boolean registered;
@@ -119,6 +132,12 @@ public final class ModItems {
         register(FIRE_DEBUG_STICK_KEY, FIRE_DEBUG_STICK);
         register(FIRE_HOSE_KEY, FIRE_HOSE);
         register(FIRE_EXTINGUISHER_KEY, FIRE_EXTINGUISHER);
+        register(PISTOL_KEY, PISTOL);
+        register(ASSAULT_RIFLE_KEY, ASSAULT_RIFLE);
+        register(SNIPER_RIFLE_KEY, SNIPER_RIFLE);
+        register(PISTOL_AMMO_KEY, PISTOL_AMMO);
+        register(RIFLE_AMMO_KEY, RIFLE_AMMO);
+        register(SNIPER_AMMO_KEY, SNIPER_AMMO);
         for (WarheadYield yield : WarheadYield.values()) for (PayloadKind kind : PayloadKind.values()) register(key(kind.path(yield)), item(yield, kind));
         registered = true;
     }
