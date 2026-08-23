@@ -29,14 +29,24 @@ public final class GenerateGameplayAssets {
         metalTexture("radar_station_panel", 0x20282D, 0x4F5C63);
         metalTexture("radar_station_motor", 0x3D484E, 0x89959B);
         metalTexture("radar_station_support", 0x465158, 0x929DA2);
+        metalTexture("missile_silo_missile", 0x40484E, 0x98783C);
         warningTexture("radar_station_warning", 0xC58B24);
         metalTexture("radar_dish_front", 0x737F83, 0xA7B1B4, "entity");
         metalTexture("radar_dish_back", 0x444E53, 0x707C81, "entity");
         metalTexture("radar_receiver", 0x59656A, 0xD18A2E, "entity");
-        itemTexture("rocket_launcher", 0x344333, 0x171B19, 0x78816F);
-        itemTexture("target_designator", 0x292F34, 0x39C9DB, 0x68737A);
-        itemTexture("remote_launch_designator", 0x252A2E, 0xD28A2F, 0xB73A2E);
-        itemTexture("radar", 0x293237, 0x71B56D, 0xC18C2D);
+        materialTexture("field_hardware", 0x4C575A, 0xAAB3B5, 0x202729);
+        materialTexture("field_grip", 0x242B28, 0x6F786D, 0x121715);
+        materialTexture("field_optic", 0x102326, 0x53C9CE, 0x071113);
+        materialTexture("field_warning", 0x9B681E, 0xD9A12C, 0x352510);
+        materialTexture("rocket_launcher", 0x3C4A38, 0x75816E, 0x1E2820);
+        materialTexture("target_designator", 0x30383D, 0x627078, 0x171D20);
+        materialTexture("remote_launch_designator", 0x2A3135, 0xB87A28, 0x151A1D);
+        materialTexture("radar", 0x2B353A, 0x6DB278, 0x151C1F);
+        materialTexture("fire_extinguisher_body", 0xA53A31, 0xE7E1CD, 0x47201D);
+        materialTexture("fire_equipment_metal", 0x4C575A, 0xC69134, 0x202729);
+        materialTexture("fire_hose_body", 0x303B3C, 0xB67C2A, 0x151D1F);
+        materialTexture("pipe_wrench_handle", 0xA95D2C, 0xD28A39, 0x3B2921);
+        materialTexture("pipe_wrench_jaw", 0x626E72, 0xB4BEC0, 0x293134);
         itemTexture("conventional_icbm", 0x40484E, 0x98783C, 0x252A2E);
         itemTexture("nuclear_icbm", 0x394147, 0xDDBA2D, 0x202427);
         itemTexture("he_rocket", 0x58633D, 0xC39B27, 0x252A2A);
@@ -69,6 +79,9 @@ public final class GenerateGameplayAssets {
         writeJson("models/item/target_designator.json", targetDesignatorModel());
         writeJson("models/item/remote_launch_designator.json", remoteDesignatorModel());
         writeJson("models/item/radar.json", radarModel());
+        writeJson("models/item/fire_extinguisher.json", fireExtinguisherModel());
+        writeJson("models/item/fire_hose.json", fireHoseModel());
+        writeJson("models/item/pipe_wrench.json", pipeWrenchModel());
     }
 
     private static String missileModel(String texture) {
@@ -89,7 +102,8 @@ public final class GenerateGameplayAssets {
     }
 
     private static String launcherModel() {
-        return modelHeader("war_mod:item/rocket_launcher") + """
+        return """
+          {"textures":{"body":"war_mod:item/rocket_launcher","metal":"war_mod:item/field_hardware","grip":"war_mod:item/field_grip","optic":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#body"},
           "elements":[
             {"name":"launch_tube","from":[1,6,5.5],"to":[15,10.5,10.5],"faces":%s},
             {"name":"muzzle_ring","from":[0,5.5,5],"to":[2,11,11],"faces":%s},
@@ -102,12 +116,13 @@ public final class GenerateGameplayAssets {
             {"name":"sight","from":[6,10.5,6.5],"to":[9,13,9.5],"faces":%s},
             {"name":"selector","from":[9.5,10.4,5],"to":[11,11.5,6],"faces":%s}
           ],%s
-        }""".formatted(faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),
-            faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),launcherDisplay());
+        }""".formatted(faces("#body"),faces("#metal"),faces("#metal"),faces("#warning"),faces("#warning"),
+            faces("#grip"),faces("#grip"),faces("#grip"),faces("#optic"),faces("#warning"),launcherDisplay());
     }
 
     private static String targetDesignatorModel() {
-        return modelHeader("war_mod:item/target_designator") + """
+        return """
+          {"textures":{"body":"war_mod:item/target_designator","grip":"war_mod:item/field_grip","optic":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#body"},
           "elements":[
             {"name":"solid_body","from":[3,6,4],"to":[13,12,12],"faces":%s},
             {"name":"front_optic","from":[1,7,5.5],"to":[3,11,10.5],"faces":%s},
@@ -116,11 +131,12 @@ public final class GenerateGameplayAssets {
             {"name":"side_screen","from":[6,7,3.5],"to":[11,11,4],"faces":%s},
             {"name":"buttons","from":[4,7,3.4],"to":[5.5,9.5,4],"faces":%s}
           ],%s
-        }""".formatted(faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),display(0.85));
+        }""".formatted(faces("#body"),faces("#optic"),faces("#grip"),faces("#grip"),faces("#optic"),faces("#warning"),display(0.85));
     }
 
     private static String remoteDesignatorModel() {
-        return modelHeader("war_mod:item/remote_launch_designator") + """
+        return """
+          {"textures":{"body":"war_mod:item/remote_launch_designator","metal":"war_mod:item/field_hardware","grip":"war_mod:item/field_grip","screen":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#body"},
           "elements":[
             {"name":"controller_body","from":[3,5,4],"to":[13,13,12],"faces":%s},
             {"name":"grip","from":[5,1,6],"to":[9,5,10],"faces":%s},
@@ -129,11 +145,60 @@ public final class GenerateGameplayAssets {
             {"name":"antenna","from":[11.5,13,7],"to":[12.5,16,8],"faces":%s},
             {"name":"side_controls","from":[2.5,7,6],"to":[3.2,11,10],"faces":%s}
           ],%s
-        }""".formatted(faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),display(0.82));
+        }""".formatted(faces("#body"),faces("#grip"),faces("#screen"),faces("#warning"),faces("#metal"),faces("#warning"),display(0.82));
+    }
+
+    private static String fireExtinguisherModel() {
+        return """
+            {"textures":{"body":"war_mod:item/fire_extinguisher_body","metal":"war_mod:item/fire_equipment_metal","hose":"war_mod:item/fire_hose_body","particle":"#body"},
+              "elements":[
+                {"name":"tank","from":[5,1,5],"to":[11,12.5,11],"faces":%s},
+                {"name":"tank_shoulder","from":[5.7,12.5,5.7],"to":[10.3,14,10.3],"faces":%s},
+                {"name":"valve","from":[7,14,7],"to":[9,15.5,9],"faces":%s},
+                {"name":"carry_handle","from":[8.5,14.5,6.2],"to":[12.5,15.5,9.8],"faces":%s},
+                {"name":"trigger","from":[8.5,13.4,6.5],"to":[11.8,14.2,9.5],"faces":%s},
+                {"name":"hose_vertical","from":[3.8,6,9.7],"to":[5.2,14,11.1],"faces":%s},
+                {"name":"hose_nozzle","from":[2,4,9.4],"to":[5,7,11.4],"faces":%s},
+                {"name":"label_plate","from":[6,5,4.7],"to":[10,9,5.05],"faces":%s}
+              ],%s}
+            """.formatted(faces("#body"), faces("#body"), faces("#metal"), faces("#metal"),
+                faces("#metal"), faces("#hose"), faces("#hose"), faces("#metal"), display(.82));
+    }
+
+    private static String fireHoseModel() {
+        return """
+            {"textures":{"body":"war_mod:item/fire_hose_body","metal":"war_mod:item/fire_equipment_metal","particle":"#body"},
+              "elements":[
+                {"name":"nozzle_body","from":[2,6,5.5],"to":[13,10.5,10.5],"faces":%s},
+                {"name":"wide_muzzle","from":[0,5.5,5],"to":[3,11,11],"faces":%s},
+                {"name":"coupling","from":[11.5,5.4,5.2],"to":[15,10.8,10.8],"faces":%s},
+                {"name":"hose_tail","from":[14,6.5,6.2],"to":[16,9.7,9.8],"faces":%s},
+                {"name":"pistol_grip","from":[8,1,6.5],"to":[11,6.5,9.5],"faces":%s},
+                {"name":"shutoff_lever","from":[6,10.4,6.5],"to":[10,12,9.5],"faces":%s},
+                {"name":"front_guard","from":[3.5,5,4.8],"to":[5,11.5,11.2],"faces":%s}
+              ],%s}
+            """.formatted(faces("#metal"), faces("#metal"), faces("#body"), faces("#body"),
+                faces("#body"), faces("#metal"), faces("#body"), launcherDisplay());
+    }
+
+    private static String pipeWrenchModel() {
+        return """
+            {"textures":{"handle":"war_mod:item/pipe_wrench_handle","jaw":"war_mod:item/pipe_wrench_jaw","particle":"#handle"},
+              "elements":[
+                {"name":"handle","from":[6.7,1,6.5],"to":[9.3,12,9.5],"faces":%s},
+                {"name":"wrench_head","from":[4.5,10.5,5.5],"to":[10.8,14,10.5],"faces":%s},
+                {"name":"fixed_jaw","from":[3,12.5,5.5],"to":[5.5,16,10.5],"faces":%s},
+                {"name":"sliding_jaw","from":[9.8,12,5.5],"to":[12.5,15.2,10.5],"faces":%s},
+                {"name":"adjuster","from":[8.8,9.5,5.2],"to":[11,12,10.8],"faces":%s},
+                {"name":"lanyard_hole","from":[7.2,0.2,7],"to":[8.8,1.5,9],"faces":%s}
+              ],%s}
+            """.formatted(faces("#handle"), faces("#handle"), faces("#jaw"), faces("#jaw"),
+                faces("#jaw"), faces("#jaw"), display(.86));
     }
 
     private static String radarModel() {
-        return modelHeader("war_mod:item/radar") + """
+        return """
+          {"textures":{"body":"war_mod:item/radar","metal":"war_mod:item/field_hardware","grip":"war_mod:item/field_grip","screen":"war_mod:item/field_optic","warning":"war_mod:item/field_warning","particle":"#body"},
           "elements":[
             {"name":"display_body","from":[2,4,3.5],"to":[14,13,12.5],"faces":%s},
             {"name":"recessed_screen","from":[4,6,3],"to":[12,11.5,3.6],"faces":%s},
@@ -142,7 +207,7 @@ public final class GenerateGameplayAssets {
             {"name":"buttons","from":[4,4,3],"to":[9,5.5,3.7],"faces":%s},
             {"name":"screen_hood","from":[3,11.5,2.5],"to":[13,13,4],"faces":%s}
           ],%s
-        }""".formatted(faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),faces("#all"),display(0.78));
+        }""".formatted(faces("#body"),faces("#screen"),faces("#grip"),faces("#metal"),faces("#warning"),faces("#body"),display(0.78));
     }
 
     private static String heRocketModel() {
@@ -175,8 +240,8 @@ public final class GenerateGameplayAssets {
     private static String guidanceModel(int tier, boolean upper) {
         float post = 2.0F + tier;
         float arm = tier == 1 ? 5.0F : tier == 2 ? 6.5F : 8.0F;
-        String texture = "war_mod:block/guidance_tier_" + tier;
-        return modelHeader(texture) + """
+        return """
+          {"textures":{"frame":"war_mod:block/guidance_tier_%s","hydraulic":"war_mod:block/guidance_hydraulic","warning":"war_mod:block/guidance_warning","particle":"#frame"},
           "elements":[
             {"name":"mounting_foot","from":[1,0,1],"to":[%s,3,10],"faces":%s},
             {"name":"upright","from":[2,0,2],"to":[%s,16,%s],"faces":%s},
@@ -185,9 +250,10 @@ public final class GenerateGameplayAssets {
             {"name":"clamp","from":[13,%s,4],"to":[16,%s,12],"faces":%s},
             {"name":"servo_housing","from":[2,%s,1],"to":[%s,%s,8],"faces":%s}
           ]
-        }""".formatted(5+tier,faces("#all"),2+post,2+post,faces("#all"),
-            3+tier,5+tier,faces("#all"),16-arm,8+tier,faces("#all"),
-            7+tier,9+tier,faces("#all"),upper?9:3,6+tier,upper?14:7,faces("#all"));
+        }""".formatted(tier, 5+tier,faces("#frame"),2+post,2+post,faces("#frame"),
+            3+tier,5+tier,faces("#frame"),16-arm,8+tier,faces("#hydraulic"),
+            7+tier,9+tier,faces("#warning"),upper?9:3,6+tier,upper?14:7,
+            faces("#hydraulic"));
     }
 
     private static String guidanceBlockstate() {
@@ -211,6 +277,7 @@ public final class GenerateGameplayAssets {
 
     private static void generateItemDefinitions() throws IOException {
         for (String name : new String[]{"rocket_launcher","target_designator","remote_launch_designator","radar",
+            "fire_extinguisher","fire_hose","pipe_wrench",
             "conventional_icbm","nuclear_icbm","he_rocket","missile_silo_guidance_support_tier_1",
             "missile_silo_guidance_support_tier_2","missile_silo_guidance_support_tier_3"}) {
             writeJson("items/" + name + ".json",
@@ -222,7 +289,7 @@ public final class GenerateGameplayAssets {
 
     private static String modelHeader(String texture) {
         return """
-            {"textures":{"all":"%s"},
+            {"textures":{"all":"%s","particle":"#all"},
             """.formatted(texture);
     }
 
@@ -266,6 +333,15 @@ public final class GenerateGameplayAssets {
         BufferedImage image=new BufferedImage(16,16,BufferedImage.TYPE_INT_ARGB);
         Graphics2D g=image.createGraphics();g.setColor(new Color(base));g.fillRect(0,0,16,16);
         g.setColor(new Color(edge));g.drawRect(0,0,15,15);g.setColor(new Color(detail));g.fillRect(5,5,6,5);
+        g.dispose();writePng(TEXTURES.resolve("item/"+name+".png"),image);
+    }
+
+    private static void materialTexture(String name,int base,int accent,int seam) throws IOException {
+        BufferedImage image=new BufferedImage(16,16,BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g=image.createGraphics();g.setColor(new Color(base));g.fillRect(0,0,16,16);
+        g.setColor(new Color(seam));g.drawRect(0,0,15,15);g.drawLine(0,6,15,6);g.drawLine(0,13,15,13);
+        g.setColor(new Color(accent));g.fillRect(2,2,5,2);g.fillRect(10,8,3,3);
+        g.setColor(new Color(0xC3C8C4));for(int x:new int[]{1,14})for(int y:new int[]{1,14})g.fillRect(x,y,1,1);
         g.dispose();writePng(TEXTURES.resolve("item/"+name+".png"),image);
     }
 

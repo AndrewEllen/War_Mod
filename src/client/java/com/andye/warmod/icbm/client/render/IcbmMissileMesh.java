@@ -17,10 +17,8 @@ public final class IcbmMissileMesh {
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
         final IcbmPayloadAppearance appearance, final IcbmLongRangeRenderContext.Lod detail,
         final int light, final int alpha) {
-        int sides = detail == IcbmLongRangeRenderContext.Lod.NEAR ? 12
-            : detail == IcbmLongRangeRenderContext.Lod.MEDIUM ? 8 : 6;
+        int sides = detail == IcbmLongRangeRenderContext.Lod.EXTREME ? 6 : 8;
         float radius = IcbmVisualGeometry.BODY_RADIUS;
-        float embeddedRootRadius = radius - .025F;
         float bottom = IcbmVisualGeometry.BODY_BOTTOM;
         float top = IcbmVisualGeometry.BODY_TOP;
         for (int index = 0; index < sides; index++) {
@@ -31,13 +29,18 @@ public final class IcbmMissileMesh {
             float nextX = radius * Mth.cos(nextAngle);
             float nextZ = radius * Mth.sin(nextAngle);
             quad(pose, buffer, x, bottom, z, x, top, z, nextX, top, nextZ,
-                nextX, bottom, nextZ, 47, 52, 58, alpha, light,
+                nextX, bottom, nextZ, appearance.bodyRed(), appearance.bodyGreen(),
+                appearance.bodyBlue(), alpha, light,
                 Mth.cos(angle), 0, Mth.sin(angle));
             triangle(pose, buffer, x, top, z, 0, IcbmVisualGeometry.NOSE_TIP, 0,
-                nextX, top, nextZ, 65, 71, 78, alpha, light);
+                nextX, top, nextZ, Math.min(255, appearance.bodyRed() + 18),
+                Math.min(255, appearance.bodyGreen() + 18),
+                Math.min(255, appearance.bodyBlue() + 16), alpha, light);
         }
         renderBand(pose, buffer, appearance, sides, light, alpha);
         if (detail == IcbmLongRangeRenderContext.Lod.EXTREME) return;
+        if (appearance.cluster()) renderClusterCanisters(pose, buffer, appearance,
+            light, alpha);
         renderNozzle(pose, buffer, sides, light, alpha);
         renderFins(pose, buffer, light, alpha);
     }
@@ -45,18 +48,38 @@ public final class IcbmMissileMesh {
     private static void renderBand(final PoseStack.Pose pose, final VertexConsumer buffer,
         final IcbmPayloadAppearance appearance, final int sides, final int light, final int alpha) {
         float radius = IcbmVisualGeometry.BODY_RADIUS + 0.006F;
-        float bottom = IcbmVisualGeometry.PAYLOAD_BAND_POSITION - 0.10F;
-        float top = IcbmVisualGeometry.PAYLOAD_BAND_POSITION + 0.10F;
-        for (int index = 0; index < sides; index++) {
-            float angle = Mth.TWO_PI * index / sides;
-            float next = Mth.TWO_PI * (index + 1) / sides;
-            float x = radius * Mth.cos(angle);
-            float z = radius * Mth.sin(angle);
-            float nx = radius * Mth.cos(next);
-            float nz = radius * Mth.sin(next);
-            quad(pose, buffer, x, bottom, z, x, top, z, nx, top, nz, nx, bottom, nz,
-                appearance.red(), appearance.green(), appearance.blue(), alpha, light,
-                Mth.cos(angle), 0, Mth.sin(angle));
+        int stripes = Math.max(1, appearance.stripeCount());
+        for (int stripe = 0; stripe < stripes; stripe++) {
+            float center = IcbmVisualGeometry.PAYLOAD_BAND_POSITION
+                + (stripe - (stripes - 1) * 0.5F) * 0.18F;
+            float halfHeight = appearance.cluster() && stripe == stripes - 1 ? 0.075F : 0.052F;
+            for (int index = 0; index < sides; index++) {
+                float angle = Mth.TWO_PI * index / sides;
+                float next = Mth.TWO_PI * (index + 1) / sides;
+                float x = radius * Mth.cos(angle);
+                float z = radius * Mth.sin(angle);
+                float nx = radius * Mth.cos(next);
+                float nz = radius * Mth.sin(next);
+                quad(pose, buffer, x, center - halfHeight, z, x, center + halfHeight, z,
+                    nx, center + halfHeight, nz, nx, center - halfHeight, nz,
+                    appearance.red(), appearance.green(), appearance.blue(), alpha, light,
+                    Mth.cos(angle), 0, Mth.sin(angle));
+            }
+        }
+    }
+
+    private static void renderClusterCanisters(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final IcbmPayloadAppearance appearance,
+        final int light, final int alpha) {
+        float radius = IcbmVisualGeometry.BODY_RADIUS;
+        float bottom = 0.20F, top = 1.08F, half = 0.105F;
+        for (int index = 0; index < 4; index++) {
+            float angle = Mth.TWO_PI * index / 4.0F;
+            float cx = Mth.cos(angle) * (radius + half * 0.42F);
+            float cz = Mth.sin(angle) * (radius + half * 0.42F);
+            box(pose, buffer, cx - half, bottom, cz - half,
+                cx + half, top, cz + half, appearance.red(), appearance.green(),
+                appearance.blue(), alpha, light);
         }
     }
 
@@ -105,6 +128,24 @@ public final class IcbmMissileMesh {
         vertex(pose, buffer, ax, ay, az, 0, 1, red, green, blue, alpha, light, 0, 1, 0);
         vertex(pose, buffer, bx, by, bz, 0.5F, 0, red, green, blue, alpha, light, 0, 1, 0);
         vertex(pose, buffer, cx, cy, cz, 1, 1, red, green, blue, alpha, light, 0, 1, 0);
+    }
+
+    private static void box(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final float x1, final float y1, final float z1,
+        final float x2, final float y2, final float z2,
+        final int red, final int green, final int blue, final int alpha, final int light) {
+        quad(pose, buffer, x1,y1,z1, x1,y2,z1, x2,y2,z1, x2,y1,z1,
+            red,green,blue,alpha,light, 0,0,-1);
+        quad(pose, buffer, x2,y1,z2, x2,y2,z2, x1,y2,z2, x1,y1,z2,
+            red,green,blue,alpha,light, 0,0,1);
+        quad(pose, buffer, x1,y1,z2, x1,y2,z2, x1,y2,z1, x1,y1,z1,
+            red,green,blue,alpha,light, -1,0,0);
+        quad(pose, buffer, x2,y1,z1, x2,y2,z1, x2,y2,z2, x2,y1,z2,
+            red,green,blue,alpha,light, 1,0,0);
+        quad(pose, buffer, x1,y2,z1, x1,y2,z2, x2,y2,z2, x2,y2,z1,
+            red,green,blue,alpha,light, 0,1,0);
+        quad(pose, buffer, x1,y1,z2, x1,y1,z1, x2,y1,z1, x2,y1,z2,
+            red,green,blue,alpha,light, 0,-1,0);
     }
 
     private static void quad(final PoseStack.Pose pose, final VertexConsumer buffer,

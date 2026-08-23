@@ -14,7 +14,10 @@ public final class RadarDishRenderer {
             (pose, buffer) -> RadarDishMesh.renderMount(pose, buffer, state.lightCoords, state.warningActive)); stack.popPose();
         stack.pushPose(); stack.translate(RadarStationVisualGeometry.DISH_PIVOT_X, RadarStationVisualGeometry.DISH_PIVOT_Y,
             RadarStationVisualGeometry.DISH_PIVOT_Z);
-        stack.mulPose(Axis.YP.rotationDegrees((float)state.sweepAngle + RadarStationVisualGeometry.MODEL_YAW_OFFSET_DEGREES));
+        // Sweep around the mast's world-up axis. The shallow elevation is fixed in
+        // the array's local frame, so the head no longer appears to tumble.
+        stack.mulPose(Axis.YP.rotationDegrees((float)state.sweepAngle
+            + RadarStationVisualGeometry.MODEL_YAW_OFFSET_DEGREES));
         stack.mulPose(Axis.XP.rotationDegrees(RadarStationVisualGeometry.DISH_ELEVATION_ANGLE));
         collector.submitCustomGeometry(stack, WarheadRenderPipelines.PROJECTILE,
             (pose, buffer) -> RadarDishMesh.render(pose, buffer, state.lightCoords, state.warningActive)); stack.popPose();

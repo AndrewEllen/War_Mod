@@ -53,10 +53,8 @@ public final class RocketProjectileRenderer
             (pose, buffer) -> RocketProjectileMesh.render(pose, buffer, state));
         collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
             (pose, buffer) -> RocketTrailRenderer.renderFlame(pose, buffer, state));
-        if (state.lod == RocketProjectileRenderState.RocketLod.NEAR) {
-            collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-                (pose, buffer) -> RocketTrailRenderer.renderSmoke(pose, buffer, state));
-        }
+        collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
+            (pose, buffer) -> RocketTrailRenderer.renderSmoke(pose, buffer, state));
         poseStack.popPose();
         super.submit(state, poseStack, collector, camera);
     }

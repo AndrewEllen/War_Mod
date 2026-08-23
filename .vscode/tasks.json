@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "war_mod: prepare debug outputs",
+      "type": "shell",
+      "command": ".\\gradlew.bat",
+      "args": [
+        "compileJava",
+        "compileClientJava",
+        "processResources",
+        "processClientResources",
+        "--no-daemon"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ]
+}

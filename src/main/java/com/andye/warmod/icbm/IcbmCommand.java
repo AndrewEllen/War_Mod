@@ -1,10 +1,10 @@
 package com.andye.warmod.icbm;
 
-import com.andye.warmod.warhead.WarheadPayloadType;
-import com.mojang.brigadier.CommandDispatcher;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.Vec3Argument;
@@ -15,39 +15,43 @@ import net.minecraft.world.phys.Vec3;
 public final class IcbmCommand {
 	private IcbmCommand() { }
 
-	public static void register() {
-		CommandRegistrationCallback.EVENT.register((dispatcher, context, selection) -> register(dispatcher));
+	public static LiteralArgumentBuilder<CommandSourceStack> command() {
+		LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("icbm");
+		for (WarheadYield yield : WarheadYield.values()) root.then(yieldCommand(yield));
+		return root;
 	}
 
-	private static void register(final CommandDispatcher<CommandSourceStack> dispatcher) {
-		dispatcher.register(Commands.literal("icbm")
-			.requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
-			.then(payload("regular", WarheadPayloadType.CONVENTIONAL))
-			.then(payload("nuke", WarheadPayloadType.NUCLEAR)));
+	private static LiteralArgumentBuilder<CommandSourceStack> yieldCommand(final WarheadYield yield) {
+		return Commands.literal(yield.getSerializedName())
+			.then(target(yield, WarheadDeliveryMode.SINGLE))
+			.then(Commands.literal("cluster")
+				.then(target(yield, WarheadDeliveryMode.CLUSTER_FOUR)));
 	}
 
-	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> payload(
-		final String name, final WarheadPayloadType type) {
-		return Commands.literal(name).then(Commands.argument("target", Vec3Argument.vec3())
-			.executes(context -> launch(context, type, null))
+	private static com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, net.minecraft.commands.arguments.coordinates.Coordinates>
+		target(final WarheadYield yield, final WarheadDeliveryMode deliveryMode) {
+		return Commands.argument("target", Vec3Argument.vec3())
+			.executes(context -> launch(context, yield, deliveryMode, null))
 			.then(Commands.argument("launch", Vec3Argument.vec3())
-				.executes(context -> launch(context, type, Vec3Argument.getVec3(context, "launch")))));
+				.executes(context -> launch(context, yield, deliveryMode,
+					Vec3Argument.getVec3(context, "launch"))));
 	}
 
-	private static int launch(final CommandContext<CommandSourceStack> context, final WarheadPayloadType type,
+	private static int launch(final CommandContext<CommandSourceStack> context,
+		final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
 		final Vec3 launchPosition) throws CommandSyntaxException {
 		CommandSourceStack source = context.getSource();
 		ServerPlayer player = source.getPlayerOrException();
 		Vec3 target = Vec3Argument.getVec3(context, "target");
-		if (!IcbmPendingCommandLaunchManager.queue(source.getLevel(), player, target, launchPosition, type)) {
+		if (!IcbmPendingCommandLaunchManager.queue(source.getLevel(), player, target,
+			launchPosition, yield, deliveryMode)) {
 			source.sendFailure(Component.literal("ICBM launch failed: coordinates, build height, world border, or route bounds are invalid"));
 			return 0;
 		}
-		source.sendSuccess(() -> Component.literal("ICBM launch queued: loading launch and target areas"), true);
+		source.sendSuccess(() -> Component.literal("ICBM launch queued: "
+			+ yield.displayName() + (deliveryMode == WarheadDeliveryMode.CLUSTER_FOUR
+				? " cluster" : "") + "; loading launch area"), true);
 		return 1;
 	}
 
-	private static String format(final Vec3 position) {
-		return String.format(java.util.Locale.ROOT, "%.1f %.1f %.1f", position.x, position.y, position.z);
-	}
 }

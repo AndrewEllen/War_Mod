@@ -24,10 +24,11 @@ public final class GenerateOrdnanceAssets {
             for (String type : tntOnly ? new String[] { "tnt" }
                 : new String[] { "missile", "warhead", "tnt" }) for (boolean cluster : new boolean[] { false, true }) {
                 String id = YIELDS[index] + (cluster ? "_cluster_" : "_") + type;
-                writeTexture(itemTextures.resolve(id + ".png"), type, COLORS[index], cluster, index >= 4);
+                writeTexture(itemTextures.resolve(id + ".png"), type, COLORS[index], cluster,
+                    index >= 4, index);
                 if (type.equals("missile")) {
                     write(itemModels.resolve(id + ".json"),
-                        "{\"parent\":\"war_mod:item/" + (index >= 4 ? "nuclear_icbm" : "conventional_icbm")
+                        "{\"parent\":\"war_mod:item/conventional_icbm"
                             + "\",\"textures\":{\"all\":\"war_mod:item/" + id + "\"}}\n");
                     write(itemDefinitions.resolve(id + ".json"), itemDefinition("war_mod:item/" + id));
                 } else if (type.equals("warhead")) {
@@ -50,17 +51,57 @@ public final class GenerateOrdnanceAssets {
         }
         if (!tntOnly) writeCannonAssets(assets);
     }
-    private static void writeTexture(final Path path, final String type, final int rgb, final boolean cluster, final boolean nuclear) throws IOException {
+    private static void writeTexture(final Path path, final String type, final int rgb,
+        final boolean cluster, final boolean nuclear, final int yieldIndex) throws IOException {
+        if (!type.equals("tnt")) {
+            writeMaterialTexture(path, type, rgb, cluster, nuclear, yieldIndex);
+            return;
+        }
         BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         Color metal = new Color(54, 59, 62), light = new Color(143, 151, 151), accent = new Color(rgb);
-        if (type.equals("missile")) {
-            g.setColor(metal); g.fillRect(6, 2, 3, 11); g.fillRect(5, 12, 5, 2); g.setColor(light); g.fillRect(7, 2, 1, 10); g.setColor(accent); g.fillRect(6, 7, 3, 2); if (cluster) g.fillRect(5, 10, 5, 1); if (nuclear) { g.setColor(new Color(236, 205, 59)); g.fillRect(7, 4, 1, 1); }
-        } else if (type.equals("warhead")) {
-            g.setColor(metal); g.fillRect(5, 6, 6, 7); g.fillRect(6, 4, 4, 2); g.fillRect(7, 3, 2, 1); g.setColor(light); g.fillRect(6, 7, 1, 5); g.setColor(accent); g.fillRect(5, 9, 6, 2); if (cluster) { g.setColor(new Color(235, 193, 51)); g.fillRect(5, 12, 6, 1); } if (nuclear) { g.setColor(new Color(236, 205, 59)); g.fillRect(7, 5, 2, 1); }
-        } else {
-            g.setColor(new Color(81, 48, 40)); g.fillRect(3, 4, 10, 9); g.setColor(new Color(137, 78, 52)); g.fillRect(4, 5, 8, 7); g.setColor(accent); g.fillRect(5, 8, 6, 2); g.setColor(new Color(36, 34, 31)); g.fillRect(4, 4, 8, 1); if (cluster) { g.setColor(new Color(235, 193, 51)); g.fillRect(3, 11, 10, 1); } if (nuclear) { g.setColor(new Color(236, 205, 59)); g.fillRect(7, 6, 2, 1); }
+        g.setColor(new Color(81, 48, 40)); g.fillRect(3, 4, 10, 9); g.setColor(new Color(137, 78, 52)); g.fillRect(4, 5, 8, 7); g.setColor(accent); g.fillRect(5, 8, 6, 2); g.setColor(new Color(36, 34, 31)); g.fillRect(4, 4, 8, 1); if (cluster) { g.setColor(new Color(235, 193, 51)); g.fillRect(3, 11, 10, 1); } if (nuclear) { g.setColor(new Color(236, 205, 59)); g.fillRect(7, 6, 2, 1); }
+        g.dispose(); writeImage(path, image);
+    }
+
+    /** Opaque material maps keep cuboid faces solid; the old sprite silhouettes
+        were being mapped over every face and produced the visible holes. */
+    private static void writeMaterialTexture(final Path path, final String type,
+        final int rgb, final boolean cluster, final boolean nuclear,
+        final int yieldIndex) throws IOException {
+        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        Color accent = new Color(rgb);
+        Color body = type.equals("missile") ? new Color(194, 191, 169)
+            : new Color(83, 91, 72);
+        Color bodyLight = type.equals("missile") ? new Color(220, 216, 190)
+            : new Color(121, 130, 102);
+        Color seam = type.equals("missile") ? new Color(67, 73, 72)
+            : new Color(39, 45, 39);
+        g.setColor(body); g.fillRect(0, 0, 16, 16);
+        g.setColor(bodyLight); g.fillRect(2, 2, 12, 5);
+        g.setColor(seam); g.drawRect(0, 0, 15, 15); g.drawLine(0, 8, 15, 8);
+        g.drawLine(8, 0, 8, 15);
+        g.setColor(accent);
+        int stripes = Math.min(4, 1 + yieldIndex / 2);
+        for (int stripe = 0; stripe < stripes; stripe++)
+            g.fillRect(1, 9 + stripe * 2, 14, 1);
+        if (cluster) {
+            Color warning = new Color(226, 173, 42);
+            g.setColor(warning);
+            g.fillRect(2, 3, 3, 3); g.fillRect(11, 3, 3, 3);
+            g.fillRect(2, 11, 3, 3); g.fillRect(11, 11, 3, 3);
+            g.setColor(seam);
+            g.drawRect(2, 3, 2, 2); g.drawRect(11, 3, 2, 2);
+            g.drawRect(2, 11, 2, 2); g.drawRect(11, 11, 2, 2);
         }
+        if (nuclear) {
+            g.setColor(new Color(235, 202, 54));
+            g.fillRect(7, 3, 2, 2); g.fillRect(5, 5, 2, 2); g.fillRect(9, 5, 2, 2);
+        }
+        g.setColor(new Color(225, 224, 207));
+        for (int x : new int[] {1, 14}) for (int y : new int[] {1, 14})
+            g.fillRect(x, y, 1, 1);
         g.dispose(); writeImage(path, image);
     }
     private static String itemDefinition(final String model) {
@@ -68,7 +109,7 @@ public final class GenerateOrdnanceAssets {
     }
     private static String shellModel(final String id) {
         String texture = "\"north\":{\"texture\":\"#all\"},\"south\":{\"texture\":\"#all\"},\"east\":{\"texture\":\"#all\"},\"west\":{\"texture\":\"#all\"},\"up\":{\"texture\":\"#all\"},\"down\":{\"texture\":\"#all\"}";
-        return "{\"textures\":{\"all\":\"war_mod:item/" + id + "\"},\"elements\":["
+        return "{\"textures\":{\"all\":\"war_mod:item/" + id + "\",\"particle\":\"#all\"},\"elements\":["
             + element(5,2,5,11,12,11,texture) + ","
             + element(6,12,6,10,14,10,texture) + ","
             + element(7,14,7,9,16,9,texture) + ","
@@ -144,13 +185,13 @@ public final class GenerateOrdnanceAssets {
         writeBlockTexture(blocks.resolve("artillery_barrel.png"), 0x697174, 0x30383A);
         writeBlockTexture(blocks.resolve("artillery_breech.png"), 0x4A5153, 0xA77A2E);
         String faces = "\"north\":{\"texture\":\"#%s\"},\"south\":{\"texture\":\"#%s\"},\"east\":{\"texture\":\"#%s\"},\"west\":{\"texture\":\"#%s\"},\"up\":{\"texture\":\"#%s\"},\"down\":{\"texture\":\"#%s\"}";
-        String model = "{\"textures\":{\"base\":\"war_mod:block/artillery_base\",\"barrel\":\"war_mod:block/artillery_barrel\",\"breech\":\"war_mod:block/artillery_breech\"},\"elements\":["
+        String model = "{\"textures\":{\"base\":\"war_mod:block/artillery_base\",\"barrel\":\"war_mod:block/artillery_barrel\",\"breech\":\"war_mod:block/artillery_breech\",\"particle\":\"#base\"},\"elements\":["
             + element(1,0,1,15,4,15,String.format(faces,"base","base","base","base","base","base")) + ","
             + element(3,4,4,13,7,13,String.format(faces,"breech","breech","breech","breech","breech","breech")) + ","
             + element(5,5,10,11,8,14,String.format(faces,"breech","breech","breech","breech","breech","breech")) + "]}";
         write(assets.resolve("models/block/artillery_cannon.json"), model);
         write(assets.resolve("blockstates/artillery_cannon.json"), "{\"variants\":{\"facing=north\":{\"model\":\"war_mod:block/artillery_cannon\"},\"facing=east\":{\"model\":\"war_mod:block/artillery_cannon\",\"y\":90},\"facing=south\":{\"model\":\"war_mod:block/artillery_cannon\",\"y\":180},\"facing=west\":{\"model\":\"war_mod:block/artillery_cannon\",\"y\":270}}}");
-        String inventory = "{\"textures\":{\"base\":\"war_mod:block/artillery_base\",\"barrel\":\"war_mod:block/artillery_barrel\",\"breech\":\"war_mod:block/artillery_breech\"},\"display\":{\"gui\":{\"rotation\":[25,45,0],\"translation\":[0,-2,0],\"scale\":[0.62,0.62,0.62]}},\"elements\":["
+        String inventory = "{\"textures\":{\"base\":\"war_mod:block/artillery_base\",\"barrel\":\"war_mod:block/artillery_barrel\",\"breech\":\"war_mod:block/artillery_breech\",\"particle\":\"#base\"},\"display\":{\"gui\":{\"rotation\":[25,45,0],\"translation\":[0,-2,0],\"scale\":[0.62,0.62,0.62]}},\"elements\":["
             + element(1,0,1,15,4,15,String.format(faces,"base","base","base","base","base","base")) + ","
             + element(3,4,4,13,9,13,String.format(faces,"breech","breech","breech","breech","breech","breech")) + ","
             + element(5,7,10,11,11,14,String.format(faces,"breech","breech","breech","breech","breech","breech")) + ","

@@ -5,6 +5,8 @@ import com.andye.warmod.artillery.ArtilleryLaunchService;
 import com.andye.warmod.artillery.ArtilleryPayload;
 import com.andye.warmod.artillery.ArtilleryPayloadItems;
 import com.andye.warmod.artillery.ArtilleryTrajectory;
+import com.andye.warmod.acoustics.AcousticEngine;
+import com.andye.warmod.acoustics.AcousticSounds;
 import com.andye.warmod.block.ArtilleryCannonBlock;
 import com.andye.warmod.item.component.TargetCoordinates;
 import java.util.UUID;
@@ -15,6 +17,7 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -60,6 +63,9 @@ public final class ArtilleryCannonBlockEntity extends BlockEntity implements Con
         if (launch == null) return fail("Target is outside the ballistic envelope");
         ItemStack reserved = ammunition.split(1);
         if (ArtilleryLaunchService.launch(level, player == null ? null : player.getUUID(), launch.muzzle(), destination, payload).isEmpty()) { if (ammunition.isEmpty()) ammunition = reserved; else ammunition.grow(reserved.getCount()); return fail("Unable to launch artillery warhead"); }
+        AcousticEngine.playSound(level, launch.muzzle(), AcousticSounds.ARTILLERY_FIRE_ID,
+            SoundSource.BLOCKS, Math.min(1.45F, 0.82F + payload.yield().visualScale() * 0.12F),
+            payload.yield().nuclear() ? 0.88F : 0.96F);
         cooldown = ArtilleryConstants.FIRE_COOLDOWN_TICKS; lastError = ""; sync(); return true;
     }
     private boolean fail(final String error) { lastError = error; sync(); return false; }

@@ -1,6 +1,1 @@
-{
-  "model": {
-    "type": "minecraft:model",
-    "model": "war_mod:item/pipe_wrench"
-  }
-}
+{"model":{"type":"minecraft:model","model":"war_mod:item/pipe_wrench"}}

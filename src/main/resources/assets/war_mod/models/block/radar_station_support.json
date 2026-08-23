@@ -1,1 +1,1 @@
-{ "textures":{"all":"war_mod:block/radar_station_mast"},"elements":[{"from":[3,0,3],"to":[13,10,13],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"}}}]}
+{ "textures":{"all":"war_mod:block/radar_station_mast","particle":"#all"},"elements":[{"from":[3,0,3],"to":[13,10,13],"faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},"west":{"texture":"#all"},"up":{"texture":"#all"}}}]}

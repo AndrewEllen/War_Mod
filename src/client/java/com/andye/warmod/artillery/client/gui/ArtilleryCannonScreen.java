@@ -4,6 +4,7 @@ import com.andye.warmod.artillery.ArtilleryConstants;
 import com.andye.warmod.artillery.network.ServerboundArtilleryFirePayload;
 import com.andye.warmod.artillery.network.ServerboundArtilleryTargetPayload;
 import com.andye.warmod.block.entity.ArtilleryCannonBlockEntity;
+import com.andye.warmod.client.gui.WarModUiText;
 import com.andye.warmod.menu.ArtilleryCannonMenu;
 import java.util.Locale;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -73,18 +74,17 @@ public final class ArtilleryCannonScreen extends AbstractContainerScreen<Artille
     @Override
     public void extractRenderState(final GuiGraphicsExtractor graphics, final int mouseX,
         final int mouseY, final float partialTick) {
-        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xFF10171B);
-        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + 24, 0xFF26343B);
+        WarModUiText.frame(graphics, leftPos, topPos, imageWidth, imageHeight);
         drawMap(graphics, mouseX, mouseY);
-        graphics.fill(leftPos + PANEL_X - 6, topPos + 30,
-            leftPos + PANEL_X + PANEL_WIDTH + 6, topPos + 174, 0xFF172329);
+        WarModUiText.section(graphics, leftPos + PANEL_X - 6, topPos + 30,
+            PANEL_WIDTH + 12, 144);
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
 
         ArtilleryCannonBlockEntity cannon = menu.cannon();
         graphics.text(font, Component.literal("ARTILLERY FIRE CONTROL"),
-            leftPos + 8, topPos + 8, 0xFFFFC45A);
+            leftPos + 8, topPos + 8, WarModUiText.ACCENT);
         graphics.text(font, Component.literal("MAX RANGE 1,000 BLOCKS"),
-            leftPos + 18, topPos + 184, 0xFF8FAAB4);
+            leftPos + 18, topPos + 184, WarModUiText.TEXT_MUTED);
         graphics.text(font, Component.literal("AMMUNITION"),
             leftPos + PANEL_X, topPos + 36, 0xFF9DB4BD);
         if (cannon != null) {

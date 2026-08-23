@@ -5,6 +5,12 @@ import com.andye.warmod.icbm.network.ClientboundIcbmLaunchPayload;
 import com.andye.warmod.icbm.network.IcbmVisualNetworking;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.StrategicMissilePayload;
+import com.andye.warmod.warhead.StrategicMissilePayloadRegistry;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadFireSettings;
+import com.andye.warmod.warhead.WarheadYield;
+import com.andye.warmod.warhead.WarheadYieldRegistry;
 import com.andye.warmod.silo.MissileSiloCollisionContext;
 import com.andye.warmod.icbm.guidance.IcbmGuidanceProfile;
 import java.util.Optional;
@@ -31,9 +37,23 @@ public final class IcbmLaunchService {
 	}
 	public static Optional<LaunchResult> launch(final ServerLevel level, final ServerPlayer player, final Vec3 target,
 		final WarheadPayloadType payloadType, final com.andye.warmod.warhead.WarheadDeliveryMode deliveryMode) {
-		Optional<LaunchResult> result = launchInternal(level, player, target, null, payloadType, true, true);
-		result.ifPresent(launch -> com.andye.warmod.warhead.StrategicMissilePayloadRegistry.put(
-			launch.flightPlan().missileId(), new com.andye.warmod.warhead.StrategicMissilePayload(payloadType, deliveryMode)));
+		if (level == null || payloadType == null || deliveryMode == null) return Optional.empty();
+		return launch(level, player, target, WarheadYield.defaultFor(payloadType), deliveryMode,
+			WarheadFireSettings.get(level).customFire());
+	}
+
+	public static Optional<LaunchResult> launch(final ServerLevel level,
+		final ServerPlayer player, final Vec3 target, final WarheadYield yield,
+		final WarheadDeliveryMode deliveryMode, final boolean customFire) {
+		if (yield == null || deliveryMode == null) return Optional.empty();
+		Optional<LaunchResult> result = launchInternal(level, player, target, null,
+			yield.payloadType(), true, true, yield, deliveryMode);
+		result.ifPresent(launch -> {
+			UUID missileId = launch.flightPlan().missileId();
+			StrategicMissilePayloadRegistry.put(missileId,
+				new StrategicMissilePayload(yield.payloadType(), deliveryMode));
+			WarheadYieldRegistry.put(level, missileId, yield, customFire);
+		});
 		return result;
 	}
 
@@ -44,7 +64,9 @@ public final class IcbmLaunchService {
 		if (prepared == null || !targetChunkLoaded(level, prepared.launchPosition()))
 			return Optional.empty();
 		IcbmPendingCommandLaunch request = new IcbmPendingCommandLaunch(prepared.requestId(), player.getUUID(),
-			level.dimension(), target, requestedLaunch, prepared.launchPosition(), payloadType, level.getGameTime(),
+			level.dimension(), target, requestedLaunch, prepared.launchPosition(), payloadType,
+			WarheadYield.defaultFor(payloadType), WarheadDeliveryMode.SINGLE,
+			WarheadFireSettings.get(level).customFire(), level.getGameTime(),
 			prepared.visualSeed(), java.util.Set.of());
 		return completePendingCommandLaunch(level, player, request);
 	}
@@ -77,12 +99,21 @@ public final class IcbmLaunchService {
 			|| !pendingRequestStillValid(level, request) || !targetChunkLoaded(level, request.launchPosition())) return Optional.empty();
 		IcbmFlightPlan plan = createFlightPlan(level, player, request.target(), request.launchPosition(),
 			request.payloadType(), request.requestId(), request.visualSeed(), false).orElse(null);
-		return acceptPlan(level, plan);
+		Optional<LaunchResult> result = acceptPlan(level, plan, request.yield(),
+			request.deliveryMode());
+		result.ifPresent(launch -> {
+			UUID missileId = launch.flightPlan().missileId();
+			StrategicMissilePayloadRegistry.put(missileId,
+				new StrategicMissilePayload(request.payloadType(), request.deliveryMode()));
+			WarheadYieldRegistry.put(level, missileId, request.yield(), request.customFire());
+		});
+		return result;
 	}
 
 	private static Optional<LaunchResult> launchInternal(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
-		final boolean enforceStickRange, final boolean groundLevelTestingOrigin) {
+		final boolean enforceStickRange, final boolean groundLevelTestingOrigin,
+		final WarheadYield yield, final WarheadDeliveryMode deliveryMode) {
 		if (level == null || player == null || target == null || payloadType == null || player.level() != level
 			|| !validTargetCoordinate(level, target) || (enforceStickRange
 			&& (!targetChunkLoaded(level, target)
@@ -93,12 +124,13 @@ public final class IcbmLaunchService {
 		long seed = mix(id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 17) ^ payloadType.ordinal());
 		IcbmFlightPlan plan = createFlightPlan(level, player, target, requestedLaunch, payloadType, id, seed,
 			groundLevelTestingOrigin).orElse(null);
-		return acceptPlan(level, plan);
+		return acceptPlan(level, plan, yield, deliveryMode);
 	}
 
 	public static Optional<LaunchResult> launchFromSilo(final ServerLevel level, final @Nullable UUID ownerPlayerId,
 		final @Nullable String ownerDisplayName, final Vec3 launchPosition, final Vec3 intendedTarget,
-		final WarheadPayloadType payloadType, final MissileSiloCollisionContext collisionContext,
+		final WarheadPayloadType payloadType, final WarheadYield yield,
+		final WarheadDeliveryMode deliveryMode, final MissileSiloCollisionContext collisionContext,
 		final UUID siloId, final BlockPos siloCentre, final int guidanceTier) {
 		if (level == null || launchPosition == null || intendedTarget == null || payloadType == null
 			|| collisionContext == null || !validRouteCoordinate(level, launchPosition)
@@ -111,7 +143,7 @@ public final class IcbmLaunchService {
 			launchPosition, intendedTarget, payloadType, missileId, seed).orElse(null);
 		IcbmGuidanceProfile guidance = plan == null ? null : new IcbmGuidanceProfile(siloId, siloCentre, guidanceTier,
 			intendedTarget, plan.visualSeed());
-		return acceptPlan(level, plan, collisionContext, guidance);
+		return acceptPlan(level, plan, collisionContext, guidance, yield, deliveryMode);
 	}
 
 	private static Optional<IcbmFlightPlan> createSiloFlightPlan(final ServerLevel level, final UUID ownerPlayerId,
@@ -292,9 +324,13 @@ public final class IcbmLaunchService {
 	}
 
 	private static boolean validCarrierSpeed(final IcbmFlightPlan plan) { if (plan == null) return false; double peakSpeed = IcbmTrajectory.estimatedPeakCoastSpeed(plan); boolean valid = Double.isFinite(peakSpeed) && peakSpeed <= IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK + 0.001; if (!valid && SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.error("Rejected ICBM {}: estimated peak speed {} exceeds {}", plan.missileId(), peakSpeed, IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK); return valid; }
-	private static Optional<LaunchResult> acceptPlan(final ServerLevel level, final @Nullable IcbmFlightPlan plan) {
+	private static Optional<LaunchResult> acceptPlan(final ServerLevel level,
+		final @Nullable IcbmFlightPlan plan, final WarheadYield yield,
+		final WarheadDeliveryMode deliveryMode) {
 		if (!validCarrierSpeed(plan) || !IcbmFlightControllerManager.add(level, plan)) return Optional.empty();
-		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
+		IcbmVisualNetworking.sendLaunch(level,
+			ClientboundIcbmLaunchPayload.fromPlan(plan, yield, deliveryMode),
+			plan.ownerPlayerId());
 		double apex = calculateApexY(plan.burnoutPosition(), IcbmTrajectory.coastInitialVelocity(plan), plan.coastTicks());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
 			"ICBM {} virtual launch accepted: launch={}, apex={}, separation={}", plan.missileId(),
@@ -303,9 +339,12 @@ public final class IcbmLaunchService {
 	}
 
 	private static Optional<LaunchResult> acceptPlan(final ServerLevel level, final @Nullable IcbmFlightPlan plan,
-		final MissileSiloCollisionContext collisionContext, final IcbmGuidanceProfile guidance) {
+		final MissileSiloCollisionContext collisionContext, final IcbmGuidanceProfile guidance,
+		final WarheadYield yield, final WarheadDeliveryMode deliveryMode) {
 		if (!validCarrierSpeed(plan) || !IcbmFlightControllerManager.add(level, plan, collisionContext, guidance)) return Optional.empty();
-		IcbmVisualNetworking.sendLaunch(level, ClientboundIcbmLaunchPayload.fromPlan(plan), plan.ownerPlayerId());
+		IcbmVisualNetworking.sendLaunch(level,
+			ClientboundIcbmLaunchPayload.fromPlan(plan, yield, deliveryMode),
+			plan.ownerPlayerId());
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
 			"ICBM {} silo launch accepted: launch={}, burnout={}, separation={}", plan.missileId(),
 			plan.launchPosition(), plan.burnoutPosition(), plan.separationPosition());

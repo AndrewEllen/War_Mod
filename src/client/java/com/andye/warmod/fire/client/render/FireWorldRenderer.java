@@ -5,6 +5,8 @@ import com.andye.warmod.fire.client.ClientFireVisualManager;
 import com.andye.warmod.fire.client.ClientFireVisualManager.VisualPatch;
 import com.andye.warmod.fire.client.ClientFireVisualManager.VisualEmber;
 import com.andye.warmod.fire.client.ClientFireVisualManager.VisualSmokeCluster;
+import com.andye.warmod.fire.client.ClientSmokeFlowField;
+import com.andye.warmod.fire.client.ClientSmokeFlowField.SmokeFlow;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -52,10 +54,14 @@ public final class FireWorldRenderer {
             Vec3 worldPosition = patch.anchor().position();
             double distance = worldPosition.distanceTo(cameraPosition);
             if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
+            Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
+                patch.wind(), gameTime);
+            SmokeFlow smokeFlow = ClientSmokeFlowField.INSTANCE.request(level,
+                patch.anchor(), level.getGameTime());
             patches.add(new FireRenderPatch(worldPosition.subtract(cameraPosition),
                 patch.anchor().face(), patch.intensity(), patch.heat(), patch.coverage(),
                 patch.smoke(), patch.phase(), patch.seed(), patch.ignitionGameTime(),
-				patch.wind(), patch.clumpStrength(), distance));
+				wind, patch.clumpStrength(), distance, smokeFlow));
         }
 		List<FireRenderEmber> embers = new ArrayList<>();
 		for (VisualEmber ember : ClientFireVisualManager.INSTANCE.emberSnapshot(level)) {
@@ -64,7 +70,9 @@ public final class FireWorldRenderer {
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
 			List<FireRenderEmberTrail> trail = ember.trail().stream()
 				.map(sample -> new FireRenderEmberTrail(
-					sample.position().subtract(cameraPosition), sample.wind(), sample.gameTime()))
+					sample.position().subtract(cameraPosition),
+                    ClientFireVisualManager.INSTANCE.effectiveWind(sample.position(),
+                        sample.wind(), gameTime), sample.gameTime()))
 				.toList();
 			embers.add(new FireRenderEmber(worldPosition.subtract(cameraPosition),
 				ember.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
@@ -78,8 +86,10 @@ public final class FireWorldRenderer {
                over beyond that without duplicating the near-field effect. */
             if (!Double.isFinite(distance) || distance < MIN_SMOKE_CLUSTER_DISTANCE
                 || distance > MAX_SMOKE_CLUSTER_DISTANCE) continue;
+            Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
+                cluster.wind(), gameTime);
             smokeClusters.add(new FireRenderSmokeCluster(worldPosition.subtract(cameraPosition),
-                cluster.smoke(), cluster.heat(), cluster.radius(), cluster.wind(), cluster.seed(),
+                cluster.smoke(), cluster.heat(), cluster.radius(), wind, cluster.seed(),
                 cluster.memberCount(), distance));
         }
         currentFrame = patches.isEmpty() && embers.isEmpty() && smokeClusters.isEmpty()
@@ -110,22 +120,23 @@ public final class FireWorldRenderer {
             (pose, buffer) -> FireParticleRenderer.renderEmbers(pose, buffer,
                 frame.gameTime(), frame.patches(), frame.cameraOrientation()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
-            WarheadRenderPipelines.HEAVY_SMOKE,
+            WarheadRenderPipelines.GROUND_DUST,
             (pose, buffer) -> FireParticleRenderer.renderSmoke(pose, buffer,
                 frame.gameTime(), frame.patches(), frame.cameraOrientation()));
 		if (!frame.smokeClusters().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
-            WarheadRenderPipelines.HEAVY_SMOKE,
+            WarheadRenderPipelines.GROUND_DUST,
             (pose, buffer) -> FireParticleRenderer.renderSmokeClusters(pose, buffer,
                 frame.gameTime(), frame.smokeClusters(), frame.cameraOrientation()));
 		if (!frame.embers().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
-			WarheadRenderPipelines.HEAVY_SMOKE,
+			WarheadRenderPipelines.GROUND_DUST,
 			(pose, buffer) -> FireParticleRenderer.renderFirebrandSmoke(pose, buffer,
 				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
     }
 
     record FireRenderPatch(Vec3 relativePosition, Direction face, float intensity,
         float heat, float coverage, float smoke, FirePhase phase, long seed,
-		long ignitionGameTime, Vec3 wind, float clumpStrength, double distance) { }
+		long ignitionGameTime, Vec3 wind, float clumpStrength, double distance,
+        SmokeFlow smokeFlow) { }
 	record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
 		long seed, long startGameTime, int lifetime, double distance,
 		List<FireRenderEmberTrail> trail) { }

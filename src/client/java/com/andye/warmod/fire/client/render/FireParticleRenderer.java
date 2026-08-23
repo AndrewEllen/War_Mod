@@ -1,6 +1,7 @@
 package com.andye.warmod.fire.client.render;
 
 import com.andye.warmod.fire.FirePhase;
+import com.andye.warmod.fire.client.ClientSmokeFlowField.SmokeFlow;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderPatch;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmber;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmberTrail;
@@ -175,6 +176,7 @@ public final class FireParticleRenderer {
         Basis basis = Basis.from(camera);
         for (FireRenderPatch patch : patches) {
             if (patch.smoke() < 0.018F) continue;
+            SmokeFlow flow = patch.smokeFlow();
             double patchAge = Math.max(0.0, gameTime - patch.ignitionGameTime());
             int desired = patch.phase() == FirePhase.IGNITION ? 1
 				: Math.max(1, Mth.ceil((1.0F + patch.smoke() * 11.0F)
@@ -199,15 +201,35 @@ public final class FireParticleRenderer {
                 /* Integrating local wind over particle age creates a readable,
                    shared downwind trail instead of a tiny static offset. */
                 double windAge = particleAge * (0.32 + patch.intensity() * 0.24);
+                double unconstrainedRise = 0.20 + progress
+                    * (2.0 + patch.intensity() * 4.0)
+                    * (1.0 + patch.clumpStrength() * 0.28);
+                double rise = unconstrainedRise;
+                double flowAlongCeiling = 0.0;
+                double outdoorWind = 1.0;
+                if (flow.enclosed()) {
+                    double roof = Math.max(0.55, flow.maximumRise());
+                    double pooling = Mth.clamp((unconstrainedRise - roof * 0.55)
+                        / Math.max(0.35, roof * 0.45), 0.0, 1.0);
+                    rise = Math.min(unconstrainedRise,
+                        roof * (0.82 + unit(value, 8) * 0.12));
+                    flowAlongCeiling = pooling * (0.28 + progress * 1.55)
+                        * Math.max(0.45, roof);
+                    outdoorWind = 0.04 + flow.ventilation() * 0.16;
+                    turbulence *= 0.24 + flow.ventilation() * 0.34;
+                }
                 Vec3 center = patch.relativePosition().add(base).add(
-                    turbulence + patch.wind().x * windAge,
-					0.20 + progress * (2.0 + patch.intensity() * 4.0)
-						* (1.0 + patch.clumpStrength() * 0.28),
-                    -turbulence * 0.46 + patch.wind().z * windAge);
+                    turbulence + patch.wind().x * windAge * outdoorWind
+                        + flow.ventDirection().x * flowAlongCeiling,
+					rise,
+                    -turbulence * 0.46 + patch.wind().z * windAge * outdoorWind
+                        + flow.ventDirection().z * flowAlongCeiling);
                 float radius = (float) ((0.16 + unit(value, 5) * 0.31)
                     * (0.70 + progress * 1.20)
 					* (0.58 + patch.coverage() * 0.58)
 					* (1.0 + patch.clumpStrength() * 0.20));
+                if (flow.enclosed()) radius = Math.min(radius,
+                    Math.max(0.20F, flow.lateralRadius() * 0.42F));
                 int shade = Mth.clamp(150 - (int) (patch.smoke() * 72.0F)
                     - (int) (progress * 18.0) + (int) (unit(value, 6) * 18.0), 52, 168);
                 float fade = (float) Math.pow(1.0 - progress, 0.62);

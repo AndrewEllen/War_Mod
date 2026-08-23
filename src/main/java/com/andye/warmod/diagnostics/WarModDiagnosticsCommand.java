@@ -1,10 +1,9 @@
 package com.andye.warmod.diagnostics;
 
-import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import java.io.IOException;
 import java.nio.file.Path;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -14,20 +13,14 @@ import net.minecraft.server.level.ServerPlayer;
 public final class WarModDiagnosticsCommand {
     private WarModDiagnosticsCommand() { }
 
-    public static void register() {
-        CommandRegistrationCallback.EVENT.register((dispatcher, context, selection) ->
-            register(dispatcher));
-    }
-
-    private static void register(final CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(Commands.literal("icpm")
-            .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+    public static LiteralArgumentBuilder<CommandSourceStack> command() {
+        return Commands.literal("performance")
             .executes(WarModDiagnosticsCommand::toggle)
             .then(Commands.literal("on").executes(context -> setOverlay(context, true)))
             .then(Commands.literal("off").executes(context -> setOverlay(context, false)))
             .then(Commands.literal("status").executes(WarModDiagnosticsCommand::status))
             .then(Commands.literal("reset").executes(WarModDiagnosticsCommand::reset))
-            .then(Commands.literal("report").executes(WarModDiagnosticsCommand::report)));
+            .then(Commands.literal("report").executes(WarModDiagnosticsCommand::report));
     }
 
     private static int toggle(final CommandContext<CommandSourceStack> context) {

@@ -17,9 +17,9 @@ import net.minecraft.world.phys.Vec3;
 public final class ClientNuclearCurtainManager {
     public static final ClientNuclearCurtainManager INSTANCE = new ClientNuclearCurtainManager();
     private static final int MAX_IMPACTS = 8;
-    private static final int MAX_BANDS_PER_IMPACT = 32;
-    private static final int ANCHORS_PER_BAND = 160;
-    private static final int BAND_LIFETIME_TICKS = 64;
+    private static final int MAX_BANDS_PER_IMPACT = 40;
+    private static final int ANCHORS_PER_BAND = 96;
+    private static final int BAND_LIFETIME_TICKS = 260;
     private final Map<UUID, CurtainImpact> impacts = new LinkedHashMap<>();
     private ClientLevel activeLevel;
 
@@ -147,9 +147,10 @@ public final class ClientNuclearCurtainManager {
                 level, center, radius, angle);
             if (position == null) continue;
 			double spacing = Mth.TWO_PI * Math.max(8.0, radius) / ANCHORS_PER_BAND;
-			float height = (float) ((2.4 + scale * 0.85) * (0.78 + unit(seed, 3) * 0.46));
-			float width = (float) Math.max(4.5 + scale * 0.80,
-				spacing * (0.86 + unit(seed, 4) * 0.28));
+			float height = (float) ((0.72 + scale * 0.20)
+                * (0.78 + unit(seed, 3) * 0.46));
+			float width = (float) Math.max(5.2 + scale * 0.92,
+				spacing * (1.02 + unit(seed, 4) * 0.32));
             anchors.add(new CurtainAnchor(position, (float) (radius - to), height, width, seed));
         }
         return anchors.isEmpty() ? null : new CurtainBand(gameTime, bandSeed, anchors);

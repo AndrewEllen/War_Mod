@@ -56,7 +56,8 @@ public final class IcbmWorldRenderer {
 			logLongRangeOnce(state.flightPlan().missileId(), renderContext.transform());
 			double elapsed = state.elapsed(time, partial);
 			missiles.add(new MissileFrame(position, velocity, IcbmTrajectory.thrustActive(state.flightPlan(), elapsed),
-				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(state.flightPlan().payloadType()),
+				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(
+					state.yield(), state.deliveryMode()),
 				renderContext, light(level, position), state.trail(time, partial)));
 		}
 		List<StageFrame> stages = new ArrayList<>();

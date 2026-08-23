@@ -20,8 +20,8 @@ import org.joml.Quaternionf;
 /** Independent packed analytical dust curtain; it never allocates Minecraft particles. */
 public final class NuclearDestructionCurtainRenderer {
     private static final double MAX_DISTANCE = 1_536.0;
-    private static final double BAND_HOLD_TICKS = 14.0;
-    private static final double BAND_FADE_TICKS = 44.0;
+    private static final double BAND_HOLD_TICKS = 42.0;
+    private static final double BAND_FADE_TICKS = 210.0;
     private static volatile Frame frame = Frame.EMPTY;
     private static boolean registered;
 
@@ -69,15 +69,19 @@ public final class NuclearDestructionCurtainRenderer {
 					: Math.max(0.0, frame.gameTime() - impact.completionGameTime());
 				if (impact.completionGameTime() != Long.MIN_VALUE) {
 					fade = Math.min(fade, (float) Math.pow(
-						Math.max(0.0, 1.0 - completionAge / 30.0), 1.10));
+						Math.max(0.0, 1.0 - completionAge / 180.0), 1.10));
 				}
 				if (fade <= 0.001F) continue;
 				double settledAge = Math.min(age, 32.0);
                 List<CurtainAnchor> anchors = band.anchors();
                 for (int index = 0; index < anchors.size(); index++) {
                     CurtainAnchor anchor = anchors.get(index);
-                    if (anchor.position().distanceToSqr(frame.camera()) > MAX_DISTANCE * MAX_DISTANCE)
+                    double distanceSquared = anchor.position().distanceToSqr(frame.camera());
+                    if (distanceSquared > MAX_DISTANCE * MAX_DISTANCE)
                         continue;
+                    double distance = Math.sqrt(distanceSquared);
+                    int stride = distance > 960.0 ? 4 : distance > 480.0 ? 2 : 1;
+                    if (index % stride != 0) continue;
                     long seed = anchor.seed();
 					double radialX = anchor.position().x - impact.center().x;
 					double radialZ = anchor.position().z - impact.center().z;
@@ -91,18 +95,20 @@ public final class NuclearDestructionCurtainRenderer {
 					float width = anchor.width() * (1.0F + (float) settledAge / 32.0F * 0.16F);
 					float height = anchor.height() * (0.72F + (float) unit(seed, 2) * 0.24F);
 					Vec3 center = anchor.position().subtract(frame.camera()).add(
-						tx * curl, 0.10 + unit(seed, 3) * 0.18, tz * curl);
+						tx * curl, 0.08 + unit(seed, 3) * 0.10, tz * curl);
 					DustColour colour = dustColour(seed);
-					float alpha = fade * (0.34F + (float) unit(seed, 4) * 0.20F);
+					float alpha = fade * (0.24F + (float) unit(seed, 4) * 0.16F);
 					addGroundSheet(pose, buffer, center, tx, tz, rx, rz,
-						width * 0.58F, width * (0.38F + (float) unit(seed, 5) * 0.16F),
+						width * 0.68F, width * (0.62F + (float) unit(seed, 5) * 0.20F),
 						colour, alpha);
-					addVerticalWisp(pose, buffer, center, tx, tz, width * 0.34F, height,
-						colour, alpha * 0.66F);
-					if (unit(seed, 6) > 0.44) {
+					/* A shallow skirt gives the sheet volume without reinstating the
+					   tall vertical cards that exposed the terrain underneath. */
+					addVerticalWisp(pose, buffer, center, tx, tz, width * 0.54F,
+                        height * 0.72F, colour, alpha * 0.34F);
+					if (unit(seed, 6) > 0.72 && stride == 1) {
 						addVerticalWisp(pose, buffer, center.add(0.0, 0.10, 0.0), rx, rz,
-							width * 0.25F, height * 0.72F, dustColour(seed ^ 0x415348L),
-							alpha * 0.48F);
+							width * 0.30F, height * 0.82F, dustColour(seed ^ 0x415348L),
+							alpha * 0.22F);
 					}
                 }
             }

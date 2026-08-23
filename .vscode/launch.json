@@ -6,6 +6,7 @@
       "name": "Minecraft Client",
       "request": "launch",
       "cwd": "${workspaceFolder}/run",
+      "preLaunchTask": "war_mod: prepare debug outputs",
       "console": "integratedTerminal",
       "stopOnEntry": false,
       "mainClass": "net.fabricmc.devlaunchinjector.Main",
@@ -17,6 +18,16 @@
         "--enable-native-access=ALL-UNNAMED"
       ],
       "args": "",
+      "classPaths": [
+        "$Auto",
+        "!${workspaceFolder}/bin/main",
+        "!${workspaceFolder}/bin/client",
+        "!${workspaceFolder}/bin/test",
+        "${workspaceFolder}/build/classes/java/main",
+        "${workspaceFolder}/build/resources/main",
+        "${workspaceFolder}/build/classes/java/client",
+        "${workspaceFolder}/build/resources/client"
+      ],
       "shortenCommandLine": "argfile"
     },
     {
@@ -24,6 +35,7 @@
       "name": "Minecraft Server",
       "request": "launch",
       "cwd": "${workspaceFolder}/run",
+      "preLaunchTask": "war_mod: prepare debug outputs",
       "console": "integratedTerminal",
       "stopOnEntry": false,
       "mainClass": "net.fabricmc.devlaunchinjector.Main",
@@ -35,6 +47,16 @@
         "--enable-native-access=ALL-UNNAMED"
       ],
       "args": "nogui",
+      "classPaths": [
+        "$Auto",
+        "!${workspaceFolder}/bin/main",
+        "!${workspaceFolder}/bin/client",
+        "!${workspaceFolder}/bin/test",
+        "${workspaceFolder}/build/classes/java/main",
+        "${workspaceFolder}/build/resources/main",
+        "${workspaceFolder}/build/classes/java/client",
+        "${workspaceFolder}/build/resources/client"
+      ],
       "shortenCommandLine": "argfile"
     }
   ]

@@ -13,10 +13,8 @@ import com.andye.warmod.fire.FireSimulationManager;
 import com.andye.warmod.fire.network.FireNetworking;
 import com.andye.warmod.fire.network.FireDebugNetworking;
 import com.andye.warmod.fire.wind.FireWindEngine;
-import com.andye.warmod.diagnostics.WarModDiagnosticsCommand;
 import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.icbm.IcbmChunkTicketType;
-import com.andye.warmod.icbm.IcbmCommand;
 import com.andye.warmod.icbm.IcbmFlightControllerManager;
 import com.andye.warmod.icbm.IcbmPendingCommandLaunchManager;
 import com.andye.warmod.icbm.network.IcbmVisualNetworking;
@@ -69,7 +67,7 @@ public final class WarMod implements ModInitializer {
         NuclearDestructionCurtainNetworking.registerPayloadTypes();
         FireNetworking.registerPayloadTypes();
         FireDebugNetworking.register();
-        WarModDiagnosticsCommand.register();
+        WarModCommand.register();
         WarModPerformanceDiagnostics.registerLifecycle();
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
@@ -98,7 +96,6 @@ public final class WarMod implements ModInitializer {
         PhalanxManager.registerLifecycle();
         PhalanxBulletManager.register();
         IcbmPendingCommandLaunchManager.register();
-        IcbmCommand.register();
         ModEntityTypes.register();
         ModItems.register();
         PipeWrenchItem.registerInteractions();

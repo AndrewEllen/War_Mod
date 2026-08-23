@@ -1,7 +1,8 @@
 package com.andye.warmod.icbm;
 
 public final class IcbmConstants {
-    public static final int IGNITION_TICKS = 8;
+    /** Visible one-second engine build-up before the full powered ascent begins. */
+    public static final int IGNITION_TICKS = 20;
     public static final int BOOST_TICKS = 120;
     public static final int MINIMUM_COAST_TICKS = 180;
     public static final int MAXIMUM_COAST_TICKS = 4096;

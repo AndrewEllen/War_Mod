@@ -2,6 +2,9 @@ package com.andye.warmod.icbm;
 
 import com.andye.warmod.WarMod;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadFireSettings;
+import com.andye.warmod.warhead.WarheadYield;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -34,14 +37,18 @@ public final class IcbmPendingCommandLaunchManager {
 	}
 
 	public static synchronized boolean queue(final ServerLevel level, final ServerPlayer player, final Vec3 target,
-		final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType) {
+		final @Nullable Vec3 requestedLaunch, final WarheadYield yield,
+		final WarheadDeliveryMode deliveryMode) {
+		if (yield == null || deliveryMode == null) return false;
+		WarheadPayloadType payloadType = yield.payloadType();
 		IcbmLaunchService.PreparedCommandLaunch prepared = IcbmLaunchService.prepareCommandLaunch(
 			level, player, target, requestedLaunch, payloadType).orElse(null);
 		if (prepared == null) return false;
 		Set<ChunkPos> tickets = IcbmChunkTicketRegistry.window(IcbmChunkTicketRegistry.chunk(prepared.launchPosition()), IcbmConstants.CARRIER_CHUNK_RADIUS);
 		IcbmChunkTicketRegistry.acquireAll(level, tickets);
 		IcbmPendingCommandLaunch request = new IcbmPendingCommandLaunch(prepared.requestId(), player.getUUID(),
-			level.dimension(), target, requestedLaunch, prepared.launchPosition(), payloadType, level.getGameTime(),
+			level.dimension(), target, requestedLaunch, prepared.launchPosition(), payloadType,
+			yield, deliveryMode, WarheadFireSettings.get(level).customFire(), level.getGameTime(),
 			prepared.visualSeed(), tickets);
 		PENDING.computeIfAbsent(level, ignored -> new LinkedHashMap<>()).put(request.requestId(), request);
 		if (SharedConstants.IS_RUNNING_IN_IDE) WarMod.LOGGER.info(
@@ -75,7 +82,9 @@ public final class IcbmPendingCommandLaunchManager {
 			var result = IcbmLaunchService.completePendingCommandLaunch(level, player, request);
 			IcbmChunkTicketRegistry.releaseAll(level, request.temporaryTickets());
 			iterator.remove();
-			if (result.isPresent()) player.sendSystemMessage(Component.literal("ICBM launched toward " + format(request.target())));
+			if (result.isPresent()) player.sendSystemMessage(Component.literal(request.yield().displayName()
+				+ (request.deliveryMode() == WarheadDeliveryMode.CLUSTER_FOUR ? " cluster" : "")
+				+ " ICBM launched toward " + format(request.target())));
 			else {
 				player.sendSystemMessage(Component.literal("ICBM launch failed: flight plan could not be constructed"));
 				logFailure(request, "flight plan construction or central manager rejection");

@@ -2,6 +2,7 @@ package com.andye.warmod.fire.client;
 
 import com.andye.warmod.fire.network.ServerboundFireDebugConfigPayload;
 import com.andye.warmod.item.component.FireDebugConfig;
+import com.andye.warmod.client.gui.WarModUiText;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractSliderButton;
@@ -84,20 +85,19 @@ public final class FireDebugScreen extends Screen {
 
     @Override public void extractRenderState(final GuiGraphicsExtractor graphics,
         final int mouseX, final int mouseY, final float partialTick) {
-        graphics.fill(left, top, left + PANEL_WIDTH, top + PANEL_HEIGHT, 0xF014191C);
-        graphics.fill(left, top, left + PANEL_WIDTH, top + 34, 0xFF382319);
-        graphics.fill(left + 12, top + 42, left + PANEL_WIDTH - 12, top + 148, 0xFF0B1012);
-        graphics.fill(left + 12, top + 154, left + PANEL_WIDTH - 12, top + 168, 0xFF20282B);
-        graphics.text(font, title, left + 14, top + 12, 0xFFFFA33A);
+        WarModUiText.frame(graphics, left, top, PANEL_WIDTH, PANEL_HEIGHT);
+        WarModUiText.section(graphics, left + 12, top + 40, PANEL_WIDTH - 24, 110);
+        WarModUiText.section(graphics, left + 12, top + 154, PANEL_WIDTH - 24, 16);
+        graphics.text(font, title, left + 14, top + 9, WarModUiText.ACCENT);
         graphics.text(font, Component.literal("HEAT RELEASE / GROWTH CEILING"),
-            left + 22, top + 47, 0xFF97ABB3);
+            left + 22, top + 47, WarModUiText.TEXT_MUTED);
         graphics.text(font, Component.literal("INITIAL SURFACE RADIUS"),
-            left + 22, top + 101, 0xFF97ABB3);
+            left + 22, top + 101, WarModUiText.TEXT_MUTED);
         String help = draft.size() == 1
             ? "Size 1 attaches one fire patch at the exact hit point"
             : "Larger sizes seed exposed fuel surfaces around the hit point";
         graphics.text(font, Component.literal(help),
-            left + (PANEL_WIDTH - font.width(help)) / 2, top + 157, 0xFFD0DADF);
+            left + (PANEL_WIDTH - font.width(help)) / 2, top + 157, WarModUiText.TEXT);
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }
 

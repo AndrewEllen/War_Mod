@@ -114,12 +114,11 @@ public final class MasterExplosiveStickItem extends Item {
 			level,
 			player,
 			intended,
-			config.yield().payloadType(),
-			delivery
+			config.yield(),
+			delivery,
+			config.customFire()
 		).orElse(null);
 		if (result == null) return 0;
-		WarheadYieldRegistry.put(level, result.flightPlan().missileId(), config.yield(),
-			config.customFire());
 		return config.cluster() ? 4 : 1;
 	}
 

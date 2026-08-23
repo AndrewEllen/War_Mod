@@ -9,5 +9,8 @@ public final class RocketConstants {
     public static final int OWNER_IGNORE_TICKS = 5;
     public static final int COOLDOWN_TICKS = 14;
     public static final float EXPLOSION_STRENGTH = 5.0F;
+    public static final double GRAVITY_PER_TICK = 0.012;
+    public static final double DRAG_PER_TICK = 0.998;
+    public static final double WIND_RESPONSE_PER_TICK = 0.006;
     private RocketConstants() { }
 }

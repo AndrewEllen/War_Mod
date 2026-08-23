@@ -10,13 +10,14 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
+import com.andye.warmod.warhead.WarheadYield;
 
 public final class ModCreativeModeTabs {
     public static final ResourceKey<CreativeModeTab> WAR_MOD_KEY = ResourceKey.create(
         Registries.CREATIVE_MODE_TAB,
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
     );
-    private static final int ENTRY_COUNT = 70;
+    private static final int ENTRY_COUNT = 66;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
@@ -26,7 +27,8 @@ public final class ModCreativeModeTabs {
         if (registered) return;
         CreativeModeTab tab = CreativeModeTab.builder(CreativeModeTab.Row.TOP, 0)
             .title(Component.translatable("itemGroup.war_mod.war_mod"))
-            .icon(() -> new ItemStack(ModItems.NUCLEAR_ICBM))
+            .icon(() -> new ItemStack(ModItems.yieldMissile(
+                WarheadYield.STRATEGIC_NUCLEAR, false)))
             .displayItems((parameters, output) -> {
                 output.accept(ModItems.MISSILE_SILO);
                 output.accept(ModItems.ARTILLERY_CANNON);
@@ -38,10 +40,20 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.PHALANX_TURRET);
                 output.accept(ModItems.ITEM_PIPE);
                 output.accept(ModItems.PIPE_WRENCH);
-                output.accept(ModItems.CONVENTIONAL_ICBM);
-                output.accept(ModItems.CONVENTIONAL_CLUSTER_ICBM);
-                output.accept(ModItems.NUCLEAR_ICBM);
-                output.accept(ModItems.NUCLEAR_CLUSTER_ICBM);
+                /* Legacy four ICBM IDs remain registered so old worlds load, but
+                   the yield-aware replacements are the only creative entries. */
+                for (WarheadYield yield : WarheadYield.values()) {
+                    output.accept(ModItems.timedTnt(yield, false));
+                    output.accept(ModItems.timedTnt(yield, true));
+                }
+                for (WarheadYield yield : WarheadYield.values()) {
+                    output.accept(ModItems.artilleryWarhead(yield, false));
+                    output.accept(ModItems.artilleryWarhead(yield, true));
+                }
+                for (WarheadYield yield : WarheadYield.values()) {
+                    output.accept(ModItems.yieldMissile(yield, false));
+                    output.accept(ModItems.yieldMissile(yield, true));
+                }
                 output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
                 output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
                 output.accept(ModItems.ROCKET_LAUNCHER);
@@ -56,7 +68,6 @@ public final class ModCreativeModeTabs {
                 output.accept(ModItems.FIRE_DEBUG_STICK);
                 output.accept(ModItems.FIRE_HOSE);
                 output.accept(ModItems.FIRE_EXTINGUISHER);
-                for (net.minecraft.world.item.Item item : ModItems.yieldItems()) output.accept(item);
             }).build();
         Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, WAR_MOD_KEY, tab);
         registered = true;

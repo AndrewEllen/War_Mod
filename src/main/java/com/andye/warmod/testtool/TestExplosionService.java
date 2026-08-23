@@ -1,6 +1,7 @@
 package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
+import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.warhead.StrategicExplosionProfile;
 import com.andye.warmod.warhead.StrategicExplosionProfiles;
 import com.andye.warmod.warhead.WarheadConstants;
@@ -130,6 +131,9 @@ public final class TestExplosionService {
 		if (!position.isFinite() || !Float.isFinite(strength) || strength <= 0.0F) {
 			throw new IllegalArgumentException("Invalid explosion arguments");
 		}
+		FireWindEngine.addExplosionImpulse(level, position,
+			12.0 + strength * 7.0, Math.min(1.35, 0.20 + strength * 0.085),
+			Math.min(96, 28 + Math.round(strength * 3.0F)));
 		WarheadExplosionDropContext.enter();
 		try {
 			level.explode(source, Explosion.getDefaultDamageSource(level, source), null,

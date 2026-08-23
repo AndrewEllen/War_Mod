@@ -37,7 +37,8 @@ public final class WarheadYieldRegistry {
 		final UUID radarRootTrackId,
 		final WarheadYield yield
 	) {
-		put(level, radarRootTrackId, yield, false);
+		put(level, radarRootTrackId, yield,
+			level != null && WarheadFireSettings.get(level).customFire());
 	}
 
 	public static synchronized void put(
@@ -75,11 +76,13 @@ public final class WarheadYieldRegistry {
 		final UUID radarRootTrackId
 	) {
 		Map<UUID, Entry> levelEntries = ENTRIES.get(level);
-		if (levelEntries == null) return false;
+		if (levelEntries == null) return level != null
+			&& WarheadFireSettings.get(level).customFire();
 		Entry root = radarRootTrackId == null ? null : levelEntries.get(radarRootTrackId);
 		if (root != null) return root.customFire;
 		Entry direct = warheadId == null ? null : levelEntries.get(warheadId);
-		return direct != null && direct.customFire;
+		return direct != null ? direct.customFire
+			: level != null && WarheadFireSettings.get(level).customFire();
 	}
 
 	private static synchronized void tick(final ServerLevel level) {

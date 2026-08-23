@@ -14,6 +14,7 @@ public final class AcousticSounds {
 	public static final Identifier TERMINAL_SONIC_BOOM_ID = id("terminal_sonic_boom");
 	public static final Identifier WARHEAD_IMPACT_THUD_ID = id("warhead_impact_thud");
 	public static final Identifier TACTICAL_HE_EXPLOSION_ID = id("tactical_he_explosion");
+	public static final Identifier ARTILLERY_FIRE_ID = id("artillery_fire");
 	private static boolean registered;
 
 	private AcousticSounds() {
@@ -63,6 +64,13 @@ public final class AcousticSounds {
 			ModSoundEvents.PROTOTYPE_EXPLOSION_EXTREME_ID,
 			new double[]{0, 65, 145, 220, 480},
 			new float[]{.72F, .58F, .38F, .20F}, .018, false);
+		register(ARTILLERY_FIRE_ID,
+			ModSoundEvents.PROTOTYPE_EXPLOSION_NEAR_ID,
+			ModSoundEvents.PROTOTYPE_EXPLOSION_MEDIUM_ID,
+			ModSoundEvents.PROTOTYPE_EXPLOSION_FAR_ID,
+			ModSoundEvents.PROTOTYPE_EXPLOSION_EXTREME_ID,
+			new double[]{0, 110, 280, 620, 1_200},
+			new float[]{.92F, .72F, .48F, .26F}, .009, true);
 		registered = true;
 		WarMod.LOGGER.info("Registered propagated acoustic definitions.");
 	}

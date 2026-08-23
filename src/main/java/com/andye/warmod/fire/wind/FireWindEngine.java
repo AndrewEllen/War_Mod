@@ -1,5 +1,6 @@
 package com.andye.warmod.fire.wind;
 
+import com.andye.warmod.fire.network.FireNetworking;
 import java.util.ArrayDeque;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -10,9 +11,11 @@ import net.minecraft.world.phys.Vec3;
 
 /** Spatial wind queried only by the custom fire subsystem. */
 public final class FireWindEngine {
-    private static final int WIND_CELL_SIZE = 48;
-    private static final long WIND_EPOCH_TICKS = 1_800L;
-    private static final Map<ServerLevel, ArrayDeque<WindImpulse>> IMPULSES =
+    private static final int MACRO_WIND_CELL_SIZE = 96;
+    private static final int LOCAL_WIND_CELL_SIZE = 40;
+    private static final long MACRO_WIND_EPOCH_TICKS = 1_200L;
+    private static final long LOCAL_WIND_EPOCH_TICKS = 420L;
+    private static final Map<ServerLevel, ArrayDeque<FireWindImpulse>> IMPULSES =
         new IdentityHashMap<>();
     private static boolean registered;
 
@@ -29,10 +32,10 @@ public final class FireWindEngine {
     public static synchronized void clearAll() { IMPULSES.clear(); }
 
     public static synchronized void tick(final ServerLevel level) {
-        ArrayDeque<WindImpulse> impulses = IMPULSES.get(level);
+        ArrayDeque<FireWindImpulse> impulses = IMPULSES.get(level);
         if (impulses == null) return;
         long now = level.getGameTime();
-        Iterator<WindImpulse> iterator = impulses.iterator();
+        Iterator<FireWindImpulse> iterator = impulses.iterator();
         while (iterator.hasNext()) if (iterator.next().expired(now)) iterator.remove();
         if (impulses.isEmpty()) IMPULSES.remove(level);
     }
@@ -42,11 +45,13 @@ public final class FireWindEngine {
         final int durationTicks) {
         if (level == null || center == null || !center.isFinite() || radius <= 0.0
             || strength <= 0.0 || durationTicks <= 0) return;
-        ArrayDeque<WindImpulse> impulses = IMPULSES.computeIfAbsent(level,
+        ArrayDeque<FireWindImpulse> impulses = IMPULSES.computeIfAbsent(level,
             ignored -> new ArrayDeque<>());
         while (impulses.size() >= 32) impulses.removeFirst();
-        impulses.addLast(new WindImpulse(center, radius, strength,
-            level.getGameTime(), durationTicks));
+        FireWindImpulse impulse = new FireWindImpulse(center, radius, strength,
+            level.getGameTime(), durationTicks);
+        impulses.addLast(impulse);
+        FireNetworking.sendWindImpulse(level, impulse);
     }
 
     public static synchronized Vec3 windAt(final ServerLevel level, final Vec3 position) {
@@ -56,26 +61,35 @@ public final class FireWindEngine {
            next random state only every ninety seconds.  Bilinear interpolation
            keeps neighbouring forests related while allowing different valleys
            to blow in genuinely different directions. */
-        long epoch = Math.floorDiv(level.getGameTime(), WIND_EPOCH_TICKS);
-        double epochProgress = (level.getGameTime() - epoch * (double) WIND_EPOCH_TICKS)
-            / WIND_EPOCH_TICKS;
-        Vec3 present = sampledField(level.getSeed(), position, epoch);
-        Vec3 future = sampledField(level.getSeed(), position, epoch + 1L);
-        Vec3 result = present.lerp(future, smoothstep(epochProgress));
+        long time = level.getGameTime();
+        Vec3 macro = temporalField(level.getSeed(), position, time,
+            MACRO_WIND_CELL_SIZE, MACRO_WIND_EPOCH_TICKS, 0x4D4143524F5F5749L);
+        Vec3 local = temporalField(level.getSeed(), position, time,
+            LOCAL_WIND_CELL_SIZE, LOCAL_WIND_EPOCH_TICKS, 0x4C4F43414C5F5749L);
+        Vec3 result = macro.scale(0.72).add(local.scale(0.58));
 
-        ArrayDeque<WindImpulse> impulses = IMPULSES.get(level);
+        ArrayDeque<FireWindImpulse> impulses = IMPULSES.get(level);
         if (impulses != null) {
             long now = level.getGameTime();
-            for (WindImpulse impulse : impulses) result = result.add(impulse.sample(position, now));
+            for (FireWindImpulse impulse : impulses) result = result.add(impulse.sample(position, now));
         }
         double length = result.length();
         return length > 2.5 ? result.scale(2.5 / length) : result;
     }
 
+    private static Vec3 temporalField(final long levelSeed, final Vec3 position,
+        final long time, final int cellSize, final long epochTicks, final long salt) {
+        long epoch = Math.floorDiv(time, epochTicks);
+        double progress = (time - epoch * (double) epochTicks) / epochTicks;
+        Vec3 present = sampledField(levelSeed ^ salt, position, epoch, cellSize);
+        Vec3 future = sampledField(levelSeed ^ salt, position, epoch + 1L, cellSize);
+        return present.lerp(future, smoothstep(progress));
+    }
+
     private static Vec3 sampledField(final long levelSeed, final Vec3 position,
-        final long epoch) {
-        double cellX = position.x / WIND_CELL_SIZE;
-        double cellZ = position.z / WIND_CELL_SIZE;
+        final long epoch, final int cellSize) {
+        double cellX = position.x / cellSize;
+        double cellZ = position.z / cellSize;
         int baseX = (int) Math.floor(cellX);
         int baseZ = (int) Math.floor(cellZ);
         double x = smoothstep(cellX - baseX);
@@ -112,39 +126,4 @@ public final class FireWindEngine {
         return value ^ value >>> 31;
     }
 
-    private record WindImpulse(Vec3 center, double radius, double strength,
-        long startTick, int durationTicks) {
-        private boolean expired(final long now) {
-            double travelTicks = radius / 17.15;
-            double pulseWidth = Math.max(5.0, Math.min(14.0, durationTicks * 0.13));
-            double returnStart = Math.max(travelTicks + 6.0, durationTicks * 0.56);
-            long effectiveDuration = (long) Math.ceil(Math.max(durationTicks,
-                returnStart + travelTicks + pulseWidth * 1.18));
-            return now > startTick + effectiveDuration;
-        }
-
-        private Vec3 sample(final Vec3 position, final long now) {
-            Vec3 delta = position.subtract(center);
-            double distance = delta.length();
-            if (distance < 0.05 || distance >= radius) return Vec3.ZERO;
-            double elapsed = now - startTick;
-            double shockSpeed = 17.15;
-            double travelTicks = radius / shockSpeed;
-            double pulseWidth = Math.max(5.0, Math.min(14.0, durationTicks * 0.13));
-            double outwardAge = elapsed - distance / shockSpeed;
-            double temporal = pulse(outwardAge, pulseWidth);
-            double returnStart = Math.max(travelTicks + 6.0, durationTicks * 0.56);
-            double returnAge = elapsed - returnStart - (radius - distance) / shockSpeed;
-            temporal -= pulse(returnAge, pulseWidth * 1.18) * 0.42;
-            if (Math.abs(temporal) < 1.0E-5) return Vec3.ZERO;
-            double falloff = 0.35 + 0.65 * (1.0 - distance / radius);
-            return delta.scale(1.0 / distance).scale(strength * temporal * falloff);
-        }
-
-        private static double pulse(final double age, final double width) {
-            if (age < 0.0 || age >= width) return 0.0;
-            double normalized = age / width;
-            return Math.sin(normalized * Math.PI) * (1.0 - normalized * 0.35);
-        }
-    }
 }

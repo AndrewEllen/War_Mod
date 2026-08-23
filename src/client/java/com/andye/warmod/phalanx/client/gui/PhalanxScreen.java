@@ -1,6 +1,7 @@
 package com.andye.warmod.phalanx.client.gui;
 
 import com.andye.warmod.block.entity.PhalanxBlockEntity;
+import com.andye.warmod.client.gui.WarModUiText;
 import com.andye.warmod.menu.PhalanxMenu;
 import com.andye.warmod.phalanx.PhalanxConstants;
 import com.andye.warmod.phalanx.PhalanxGunStatus;
@@ -35,34 +36,11 @@ public final class PhalanxScreen
         final int mouseY,
         final float partial
     ) {
-        graphics.fill(
-            leftPos,
-            topPos,
-            leftPos + imageWidth,
-            topPos + imageHeight,
-            0xFF161E22
-        );
-        graphics.fill(
-            leftPos,
-            topPos,
-            leftPos + imageWidth,
-            topPos + 24,
-            0xFF202A2F
-        );
-        graphics.fill(
-            leftPos + 8,
-            topPos + 28,
-            leftPos + imageWidth - 8,
-            topPos + 158,
-            0xFF0C1215
-        );
-        graphics.fill(
-            leftPos + 4,
-            topPos + 162,
-            leftPos + imageWidth - 4,
-            topPos + imageHeight - 4,
-            0xFF0C1215
-        );
+        WarModUiText.frame(graphics, leftPos, topPos, imageWidth, imageHeight);
+        WarModUiText.section(graphics, leftPos + 8, topPos + 28,
+            imageWidth - 16, 130);
+        WarModUiText.section(graphics, leftPos + 4, topPos + 162,
+            imageWidth - 8, imageHeight - 166);
 
         drawSlotBackgrounds(graphics, mouseX, mouseY);
         super.extractRenderState(graphics, mouseX, mouseY, partial);
@@ -101,7 +79,7 @@ public final class PhalanxScreen
             Component.literal("PHALANX POINT DEFENCE"),
             leftPos + 8,
             topPos + 8,
-            0xFFFFC45A
+            WarModUiText.ACCENT
         );
         graphics.text(
             font,
@@ -196,19 +174,9 @@ public final class PhalanxScreen
             int x = leftPos + slot.x - 1;
             int y = topPos + slot.y - 1;
 
-            graphics.fill(x, y, x + 18, y + 18, 0xFF68757A);
-            graphics.fill(x + 1, y + 1, x + 17, y + 17, 0xFF0B1114);
-
-            if (mouseX >= x && mouseX < x + 18
-                && mouseY >= y && mouseY < y + 18) {
-                graphics.fill(
-                    x + 1,
-                    y + 1,
-                    x + 17,
-                    y + 17,
-                    0x55FFFFFF
-                );
-            }
+            WarModUiText.slot(graphics, x, y,
+                mouseX >= x && mouseX < x + 18 && mouseY >= y && mouseY < y + 18,
+                false);
         }
     }
 }

@@ -2,6 +2,7 @@ package com.andye.warmod.testtool.client;
 
 import com.andye.warmod.item.component.MasterExplosiveConfig;
 import com.andye.warmod.item.component.MasterExplosiveDelivery;
+import com.andye.warmod.client.gui.WarModUiText;
 import com.andye.warmod.testtool.network.ServerboundMasterExplosiveConfigPayload;
 import com.andye.warmod.warhead.StrategicExplosionProfile;
 import com.andye.warmod.warhead.StrategicExplosionProfiles;
@@ -105,11 +106,10 @@ public final class MasterExplosiveScreen extends Screen {
 		final int mouseY,
 		final float partialTick
 	) {
-		graphics.fill(left, top, left + PANEL_WIDTH, top + PANEL_HEIGHT, 0xEF10171B);
-		graphics.fill(left, top, left + PANEL_WIDTH, top + 30, 0xFF27343A);
-		graphics.fill(left + 12, top + 38, left + PANEL_WIDTH - 12, top + 178, 0xFF0A1013);
-		graphics.fill(left + 12, top + 184, left + PANEL_WIDTH - 12, top + 212, 0xFF182126);
-		graphics.text(font, title, left + 14, top + 10, 0xFFFFC45A);
+		WarModUiText.frame(graphics, left, top, PANEL_WIDTH, PANEL_HEIGHT);
+		WarModUiText.section(graphics, left + 12, top + 38, PANEL_WIDTH - 24, 140);
+		WarModUiText.section(graphics, left + 12, top + 184, PANEL_WIDTH - 24, 28);
+		graphics.text(font, title, left + 14, top + 9, WarModUiText.ACCENT);
 		graphics.text(font, Component.literal("YIELD"), left + 20, top + 136, 0xFF8299A2);
 		String yieldName = config.yield().displayName();
 		graphics.text(font, Component.literal(yieldName),

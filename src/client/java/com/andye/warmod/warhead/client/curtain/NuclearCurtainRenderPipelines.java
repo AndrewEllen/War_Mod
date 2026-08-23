@@ -3,9 +3,9 @@ package com.andye.warmod.warhead.client.curtain;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import net.minecraft.client.renderer.rendertype.RenderType;
 
-/** Dedicated translucent path, independent of every ordinary particle budget. */
+/** Isolated curtain state using the already-compatible translucent dust material. */
 final class NuclearCurtainRenderPipelines {
-    static RenderType curtain() { return WarheadRenderPipelines.HEAVY_SMOKE; }
+    static RenderType curtain() { return WarheadRenderPipelines.GROUND_DUST; }
 
     private NuclearCurtainRenderPipelines() { }
 }

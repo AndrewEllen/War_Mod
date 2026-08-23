@@ -1,6 +1,9 @@
-{
-  "parent": "minecraft:item/handheld",
-  "textures": {
-    "layer0": "war_mod:item/pipe_wrench"
-  }
-}
+{"textures":{"handle":"war_mod:item/pipe_wrench_handle","jaw":"war_mod:item/pipe_wrench_jaw","particle":"#handle"},
+  "elements":[
+    {"name":"handle","from":[6.7,1,6.5],"to":[9.3,12,9.5],"faces":{"north":{"texture":"#handle"},"south":{"texture":"#handle"},"east":{"texture":"#handle"},"west":{"texture":"#handle"},"up":{"texture":"#handle"},"down":{"texture":"#handle"}}},
+    {"name":"wrench_head","from":[4.5,10.5,5.5],"to":[10.8,14,10.5],"faces":{"north":{"texture":"#handle"},"south":{"texture":"#handle"},"east":{"texture":"#handle"},"west":{"texture":"#handle"},"up":{"texture":"#handle"},"down":{"texture":"#handle"}}},
+    {"name":"fixed_jaw","from":[3,12.5,5.5],"to":[5.5,16,10.5],"faces":{"north":{"texture":"#jaw"},"south":{"texture":"#jaw"},"east":{"texture":"#jaw"},"west":{"texture":"#jaw"},"up":{"texture":"#jaw"},"down":{"texture":"#jaw"}}},
+    {"name":"sliding_jaw","from":[9.8,12,5.5],"to":[12.5,15.2,10.5],"faces":{"north":{"texture":"#jaw"},"south":{"texture":"#jaw"},"east":{"texture":"#jaw"},"west":{"texture":"#jaw"},"up":{"texture":"#jaw"},"down":{"texture":"#jaw"}}},
+    {"name":"adjuster","from":[8.8,9.5,5.2],"to":[11,12,10.8],"faces":{"north":{"texture":"#jaw"},"south":{"texture":"#jaw"},"east":{"texture":"#jaw"},"west":{"texture":"#jaw"},"up":{"texture":"#jaw"},"down":{"texture":"#jaw"}}},
+    {"name":"lanyard_hole","from":[7.2,0.2,7],"to":[8.8,1.5,9],"faces":{"north":{"texture":"#jaw"},"south":{"texture":"#jaw"},"east":{"texture":"#jaw"},"west":{"texture":"#jaw"},"up":{"texture":"#jaw"},"down":{"texture":"#jaw"}}}
+  ],"display":{"gui":{"rotation":[25,45,0],"scale":[0.86,0.86,0.86]},"ground":{"scale":[0.35,0.35,0.35]},"fixed":{"rotation":[0,180,0],"scale":[0.6,0.6,0.6]},"firstperson_righthand":{"rotation":[0,-90,20],"translation":[1,2,1],"scale":[0.55,0.55,0.55]},"firstperson_lefthand":{"rotation":[0,90,-20],"translation":[-1,2,1],"scale":[0.55,0.55,0.55]},"thirdperson_righthand":{"rotation":[0,-90,35],"translation":[0,2,1],"scale":[0.45,0.45,0.45]},"thirdperson_lefthand":{"rotation":[0,90,-35],"translation":[0,2,1],"scale":[0.45,0.45,0.45]}}}

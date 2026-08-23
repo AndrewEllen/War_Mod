@@ -38,7 +38,8 @@ public final class ArtilleryCannonBlock extends BaseEntityBlock {
     public ArtilleryCannonBlock(final Properties properties) { super(properties); registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH)); }
     @Override protected MapCodec<? extends ArtilleryCannonBlock> codec() { return CODEC; }
     @Override protected void createBlockStateDefinition(final StateDefinition.Builder<net.minecraft.world.level.block.Block, BlockState> builder) { builder.add(FACING); }
-    @Override protected RenderShape getRenderShape(final BlockState state) { return RenderShape.MODEL; }
+    /** The block-entity renderer owns the complete multi-block visual carriage. */
+    @Override protected RenderShape getRenderShape(final BlockState state) { return RenderShape.INVISIBLE; }
     @Override public BlockState getStateForPlacement(final BlockPlaceContext context) { return defaultBlockState().setValue(FACING, context.getHorizontalDirection()); }
     @Override public @Nullable BlockEntity newBlockEntity(final BlockPos pos, final BlockState state) { return new ArtilleryCannonBlockEntity(pos, state); }
     @Override public <T extends BlockEntity> @Nullable BlockEntityTicker<T> getTicker(final Level level, final BlockState state, final BlockEntityType<T> type) { return level.isClientSide() ? null : createTickerHelper(type, ModBlockEntities.ARTILLERY_CANNON, ArtilleryCannonBlockEntity::serverTick); }

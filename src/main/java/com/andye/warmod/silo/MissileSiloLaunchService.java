@@ -101,7 +101,8 @@ public final class MissileSiloLaunchService {
             int tier = MissileSiloGuidanceFrameStructure.installedTier(level, silo.getBlockPos(), silo.facing());
             UUID owner = request.trigger() == MissileSiloLaunchTrigger.REDSTONE ? silo.ownerPlayerId() : request.triggeringPlayerId();
             var result = IcbmLaunchService.launchFromSilo(level, owner, request.triggeringPlayerName(), origin(silo),
-                request.strategicTarget().position(), request.missileType().payloadType().orElseThrow(), collision(silo),
+                request.strategicTarget().position(), request.missileType().payloadType().orElseThrow(),
+                request.missileType().yield().orElseThrow(), request.missileType().deliveryMode(), collision(silo),
                 silo.siloId(), silo.getBlockPos(), tier);
             release(level, request); iterator.remove();
             if (result.isPresent()) { com.andye.warmod.warhead.StrategicMissilePayloadRegistry.put(result.get().flightPlan().missileId(), request.missileType().strategicPayload()); request.missileType().yield().ifPresent(yield -> com.andye.warmod.warhead.WarheadYieldRegistry.put(level, result.get().flightPlan().missileId(), yield)); silo.launchAccepted(result.get().flightPlan().missileId()); notify(level, request.triggeringPlayerId(), "Missile launch accepted"); }

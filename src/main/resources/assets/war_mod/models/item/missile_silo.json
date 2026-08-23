@@ -1,1 +1,26 @@
-{ "parent": "war_mod:block/missile_silo_center" }
+{
+  "textures": {
+    "steel": "war_mod:block/missile_silo_steel",
+    "edge": "war_mod:block/missile_silo_edge_top",
+    "pit": "war_mod:block/missile_silo_center_top",
+    "panel": "war_mod:block/missile_silo_control_panel",
+    "missile": "war_mod:block/missile_silo_missile",
+    "particle": "#steel"
+  },
+  "elements": [
+    {"name":"foundation","from":[1,0,1],"to":[15,3,15],"faces":{"north":{"texture":"#steel"},"south":{"texture":"#steel"},"east":{"texture":"#steel"},"west":{"texture":"#steel"},"up":{"texture":"#edge"},"down":{"texture":"#steel"}}},
+    {"name":"north_frame","from":[1,3,1],"to":[15,5,4],"faces":{"north":{"texture":"#panel"},"south":{"texture":"#steel"},"east":{"texture":"#steel"},"west":{"texture":"#steel"},"up":{"texture":"#edge"},"down":{"texture":"#steel"}}},
+    {"name":"south_frame","from":[1,3,12],"to":[15,5,15],"faces":{"north":{"texture":"#steel"},"south":{"texture":"#steel"},"east":{"texture":"#steel"},"west":{"texture":"#steel"},"up":{"texture":"#edge"},"down":{"texture":"#steel"}}},
+    {"name":"west_frame","from":[1,3,4],"to":[4,5,12],"faces":{"north":{"texture":"#steel"},"south":{"texture":"#steel"},"east":{"texture":"#steel"},"west":{"texture":"#steel"},"up":{"texture":"#edge"},"down":{"texture":"#steel"}}},
+    {"name":"east_frame","from":[12,3,4],"to":[15,5,12],"faces":{"north":{"texture":"#steel"},"south":{"texture":"#steel"},"east":{"texture":"#steel"},"west":{"texture":"#steel"},"up":{"texture":"#edge"},"down":{"texture":"#steel"}}},
+    {"name":"recessed_pit","from":[4,2.5,4],"to":[12,3.3,12],"faces":{"north":{"texture":"#pit"},"south":{"texture":"#pit"},"east":{"texture":"#pit"},"west":{"texture":"#pit"},"up":{"texture":"#pit"},"down":{"texture":"#pit"}}},
+    {"name":"missile_body","from":[7,4,7],"to":[9,14,9],"faces":{"north":{"texture":"#missile"},"south":{"texture":"#missile"},"east":{"texture":"#missile"},"west":{"texture":"#missile"},"up":{"texture":"#missile"},"down":{"texture":"#missile"}}},
+    {"name":"missile_nose","from":[7.4,14,7.4],"to":[8.6,16,8.6],"faces":{"north":{"texture":"#missile"},"south":{"texture":"#missile"},"east":{"texture":"#missile"},"west":{"texture":"#missile"},"up":{"texture":"#missile"},"down":{"texture":"#missile"}}},
+    {"name":"missile_fins","from":[5.8,4,7.6],"to":[10.2,7,8.4],"faces":{"north":{"texture":"#missile"},"south":{"texture":"#missile"},"east":{"texture":"#missile"},"west":{"texture":"#missile"},"up":{"texture":"#missile"},"down":{"texture":"#missile"}}}
+  ],
+  "display": {
+    "gui": {"rotation":[25,45,0],"translation":[0,-1,0],"scale":[0.72,0.72,0.72]},
+    "ground": {"scale":[0.32,0.32,0.32]},
+    "fixed": {"rotation":[0,180,0],"scale":[0.56,0.56,0.56]}
+  }
+}

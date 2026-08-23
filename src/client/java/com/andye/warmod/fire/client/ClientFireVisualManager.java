@@ -4,6 +4,8 @@ import com.andye.warmod.fire.FirePhase;
 import com.andye.warmod.fire.FireSimulationManager;
 import com.andye.warmod.fire.FireSurfaceAnchor;
 import com.andye.warmod.fire.network.ClientboundFireStatePayload;
+import com.andye.warmod.fire.network.ClientboundFireWindImpulsePayload;
+import com.andye.warmod.fire.wind.FireWindImpulse;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.ArrayDeque;
@@ -26,6 +28,7 @@ public final class ClientFireVisualManager {
     private final Map<Long, VisualPatch> patches = new LinkedHashMap<>();
 	private final Map<Long, EmberVisual> embers = new LinkedHashMap<>();
 	private final Map<Long, VisualSmokeCluster> smokeClusters = new LinkedHashMap<>();
+    private final ArrayDeque<FireWindImpulse> windImpulses = new ArrayDeque<>();
     private ClientLevel activeLevel;
 
     private ClientFireVisualManager() { }
@@ -81,9 +84,18 @@ public final class ClientFireVisualManager {
             smokeClusters.keySet().removeIf(id -> !receivedSmokeClusters.contains(id));
     }
 
+    public synchronized void acceptImpulse(final ClientboundFireWindImpulsePayload payload) {
+        ClientLevel level = Minecraft.getInstance().level;
+        if (payload == null || !payload.isWellFormed() || !ensureCurrentLevel(level)) return;
+        while (windImpulses.size() >= 32) windImpulses.removeFirst();
+        windImpulses.addLast(payload.impulse());
+    }
+
     public synchronized void tick(final Minecraft client) {
         if (!ensureCurrentLevel(client.level)) return;
+        ClientSmokeFlowField.INSTANCE.tick(client.level);
         long now = client.level.getGameTime();
+        windImpulses.removeIf(impulse -> impulse.expired(now));
         Iterator<VisualPatch> iterator = patches.values().iterator();
         while (iterator.hasNext())
             if (now - iterator.next().lastSeenClientTick() > EXPIRY_TICKS) iterator.remove();
@@ -92,7 +104,7 @@ public final class ClientFireVisualManager {
 			EmberVisual ember = emberIterator.next();
 			if (now - ember.lastSeenClientTick > 24
 				|| now - ember.startGameTime > ember.lifetime + 4L) emberIterator.remove();
-			else ember.simulate(now);
+			else ember.simulate(now, effectiveWind(ember.position, ember.wind, now));
 		}
 		Iterator<VisualSmokeCluster> smokeClusterIterator = smokeClusters.values().iterator();
 		while (smokeClusterIterator.hasNext())
@@ -114,14 +126,28 @@ public final class ClientFireVisualManager {
             : List.copyOf(smokeClusters.values());
     }
 
+    public synchronized Vec3 effectiveWind(final Vec3 position, final Vec3 baseWind,
+        final double gameTime) {
+        Vec3 result = baseWind == null ? Vec3.ZERO : baseWind;
+        if (position == null || !position.isFinite()) return result;
+        for (FireWindImpulse impulse : windImpulses)
+            result = result.add(impulse.sample(position, gameTime));
+        double length = result.length();
+        return length > 2.5 ? result.scale(2.5 / length) : result;
+    }
+
     public synchronized void clear() {
-        patches.clear(); embers.clear(); smokeClusters.clear(); activeLevel = null;
+        patches.clear(); embers.clear(); smokeClusters.clear(); windImpulses.clear();
+        ClientSmokeFlowField.INSTANCE.clear();
+        activeLevel = null;
     }
 
     private boolean ensureCurrentLevel(final ClientLevel level) {
         if (level == null) { clear(); return false; }
 		if (activeLevel != level) {
-            patches.clear(); embers.clear(); smokeClusters.clear(); activeLevel = level;
+            patches.clear(); embers.clear(); smokeClusters.clear(); windImpulses.clear();
+            ClientSmokeFlowField.INSTANCE.clear();
+            activeLevel = level;
         }
         return true;
     }
@@ -219,12 +245,12 @@ public final class ClientFireVisualManager {
 			if (trail.isEmpty()) appendTrail(receivedAt);
 		}
 
-		private void simulate(final long now) {
+		private void simulate(final long now, final Vec3 effectiveWind) {
 			while (simulatedGameTime < now) {
 				simulatedGameTime++;
 				double progress = Math.min(1.0, Math.max(0.0,
 					(simulatedGameTime - startGameTime) / (double) Math.max(1, lifetime)));
-				velocity = FireSimulationManager.stepEmberVelocity(velocity, wind, seed,
+				velocity = FireSimulationManager.stepEmberVelocity(velocity, effectiveWind, seed,
 					startGameTime, simulatedGameTime, progress);
 				position = position.add(velocity);
 				appendTrail(simulatedGameTime);

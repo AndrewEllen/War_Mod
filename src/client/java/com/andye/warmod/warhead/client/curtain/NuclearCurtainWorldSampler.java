@@ -17,7 +17,7 @@ final class NuclearCurtainWorldSampler {
         int x = (int) Math.floor(center.x + Math.cos(angle) * radius);
         int z = (int) Math.floor(center.z + Math.sin(angle) * radius);
         if (!level.hasChunkAt(x, z)) return null;
-        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+        int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
         if (y <= level.getMinY() || y >= level.getMaxY()) return null;
         return new Vec3(x + 0.5, y + 0.04, z + 0.5);
     }
@@ -40,7 +40,7 @@ final class NuclearCurtainWorldSampler {
             int sampleZ = (int) Math.floor(center.z + sin * radius * scale);
             if (!level.hasChunkAt(sampleX, sampleZ)) continue;
             int sampleY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                sampleX, sampleZ) - 1;
+                sampleX, sampleZ);
             if (sampleY > level.getMinY() && sampleY < level.getMaxY()) {
                 y = sampleY + 0.04;
                 break;

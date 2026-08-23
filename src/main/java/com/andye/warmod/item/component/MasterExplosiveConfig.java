@@ -14,14 +14,14 @@ public record MasterExplosiveConfig(
 		MasterExplosiveDelivery.DIRECT_WARHEAD,
 		false,
 		WarheadYield.CONVENTIONAL,
-		false
+		true
 	);
 
 	public static final Codec<MasterExplosiveConfig> CODEC = RecordCodecBuilder.create(instance -> instance.group(
 		MasterExplosiveDelivery.CODEC.fieldOf("delivery").forGetter(MasterExplosiveConfig::delivery),
 		Codec.BOOL.fieldOf("cluster").forGetter(MasterExplosiveConfig::cluster),
 		WarheadYield.CODEC.fieldOf("yield").forGetter(MasterExplosiveConfig::yield),
-		Codec.BOOL.optionalFieldOf("custom_fire", false).forGetter(MasterExplosiveConfig::customFire)
+		Codec.BOOL.optionalFieldOf("custom_fire", true).forGetter(MasterExplosiveConfig::customFire)
 	).apply(instance, MasterExplosiveConfig::new));
 
 	public MasterExplosiveConfig {

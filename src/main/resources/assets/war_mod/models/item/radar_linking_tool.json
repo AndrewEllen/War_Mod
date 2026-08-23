@@ -1,1 +1,10 @@
-{"parent":"minecraft:item/generated","textures":{"layer0":"war_mod:item/radar_linking_tool"}}
+{"textures":{"body":"war_mod:item/radar_linking_tool","particle":"#body"},
+  "elements":[
+    {"name":"receiver_body","from":[4,4,4],"to":[12,13,12],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}},
+    {"name":"rubber_grip","from":[6,0,6],"to":[10,5,10],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}},
+    {"name":"status_screen","from":[5,7,3.4],"to":[11,11,4.1],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}},
+    {"name":"link_button","from":[11.6,5.5,6],"to":[12.5,8,9],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}},
+    {"name":"antenna_left","from":[4.5,13,6],"to":[5.5,16,7],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}},
+    {"name":"antenna_right","from":[10.5,13,9],"to":[11.5,16,10],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}},
+    {"name":"cable_socket","from":[7,12.8,11.5],"to":[9,15,13],"faces":{"north":{"texture":"#body"},"south":{"texture":"#body"},"east":{"texture":"#body"},"west":{"texture":"#body"},"up":{"texture":"#body"},"down":{"texture":"#body"}}}
+  ],"display":{"gui":{"rotation":[25,45,0],"scale":[0.82,0.82,0.82]},"ground":{"scale":[0.35,0.35,0.35]},"fixed":{"rotation":[0,180,0],"scale":[0.6,0.6,0.6]},"firstperson_righthand":{"rotation":[0,-90,20],"translation":[1,2,1],"scale":[0.55,0.55,0.55]},"firstperson_lefthand":{"rotation":[0,90,-20],"translation":[-1,2,1],"scale":[0.55,0.55,0.55]},"thirdperson_righthand":{"rotation":[0,-90,35],"translation":[0,2,1],"scale":[0.45,0.45,0.45]},"thirdperson_lefthand":{"rotation":[0,90,-35],"translation":[0,2,1],"scale":[0.45,0.45,0.45]}}}
