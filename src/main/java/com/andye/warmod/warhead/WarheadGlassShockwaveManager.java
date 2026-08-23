@@ -41,7 +41,8 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Bounded physical glass, vegetation and surface response carried by the same
+ * Bounded nuclear terrain response. Prepared heat/fireball changes drain as
+ * soon as the impact flash begins, while glass remains locked to the same
  * 343 m/s pressure front used by the client visuals. Work is deterministic and
  * never forces unrelated chunks to load.
  */
@@ -122,8 +123,6 @@ public final class WarheadGlassShockwaveManager {
                 payload.impactGameTime() + 420L
             );
         }
-        if (nuclear && preparation != null && !preparation.complete())
-            preparation.finishLoadedDiscovery(level);
         if (nuclear) {
             /* Establish the opaque cover at impact instead of waiting for the
                first terrain-pressure pass to finish under a busy tick. */
@@ -133,7 +132,6 @@ public final class WarheadGlassShockwaveManager {
         Wave wave = new Wave(
             payload.warheadId(), center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
             visualScale, nuclear, preparation, customFire);
-        if (nuclear) wave.applyInstantThermalTerrain(level);
         WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(wave);
     }
 
@@ -399,6 +397,11 @@ public final class WarheadGlassShockwaveManager {
                  * the client instead of catching up only one missed tick per tick. */
                 long pressureGameTime = gameTime;
                 advancePressure(level, pressureGameTime, deadline);
+                if (nuclear && preparation != null) {
+                    double thermalRadius = preparation.maximumPreparedRadius();
+                    applyPreparedSurfaceTerrain(level, thermalRadius, deadline);
+                    applyPreparedThermalTerrain(level, thermalRadius, deadline);
+                }
                 drainPendingCraterFire(level, deadline);
                 drainPendingSurfaceFire(level, deadline);
                 if (processedRadius + 0.01 < maximumRadius) return false;
@@ -406,11 +409,11 @@ public final class WarheadGlassShockwaveManager {
             }
             if (!nuclear || preparation == null) return true;
             double preparedRadius = preparation.maximumPreparedRadius();
+            /* Glass is pressure-front work and remains first even after the visible
+             * front has completed; thermal queues must never consume its deadline. */
+            applyPreparedGlassWave(level, preparedRadius, deadline);
             applyPreparedSurfaceTerrain(level, preparedRadius, deadline);
-            if (preparation.hasSurfaceThrough(NuclearTerrainPreparation.shellFor(preparedRadius))) {
-                return false;
-            }
-            applyPreparedNuclearTerrain(level, preparedRadius, deadline);
+            applyPreparedThermalTerrain(level, preparedRadius, deadline);
             drainPendingCraterFire(level, deadline);
             drainPendingSurfaceFire(level, deadline);
             /* Keep bounded direct-impact fallback work alive until its loaded terrain is drained. */
@@ -423,29 +426,6 @@ public final class WarheadGlassShockwaveManager {
 			}
 			return complete;
         }
-
-        /**
-         * Thermal radiation and the fireball alter terrain in the impact frame.
-         * Glass is intentionally excluded and remains queued by pressure shell.
-         */
-        private void applyInstantThermalTerrain(final ServerLevel level) {
-            if (!nuclear || preparation == null) return;
-            applyAllPreparedPhase(level, 0);
-            applyAllPreparedPhase(level, 1);
-            for (int phase = 3; phase < PREPARED_PHASE_COUNT; phase++) {
-                applyAllPreparedPhase(level, phase);
-            }
-            drainPendingSurfaceFire(level, Long.MAX_VALUE);
-        }
-
-        private void applyAllPreparedPhase(final ServerLevel level, final int phase) {
-            while (true) {
-                LongArrayList batch = takePreparedBatch(phase, Integer.MAX_VALUE, 4_096);
-                if (batch.isEmpty()) return;
-                for (long packed : batch) applyPreparedEntry(level, phase, packed);
-            }
-        }
-
         private void advancePressure(final ServerLevel level, final long gameTime,
             final long deadline) {
             double elapsedTicks = Math.max(0.0, gameTime - startGameTime + 1.0);
@@ -459,10 +439,10 @@ public final class WarheadGlassShockwaveManager {
 				curtainRadius = targetRadius;
 			}
 			if (nuclear && preparation != null) {
-				/* All thermal terrain was committed at impact. Glass alone follows
-				 * the finite-speed pressure shell, and crossed shells drain fully so
-				 * physical shattering stays locked to the visible front. */
-				applyPreparedGlassWave(level, targetRadius);
+				/* Thermal terrain drains independently during the flash. Glass alone
+				 * follows the finite-speed pressure shell so physical shattering stays
+				 * locked to the visible front. */
+				applyPreparedGlassWave(level, targetRadius, deadline);
 				processedRadius = targetRadius;
 				return;
 			}
@@ -526,12 +506,39 @@ public final class WarheadGlassShockwaveManager {
         }
 
         private void applyPreparedGlassWave(final ServerLevel level,
-            final double targetRadius) {
+            final double targetRadius, final long deadline) {
             int shell = NuclearTerrainPreparation.shellFor(targetRadius);
-            while (true) {
-                LongArrayList batch = preparation.takeGlass(shell, 4_096);
+            int remaining = 8_192;
+            while (remaining > 0 && System.nanoTime() < deadline) {
+                LongArrayList batch = preparation.takeGlass(shell,
+                    Math.min(256, remaining));
                 if (batch.isEmpty()) return;
                 for (long packed : batch) applyPreparedEntry(level, 2, packed);
+                remaining -= batch.size();
+            }
+        }
+
+        /** Applies heat/fireball terrain independently of the finite-speed pressure shell. */
+        private void applyPreparedThermalTerrain(final ServerLevel level,
+            final double targetRadius, final long deadline) {
+            if (System.nanoTime() >= deadline) return;
+            int shell = NuclearTerrainPreparation.shellFor(targetRadius);
+            int remaining = PREPARED_MUTATIONS_PER_WAVE_TICK;
+            int emptyPhases = 0;
+            while (remaining > 0 && emptyPhases < PREPARED_PHASE_COUNT - 2
+                && System.nanoTime() < deadline) {
+                int phase = preparedPhaseCursor;
+                preparedPhaseCursor = (preparedPhaseCursor + 1) % PREPARED_PHASE_COUNT;
+                if (phase == 1 || phase == 2) continue;
+                LongArrayList batch = takePreparedBatch(phase, shell,
+                    Math.min(PREPARED_MICROBATCH, remaining));
+                if (batch.isEmpty()) {
+                    emptyPhases++;
+                    continue;
+                }
+                emptyPhases = 0;
+                for (long packed : batch) applyPreparedEntry(level, phase, packed);
+                remaining -= batch.size();
             }
         }
 
@@ -1691,16 +1698,6 @@ public final class WarheadGlassShockwaveManager {
             }
             return used;
         }
-
-        /** Completes discovery for all currently loaded columns in the impact
-         * call. Missing chunks are never force-loaded merely for aftermath. */
-        private void finishLoadedDiscovery(final ServerLevel level) {
-            while (!mainScanComplete) {
-                advance(level, Integer.MAX_VALUE, Long.MAX_VALUE);
-            }
-            stopDiscovery();
-        }
-
         private long nextRadialOffset() {
             if (scanRing > radius) return Long.MIN_VALUE;
             if (scanRing == 0) {

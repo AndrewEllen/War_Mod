@@ -782,26 +782,19 @@ public final class NuclearParticleCloudRenderer {
             hotCount = 0;
             coolCount = 0;
             smokeCount = 0;
-            int stride = switch (lod) {
-                case NEAR -> 2;
-                case MEDIUM -> 4;
-                case FAR -> 9;
-            };
+            /* This field is already capped, packed, and independent of Minecraft's
+             * particle manager. Drawing every live entry is predictable (32,768
+             * billboards maximum) and avoids a hollow cloud on otherwise idle clients. */
             int inspected = 0;
-            int rejected = 0;
-            for (int activePosition = 0; activePosition < activeCount; activePosition += stride) {
+            for (int activePosition = 0; activePosition < activeCount; activePosition++) {
                 int index = activeSlots[activePosition];
                 inspected++;
-                if (interior(index, tick, lod)) {
-                    rejected++;
-                    continue;
-                }
                 float heat = temperature[index];
                 if (heat >= 0.70F) hotBucket[hotCount++] = index;
                 else if (heat >= 0.28F) coolBucket[coolCount++] = index;
                 else smokeBucket[smokeCount++] = index;
             }
-            culledLastRender = Math.max(0, activeCount - inspected) + rejected;
+            culledLastRender = Math.max(0, activeCount - inspected);
             bucketTick = tick;
             bucketLod = lod;
         }
@@ -922,39 +915,14 @@ public final class NuclearParticleCloudRenderer {
                 if (region[index] == REGION_OUTER_CURL) density *= 0.90F;
                 if (region[index] == REGION_UNDER_CAP) density *= 1.24F;
             }
-            /* Larger smoke cards cover the intentionally culled interior and remove
-               visible holes at no extra billboard count. Lower alpha below balances
-               their fill rate on the translucent pass. */
+            /* Generous card overlap makes the fully retained field read as one dense,
+               rolling volume instead of thousands of disconnected billboards. */
             if (pass == Pass.SMOKE) density *= 2.04F;
             else if (region[index] == REGION_STEM) density *= 1.86F;
             else if (region[index] == REGION_CAP || region[index] == REGION_UNDER_CAP) {
                 density *= 1.76F;
             }
             return density;
-        }
-
-        private boolean interior(final int index, final int tick,
-            final WarheadMesh.Lod lod) {
-            float radial = Mth.sqrt(x[index] * x[index] + z[index] * z[index]);
-            int keepModulo = lod == WarheadMesh.Lod.NEAR ? 8
-                : lod == WarheadMesh.Lod.MEDIUM ? 13 : 21;
-            if (region[index] == REGION_FIREBALL && radial < craterRadius * 0.60F) {
-                return Math.floorMod(particleSeed[index], keepModulo) != 0;
-            }
-            if (region[index] == REGION_STEM && radial < stemRadius(tick) * 0.55F) {
-                return Math.floorMod(particleSeed[index], keepModulo) != 0;
-            }
-            if (region[index] == REGION_CAP) {
-                float capR = capRadius(tick);
-                float capD = capDepth(tick);
-                boolean deep = radial < capR * 0.60F
-                    && Math.abs(y[index] - capCenterY(tick)) < capD * 0.48F;
-                return deep && Math.floorMod(particleSeed[index], keepModulo + 3) != 0;
-            }
-            if (region[index] == REGION_BASE && radial < craterRadius * 0.48F) {
-                return Math.floorMod(particleSeed[index], keepModulo + 4) != 0;
-            }
-            return false;
         }
 
         private static float alpha(final Pass pass, final float progress,

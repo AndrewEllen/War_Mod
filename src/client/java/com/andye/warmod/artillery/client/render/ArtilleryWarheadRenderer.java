@@ -37,6 +37,10 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
     public void extractRenderState(final ArtilleryWarheadEntity shell,
         final ArtilleryWarheadRenderState state, final float partialTick) {
         super.extractRenderState(shell, state, partialTick);
+        var prediction = shell.clientVisualOffset(partialTick);
+        state.x += prediction.x;
+        state.y += prediction.y;
+        state.z += prediction.z;
         state.velocity = shell.getDeltaMovement();
         state.visualSeed = shell.visualSeed();
         state.flightTicks = Math.max(1, shell.flightTicks());
@@ -54,6 +58,8 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
     public void submit(final ArtilleryWarheadRenderState state, final PoseStack poses,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
         poses.pushPose();
+        if (state.lod == WarheadMesh.Lod.FAR) poses.scale(2.20F, 2.20F, 2.20F);
+        else if (state.lod == WarheadMesh.Lod.MEDIUM) poses.scale(1.35F, 1.35F, 1.35F);
         if (state.clusterCarrier) poses.scale(1.32F, 1.32F, 1.32F);
         Vector3f direction = new Vector3f((float) state.velocity.x, (float) state.velocity.y,
             (float) state.velocity.z);
@@ -62,7 +68,7 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
                 direction.normalize()));
         }
         collector.submitCustomGeometry(poses, WarheadRenderPipelines.PROJECTILE,
-            (pose, buffer) -> WarheadMesh.render(pose, buffer, state.lod, state.lightCoords));
+            (pose, buffer) -> WarheadMesh.render(pose, buffer, state.lod, 0x00F000F0));
         collector.submitCustomGeometry(poses, WarheadRenderPipelines.CONE,
             (pose, buffer) -> ShockConeMesh.render(pose, buffer, state.lod, state.progress,
                 state.elapsedTicks, state.remainingTicks, state.velocity, state.visualSeed,

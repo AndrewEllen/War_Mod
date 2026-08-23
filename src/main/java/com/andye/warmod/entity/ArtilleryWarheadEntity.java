@@ -52,6 +52,10 @@ public final class ArtilleryWarheadEntity extends Entity {
     private int chunkWaitTicks;
     private boolean clusterCarrier;
     private boolean split;
+    private int clientLastAuthoritativeTick = -1;
+    private int clientStaleTicks;
+    private Vec3 clientVisualOffset = Vec3.ZERO;
+    private Vec3 clientVisualVelocity = Vec3.ZERO;
 
     public ArtilleryWarheadEntity(final EntityType<? extends ArtilleryWarheadEntity> type, final Level level) { super(type, level); noPhysics = true; setNoGravity(true); }
     public ArtilleryWarheadEntity(final ServerLevel level, final UUID id, final UUID ownerId, final Vec3 origin, final Vec3 target, final Vec3 velocity, final WarheadYield yield, final long seed, final boolean clusterCarrier) {
@@ -70,6 +74,10 @@ public final class ArtilleryWarheadEntity extends Entity {
     }
     @Override public void tick() {
         super.tick();
+        if (level().isClientSide()) {
+            tickClientPrediction();
+            return;
+        }
         if (impacted || !(level() instanceof ServerLevel server)) return;
         if (!position().isFinite() || !target.isFinite() || !velocity.isFinite() || tickCount > 1_200) { discard(); return; }
         if (!terrainPreparationScheduled && yield.nuclear()) {
@@ -112,6 +120,29 @@ public final class ArtilleryWarheadEntity extends Entity {
         if (activeTicks >= entityData.get(DATA_FLIGHT_TICKS)) impact(server, target);
     }
 
+    /**
+     * The integrated server can be waiting on a streamed chunk while the render thread is still
+     * healthy. Extrapolate only during that authoritative gap, then snap the render-only offset
+     * away as soon as the next server flight tick arrives. Collision and impact remain server-only.
+     */
+    private void tickClientPrediction() {
+        int authoritativeTick = entityData.get(DATA_ACTIVE_TICKS);
+        if (authoritativeTick != clientLastAuthoritativeTick) {
+            clientLastAuthoritativeTick = authoritativeTick;
+            clientStaleTicks = 0;
+            clientVisualOffset = Vec3.ZERO;
+            clientVisualVelocity = getDeltaMovement();
+            return;
+        }
+        if (authoritativeTick <= 0
+            || authoritativeTick + clientStaleTicks >= entityData.get(DATA_FLIGHT_TICKS) + 8
+            || clientStaleTicks >= 80) return;
+        clientStaleTicks++;
+        clientVisualOffset = clientVisualOffset.add(clientVisualVelocity);
+        clientVisualVelocity = clientVisualVelocity.add(0.0,
+            -ArtilleryConstants.GRAVITY_PER_TICK, 0.0);
+    }
+
     private void splitCluster(final ServerLevel level, final int remainingTicks) {
         if (split) return;
         split = true;
@@ -142,10 +173,8 @@ public final class ArtilleryWarheadEntity extends Entity {
                 return;
             }
         }
-        for (ArtilleryWarheadEntity child : children) {
-            WarheadImpactChunkLeaseManager.holdApproach(level, child.id, position(), child.target,
-                remainingTicks + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS + 80);
-        }
+        // Each child owns a bounded rolling corridor. Sharing the strategic ICBM approach lease
+        // here multiplied a 500-block ticket corridor seven times at the split point.
         level.sendParticles(ParticleTypes.FLAME, getX(), getY(), getZ(), 24,
             0.55, 0.35, 0.55, 0.025);
         level.sendParticles(ParticleTypes.SMOKE, getX(), getY(), getZ(), 34,
@@ -162,21 +191,36 @@ public final class ArtilleryWarheadEntity extends Entity {
             ? Math.max(ArtilleryConstants.TARGET_LEAD_TICKS, 96)
             : ArtilleryConstants.TARGET_LEAD_TICKS;
         if (position().distanceTo(target) <= ArtilleryConstants.MAX_MUZZLE_SPEED * impactLeadTicks) {
+            int impactRadius = yield.nuclear() ? IcbmConstants.IMPACT_CHUNK_RADIUS : 1;
             IcbmChunkTicketRegistry.addWindow(
-                desired, IcbmChunkTicketRegistry.chunk(target), IcbmConstants.IMPACT_CHUNK_RADIUS);
+                desired, IcbmChunkTicketRegistry.chunk(target), impactRadius);
         }
         return desired;
     }
     private boolean prepareChunks(final ServerLevel level, final Set<ChunkPos> desired,
         final Vec3 from, final Vec3 next) {
-        for (ChunkPos chunk : desired) if (heldChunks.add(chunk)) IcbmChunkTicketRegistry.acquire(level, chunk);
-        for (ChunkPos chunk : Set.copyOf(heldChunks)) if (!desired.contains(chunk)) { IcbmChunkTicketRegistry.release(level, chunk); heldChunks.remove(chunk); }
-        // Stream the twelve-tick corridor in the background, but only stall when this exact
-        // movement crosses an unloaded chunk.  Waiting for the whole corridor made a newly
-        // fired shell visibly freeze above the muzzle while its future chunks loaded.
+        for (ChunkPos chunk : Set.copyOf(heldChunks)) if (!desired.contains(chunk)) {
+            IcbmChunkTicketRegistry.release(level, chunk);
+            heldChunks.remove(chunk);
+        }
+        // Stream the twelve-tick corridor in bounded slices, but always acquire the shell's exact
+        // current movement first. This avoids a one-tick burst of dozens of chunk generations.
         Set<ChunkPos> immediate = new HashSet<>();
         IcbmChunkTicketRegistry.addSegmentWindow(immediate, from, next, 0, 4.0);
+        for (ChunkPos chunk : immediate) acquireChunk(level, chunk);
+        int acquired = 0;
+        for (ChunkPos chunk : desired) {
+            if (heldChunks.contains(chunk)) continue;
+            acquireChunk(level, chunk);
+            if (++acquired >= 8) break;
+        }
+        // Stream the future corridor in the background, but only stall server physics when this exact
+        // movement crosses an unloaded chunk.  Waiting for the whole corridor made a newly
+        // fired shell visibly freeze above the muzzle while its future chunks loaded.
         return IcbmChunkTicketRegistry.allLoaded(level, immediate);
+    }
+    private void acquireChunk(final ServerLevel level, final ChunkPos chunk) {
+        if (heldChunks.add(chunk)) IcbmChunkTicketRegistry.acquire(level, chunk);
     }
     private void impact(final ServerLevel level, final Vec3 position) {
         if (impacted || !position.isFinite()) return;
@@ -191,7 +235,14 @@ public final class ArtilleryWarheadEntity extends Entity {
     public Vec3 target() { return target; }
     public long visualSeed() { return level().isClientSide() ? entityData.get(DATA_VISUAL_SEED) : seed; }
     public int flightTicks() { return entityData.get(DATA_FLIGHT_TICKS); }
-    public int activeTicks() { return entityData.get(DATA_ACTIVE_TICKS); }
+    public int activeTicks() {
+        return entityData.get(DATA_ACTIVE_TICKS)
+            + (level().isClientSide() ? clientStaleTicks : 0);
+    }
+    public Vec3 clientVisualOffset(final float partialTick) {
+        if (!level().isClientSide() || clientStaleTicks <= 0) return Vec3.ZERO;
+        return clientVisualOffset.add(clientVisualVelocity.scale(partialTick));
+    }
     public boolean clusterCarrier() { return entityData.get(DATA_CLUSTER_CARRIER); }
     private void updateRotation(final Vec3 value) { if (value.lengthSqr() < 1.0E-8) return; setYRot((float)(Math.atan2(value.z, value.x) * 180.0 / Math.PI) - 90.0F); setXRot((float)(-Math.atan2(value.y, value.horizontalDistance()) * 180.0 / Math.PI)); }
     @Override protected void addAdditionalSaveData(final ValueOutput out) { out.store("id", UUIDUtil.CODEC, id); out.storeNullable("owner", UUIDUtil.CODEC, ownerId); out.store("target", Vec3.CODEC, target); out.store("velocity", Vec3.CODEC, velocity); out.putString("yield", yield.getSerializedName()); out.putLong("seed", seed); out.putInt("flightTicks", entityData.get(DATA_FLIGHT_TICKS)); out.putInt("activeTicks", entityData.get(DATA_ACTIVE_TICKS)); out.putBoolean("impacted", impacted); out.putBoolean("clusterCarrier", clusterCarrier); out.putBoolean("split", split); }
@@ -201,5 +252,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     @Override public boolean isPickable() { return false; }
     @Override public boolean isPushable() { return false; }
     @Override public boolean canBeCollidedWith(final Entity entity) { return false; }
-    @Override public boolean shouldRenderAtSqrDistance(final double distance) { return distance <= 1536.0 * 1536.0; }
+    @Override public boolean shouldRenderAtSqrDistance(final double distance) {
+        return distance <= 3072.0 * 3072.0;
+    }
 }

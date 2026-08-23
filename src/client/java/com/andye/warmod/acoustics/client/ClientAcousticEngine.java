@@ -118,10 +118,14 @@ public final class ClientAcousticEngine {
 		if (selectedSound == null) return;
 
 		double gain = AcousticAttenuation.gain(listenerDistance, selectedSound, payload.volume());
+		AcousticEnvironment environment = AcousticEnvironmentProbe.probe(activeLevel,
+			sourcePosition, listenerEyePosition);
+		gain *= environment.transmissionGain();
 		float distancePitch = explosionDistancePitch(payload, selectedSound, listenerDistance);
 		float primaryPitch = Math.max(0.10F,
 			payload.pitch() * selectedSound.pitchMultiplier()
-				* deterministicPitch(payload.randomSeed()) * distancePitch);
+				* deterministicPitch(payload.randomSeed()) * distancePitch
+				* environment.transmissionPitch());
 		int echoCount = 0;
 		if (gain >= definition.minimumAudibleGain()) {
 			schedule(new ScheduledAcousticSound(clientTick, sourcePosition,
@@ -134,8 +138,6 @@ public final class ClientAcousticEngine {
 			}
 
 			if (definition.environmentEchoesEnabled()) {
-				AcousticEnvironment environment =
-					AcousticEnvironmentProbe.probe(activeLevel, listenerEyePosition);
 				echoCount = scheduleEchoes(payload, definition, sourcePosition,
 					selectedSound, gain, primaryPitch, environment);
 			}
@@ -155,12 +157,13 @@ public final class ClientAcousticEngine {
 		final AcousticSoundDefinition definition, final Vec3 sourcePosition,
 		final AcousticDistanceSound selectedSound, final double primaryGain,
 		final float primaryPitch, final AcousticEnvironment environment) {
-		if (environment.enclosure() < 0.40) return 0;
-		int firstDelay = (int) Math.round((2.0 * environment.averageReflectionDistance()
+		double reflection = environment.reflectionStrength();
+		if (reflection < 0.16) return 0;
+		int firstDelay = (int) Math.round((2.0 * environment.effectiveReflectionDistance()
 			/ definition.propagationSpeedBlocksPerSecond()) * 20.0);
-		firstDelay = Math.max(2, Math.min(20, firstDelay));
+		firstDelay = Math.max(2, Math.min(28, firstDelay));
 		float firstVolume = (float) (primaryGain
-			* Math.min(0.20, 0.10 + environment.enclosure() * 0.10));
+			* Math.min(0.24, 0.06 + reflection * 0.18));
 		int added = 0;
 		if (firstVolume >= definition.minimumAudibleGain()) {
 			schedule(new ScheduledAcousticSound(clientTick + firstDelay, sourcePosition,
@@ -170,8 +173,8 @@ public final class ClientAcousticEngine {
 				true));
 			added++;
 		}
-		if (environment.enclosure() >= 0.70) {
-			float secondVolume = (float) (primaryGain * 0.08);
+		if (environment.enclosure() >= 0.70 || environment.terrainRelief() >= 0.55) {
+			float secondVolume = (float) (primaryGain * (0.035 + reflection * 0.065));
 			if (secondVolume >= definition.minimumAudibleGain()) {
 				schedule(new ScheduledAcousticSound(
 					clientTick + firstDelay + Math.round(firstDelay * 1.7F), sourcePosition,

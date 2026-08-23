@@ -25,6 +25,7 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -83,10 +84,11 @@ public final class FirearmBulletManager {
         bullets.put(shotId, new Bullet(shotId, shooter.getUUID(), type, origin,
             velocity, seed));
         last[type.ordinal()] = now;
-        if (!shooter.hasInfiniteMaterials()) ammunition.shrink(1);
+        if (!shooter.hasInfiniteMaterials()) ammunition.hurtAndBreak(1, level, shooter,
+            broken -> { });
         shooter.setDeltaMovement(shooter.getDeltaMovement().add(look.scale(
             type == FirearmType.SNIPER_RIFLE ? -0.075 : -0.025)));
-        shooter.swing(shooter.getUsedItemHand());
+        shooter.swing(InteractionHand.MAIN_HAND);
         AcousticEngine.playSound(level, origin, type.acousticDefinition(),
             SoundSource.PLAYERS, 1.0F, 0.97F + random.nextFloat() * 0.06F);
         FirearmNetworking.send(level, origin, new ClientboundFirearmShotPayload(shotId,

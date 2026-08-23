@@ -129,8 +129,13 @@ public final class WarheadWorldRenderer {
             float budgetScale = Mth.clamp(
                 (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 6.0F),
                 0.45F, 4.0F);
-            int dustLimit = Math.round((impactLod == WarheadMesh.Lod.NEAR ? 8_000
-                : impactLod == WarheadMesh.Lod.MEDIUM ? 5_000 : 2_400) * budgetScale);
+            boolean nuclear = state.payloadType() == WarheadPayloadType.NUCLEAR;
+            if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
+            int dustLimit = Math.round((nuclear
+                ? impactLod == WarheadMesh.Lod.NEAR ? 14_000
+                    : impactLod == WarheadMesh.Lod.MEDIUM ? 9_000 : 5_000
+                : impactLod == WarheadMesh.Lod.NEAR ? 8_000
+                    : impactLod == WarheadMesh.Lod.MEDIUM ? 5_000 : 2_400) * budgetScale);
             List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile())
                 ? state.terrainShockfrontField().activeDustNodes(groundDistance,
                     frontierSpokeCount(impactLod), dustLimit, gameTime)
@@ -326,6 +331,7 @@ public final class WarheadWorldRenderer {
                     impact.dustNodes(), impact.position(), impact.gameTime(), impact.lod(),
                     (float) impact.profile().shockwaveParticleDensityScale()
                         * yieldThicknessScale,
+                    impact.payloadType() == WarheadPayloadType.NUCLEAR,
                     frame.cameraOrientation()));
             context.submitNodeCollector().submitCustomGeometry(poseStack,
                 WarheadRenderPipelines.EXPLOSION_PUFF,
@@ -333,6 +339,7 @@ public final class WarheadWorldRenderer {
                     pose, buffer, impact.dustNodes(), impact.position(), impact.gameTime(),
                     impact.lod(), (float) impact.profile().shockwaveParticleDensityScale()
                         * yieldThicknessScale,
+                    impact.payloadType() == WarheadPayloadType.NUCLEAR,
                     frame.cameraOrientation()));
         }
 

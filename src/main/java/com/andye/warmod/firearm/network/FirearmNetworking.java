@@ -1,10 +1,12 @@
 package com.andye.warmod.firearm.network;
 
+import com.andye.warmod.firearm.FirearmBulletManager;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerLevel;
+import com.andye.warmod.item.FirearmItem;
 import net.minecraft.world.phys.Vec3;
 
 public final class FirearmNetworking {
@@ -17,6 +19,15 @@ public final class FirearmNetworking {
             ClientboundFirearmShotPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(ClientboundFirearmImpactPayload.TYPE,
             ClientboundFirearmImpactPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(ServerboundFirearmTriggerPayload.TYPE,
+            ServerboundFirearmTriggerPayload.STREAM_CODEC);
+        ServerPlayNetworking.registerGlobalReceiver(ServerboundFirearmTriggerPayload.TYPE,
+            (payload, context) -> {
+                if (!payload.pressed()
+                    || !(context.player().getMainHandItem().getItem() instanceof FirearmItem firearm)) return;
+                FirearmBulletManager.fire((ServerLevel) context.player().level(), context.player(),
+                    firearm.firearmType());
+            });
         registered = true;
     }
     public static void send(final ServerLevel level, final Vec3 position,

@@ -4,7 +4,9 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraShakeMixin",
+    "FirearmAimFovMixin",
     "GameRendererCleanupMixin",
+    "MinecraftFirearmInputMixin",
     "SniperScopeMixin",
     "WarheadTerrainVisualTimingMixin",
     "WarheadWorldVisualTimingMixin"

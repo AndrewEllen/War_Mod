@@ -92,9 +92,12 @@ public final class ModItems {
     public static final Item PISTOL = new FirearmItem(properties(PISTOL_KEY, 1), FirearmType.PISTOL);
     public static final Item ASSAULT_RIFLE = new FirearmItem(properties(ASSAULT_RIFLE_KEY, 1), FirearmType.ASSAULT_RIFLE);
     public static final Item SNIPER_RIFLE = new FirearmItem(properties(SNIPER_RIFLE_KEY, 1), FirearmType.SNIPER_RIFLE);
-    public static final Item PISTOL_AMMO = new Item(properties(PISTOL_AMMO_KEY, 64));
-    public static final Item RIFLE_AMMO = new Item(properties(RIFLE_AMMO_KEY, 64));
-    public static final Item SNIPER_AMMO = new Item(properties(SNIPER_AMMO_KEY, 64));
+    public static final Item PISTOL_AMMO = new Item(magazineProperties(PISTOL_AMMO_KEY,
+        FirearmType.PISTOL.magazineCapacity()));
+    public static final Item RIFLE_AMMO = new Item(magazineProperties(RIFLE_AMMO_KEY,
+        FirearmType.ASSAULT_RIFLE.magazineCapacity()));
+    public static final Item SNIPER_AMMO = new Item(magazineProperties(SNIPER_AMMO_KEY,
+        FirearmType.SNIPER_RIFLE.magazineCapacity()));
     private static final Map<WarheadYield, Map<PayloadKind, Item>> YIELD_ITEMS = createYieldItems();
 
     private static boolean registered;
@@ -193,5 +196,10 @@ public final class ModItems {
 
     private static Item.Properties properties(final ResourceKey<Item> key, final int size) {
         return new Item.Properties().setId(key).stacksTo(size);
+    }
+
+    private static Item.Properties magazineProperties(final ResourceKey<Item> key,
+        final int capacity) {
+        return new Item.Properties().setId(key).durability(capacity);
     }
 }

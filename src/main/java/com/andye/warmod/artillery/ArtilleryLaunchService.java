@@ -1,8 +1,6 @@
 package com.andye.warmod.artillery;
 
 import com.andye.warmod.entity.ArtilleryWarheadEntity;
-import com.andye.warmod.icbm.IcbmConstants;
-import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import java.util.List;
 import java.util.Optional;
 import java.util.SplittableRandom;
@@ -21,8 +19,9 @@ public final class ArtilleryLaunchService {
         ArtilleryWarheadEntity entity = new ArtilleryWarheadEntity(level, id, owner, origin,
             target, velocity, payload.yield(), random.nextLong(), payload.cluster());
         if (!level.addFreshEntity(entity)) return Optional.empty();
-        WarheadImpactChunkLeaseManager.holdApproach(level, id, origin, target,
-            1_200 + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
+        // Artillery streams a short rolling corridor from its entity tick. Acquiring the ICBM's
+        // complete 500-block approach corridor here generated more than a hundred chunks on the
+        // firing tick and was the source of the intermittent launch freeze.
         return Optional.of(List.of(id));
     }
 }

@@ -22,13 +22,18 @@ public final class TerrainSettledSmokeRenderer {
         final double age, final float visualScale, final long visualSeed,
         final WarheadMesh.Lod lod, final boolean nuclear,
         final Quaternionf cameraOrientation) {
-        if (spokes == null || spokes.isEmpty() || age < 2.0) return;
+        if (age < 1.0) return;
+        Basis basis = Basis.from(cameraOrientation);
+        if (nuclear) renderImmediateGroundShroud(pose, buffer, spokes, impactPosition,
+            age, visualScale, visualSeed, lod, basis);
+        if (spokes == null || spokes.isEmpty()) return;
         double lifetime = nuclear ? 3_400.0 : 190.0 + visualScale * 36.0;
         if (age >= lifetime) return;
 
         float budgetScale = Mth.clamp(
             (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
             0.40F, 8.0F);
+        if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
         int spokeStride = lod == WarheadMesh.Lod.NEAR ? 1
             : lod == WarheadMesh.Lod.MEDIUM ? 2 : 4;
         double craterRadius = nuclear
@@ -40,7 +45,6 @@ public final class TerrainSettledSmokeRenderer {
             : craterRadius + 11.0;
         float settleProgress = smoothstep(Mth.clamp((float) (age
             / (nuclear ? 155.0 : 115.0)), 0.0F, 1.0F));
-        Basis basis = Basis.from(cameraOrientation);
         renderSettledBase(pose, buffer, spokes, impactPosition,
             age, lifetime, visualScale, visualSeed, lod, nuclear, budgetScale,
             spokeStride, innerRadius, outerRadius, settleProgress, basis);
@@ -58,6 +62,77 @@ public final class TerrainSettledSmokeRenderer {
                     visualScale, visualSeed ^ 0x52455455524E5741L, lod, basis,
                     returnDistance,
                     (float) WarheadVisualMath.nuclearReturnWaveAlpha(age, radiusScale), true);
+            }
+        }
+    }
+
+    /** Dense, short-lived ground bank that survives independently of the moving front. */
+    private static void renderImmediateGroundShroud(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final List<TerrainShockfrontSpoke> spokes,
+        final Vec3 impactPosition, final double age, final float visualScale,
+        final long visualSeed, final WarheadMesh.Lod lod, final Basis basis) {
+        final double lifetime = 170.0;
+        if (age >= lifetime) return;
+        float appear = smoothstep(Mth.clamp((float) age / 9.0F, 0.0F, 1.0F));
+        float fade = age < 78.0 ? 1.0F : smoothstep(Mth.clamp(
+            (float) ((lifetime - age) / (lifetime - 78.0)), 0.0F, 1.0F));
+        float alphaScale = appear * fade;
+        double craterRadius = 13.0 + visualScale * 13.2;
+        double outerRadius = craterRadius * (1.08 + Math.min(0.52, age / lifetime * 0.52));
+        int limit = lod == WarheadMesh.Lod.NEAR ? 3_600
+            : lod == WarheadMesh.Lod.MEDIUM ? 2_400 : 1_200;
+        int rendered = 0;
+
+        if (spokes != null) {
+            int stride = lod == WarheadMesh.Lod.FAR ? 2 : 1;
+            for (int spokeIndex = 0; spokeIndex < spokes.size() && rendered < limit;
+                spokeIndex += stride) {
+                List<TerrainShockfrontNode> nodes = spokes.get(spokeIndex).snapshotNodes();
+                for (TerrainShockfrontNode node : nodes) {
+                    if (rendered >= limit || !node.valid() || !node.visibleFromImpact()
+                        || node.directDistance() > outerRadius) continue;
+                    long seed = mix(visualSeed ^ node.surfaceBlock().asLong()
+                        ^ 0x47524F554E445348L);
+                    Vec3 base = node.position().subtract(impactPosition);
+                    int layers = 2 + Math.floorMod((int) seed, 4);
+                    for (int layer = 0; layer < layers && rendered < limit; layer++) {
+                        long particleSeed = mix(seed + layer * 0x9E3779B97F4A7C15L);
+                        float radius = (1.15F + unit(particleSeed, 0) * 2.75F)
+                            * (0.88F + visualScale * 0.075F);
+                        float px = (float) base.x + signed(particleSeed, 1) * 1.8F;
+                        float py = (float) base.y + 0.12F + layer * 0.34F
+                            + unit(particleSeed, 2) * 1.15F;
+                        float pz = (float) base.z + signed(particleSeed, 3) * 1.8F;
+                        int tone = 36 + Math.floorMod((int) (particleSeed >>> 20), 66);
+                        float alpha = alphaScale * (0.66F + unit(particleSeed, 4) * 0.28F);
+                        billboard(pose, buffer, px, py, pz, radius,
+                            unit(particleSeed, 5) * Mth.TWO_PI,
+                            tone, tone + 2, tone + 5, alpha, 0x900090, basis);
+                        rendered++;
+                    }
+                }
+            }
+        }
+
+        /* The first extraction can precede terrain-spoke readiness. Keep the
+         * impact frame visually covered instead of showing an empty ground disc. */
+        if (rendered == 0) {
+            int fallback = lod == WarheadMesh.Lod.NEAR ? 720
+                : lod == WarheadMesh.Lod.MEDIUM ? 480 : 260;
+            for (int index = 0; index < fallback; index++) {
+                long seed = mix(visualSeed ^ index * 0xD1B54A32D192ED03L);
+                double radiusFromCenter = Math.sqrt(unit(seed, 0)) * outerRadius;
+                double angle = unit(seed, 1) * Mth.TWO_PI;
+                float radius = (1.25F + unit(seed, 2) * 2.65F)
+                    * (0.88F + visualScale * 0.075F);
+                int tone = 38 + Math.floorMod((int) (seed >>> 18), 62);
+                billboard(pose, buffer,
+                    (float) (Math.cos(angle) * radiusFromCenter),
+                    0.15F + unit(seed, 3) * 1.45F,
+                    (float) (Math.sin(angle) * radiusFromCenter), radius,
+                    unit(seed, 4) * Mth.TWO_PI, tone, tone + 2, tone + 5,
+                    alphaScale * (0.62F + unit(seed, 5) * 0.30F),
+                    0x900090, basis);
             }
         }
     }

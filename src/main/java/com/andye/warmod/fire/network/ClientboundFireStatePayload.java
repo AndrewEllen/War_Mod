@@ -154,7 +154,7 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
 				&& finite(velocityZ, 4.0F) && finite(windX, 2.5F)
                 && finite(windY, 2.5F) && finite(windZ, 2.5F)
                 && finiteRange(intensity, 0.0F, 1.2F)
-				&& lifetime > 0 && lifetime <= 200;
+				&& lifetime > 0 && lifetime <= 320;
 		}
 		private static boolean finite(final float value, final float limit) {
 			return Float.isFinite(value) && Math.abs(value) <= limit;

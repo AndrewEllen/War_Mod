@@ -36,13 +36,18 @@ public final class GroundDustFrontRenderer {
 
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
         final List<TerrainShockfrontNode> nodes, final Vec3 impactPosition, final long gameTime,
-        final WarheadMesh.Lod lod, final float densityScale, final Quaternionf cameraOrientation) {
+        final WarheadMesh.Lod lod, final float densityScale, final boolean nuclear,
+        final Quaternionf cameraOrientation) {
         if (nodes == null || nodes.isEmpty()) return;
         float budgetScale = Mth.clamp(
             (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
             0.45F, 4.0F);
-        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 6_400
-            : lod == WarheadMesh.Lod.MEDIUM ? 3_600 : 1_700)
+        if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
+        int limit = Math.round((nuclear
+            ? lod == WarheadMesh.Lod.NEAR ? 10_000
+                : lod == WarheadMesh.Lod.MEDIUM ? 6_000 : 3_200
+            : lod == WarheadMesh.Lod.NEAR ? 6_400
+                : lod == WarheadMesh.Lod.MEDIUM ? 3_600 : 1_700)
             * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);
@@ -115,13 +120,18 @@ public final class GroundDustFrontRenderer {
     public static void renderExplosionFlecks(final PoseStack.Pose pose,
         final VertexConsumer buffer, final List<TerrainShockfrontNode> nodes,
         final Vec3 impactPosition, final long gameTime, final WarheadMesh.Lod lod,
-        final float densityScale, final Quaternionf cameraOrientation) {
+        final float densityScale, final boolean nuclear,
+        final Quaternionf cameraOrientation) {
         if (nodes == null || nodes.isEmpty()) return;
         float budgetScale = Mth.clamp(
             (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
             0.45F, 4.0F);
-        int limit = Math.round((lod == WarheadMesh.Lod.NEAR ? 4_800
-            : lod == WarheadMesh.Lod.MEDIUM ? 2_600 : 1_200)
+        if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
+        int limit = Math.round((nuclear
+            ? lod == WarheadMesh.Lod.NEAR ? 7_500
+                : lod == WarheadMesh.Lod.MEDIUM ? 4_400 : 2_400
+            : lod == WarheadMesh.Lod.NEAR ? 4_800
+                : lod == WarheadMesh.Lod.MEDIUM ? 2_600 : 1_200)
             * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);

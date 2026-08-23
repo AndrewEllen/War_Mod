@@ -1,11 +1,8 @@
 package com.andye.warmod.item;
 
-import com.andye.warmod.firearm.FirearmBulletManager;
 import com.andye.warmod.firearm.FirearmType;
 import java.util.function.Consumer;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -26,51 +23,33 @@ public final class FirearmItem extends Item {
 
     @Override public InteractionResult use(final Level level, final Player player,
         final InteractionHand hand) {
-        if (type.automatic() || type.scoped()) {
-            player.startUsingItem(hand);
-            if (!level.isClientSide() && type.automatic() && player instanceof ServerPlayer shooter)
-                FirearmBulletManager.fire((ServerLevel) level, shooter, type);
-            return level.isClientSide() ? InteractionResult.SUCCESS : InteractionResult.SUCCESS_SERVER;
-        }
-        if (!level.isClientSide() && level instanceof ServerLevel server
-            && player instanceof ServerPlayer shooter)
-            FirearmBulletManager.fire(server, shooter, type);
+        player.startUsingItem(hand);
         return level.isClientSide() ? InteractionResult.SUCCESS : InteractionResult.SUCCESS_SERVER;
     }
 
     @Override public void onUseTick(final Level level, final LivingEntity entity,
         final ItemStack stack, final int remainingTime) {
-        if (!type.automatic() || level.isClientSide()
-            || !(level instanceof ServerLevel server) || !(entity instanceof ServerPlayer shooter)) return;
-        int used = getUseDuration(stack, entity) - remainingTime;
-        if (used > 0 && used % type.intervalTicks() == 0)
-            FirearmBulletManager.fire(server, shooter, type);
+        // Right-click is aim-only. Firing is driven by the attack-key packet.
     }
 
     @Override public boolean releaseUsing(final ItemStack stack, final Level level,
         final LivingEntity entity, final int remainingTime) {
-        if (type.scoped() && !level.isClientSide() && level instanceof ServerLevel server
-            && entity instanceof ServerPlayer shooter) {
-            int held = getUseDuration(stack, entity) - remainingTime;
-            if (held >= 5) FirearmBulletManager.fire(server, shooter, type);
-        }
-        return type.scoped();
+        return true;
     }
 
     @Override public int getUseDuration(final ItemStack stack, final LivingEntity user) {
-        return type.automatic() || type.scoped() ? 72_000 : 0;
+        return 72_000;
     }
     @Override public ItemUseAnimation getUseAnimation(final ItemStack stack) {
-        return type.scoped() ? ItemUseAnimation.SPYGLASS
-            : type.automatic() ? ItemUseAnimation.CROSSBOW : ItemUseAnimation.NONE;
+        return type.scoped() ? ItemUseAnimation.SPYGLASS : ItemUseAnimation.CROSSBOW;
     }
     @Override public void appendHoverText(final ItemStack stack, final TooltipContext context,
         final TooltipDisplay display, final Consumer<Component> tooltip,
         final TooltipFlag flag) {
-        tooltip.accept(Component.literal(type.scoped()
-            ? "Hold to scope; release to fire" : type.automatic()
-                ? "Hold to fire automatically" : "Use to fire"));
-        tooltip.accept(Component.literal("Ammo: " + type.ammunition().getName(
-            new ItemStack(type.ammunition())).getString()));
+        tooltip.accept(Component.literal("Left-click to fire; right-click to "
+            + (type.scoped() ? "use scope" : "aim down sights")));
+        tooltip.accept(Component.literal("Magazine: " + type.magazineCapacity()
+            + " rounds (" + type.ammunition().getName(
+                new ItemStack(type.ammunition())).getString() + ")"));
     }
 }
