@@ -6,9 +6,10 @@ package com.andye.warmod.acoustics.model;
  * and produce stronger, longer-range reflections than small firearm reports.
  */
 public enum AcousticResponseProfile {
-	STANDARD(0.72, 0.38, 0.075, 0.035, 0.12, 1.00, 0.24, 2, false),
-	FIREARM(0.68, 0.30, 0.070, 0.028, 0.16, 1.00, 0.24, 2, false),
-	EXPLOSION(0.38, 0.10, 0.030, 0.010, 0.34, 1.75, 0.46, 3, true);
+	STANDARD(0.58, 0.22, 0.050, 0.014, 0.24, 1.00, 0.24, 2, false),
+	FIREARM(0.54, 0.18, 0.045, 0.012, 0.28, 1.00, 0.22, 2, true),
+	IMPACT(0.60, 0.20, 0.052, 0.014, 0.24, 1.10, 0.26, 2, false),
+	EXPLOSION(0.24, 0.07, 0.018, 0.005, 0.56, 1.62, 0.48, 3, true);
 
 	private final double obstructionAbsorption;
 	private final double foliageAbsorption;

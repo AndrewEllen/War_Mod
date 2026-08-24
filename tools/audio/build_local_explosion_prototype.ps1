@@ -24,22 +24,22 @@ $profiles = @(
 	@{
 		Name = 'explosion_near'
 		TargetPeakDb = -1.8
-		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=22,lowpass=f=15000,equalizer=f=85:t=q:w=1.0:g=3"
+		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=22,lowpass=f=15000,equalizer=f=85:t=q:w=1.0:g=5"
 	},
 	@{
 		Name = 'explosion_medium'
 		TargetPeakDb = -1.3
-		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=20,lowpass=f=3500,equalizer=f=95:t=q:w=1.0:g=4"
+		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=20,lowpass=f=3500,equalizer=f=95:t=q:w=1.0:g=6"
 	},
 	@{
 		Name = 'explosion_far'
 		TargetPeakDb = -1.5
-		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=18,lowpass=f=900,equalizer=f=90:t=q:w=1.0:g=6"
+		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=18,lowpass=f=900,equalizer=f=90:t=q:w=1.0:g=8"
 	},
 	@{
 		Name = 'explosion_extreme'
 		TargetPeakDb = -1.2
-		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=17,lowpass=f=500,equalizer=f=78:t=q:w=0.9:g=8,acompressor=threshold=0.25:ratio=1.5:attack=2:release=80:makeup=1"
+		Filter = "atrim=start=$leadingSilenceSeconds,asetpts=PTS-STARTPTS,highpass=f=17,lowpass=f=500,equalizer=f=78:t=q:w=0.9:g=10,acompressor=threshold=0.25:ratio=1.5:attack=2:release=80:makeup=1"
 	}
 )
 

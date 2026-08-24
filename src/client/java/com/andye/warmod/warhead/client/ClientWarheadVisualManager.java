@@ -20,7 +20,12 @@ import java.util.Set;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 
 public final class ClientWarheadVisualManager {
 	public static final ClientWarheadVisualManager INSTANCE = new ClientWarheadVisualManager();
@@ -33,6 +38,7 @@ public final class ClientWarheadVisualManager {
 	private final Set<UUID> volumetricImpacts = new HashSet<>();
 	private final Set<UUID> deliveredVisualShake = new HashSet<>();
 	private final Set<UUID> deliveredReturnShake = new HashSet<>();
+	private final Set<UUID> nuclearFlashExposed = new HashSet<>();
 	private ClientLevel activeLevel;
 
 	private ClientWarheadVisualManager() {
@@ -63,6 +69,11 @@ public final class ClientWarheadVisualManager {
 		this.deliveredVisualShake.remove(payload.warheadId());
 		this.deliveredReturnShake.remove(payload.warheadId());
 		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload);
+		this.nuclearFlashExposed.remove(payload.warheadId());
+		if (incoming.payloadType() == WarheadPayloadType.NUCLEAR
+			&& hasDirectNuclearView(Minecraft.getInstance(), incoming.impactPosition())) {
+			this.nuclearFlashExposed.add(payload.warheadId());
+		}
 		this.assignVolumetricSlot(payload.warheadId(), incoming);
 		this.removeOldestImpactIfAtCapacity(WarheadConstants.MAX_ACTIVE_CLIENT_IMPACTS);
 		this.activeImpacts.put(payload.warheadId(), incoming);
@@ -96,6 +107,7 @@ public final class ClientWarheadVisualManager {
 				this.volumetricImpacts.remove(entry.getKey());
 				this.deliveredVisualShake.remove(entry.getKey());
 				this.deliveredReturnShake.remove(entry.getKey());
+				this.nuclearFlashExposed.remove(entry.getKey());
 				impactIterator.remove();
 			}
 		}
@@ -133,6 +145,7 @@ public final class ClientWarheadVisualManager {
 		this.volumetricImpacts.clear();
 		this.deliveredVisualShake.clear();
 		this.deliveredReturnShake.clear();
+		this.nuclearFlashExposed.clear();
 		TerrainSurfaceCache.INSTANCE.clear();
 		ClientDebrisBatchManager.INSTANCE.clear();
 		this.activeLevel = null;
@@ -150,6 +163,7 @@ public final class ClientWarheadVisualManager {
 			this.volumetricImpacts.clear();
 			this.deliveredVisualShake.clear();
 			this.deliveredReturnShake.clear();
+			this.nuclearFlashExposed.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = null;
@@ -161,6 +175,7 @@ public final class ClientWarheadVisualManager {
 			this.volumetricImpacts.clear();
 			this.deliveredVisualShake.clear();
 			this.deliveredReturnShake.clear();
+			this.nuclearFlashExposed.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
 			this.activeLevel = level;
@@ -251,6 +266,27 @@ public final class ClientWarheadVisualManager {
 		return impactId != null && this.volumetricImpacts.contains(impactId);
 	}
 
+	public synchronized boolean isNuclearFlashExposed(final UUID impactId) {
+		return impactId != null && this.nuclearFlashExposed.contains(impactId);
+	}
+
+	private static boolean hasDirectNuclearView(final Minecraft client,
+		final Vec3 impactPosition) {
+		if (client.level == null || client.player == null
+			|| !client.level.isLoaded(BlockPos.containing(impactPosition))) return false;
+		Vec3 eye = client.player.getEyePosition();
+		Vec3 towardImpact = impactPosition.subtract(eye);
+		if (!towardImpact.isFinite() || towardImpact.lengthSqr() < 1.0E-6) return true;
+		if (client.player.getViewVector(1.0F).normalize().dot(towardImpact.normalize()) < 0.50) {
+			return false;
+		}
+		BlockHitResult hit = client.level.clip(new ClipContext(
+			eye, impactPosition, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
+			CollisionContext.empty()));
+		return hit.getType() == HitResult.Type.MISS
+			|| hit.getLocation().distanceToSqr(impactPosition) <= 16.0;
+	}
+
 	private void removeOldestImpactIfAtCapacity(final int capacity) {
 		while (this.activeImpacts.size() >= capacity) {
 			Iterator<UUID> iterator = this.activeImpacts.keySet().iterator();
@@ -260,6 +296,7 @@ public final class ClientWarheadVisualManager {
 			this.volumetricImpacts.remove(removed);
 			this.deliveredVisualShake.remove(removed);
 			this.deliveredReturnShake.remove(removed);
+			this.nuclearFlashExposed.remove(removed);
 		}
 	}
 

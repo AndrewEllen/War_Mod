@@ -7,7 +7,8 @@ import net.minecraft.world.phys.Vec3;
 public record AcousticReflection(
 	Vec3 position,
 	double reflectedPathLength,
-	double strength
+	double strength,
+	double pathTransmission
 ) {
 	public AcousticReflection {
 		Objects.requireNonNull(position, "position");
@@ -17,6 +18,9 @@ public record AcousticReflection(
 		}
 		if (!Double.isFinite(strength) || strength < 0.0 || strength > 1.0) {
 			throw new IllegalArgumentException("strength must be between zero and one");
+		}
+		if (!Double.isFinite(pathTransmission) || pathTransmission < 0.0 || pathTransmission > 1.0) {
+			throw new IllegalArgumentException("pathTransmission must be between zero and one");
 		}
 	}
 }

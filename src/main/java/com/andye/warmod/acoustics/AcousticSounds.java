@@ -20,7 +20,12 @@ public final class AcousticSounds {
 	public static final Identifier RIFLE_FIRE_ID = id("rifle_fire");
 	public static final Identifier SNIPER_FIRE_ID = id("sniper_fire");
 	public static final Identifier BULLET_CRACK_ID = id("bullet_crack");
-	public static final Identifier BULLET_IMPACT_ID = id("bullet_impact");
+	public static final Identifier BULLET_IMPACT_DIRT_ID = id("bullet_impact_dirt");
+	public static final Identifier BULLET_IMPACT_BODY_ID = id("bullet_impact_body");
+	public static final Identifier BULLET_IMPACT_METAL_ID = id("bullet_impact_metal");
+	public static final Identifier BULLET_PASS_METAL_ID = id("bullet_pass_metal");
+	/** Compatibility alias: unclassified impacts deliberately use the dirt fallback. */
+	public static final Identifier BULLET_IMPACT_ID = BULLET_IMPACT_DIRT_ID;
 	private static boolean registered;
 
 	private AcousticSounds() {
@@ -108,12 +113,30 @@ public final class AcousticSounds {
 			new double[]{0, 45, 130, 320, 700},
 			new float[]{1.0F, .76F, .46F, .22F}, .010, false,
 			AcousticResponseProfile.FIREARM);
-		register(BULLET_IMPACT_ID,
+		register(BULLET_IMPACT_DIRT_ID,
 			ModSoundEvents.BULLET_IMPACT_NEAR_ID, ModSoundEvents.BULLET_IMPACT_MEDIUM_ID,
 			ModSoundEvents.BULLET_IMPACT_FAR_ID, ModSoundEvents.BULLET_IMPACT_EXTREME_ID,
-			new double[]{0, 24, 65, 130, 240},
-			new float[]{.90F, .68F, .40F, .18F}, .012, false,
-			AcousticResponseProfile.FIREARM);
+			new double[]{0, 48, 105, 190, 320},
+			new float[]{1.00F, .90F, .66F, .38F}, .008, true,
+			AcousticResponseProfile.IMPACT);
+		register(BULLET_IMPACT_BODY_ID,
+			ModSoundEvents.BULLET_IMPACT_BODY_NEAR_ID, ModSoundEvents.BULLET_IMPACT_BODY_MEDIUM_ID,
+			ModSoundEvents.BULLET_IMPACT_BODY_FAR_ID, ModSoundEvents.BULLET_IMPACT_BODY_EXTREME_ID,
+			new double[]{0, 20, 52, 105, 180},
+			new float[]{.92F, .62F, .34F, .14F}, .012, true,
+			AcousticResponseProfile.IMPACT);
+		register(BULLET_IMPACT_METAL_ID,
+			ModSoundEvents.BULLET_IMPACT_METAL_NEAR_ID, ModSoundEvents.BULLET_IMPACT_METAL_MEDIUM_ID,
+			ModSoundEvents.BULLET_IMPACT_METAL_FAR_ID, ModSoundEvents.BULLET_IMPACT_METAL_EXTREME_ID,
+			new double[]{0, 30, 82, 165, 300},
+			new float[]{1.04F, .78F, .46F, .20F}, .010, true,
+			AcousticResponseProfile.IMPACT);
+		register(BULLET_PASS_METAL_ID,
+			ModSoundEvents.BULLET_PASS_METAL_NEAR_ID, ModSoundEvents.BULLET_PASS_METAL_MEDIUM_ID,
+			ModSoundEvents.BULLET_PASS_METAL_FAR_ID, ModSoundEvents.BULLET_PASS_METAL_EXTREME_ID,
+			new double[]{0, 8, 18, 32, 48},
+			new float[]{1.0F, .78F, .50F, .25F}, .015, false,
+			AcousticResponseProfile.IMPACT);
 		registered = true;
 		WarMod.LOGGER.info("Registered propagated acoustic definitions.");
 	}

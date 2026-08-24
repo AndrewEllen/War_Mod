@@ -39,6 +39,7 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.EntityBasedExplosionDamageCalculator;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -46,7 +47,10 @@ import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -352,7 +356,10 @@ public final class WarheadExplosionWorkManager {
 			? new ExplosionDamageCalculator()
 			: new EntityBasedExplosionDamageCalculator(source);
 
-		for (Entity entity : level.getEntities(source, bounds)) {
+		/* Query with a null exclusion so the owner is not accidentally immune to
+		 * their own conventional or nuclear warhead. The source remains attached
+		 * to the damage source for attribution. */
+		for (Entity entity : level.getEntities(null, bounds)) {
 			/* Existing loose items and XP are vapourised instead of becoming a second lag source. */
 			if (entity instanceof ExperienceOrb || entity instanceof ItemEntity) {
 				entity.discard();
@@ -367,15 +374,12 @@ public final class WarheadExplosionWorkManager {
 			Vec3 direction = difference.normalize();
 			boolean damage = calculator.shouldDamageEntity(explosion, entity);
 			float knockbackMultiplier = calculator.getKnockbackMultiplier(entity);
-			/*
-			 * Vanilla samples many visibility rays for every entity. Strategic
-			 * yields can cover hundreds of blocks, making that cost dominate the
-			 * impact tick. Use a smooth blast-volume exposure approximation; the
-			 * terrain crater itself remains resistance-aware.
-			 */
+			/* Seven fixed collision rays preserve real cover without allowing a
+			 * strategic yield to turn into an unbounded visibility workload. The
+			 * vanilla damage calculator supplies proximity falloff; this value is
+			 * strictly the terrain/wall transmission term. */
 			float exposure = !damage && knockbackMultiplier == 0.0F
-				? 0.0F
-				: Mth.clamp((float) (1.0 - normalizedDistance * 0.32), 0.55F, 1.0F);
+				? 0.0F : terrainExposure(level, center, entity);
 			if (damage) {
 				entity.hurtServer(level, explosion.getDamageSource(),
 					calculator.getEntityDamageAmount(explosion, entity, exposure));
@@ -390,6 +394,45 @@ public final class WarheadExplosionWorkManager {
 			}
 			entity.onExplosionHit(source);
 		}
+	}
+
+	private static float terrainExposure(final ServerLevel level, final Vec3 center,
+		final Entity entity) {
+		AABB box = entity.getBoundingBox();
+		double middleX = (box.minX + box.maxX) * 0.5;
+		double middleY = (box.minY + box.maxY) * 0.5;
+		double middleZ = (box.minZ + box.maxZ) * 0.5;
+		double insetX = Math.min(0.20, box.getXsize() * 0.20);
+		double insetY = Math.min(0.20, box.getYsize() * 0.12);
+		double insetZ = Math.min(0.20, box.getZsize() * 0.20);
+		Vec3[] targets = {
+			entity.getEyePosition(),
+			new Vec3(middleX, middleY, middleZ),
+			new Vec3(box.minX + insetX, middleY, middleZ),
+			new Vec3(box.maxX - insetX, middleY, middleZ),
+			new Vec3(middleX, middleY, box.minZ + insetZ),
+			new Vec3(middleX, middleY, box.maxZ - insetZ),
+			new Vec3(middleX, box.minY + insetY, middleZ)
+		};
+		int clearRays = 0;
+		for (Vec3 target : targets) {
+			if (clearBlastRay(level, center, target)) clearRays++;
+		}
+		return WarheadBlastExposure.transmission(clearRays, targets.length);
+	}
+
+	private static boolean clearBlastRay(final ServerLevel level, final Vec3 center,
+		final Vec3 target) {
+		Vec3 delta = target.subtract(center);
+		double distance = delta.length();
+		if (!Double.isFinite(distance) || distance < 1.0E-5) return true;
+		/* Skip only the innermost blast cell, which the crater guarantees will be
+		 * excavated. Cover beyond it remains fully eligible to absorb pressure. */
+		Vec3 start = center.add(delta.scale(Math.min(1.25, distance * 0.25) / distance));
+		BlockHitResult hit = level.clip(new ClipContext(start, target,
+			ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty()));
+		return hit.getType() == HitResult.Type.MISS
+			|| hit.getLocation().distanceToSqr(target) <= 0.12 * 0.12;
 	}
 
 	private static long chunkKey(final int chunkX, final int chunkZ) {

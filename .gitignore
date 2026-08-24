@@ -43,4 +43,6 @@ Desktop.ini
 /tools/audio/source/*
 !/tools/audio/source/firearm/
 !/tools/audio/source/firearm/**
+!/tools/audio/source/user/
+!/tools/audio/source/user/**
 /local_audio_sources/

@@ -39,9 +39,18 @@ public record AcousticEnvironment(
 
 	public float transmissionPitch(final AcousticResponseProfile response) {
 		Objects.requireNonNull(response, "response");
-		return (float) Math.max(0.82, 1.0
+		return (float) Math.max(0.92, 1.0
 			- obstruction * response.obstructionPitchDamping()
 			- foliageAbsorption * response.foliagePitchDamping());
+	}
+
+	/**
+	 * Coarse high-frequency loss used to select the next, naturally low-passed
+	 * distance recording when a genuinely solid path blocks most of the ray fan.
+	 * Foliage contributes much less: a forest canopy is not an acoustic wall.
+	 */
+	public double highFrequencyLoss() {
+		return Math.min(1.0, obstruction * 0.86 + foliageAbsorption * 0.28);
 	}
 
 	public double reflectionStrength(final AcousticResponseProfile response) {
@@ -50,7 +59,7 @@ public record AcousticEnvironment(
 		double outdoorTerrain = openSky ? terrainRelief * 0.75 : terrainRelief * 0.34;
 		return Math.max(0.0, Math.min(1.0,
 			Math.max(indoor, outdoorTerrain)
-				* (1.0 - foliageAbsorption * response.foliageAbsorption())));
+				* (1.0 - foliageAbsorption * response.foliageAbsorption() * 0.35)));
 	}
 
 	public double effectiveReflectionDistance() {

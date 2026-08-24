@@ -11,3 +11,5 @@ The first Distant Acoustics prototype uses these CC0 OpenGameArt sound sources. 
 | Synthesized explosion | qubodup | https://lpc.opengameart.org/content/synthesized-explosion | CC0 |
 | The Free Firearm Sound Library | Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney | https://opengameart.org/content/the-free-firearm-sound-library | CC0 |
 | Various Sound Effects (`snd_bulletcrackle.wav`, `snd_bullethit.wav`) | Julie Damsgaard / Spring Spring | https://opengameart.org/content/various-sound-effects-0 | CC0 |
+| Impact Sounds (`impactMetal_heavy_001.ogg`) | Kenney | https://kenney.nl/assets/impact-sounds | CC0 |
+| Deep Boom | Za-Games | https://freesound.org/people/Za-Games/sounds/539968/ | CC0 |
