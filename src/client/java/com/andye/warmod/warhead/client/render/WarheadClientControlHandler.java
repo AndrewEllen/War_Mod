@@ -96,11 +96,12 @@ public final class WarheadClientControlHandler {
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
         GpuParticleEngine.FireDebugCounters fire = gpu.fire();
         ClientPerformanceTelemetry.DebugSnapshot cpu = ClientPerformanceTelemetry.debugSnapshot();
-        String effectiveBackend = GpuParticleEngine.isGpuActive() ? "gpu" : "cpu";
         feedback("War Mod backendPreference="
             + gpu.preference().name().toLowerCase(java.util.Locale.ROOT)
-            + ", effectiveBackend=" + effectiveBackend
-            + ", gpuState=" + gpu.backend().name().toLowerCase(java.util.Locale.ROOT)
+            + ", effectiveBackend="
+            + gpu.effectiveBackend().name().toLowerCase(java.util.Locale.ROOT)
+            + ", gpuResources=" + gpu.backend().name().toLowerCase(java.util.Locale.ROOT)
+            + ", gpuReadiness=" + gpu.readiness().name().toLowerCase(java.util.Locale.ROOT)
             + ", cpuMode=" + WarheadRenderSettings.displayName()
             + ", budget=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
             + ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()

@@ -49,7 +49,8 @@ public final class NuclearDestructionCurtainRenderer {
             if (impact.center().distanceTo(camera.pos) <= MAX_DISTANCE + 96.0
                 && !impact.bands().isEmpty()) {
                 visible.add(impact);
-                submitGpuCurtain(impact, camera.pos, level.getGameTime());
+                if (GpuParticleEngine.canRender(VisualLayer.GROUND_CURTAIN))
+                    submitGpuCurtain(impact, camera.pos, level.getGameTime());
             }
         }
         frame = visible.isEmpty() ? Frame.EMPTY : new Frame(camera.pos,
@@ -61,7 +62,7 @@ public final class NuclearDestructionCurtainRenderer {
     private static void submit(final LevelRenderContext context) {
         Frame snapshot = frame;
         if (snapshot == Frame.EMPTY || snapshot.impacts().isEmpty() || context.poseStack() == null) return;
-        if (GpuParticleEngine.isGpuActive()) return;
+        if (GpuParticleEngine.canRender(VisualLayer.GROUND_CURTAIN)) return;
         context.submitNodeCollector().submitCustomGeometry(context.poseStack(),
             NuclearCurtainRenderPipelines.curtain(),
 			(pose, buffer) -> render(pose, buffer, snapshot));

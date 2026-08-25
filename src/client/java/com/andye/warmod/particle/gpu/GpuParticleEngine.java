@@ -18,9 +18,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
@@ -44,6 +46,14 @@ import org.lwjgl.system.MemoryUtil;
 public final class GpuParticleEngine {
     public enum Backend { UNINITIALIZED, GPU_COMPUTE, CPU_FALLBACK }
     public enum BackendPreference { AUTO, GPU, CPU }
+    public enum Readiness {
+        UNINITIALIZED,
+        INITIALIZED_UNVERIFIED,
+        PROBING,
+        READY,
+        FAILED
+    }
+    public enum EffectiveBackend { CPU, GPU }
     public enum DiagnosticMode { OFF, DEPTH_DISABLED, DEPTH_ENABLED }
     public enum EffectClass { NUCLEAR, CONVENTIONAL, FIRE_FIELD, CURTAIN, LEGACY }
 
@@ -105,6 +115,10 @@ public final class GpuParticleEngine {
     private static final int STATS_UINTS = TYPE_COUNT * 4 + 4;
     private static final int STATS_RING_SIZE = 6;
     private static final String SHADER_ROOT = "/assets/war_mod/shaders/gpu_particles/";
+    private static final Set<VisualLayer> GPU_CAPABLE_LAYERS = Set.copyOf(EnumSet.of(
+        VisualLayer.FIREBALL, VisualLayer.MUSHROOM_CLOUD, VisualLayer.STEM,
+        VisualLayer.GROUND_DUST, VisualLayer.FLAMES, VisualLayer.SMOKE,
+        VisualLayer.EMBERS));
     private static final LinkedHashMap<EffectKey, PendingEffect> PENDING_EFFECTS =
         new LinkedHashMap<>();
     private static final LinkedHashMap<Long, FireFieldSubmission> PENDING_FIRE_FIELDS =
@@ -114,6 +128,7 @@ public final class GpuParticleEngine {
 
     private static volatile Backend backend = Backend.UNINITIALIZED;
     private static volatile BackendPreference backendPreference = BackendPreference.AUTO;
+    private static volatile Readiness readiness = Readiness.UNINITIALIZED;
     private static volatile DiagnosticMode diagnosticMode = DiagnosticMode.OFF;
     private static boolean registered, resetRequested, extensionShaderPath;
     private static boolean backendSwitchRequested, diagnosticStateLogged;
@@ -131,6 +146,8 @@ public final class GpuParticleEngine {
     private static final int[] timeQueryCursor = new int[GpuStage.values().length];
     private static final int[] sampleQueries = new int[2];
     private static final boolean[] sampleQueryIssued = new boolean[2];
+    private static final ProbeStage[] sampleProbeStages = new ProbeStage[2];
+    private static final boolean[] sampleAutomatic = new boolean[2];
     private static int sampleQueryCursor;
     private static final long[] visibleByType = new long[TYPE_COUNT];
     private static final long[] activeByType = new long[TYPE_COUNT];
@@ -154,6 +171,8 @@ public final class GpuParticleEngine {
     private static long deadSlots = PARTICLE_CAPACITY;
     private static long distanceCulled, sizeCulled, frustumCulled;
     private static long debugSamplesPassed = -1L;
+    private static ProbeStage automaticProbeStage = ProbeStage.DEPTH_DISABLED;
+    private static boolean depthDisabledProbePassed, depthEnabledProbePassed;
 
     private GpuParticleEngine() { }
 
@@ -165,10 +184,24 @@ public final class GpuParticleEngine {
 
     public static Backend backend() { return backend; }
     public static BackendPreference backendPreference() { return backendPreference; }
+    public static Readiness readiness() { return readiness; }
     public static DiagnosticMode diagnosticMode() { return diagnosticMode; }
-    public static boolean isGpuActive() {
-        return backend == Backend.GPU_COMPUTE
+    public static boolean isGpuInitialized() {
+        return backend == Backend.GPU_COMPUTE;
+    }
+    public static boolean isGpuReady() {
+        return isGpuInitialized() && readiness == Readiness.READY
             && backendPreference != BackendPreference.CPU && !backendSwitchRequested;
+    }
+    public static EffectiveBackend effectiveBackend() {
+        return isGpuReady() ? EffectiveBackend.GPU : EffectiveBackend.CPU;
+    }
+    public static boolean canRender(final VisualLayer layer) {
+        return layer != null && isGpuReady() && GPU_CAPABLE_LAYERS.contains(layer);
+    }
+    /** Compatibility alias for callers that only need the effective backend. */
+    public static boolean isGpuActive() {
+        return isGpuReady();
     }
     public static synchronized void setBackendPreference(final BackendPreference preference) {
         if (preference == null) throw new IllegalArgumentException("preference");
@@ -204,7 +237,7 @@ public final class GpuParticleEngine {
     }
 
     public static synchronized void submitFireField(final FireFieldSubmission field) {
-        if (field == null || !field.valid()) return;
+        if (field == null || !field.valid() || backendPreference == BackendPreference.CPU) return;
         PENDING_FIRE_FIELDS.merge(field.regionId(), field, FireFieldSubmission::merge);
         fireFieldSubmissions++;
     }
@@ -238,7 +271,7 @@ public final class GpuParticleEngine {
     public static synchronized DebugSnapshot debugSnapshot() {
         long active = Arrays.stream(activeByType).sum();
         long visible = Math.min(active, Arrays.stream(visibleByType).sum());
-        long vram = isGpuActive() ? (long) PARTICLE_CAPACITY * PARTICLE_STRIDE
+        long vram = isGpuInitialized() ? (long) PARTICLE_CAPACITY * PARTICLE_STRIDE
             + (long) PARTICLE_CAPACITY * TYPE_COUNT * Integer.BYTES
             + (long) MAX_EMITTERS_PER_FRAME * EMITTER_STRIDE
             + (long) TYPE_COUNT * INDIRECT_COMMAND_STRIDE
@@ -251,7 +284,8 @@ public final class GpuParticleEngine {
             visibleByType[ParticleType.SMOKE.shaderId], acceptedFirePackets,
             rejectedFirePackets, staleFirePackets, receivedFirePatchEntries,
             storedFirePatches);
-        return new DebugSnapshot(backend, backendPreference, active, visible,
+        return new DebugSnapshot(backend, backendPreference, readiness, effectiveBackend(),
+            active, visible,
             Math.max(0L, active - visible), submittedParticles, requestedParticles,
             rejectedParticles, deadSlots,
             PARTICLE_CAPACITY, vram, gpuTimings(), adaptiveQuality,
@@ -262,7 +296,9 @@ public final class GpuParticleEngine {
     private static synchronized void submitLayer(final EffectDescriptor descriptor,
         final VisualLayer layer, final List<EmitterCommand> commands) {
         if (descriptor == null || !descriptor.valid() || layer == null
-            || commands == null || commands.isEmpty()) return;
+            || commands == null || commands.isEmpty()
+            || backendPreference == BackendPreference.CPU
+            || !GPU_CAPABLE_LAYERS.contains(layer)) return;
         EffectKey key = new EffectKey(descriptor.effectClass(), descriptor.id());
         PendingEffect effect = PENDING_EFFECTS.computeIfAbsent(key,
             ignored -> new PendingEffect(descriptor));
@@ -283,7 +319,6 @@ public final class GpuParticleEngine {
         ClientPerformanceTelemetry.recordGpuExtractionNanos(
             Math.max(0L, System.nanoTime() - extractionStarted));
         if (backend != Backend.GPU_COMPUTE) return;
-        if (resetRequested) { clearParticleStorage(); resetRequested = false; }
         CameraRenderState camera = context.levelState().cameraRenderState;
         if (camera == null || camera.pos == null || camera.projectionMatrix == null
             || camera.viewRotationMatrix == null) return;
@@ -297,6 +332,23 @@ public final class GpuParticleEngine {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             Matrix4f viewProjection = new Matrix4f(camera.projectionMatrix)
                 .mul(camera.viewRotationMatrix);
+            if (diagnosticMode != DiagnosticMode.OFF) {
+                drawDiagnostic(camera, viewProjection, state, stack,
+                    diagnosticMode == DiagnosticMode.DEPTH_ENABLED, true,
+                    diagnosticMode == DiagnosticMode.DEPTH_ENABLED
+                        ? ProbeStage.DEPTH_ENABLED : ProbeStage.DEPTH_DISABLED,
+                    false);
+                return;
+            }
+            if (readiness != Readiness.READY) {
+                if (readiness == Readiness.FAILED) return;
+                readiness = Readiness.PROBING;
+                drawDiagnostic(camera, viewProjection, state, stack,
+                    automaticProbeStage == ProbeStage.DEPTH_ENABLED, false,
+                    automaticProbeStage, true);
+                return;
+            }
+            if (resetRequested) { clearParticleStorage(); resetRequested = false; }
             IntBuffer viewport = stack.mallocInt(4);
             glGetIntegerv(GL_VIEWPORT, viewport);
             int viewportWidth = Math.max(1, viewport.get(2));
@@ -304,10 +356,6 @@ public final class GpuParticleEngine {
             CameraInfo cameraInfo = new CameraInfo(camera.pos, viewProjection,
                 Math.max(0.01F, Math.abs(camera.projectionMatrix.m11())),
                 viewportWidth, viewportHeight);
-            if (diagnosticMode != DiagnosticMode.OFF) {
-                drawDiagnostic(camera, viewProjection, state, stack);
-                return;
-            }
             collectCompletedStats();
             int statsSlot = acquireStatsSlot();
             resetFrameBuffers(stack, statsSlot);
@@ -336,7 +384,7 @@ public final class GpuParticleEngine {
             statsInFlight[statsSlot] = true;
         } catch (RuntimeException exception) {
             WarMod.LOGGER.error("GPU VFX backend failed; returning to packed fallback", exception);
-            destroyResources(); backend = Backend.CPU_FALLBACK;
+            destroyResources(); backend = Backend.CPU_FALLBACK; readiness = Readiness.FAILED;
         } finally {
             state.restore();
             ClientPerformanceTelemetry.recordGpuEngineCpuNanos(
@@ -346,6 +394,7 @@ public final class GpuParticleEngine {
 
     private static void applyBackendPreference() {
         destroyResources();
+        readiness = Readiness.UNINITIALIZED;
         backendSwitchRequested = false;
         if (backendPreference == BackendPreference.CPU) {
             backend = Backend.CPU_FALLBACK;
@@ -372,7 +421,7 @@ public final class GpuParticleEngine {
 
     private static void initialize() {
         if (backendPreference == BackendPreference.CPU) {
-            backend = Backend.CPU_FALLBACK;
+            backend = Backend.CPU_FALLBACK; readiness = Readiness.UNINITIALIZED;
             return;
         }
         try {
@@ -388,7 +437,7 @@ public final class GpuParticleEngine {
             int storageBindings = glGetInteger(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
             if (backendName == null || !backendName.toLowerCase().contains("opengl")
                 || (!coreCompute && !extensionCompute) || !indirect || storageBindings < 9) {
-                backend = Backend.CPU_FALLBACK;
+                backend = Backend.CPU_FALLBACK; readiness = Readiness.FAILED;
                 WarMod.LOGGER.info("War Mod GPU VFX unavailable: backend={}, core43={}, "
                     + "extensionCompute={}, indirect={}, ssboBindings={}; using packed fallback",
                     backendName, coreCompute, extensionCompute, indirect, storageBindings);
@@ -428,13 +477,18 @@ public final class GpuParticleEngine {
                 timeQueries[stage][1] = glGenQueries();
             }
             sampleQueries[0] = glGenQueries(); sampleQueries[1] = glGenQueries();
-            clearParticleStorage(); backend = Backend.GPU_COMPUTE;
+            clearParticleStorage();
+            backend = Backend.GPU_COMPUTE;
+            readiness = Readiness.INITIALIZED_UNVERIFIED;
+            automaticProbeStage = ProbeStage.DEPTH_DISABLED;
+            depthDisabledProbePassed = false;
+            depthEnabledProbePassed = false;
             WarMod.LOGGER.info("War Mod effect-aware GPU VFX enabled: {} particles, "
                 + "{} semantic emitter slots, extensionPath={}",
                 PARTICLE_CAPACITY, MAX_EMITTERS_PER_FRAME, !coreCompute);
         } catch (RuntimeException | IOException exception) {
             WarMod.LOGGER.warn("GPU VFX unavailable; using packed fallback", exception);
-            destroyResources(); backend = Backend.CPU_FALLBACK;
+            destroyResources(); backend = Backend.CPU_FALLBACK; readiness = Readiness.FAILED;
         }
     }
 
@@ -721,13 +775,17 @@ public final class GpuParticleEngine {
     }
 
     private static void drawDiagnostic(final CameraRenderState camera,
-        final Matrix4f viewProjection, final GlState state, final MemoryStack stack) {
+        final Matrix4f viewProjection, final GlState state, final MemoryStack stack,
+        final boolean depthEnabled, final boolean visible, final ProbeStage probeStage,
+        final boolean automatic) {
         Quaternionf orientation = camera.orientation == null
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F).rotate(orientation);
         Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F).rotate(orientation);
         Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F).rotate(orientation).normalize();
-        Vec3 position = camera.pos.add(forward.x * 5.0, forward.y * 5.0, forward.z * 5.0);
+        double probeDistance = automatic ? 0.5 : 5.0;
+        Vec3 position = camera.pos.add(forward.x * probeDistance,
+            forward.y * probeDistance, forward.z * probeDistance);
         ByteBuffer particle = stack.malloc(PARTICLE_STRIDE);
         putVec4(particle, position.x, position.y, position.z, 0.5);
         putVec4(particle, 0.0, 0.0, 0.0, 10.0);
@@ -748,29 +806,57 @@ public final class GpuParticleEngine {
         glUniform3f(glGetUniformLocation(renderProgram, "cameraUp"), up.x, up.y, up.z);
         glUniform1ui(glGetUniformLocation(renderProgram, "visibleBase"), 0);
         glUniform1i(glGetUniformLocation(renderProgram, "directDebug"), GL_TRUE);
+        glUniform1i(glGetUniformLocation(renderProgram, "diagnosticVisible"),
+            visible ? GL_TRUE : GL_FALSE);
         glBindVertexArray(vertexArray); glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(false); glDisable(GL_CULL_FACE);
-        if (diagnosticMode == DiagnosticMode.DEPTH_DISABLED) glDisable(GL_DEPTH_TEST);
+        if (!depthEnabled) glDisable(GL_DEPTH_TEST);
         else { glEnable(GL_DEPTH_TEST); glDepthFunc(state.depthFunction()); }
         logDiagnosticState(state);
-        boolean query = beginSampleQuery();
+        boolean query = beginSampleQuery(probeStage, automatic);
         try { glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); }
         finally { if (query) glEndQuery(GL_ANY_SAMPLES_PASSED); }
     }
 
-    private static boolean beginSampleQuery() {
+    private static boolean beginSampleQuery(final ProbeStage stage, final boolean automatic) {
         int slot = sampleQueryCursor, query = sampleQueries[slot];
         if (query == 0) return false;
         if (sampleQueryIssued[slot]) {
             if (glGetQueryObjecti(query, GL_QUERY_RESULT_AVAILABLE) == GL_FALSE) return false;
             debugSamplesPassed = glGetQueryObjecti64(query, GL_QUERY_RESULT);
+            acceptProbeResult(sampleProbeStages[slot], sampleAutomatic[slot],
+                debugSamplesPassed > 0L);
             sampleQueryIssued[slot] = false;
         }
         glBeginQuery(GL_ANY_SAMPLES_PASSED, query);
         sampleQueryIssued[slot] = true;
+        sampleProbeStages[slot] = stage;
+        sampleAutomatic[slot] = automatic;
         sampleQueryCursor = (slot + 1) & 1;
         return true;
+    }
+
+    private static void acceptProbeResult(final ProbeStage stage, final boolean automatic,
+        final boolean passed) {
+        if (!automatic || stage == null || readiness == Readiness.FAILED
+            || readiness == Readiness.READY) return;
+        if (!passed) {
+            readiness = Readiness.FAILED;
+            WarMod.LOGGER.warn("War Mod GPU readiness probe failed at {}; retaining CPU visuals",
+                stage.name().toLowerCase(java.util.Locale.ROOT));
+            return;
+        }
+        if (stage == ProbeStage.DEPTH_DISABLED) {
+            depthDisabledProbePassed = true;
+            automaticProbeStage = ProbeStage.DEPTH_ENABLED;
+        } else {
+            depthEnabledProbePassed = true;
+        }
+        if (depthDisabledProbePassed && depthEnabledProbePassed) {
+            readiness = Readiness.READY;
+            WarMod.LOGGER.info("War Mod GPU raster readiness probes passed; GPU layers enabled");
+        }
     }
 
     private static void logDiagnosticState(final GlState state) {
@@ -876,6 +962,7 @@ public final class GpuParticleEngine {
         Arrays.fill(aliveBuffers, 0); Arrays.fill(statsBuffers, 0);
         Arrays.fill(statsFences, 0L); Arrays.fill(statsInFlight, false);
         Arrays.fill(sampleQueries, 0); Arrays.fill(sampleQueryIssued, false);
+        Arrays.fill(sampleProbeStages, null); Arrays.fill(sampleAutomatic, false);
         Arrays.fill(gpuStageEwmaMillis, 0.0);
         vertexArray = sampleQueryCursor = statsCursor = 0;
         gpuTimeEwmaMillis = 0.0;
@@ -982,6 +1069,7 @@ public final class GpuParticleEngine {
     }
 
     public record DebugSnapshot(Backend backend, BackendPreference preference,
+        Readiness readiness, EffectiveBackend effectiveBackend,
         long activeParticles, long visibleParticles, long culledParticles,
         long submittedParticles, long requestedParticles, long rejectedSpawns,
         long deadSlots, int capacity, long vramBytes, GpuStageTimings gpuTime,
@@ -997,6 +1085,7 @@ public final class GpuParticleEngine {
         GpuTiming cull, GpuTiming raster) { }
     public record GpuTiming(double p50Millis, double p95Millis,
         double p99Millis, double maximumMillis) { }
+    private enum ProbeStage { DEPTH_DISABLED, DEPTH_ENABLED }
     private enum GpuStage { UPDATE, SPAWN, CULL, RASTER }
     private record EffectKey(EffectClass effectClass, long id) { }
     private static final class PendingEffect {

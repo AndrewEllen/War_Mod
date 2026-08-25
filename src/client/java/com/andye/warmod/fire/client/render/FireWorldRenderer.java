@@ -63,7 +63,15 @@ public final class FireWorldRenderer {
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         double gameTime = level.getGameTime()
             + context.deltaTracker().getGameTimeDeltaPartialTick(true);
-        boolean packedFallback = !GpuParticleEngine.isGpuActive();
+        boolean cpuFlames = !GpuParticleEngine.canRender(
+            GpuParticleEngine.VisualLayer.FLAMES);
+        boolean cpuSmoke = !GpuParticleEngine.canRender(
+            GpuParticleEngine.VisualLayer.SMOKE);
+        boolean cpuEmbers = !GpuParticleEngine.canRender(
+            GpuParticleEngine.VisualLayer.EMBERS);
+        boolean gpuFlames = !cpuFlames;
+        boolean gpuSmoke = !cpuSmoke;
+        boolean gpuEmbers = !cpuEmbers;
         List<FireRenderPatch> patches = new ArrayList<>();
         List<VisualPatch> clientPatches = ClientFireVisualManager.INSTANCE.snapshot(level);
         GpuParticleEngine.recordClientFirePatches(clientPatches.size());
@@ -74,10 +82,12 @@ public final class FireWorldRenderer {
             if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
             Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
                 patch.wind(), gameTime);
-            field(gpuFields, worldPosition).patches.add(new FireFieldPatch(patch.id(),
-                worldPosition, wind, patch.intensity(), patch.heat(), patch.coverage(),
-                patch.smoke(), patch.seed()));
-            if (packedFallback) {
+            if (gpuFlames || gpuSmoke || gpuEmbers) {
+                field(gpuFields, worldPosition).patches.add(new FireFieldPatch(patch.id(),
+                    worldPosition, wind, patch.intensity(), patch.heat(), patch.coverage(),
+                    patch.smoke(), patch.seed()));
+            }
+            if (cpuFlames || cpuSmoke || cpuEmbers) {
                 SmokeFlow smokeFlow = ClientSmokeFlowField.INSTANCE.request(level,
                     patch.anchor(), level.getGameTime());
                 patches.add(new FireRenderPatch(worldPosition.subtract(cameraPosition),
@@ -93,10 +103,11 @@ public final class FireWorldRenderer {
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
             float emberImportance = Math.max(0.1F, ember.intensity()
                 * (0.85F + (float) Math.min(1.5, ember.velocity().length()) * 0.35F));
-            field(gpuFields, worldPosition).embers.add(new FireFieldEmber(ember.id(),
-                worldPosition, ember.velocity(), Math.max(0.05F, ember.intensity()),
+            if (gpuEmbers) field(gpuFields, worldPosition).embers.add(new FireFieldEmber(
+                ember.id(), worldPosition, ember.velocity(),
+                Math.max(0.05F, ember.intensity()),
                 0.075F + ember.intensity() * 0.035F, emberImportance, ember.seed()));
-            if (!packedFallback) continue;
+            if (!cpuEmbers && !cpuSmoke) continue;
             List<FireRenderEmberTrail> trail = ember.trail().stream()
 				.map(sample -> new FireRenderEmberTrail(
 					sample.position().subtract(cameraPosition),
@@ -117,16 +128,17 @@ public final class FireWorldRenderer {
                 || distance > MAX_SMOKE_CLUSTER_DISTANCE) continue;
             Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
                 cluster.wind(), gameTime);
-            field(gpuFields, worldPosition).clusters.add(new FireFieldCluster(cluster.id(),
-                worldPosition, wind, cluster.smoke(), cluster.heat(), cluster.radius(),
-                cluster.memberCount(), cluster.seed()));
-            if (packedFallback) smokeClusters.add(new FireRenderSmokeCluster(
+            if (gpuSmoke) field(gpuFields, worldPosition).clusters.add(new FireFieldCluster(
+                cluster.id(), worldPosition, wind, cluster.smoke(), cluster.heat(),
+                cluster.radius(), cluster.memberCount(), cluster.seed()));
+            if (cpuFlames || cpuSmoke) smokeClusters.add(new FireRenderSmokeCluster(
                 worldPosition.subtract(cameraPosition), cluster.smoke(), cluster.heat(),
                 cluster.radius(), wind, cluster.seed(), cluster.memberCount(), distance));
         }
         currentFrame = patches.isEmpty() && embers.isEmpty() && smokeClusters.isEmpty()
             ? RenderFrame.EMPTY : new RenderFrame(gameTime, orientation, List.copyOf(patches),
-                List.copyOf(embers), List.copyOf(smokeClusters));
+                List.copyOf(embers), List.copyOf(smokeClusters),
+                cpuFlames, cpuSmoke, cpuEmbers);
         for (FireFieldBuilder builder : gpuFields.values()) {
             FireFieldSubmission submission = builder.finish();
             if (submission != null) GpuParticleEngine.submitFireField(submission);
@@ -139,34 +151,37 @@ public final class FireWorldRenderer {
         RenderFrame frame = currentFrame;
         if (frame == RenderFrame.EMPTY || (frame.patches().isEmpty() && frame.embers().isEmpty()
             && frame.smokeClusters().isEmpty())) return;
-        if (GpuParticleEngine.isGpuActive()) return;
         PoseStack poseStack = context.poseStack();
         if (poseStack == null) return;
-        context.submitNodeCollector().submitCustomGeometry(poseStack,
-            WarheadRenderPipelines.FIREBALL_HOT,
-            (pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
-                frame.gameTime(), frame.patches(), frame.cameraOrientation()));
-		if (!frame.embers().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+        if (frame.cpuFlames()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+			WarheadRenderPipelines.FIREBALL_HOT,
+			(pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
+				frame.gameTime(), frame.patches(), frame.cameraOrientation()));
+		if (frame.cpuEmbers() && !frame.embers().isEmpty())
+			context.submitNodeCollector().submitCustomGeometry(poseStack,
 			WarheadRenderPipelines.FIREBALL_HOT,
 			(pose, buffer) -> FireParticleRenderer.renderFirebrands(pose, buffer,
 				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
-		if (!frame.smokeClusters().isEmpty()) context.submitNodeCollector().submitCustomGeometry(
+		if (frame.cpuFlames() && !frame.smokeClusters().isEmpty())
+			context.submitNodeCollector().submitCustomGeometry(
 			poseStack, WarheadRenderPipelines.FIREBALL_HOT,
 			(pose, buffer) -> FireParticleRenderer.renderFlameClusters(pose, buffer,
 				frame.gameTime(), frame.smokeClusters(), frame.cameraOrientation()));
-        context.submitNodeCollector().submitCustomGeometry(poseStack,
-            WarheadRenderPipelines.FIREBALL_COOL,
-            (pose, buffer) -> FireParticleRenderer.renderEmbers(pose, buffer,
-                frame.gameTime(), frame.patches(), frame.cameraOrientation()));
-        context.submitNodeCollector().submitCustomGeometry(poseStack,
-            WarheadRenderPipelines.GROUND_DUST,
-            (pose, buffer) -> FireParticleRenderer.renderSmoke(pose, buffer,
-                frame.gameTime(), frame.patches(), frame.cameraOrientation()));
-		if (!frame.smokeClusters().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+		if (frame.cpuEmbers()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+			WarheadRenderPipelines.FIREBALL_COOL,
+			(pose, buffer) -> FireParticleRenderer.renderEmbers(pose, buffer,
+				frame.gameTime(), frame.patches(), frame.cameraOrientation()));
+		if (frame.cpuSmoke()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+			WarheadRenderPipelines.GROUND_DUST,
+			(pose, buffer) -> FireParticleRenderer.renderSmoke(pose, buffer,
+				frame.gameTime(), frame.patches(), frame.cameraOrientation()));
+		if (frame.cpuSmoke() && !frame.smokeClusters().isEmpty())
+			context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.GROUND_DUST,
             (pose, buffer) -> FireParticleRenderer.renderSmokeClusters(pose, buffer,
                 frame.gameTime(), frame.smokeClusters(), frame.cameraOrientation()));
-		if (!frame.embers().isEmpty()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+		if (frame.cpuSmoke() && !frame.embers().isEmpty())
+			context.submitNodeCollector().submitCustomGeometry(poseStack,
 			WarheadRenderPipelines.GROUND_DUST,
 			(pose, buffer) -> FireParticleRenderer.renderFirebrandSmoke(pose, buffer,
 				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
@@ -230,8 +245,9 @@ public final class FireWorldRenderer {
         Vec3 wind, long seed, int memberCount, double distance) { }
     private record RenderFrame(double gameTime, Quaternionf cameraOrientation,
 		List<FireRenderPatch> patches, List<FireRenderEmber> embers,
-        List<FireRenderSmokeCluster> smokeClusters) {
+        List<FireRenderSmokeCluster> smokeClusters,
+        boolean cpuFlames, boolean cpuSmoke, boolean cpuEmbers) {
 		private static final RenderFrame EMPTY = new RenderFrame(0.0, new Quaternionf(),
-			List.of(), List.of(), List.of());
+			List.of(), List.of(), List.of(), false, false, false);
     }
 }

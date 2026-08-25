@@ -6,6 +6,7 @@ flat in uint particleSeed;
 in float particleAge;
 out vec4 fragColor;
 uniform bool directDebug;
+uniform bool diagnosticVisible;
 
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -18,7 +19,8 @@ void main() {
     if (directDebug) {
         float debugAlpha = 1.0 - smoothstep(0.72, 1.0, length(centered));
         if (debugAlpha < 0.008) discard;
-        fragColor = vec4(1.0, 0.0, 1.0, debugAlpha);
+        fragColor = diagnosticVisible
+            ? vec4(1.0, 0.0, 1.0, debugAlpha) : vec4(0.0);
         return;
     }
     bool fire = particleType == 0u || particleType == 3u;

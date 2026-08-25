@@ -170,13 +170,11 @@ public final class WarheadWorldRenderer {
         }
         RETURN_WAVE_SOUND_PLAYED.retainAll(activeReturnWaveIds);
         RETURN_WAVE_PREVIOUS_RADIUS.keySet().retainAll(activeReturnWaveIds);
-        if (GpuParticleEngine.isGpuActive()) {
-            NuclearParticleCloudRenderer.retainFields(Set.of());
-            ConventionalBlastParticleRenderer.clearLevel();
-        } else {
-            NuclearParticleCloudRenderer.retainFields(activeNuclearCloudSeeds);
-            ConventionalBlastParticleRenderer.retainFields(activeConventionalFieldSeeds);
-        }
+        /* Authoritative CPU fields remain warm even while verified GPU layers
+           are selected, so a backend failure or runtime switch can recover on
+           the next extraction frame without requiring another detonation. */
+        NuclearParticleCloudRenderer.retainFields(activeNuclearCloudSeeds);
+        ConventionalBlastParticleRenderer.retainFields(activeConventionalFieldSeeds);
 
         List<DebrisFrame> debris = new ArrayList<>();
         for (ClientDebrisBatchManager.RenderSample sample
@@ -281,7 +279,10 @@ public final class WarheadWorldRenderer {
             * Mth.clamp(yieldThicknessScale, 0.72F, 1.28F);
         float rangeFade = visualRangeFade(impact.payloadType(), impact.visualScale(),
             impact.rawGroundDistance());
-        boolean gpuParticles = GpuParticleEngine.isGpuActive();
+        boolean gpuFireball = GpuParticleEngine.canRender(VisualLayer.FIREBALL);
+        boolean gpuCloudSmoke = GpuParticleEngine.canRender(VisualLayer.MUSHROOM_CLOUD);
+        boolean gpuStemSmoke = GpuParticleEngine.canRender(VisualLayer.STEM);
+        boolean gpuGroundDust = GpuParticleEngine.canRender(VisualLayer.GROUND_DUST);
 
         poseStack.pushPose();
         poseStack.translate(relative.x, relative.y, relative.z);
@@ -316,7 +317,7 @@ public final class WarheadWorldRenderer {
                     groundFrontierAlpha(impact.ageTicks(), alphaScale, yieldRadiusScale)
                         * rangeFade,
                     208, 226, 244));
-            if (!gpuParticles) {
+            if (!gpuGroundDust) {
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
                     WarheadRenderPipelines.GROUND_DUST,
                     (pose, buffer) -> ConventionalBlastParticleRenderer.renderSurfaceFront(
@@ -334,7 +335,7 @@ public final class WarheadWorldRenderer {
         if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
             double returnRadius = WarheadVisualMath.nuclearReturnWaveRadius(
                 impact.ageTicks(), yieldRadiusScale);
-            if (returnRadius > 0.0 && !gpuParticles) {
+            if (returnRadius > 0.0) {
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
                     WarheadRenderPipelines.GROUND_DUST,
                     (pose, buffer) -> ConventionalBlastParticleRenderer.renderNuclearReturnFront(
@@ -352,7 +353,7 @@ public final class WarheadWorldRenderer {
 
         poseStack.pushPose();
         poseStack.translate(relative.x, relative.y, relative.z);
-        if (groundEffects(impact.effectProfile()) && !gpuParticles) {
+        if (groundEffects(impact.effectProfile()) && !gpuGroundDust) {
             context.submitNodeCollector().submitCustomGeometry(poseStack,
                 WarheadRenderPipelines.GROUND_DUST,
                 (pose, buffer) -> GroundDustFrontRenderer.render(pose, buffer,
@@ -383,41 +384,41 @@ public final class WarheadWorldRenderer {
                     frame.cameraOrientation()));
         }
 
-        if (impact.payloadType() == WarheadPayloadType.NUCLEAR && !gpuParticles) {
+        if (impact.payloadType() == WarheadPayloadType.NUCLEAR) {
             if (renderCloud) {
-                context.submitNodeCollector().submitCustomGeometry(poseStack,
-                    WarheadRenderPipelines.NUCLEAR_SMOKE,
-                    (pose, buffer) -> {
-                        NuclearParticleCloudRenderer.renderSmoke(pose, buffer,
-                            cloud.ageTicks(), cloud.visualScale(), cloud.profile(),
-                            cloud.visualSeed(), impact.lod(), cloud.sources(),
-                            frame.cameraOrientation());
-                        NuclearCentralColumnRenderer.renderSmoke(pose, buffer,
-                            cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(),
-                            impact.lod(), frame.cameraOrientation());
-                    });
+                if (!gpuCloudSmoke || !gpuStemSmoke) {
+                    context.submitNodeCollector().submitCustomGeometry(poseStack,
+                        WarheadRenderPipelines.NUCLEAR_SMOKE,
+                        (pose, buffer) -> {
+                            if (!gpuCloudSmoke) NuclearParticleCloudRenderer.renderSmoke(
+                                pose, buffer, cloud.ageTicks(), cloud.visualScale(),
+                                cloud.profile(), cloud.visualSeed(), impact.lod(),
+                                cloud.sources(), frame.cameraOrientation());
+                            if (!gpuStemSmoke) NuclearCentralColumnRenderer.renderSmoke(
+                                pose, buffer, cloud.ageTicks(), cloud.visualScale(),
+                                cloud.visualSeed(), impact.lod(), frame.cameraOrientation());
+                        });
+                }
 
-                /* Submit every nuclear temperature band through one sorted,
-                   sorted emissive type after smoke has established the visible
-                   cloud surface. This prevents the analytical stalk from
-                   painting unsorted white cards over the mushroom. */
+                /* The analytical central-column fire has no proven GPU
+                   equivalent and therefore remains independently CPU-owned. */
                 context.submitNodeCollector().submitCustomGeometry(poseStack,
                     WarheadRenderPipelines.NUCLEAR_FIRE,
                     (pose, buffer) -> {
                         NuclearCentralColumnRenderer.renderFire(pose, buffer,
                             cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(),
                             impact.lod(), true, frame.cameraOrientation());
-                        NuclearParticleCloudRenderer.renderFire(pose, buffer,
-                            cloud.ageTicks(), cloud.visualScale(), cloud.profile(),
-                            cloud.visualSeed(), impact.lod(), true, cloud.sources(),
-                            frame.cameraOrientation());
+                        if (!gpuFireball) NuclearParticleCloudRenderer.renderFire(
+                            pose, buffer, cloud.ageTicks(), cloud.visualScale(),
+                            cloud.profile(), cloud.visualSeed(), impact.lod(), true,
+                            cloud.sources(), frame.cameraOrientation());
                         NuclearCentralColumnRenderer.renderFire(pose, buffer,
                             cloud.ageTicks(), cloud.visualScale(), cloud.visualSeed(),
                             impact.lod(), false, frame.cameraOrientation());
-                        NuclearParticleCloudRenderer.renderFire(pose, buffer,
-                            cloud.ageTicks(), cloud.visualScale(), cloud.profile(),
-                            cloud.visualSeed(), impact.lod(), false, cloud.sources(),
-                            frame.cameraOrientation());
+                        if (!gpuFireball) NuclearParticleCloudRenderer.renderFire(
+                            pose, buffer, cloud.ageTicks(), cloud.visualScale(),
+                            cloud.profile(), cloud.visualSeed(), impact.lod(), false,
+                            cloud.sources(), frame.cameraOrientation());
                     });
             }
             if (renderCloud || cloud.sources().size() == 1) {
@@ -426,32 +427,36 @@ public final class WarheadWorldRenderer {
                     (pose, buffer) -> NuclearFlashRenderer.render(pose, buffer,
                         impact.ageTicks(), frame.cameraOrientation()));
             }
-        } else if (renderCloud && !gpuParticles) {
-            context.submitNodeCollector().submitCustomGeometry(poseStack,
-                WarheadRenderPipelines.FIREBALL_CORE,
-                (pose, buffer) -> ConventionalBlastVisualV5.renderFireCore(
-                    pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-                    impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
-            context.submitNodeCollector().submitCustomGeometry(poseStack,
-                WarheadRenderPipelines.FIREBALL_HOT,
-                (pose, buffer) -> ConventionalBlastVisualV5.renderHot(
-                    pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-                    impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
-            context.submitNodeCollector().submitCustomGeometry(poseStack,
-                WarheadRenderPipelines.FIREBALL_COOL,
-                (pose, buffer) -> ConventionalBlastVisualV5.renderCooling(
-                    pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-                    impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
-            context.submitNodeCollector().submitCustomGeometry(poseStack,
-                WarheadRenderPipelines.HEAVY_SMOKE_CORE,
-                (pose, buffer) -> ConventionalBlastVisualV5.renderSmokeCore(
-                    pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-                    impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
-            context.submitNodeCollector().submitCustomGeometry(poseStack,
-                WarheadRenderPipelines.HEAVY_SMOKE,
-                (pose, buffer) -> ConventionalBlastVisualV5.renderSmoke(
-                    pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
-                    impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+        } else if (renderCloud) {
+            if (!gpuFireball) {
+                context.submitNodeCollector().submitCustomGeometry(poseStack,
+                    WarheadRenderPipelines.FIREBALL_CORE,
+                    (pose, buffer) -> ConventionalBlastVisualV5.renderFireCore(
+                        pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+                        impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+                context.submitNodeCollector().submitCustomGeometry(poseStack,
+                    WarheadRenderPipelines.FIREBALL_HOT,
+                    (pose, buffer) -> ConventionalBlastVisualV5.renderHot(
+                        pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+                        impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+                context.submitNodeCollector().submitCustomGeometry(poseStack,
+                    WarheadRenderPipelines.FIREBALL_COOL,
+                    (pose, buffer) -> ConventionalBlastVisualV5.renderCooling(
+                        pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+                        impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+            }
+            if (!gpuCloudSmoke) {
+                context.submitNodeCollector().submitCustomGeometry(poseStack,
+                    WarheadRenderPipelines.HEAVY_SMOKE_CORE,
+                    (pose, buffer) -> ConventionalBlastVisualV5.renderSmokeCore(
+                        pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+                        impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+                context.submitNodeCollector().submitCustomGeometry(poseStack,
+                    WarheadRenderPipelines.HEAVY_SMOKE,
+                    (pose, buffer) -> ConventionalBlastVisualV5.renderSmoke(
+                        pose, buffer, impact.ageTicks(), impact.visualScale(), impact.profile(),
+                        impact.visualSeed(), impact.lod(), frame.cameraOrientation()));
+            }
         }
         poseStack.popPose();
     }
@@ -462,6 +467,7 @@ public final class WarheadWorldRenderer {
         final WarheadEffectProfile effect, final WarheadClientVisualProfile profile,
         final List<FireballLobe> fireballLobes, final List<BlastCloudLobe> cloudLobes,
         final List<TerrainShockfrontNode> dustNodes) {
+        if (!GpuParticleEngine.isGpuReady()) return;
         boolean nuclear = payloadType == WarheadPayloadType.NUCLEAR;
         float scale = Math.max(0.15F, visualScale);
         int folded = (int) (seed ^ seed >>> 32);
@@ -668,7 +674,8 @@ public final class WarheadWorldRenderer {
 
     public static DebugSnapshot debugSnapshot() {
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
-        if (GpuParticleEngine.isGpuActive()) {
+        if (GpuParticleEngine.effectiveBackend()
+            == GpuParticleEngine.EffectiveBackend.GPU) {
             return new DebugSnapshot((int) Math.min(Integer.MAX_VALUE, gpu.activeParticles()),
                 (int) Math.min(Integer.MAX_VALUE, gpu.visibleParticles()), 0,
                 (int) Math.min(Integer.MAX_VALUE, gpu.culledParticles()),
