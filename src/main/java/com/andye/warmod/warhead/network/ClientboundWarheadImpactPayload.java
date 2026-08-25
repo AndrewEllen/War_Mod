@@ -12,7 +12,8 @@ import net.minecraft.resources.Identifier;
 public record ClientboundWarheadImpactPayload(UUID warheadId, long stateSequence,
     WarheadNetworkState state, long serverGameTime, double impactX, double impactY,
     double impactZ, long impactGameTime, long visualSeed, WarheadPayloadType payloadType,
-    float impactVisualScale, WarheadEffectProfile effectProfile)
+    float impactVisualScale, float windX, float windZ,
+    WarheadEffectProfile effectProfile)
     implements CustomPacketPayload {
     public static final Type<ClientboundWarheadImpactPayload> TYPE = new Type<>(
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "warhead_impact"));
@@ -26,14 +27,25 @@ public record ClientboundWarheadImpactPayload(UUID warheadId, long stateSequence
         final float impactVisualScale, final WarheadEffectProfile effectProfile) {
         this(warheadId, 1L, WarheadNetworkState.IMPACTED, impactGameTime, impactX,
             impactY, impactZ, impactGameTime, visualSeed, payloadType, impactVisualScale,
-            effectProfile);
+            0.0F, 0.0F, effectProfile);
+    }
+
+    public ClientboundWarheadImpactPayload(final UUID warheadId, final double impactX,
+        final double impactY, final double impactZ, final long impactGameTime,
+        final long visualSeed, final WarheadPayloadType payloadType,
+        final float impactVisualScale, final float windX, final float windZ,
+        final WarheadEffectProfile effectProfile) {
+        this(warheadId, 1L, WarheadNetworkState.IMPACTED, impactGameTime, impactX,
+            impactY, impactZ, impactGameTime, visualSeed, payloadType, impactVisualScale,
+            windX, windZ, effectProfile);
     }
 
     public ClientboundWarheadImpactPayload withAuthoritativeState(final long sequence,
         final long currentServerGameTime) {
         return new ClientboundWarheadImpactPayload(warheadId, sequence,
             WarheadNetworkState.IMPACTED, currentServerGameTime, impactX, impactY, impactZ,
-            impactGameTime, visualSeed, payloadType, impactVisualScale, effectProfile);
+            impactGameTime, visualSeed, payloadType, impactVisualScale, windX, windZ,
+            effectProfile);
     }
 
     public boolean isWellFormed() {
@@ -41,7 +53,9 @@ public record ClientboundWarheadImpactPayload(UUID warheadId, long stateSequence
             && payloadType != null && effectProfile != null && Double.isFinite(impactX)
             && Double.isFinite(impactY) && Double.isFinite(impactZ)
             && Float.isFinite(impactVisualScale) && impactVisualScale >= 0.05F
-            && impactVisualScale <= 8.0F;
+            && impactVisualScale <= 8.0F && Float.isFinite(windX)
+            && Float.isFinite(windZ) && Math.abs(windX) <= 2.5F
+            && Math.abs(windZ) <= 2.5F;
     }
 
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
@@ -55,6 +69,7 @@ public record ClientboundWarheadImpactPayload(UUID warheadId, long stateSequence
         buffer.writeLong(payload.visualSeed);
         WarheadPayloadType.STREAM_CODEC.encode(buffer, payload.payloadType);
         buffer.writeFloat(payload.impactVisualScale);
+        buffer.writeFloat(payload.windX); buffer.writeFloat(payload.windZ);
         buffer.writeVarInt(payload.effectProfile.ordinal());
     }
 
@@ -67,11 +82,12 @@ public record ClientboundWarheadImpactPayload(UUID warheadId, long stateSequence
         double x = buffer.readDouble(), y = buffer.readDouble(), z = buffer.readDouble();
         long impactTime = buffer.readLong(), seed = buffer.readLong();
         WarheadPayloadType payload = WarheadPayloadType.STREAM_CODEC.decode(buffer);
-        float scale = buffer.readFloat(); int effectOrdinal = buffer.readVarInt();
+        float scale = buffer.readFloat(); float windX = buffer.readFloat();
+        float windZ = buffer.readFloat(); int effectOrdinal = buffer.readVarInt();
         if (effectOrdinal < 0 || effectOrdinal >= WarheadEffectProfile.values().length)
             throw new IllegalArgumentException("Invalid warhead effect profile");
         return new ClientboundWarheadImpactPayload(id, sequence,
             WarheadNetworkState.IMPACTED, serverTime, x, y, z, impactTime, seed,
-            payload, scale, WarheadEffectProfile.values()[effectOrdinal]);
+            payload, scale, windX, windZ, WarheadEffectProfile.values()[effectOrdinal]);
     }
 }

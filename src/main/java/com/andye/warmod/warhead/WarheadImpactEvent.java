@@ -18,9 +18,16 @@ public record WarheadImpactEvent(UUID impactId, long impactSequence, long impact
     }
 
     public ClientboundWarheadImpactPayload visualPayload() {
+        return visualPayload(Vec3.ZERO);
+    }
+
+    public ClientboundWarheadImpactPayload visualPayload(final Vec3 ambientWind) {
+        Vec3 safeWind = ambientWind == null || !ambientWind.isFinite()
+            ? Vec3.ZERO : ambientWind;
         return new ClientboundWarheadImpactPayload(impactId, impactPosition.x,
             impactPosition.y, impactPosition.z, impactServerTick, seed,
-            yield.payloadType(), yield.visualScale(), yield.effectProfile());
+            yield.payloadType(), yield.visualScale(), (float) safeWind.x,
+            (float) safeWind.z, yield.effectProfile());
     }
 
     public UUID acousticEventId(final String layer) {

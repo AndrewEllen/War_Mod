@@ -71,11 +71,11 @@ public final class TerrainSettledSmokeRenderer {
         final VertexConsumer buffer, final List<TerrainShockfrontSpoke> spokes,
         final Vec3 impactPosition, final double age, final float visualScale,
         final long visualSeed, final WarheadMesh.Lod lod, final Basis basis) {
-        final double lifetime = 170.0;
+        final double lifetime = 420.0;
         if (age >= lifetime) return;
         float appear = smoothstep(Mth.clamp((float) age / 9.0F, 0.0F, 1.0F));
-        float fade = age < 78.0 ? 1.0F : smoothstep(Mth.clamp(
-            (float) ((lifetime - age) / (lifetime - 78.0)), 0.0F, 1.0F));
+        float fade = age < 180.0 ? 1.0F : smoothstep(Mth.clamp(
+            (float) ((lifetime - age) / (lifetime - 180.0)), 0.0F, 1.0F));
         float alphaScale = appear * fade;
         double craterRadius = 13.0 + visualScale * 13.2;
         double outerRadius = craterRadius * (1.08 + Math.min(0.52, age / lifetime * 0.52));
@@ -83,19 +83,38 @@ public final class TerrainSettledSmokeRenderer {
             : lod == WarheadMesh.Lod.MEDIUM ? 2_400 : 1_200;
         int rendered = 0;
 
-        if (spokes != null) {
+        if (spokes != null && !spokes.isEmpty()) {
             int stride = lod == WarheadMesh.Lod.FAR ? 2 : 1;
-            for (int spokeIndex = 0; spokeIndex < spokes.size() && rendered < limit;
-                spokeIndex += stride) {
+            int selectedSpokes = Math.max(1,
+                (spokes.size() + stride - 1) / stride);
+            int perSpoke = Math.max(1,
+                (limit + selectedSpokes - 1) / selectedSpokes);
+            int start = Math.floorMod((int) mix(visualSeed ^ 0x5348524F55445354L),
+                spokes.size());
+            boolean[] covered = new boolean[spokes.size()];
+            for (int ordinal = 0; ordinal < selectedSpokes && rendered < limit;
+                ordinal++) {
+                int spokeIndex = (start
+                    + (int) ((long) ordinal * spokes.size() / selectedSpokes))
+                    % spokes.size();
                 List<TerrainShockfrontNode> nodes = spokes.get(spokeIndex).snapshotNodes();
-                for (TerrainShockfrontNode node : nodes) {
-                    if (rendered >= limit || !node.valid() || !node.visibleFromImpact()
+                int spokeRendered = 0;
+                int nodeStart = nodes.isEmpty() ? 0 : Math.floorMod(
+                    (int) mix(visualSeed ^ spokeIndex * 0x9E3779B97F4A7C15L),
+                    nodes.size());
+                for (int nodeOrdinal = 0; nodeOrdinal < nodes.size()
+                    && rendered < limit && spokeRendered < perSpoke; nodeOrdinal++) {
+                    TerrainShockfrontNode node = nodes.get((nodeStart + nodeOrdinal)
+                        % nodes.size());
+                    if (!node.valid() || !node.visibleFromImpact()
                         || node.directDistance() > outerRadius) continue;
+                    covered[spokeIndex] = true;
                     long seed = mix(visualSeed ^ node.surfaceBlock().asLong()
                         ^ 0x47524F554E445348L);
                     Vec3 base = node.position().subtract(impactPosition);
                     int layers = 2 + Math.floorMod((int) seed, 4);
-                    for (int layer = 0; layer < layers && rendered < limit; layer++) {
+                    for (int layer = 0; layer < layers && rendered < limit
+                        && spokeRendered < perSpoke; layer++) {
                         long particleSeed = mix(seed + layer * 0x9E3779B97F4A7C15L);
                         float radius = (1.15F + unit(particleSeed, 0) * 2.75F)
                             * (0.88F + visualScale * 0.075F);
@@ -109,31 +128,56 @@ public final class TerrainSettledSmokeRenderer {
                             unit(particleSeed, 5) * Mth.TWO_PI,
                             tone, tone + 2, tone + 5, alpha, 0x900090, basis);
                         rendered++;
+                        spokeRendered++;
                     }
                 }
             }
+            /* Fill only angular sectors whose terrain nodes are not ready yet.
+               This bridges incremental field construction without drawing the
+               old clockwise wedge or replacing ready terrain with a flat disc. */
+            for (int spokeIndex = 0; spokeIndex < covered.length && rendered < limit;
+                spokeIndex++) {
+                if (covered[spokeIndex]) continue;
+                int fallbackCount = Math.max(1, perSpoke / 2);
+                for (int layer = 0; layer < fallbackCount && rendered < limit; layer++) {
+                    long seed = mix(visualSeed ^ spokeIndex * 0xD1B54A32D192ED03L
+                        ^ layer * 0x9E3779B97F4A7C15L);
+                    double sector = (spokeIndex + unit(seed, 0)) / covered.length;
+                    double angle = sector * Mth.TWO_PI;
+                    double radiusFromCenter = Math.sqrt(unit(seed, 1)) * outerRadius;
+                    float radius = (1.25F + unit(seed, 2) * 2.65F)
+                        * (0.88F + visualScale * 0.075F);
+                    int tone = 38 + Math.floorMod((int) (seed >>> 18), 62);
+                    billboard(pose, buffer,
+                        (float) (Math.cos(angle) * radiusFromCenter),
+                        0.15F + unit(seed, 3) * 1.45F,
+                        (float) (Math.sin(angle) * radiusFromCenter), radius,
+                        unit(seed, 4) * Mth.TWO_PI, tone, tone + 2, tone + 5,
+                        alphaScale * (0.62F + unit(seed, 5) * 0.30F),
+                        0x900090, basis);
+                    rendered++;
+                }
+            }
+            return;
         }
 
-        /* The first extraction can precede terrain-spoke readiness. Keep the
-         * impact frame visually covered instead of showing an empty ground disc. */
-        if (rendered == 0) {
-            int fallback = lod == WarheadMesh.Lod.NEAR ? 720
-                : lod == WarheadMesh.Lod.MEDIUM ? 480 : 260;
-            for (int index = 0; index < fallback; index++) {
-                long seed = mix(visualSeed ^ index * 0xD1B54A32D192ED03L);
-                double radiusFromCenter = Math.sqrt(unit(seed, 0)) * outerRadius;
-                double angle = unit(seed, 1) * Mth.TWO_PI;
-                float radius = (1.25F + unit(seed, 2) * 2.65F)
-                    * (0.88F + visualScale * 0.075F);
-                int tone = 38 + Math.floorMod((int) (seed >>> 18), 62);
-                billboard(pose, buffer,
-                    (float) (Math.cos(angle) * radiusFromCenter),
-                    0.15F + unit(seed, 3) * 1.45F,
-                    (float) (Math.sin(angle) * radiusFromCenter), radius,
-                    unit(seed, 4) * Mth.TWO_PI, tone, tone + 2, tone + 5,
-                    alphaScale * (0.62F + unit(seed, 5) * 0.30F),
-                    0x900090, basis);
-            }
+        /* No prepared field yet: retain a complete deterministic ground blanket. */
+        int fallback = lod == WarheadMesh.Lod.NEAR ? 720
+            : lod == WarheadMesh.Lod.MEDIUM ? 480 : 260;
+        for (int index = 0; index < fallback; index++) {
+            long seed = mix(visualSeed ^ index * 0xD1B54A32D192ED03L);
+            double radiusFromCenter = Math.sqrt(unit(seed, 0)) * outerRadius;
+            double angle = unit(seed, 1) * Mth.TWO_PI;
+            float radius = (1.25F + unit(seed, 2) * 2.65F)
+                * (0.88F + visualScale * 0.075F);
+            int tone = 38 + Math.floorMod((int) (seed >>> 18), 62);
+            billboard(pose, buffer,
+                (float) (Math.cos(angle) * radiusFromCenter),
+                0.15F + unit(seed, 3) * 1.45F,
+                (float) (Math.sin(angle) * radiusFromCenter), radius,
+                unit(seed, 4) * Mth.TWO_PI, tone, tone + 2, tone + 5,
+                alphaScale * (0.62F + unit(seed, 5) * 0.30F),
+                0x900090, basis);
         }
     }
 
@@ -148,11 +192,27 @@ public final class TerrainSettledSmokeRenderer {
         int limit = Math.max(96, Math.round((lod == WarheadMesh.Lod.NEAR ? 2_400
             : lod == WarheadMesh.Lod.MEDIUM ? 1_100 : 400) * budgetScale));
 
-        for (int spokeIndex = 0; spokeIndex < spokes.size() && rendered < limit;
-            spokeIndex += spokeStride) {
+        int selectedSpokes = Math.max(1,
+            (spokes.size() + spokeStride - 1) / spokeStride);
+        int perSpoke = Math.max(1,
+            (limit + selectedSpokes - 1) / selectedSpokes);
+        int start = Math.floorMod((int) mix(visualSeed
+            ^ (nuclear ? 0x4E554B4553504B53L : 0x434F4E5653504B53L)),
+            spokes.size());
+        for (int ordinal = 0; ordinal < selectedSpokes && rendered < limit;
+            ordinal++) {
+            int spokeIndex = (start
+                + (int) ((long) ordinal * spokes.size() / selectedSpokes))
+                % spokes.size();
             List<TerrainShockfrontNode> nodes = spokes.get(spokeIndex).snapshotNodes();
-            for (int nodeIndex = 0; nodeIndex < nodes.size() && rendered < limit; nodeIndex++) {
-                TerrainShockfrontNode node = nodes.get(nodeIndex);
+            int spokeRendered = 0;
+            int nodeStart = nodes.isEmpty() ? 0 : Math.floorMod(
+                (int) mix(visualSeed ^ spokeIndex * 0xD1B54A32D192ED03L),
+                nodes.size());
+            for (int nodeOrdinal = 0; nodeOrdinal < nodes.size()
+                && rendered < limit && spokeRendered < perSpoke; nodeOrdinal++) {
+                TerrainShockfrontNode node = nodes.get((nodeStart + nodeOrdinal)
+                    % nodes.size());
                 if (!node.valid() || !node.visibleFromImpact()) continue;
                 double radius = node.directDistance();
                 if (radius < innerRadius || radius > outerRadius) continue;
@@ -165,7 +225,8 @@ public final class TerrainSettledSmokeRenderer {
                 stacks = Math.max(1,
                     Math.round(stacks * Math.min(2.8F, budgetScale)));
                 Vec3 base = node.position().subtract(impactPosition);
-                for (int stack = 0; stack < stacks && rendered < limit; stack++) {
+                for (int stack = 0; stack < stacks && rendered < limit
+                    && spokeRendered < perSpoke; stack++) {
                     long particleSeed = mix(seed + stack * 0x9E3779B97F4A7C15L);
                     double particleLife = lifetime * (nuclear
                         ? 0.88 + unit(particleSeed, 8) * 0.12
@@ -219,6 +280,7 @@ public final class TerrainSettledSmokeRenderer {
                         tone, tone, tone, alpha,
                         nuclear ? 0x880088 : 0xA000A0, basis);
                     rendered++;
+                    spokeRendered++;
                 }
             }
         }

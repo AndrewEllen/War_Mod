@@ -226,7 +226,7 @@ public final class ConventionalBlastVisualV5 {
         final VertexConsumer buffer, final double rawAge, final float rawScale,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera,
         final boolean corePass) {
-        if (rawAge < 24.0 || rawAge >= 1_220.0) return;
+        if (rawAge < 6.0 || rawAge >= 1_220.0) return;
         float age = (float) rawAge;
         float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
         float craterRadius = 2.0F + 13.5F * scale;
@@ -249,12 +249,15 @@ public final class ConventionalBlastVisualV5 {
                 ? 0x534D4F4B455F4337L : 0x534D4F4B455F5337L)
                 ^ index * 0xD1B54A32D192ED03L);
             boolean fromInnerFire = unit(random, 0) < 0.37F;
+            /* Smoke must overlap the still-burning body instead of arriving only
+               after the outer fire has contracted. Staggering is retained so the
+               layer grows in rather than appearing as one opaque shell. */
             float onset = fromInnerFire
-                ? 115.0F + unit(random, 1) * 270.0F
-                : 72.0F + unit(random, 1) * 310.0F;
+                ? 24.0F + unit(random, 1) * 170.0F
+                : 8.0F + unit(random, 1) * 155.0F;
             float localAge = age - onset;
             if (localAge < 0.0F) continue;
-            float life = 510.0F + unit(random, 2) * 360.0F;
+            float life = 650.0F + unit(random, 2) * 410.0F;
             if (localAge >= life) continue;
             float progress = localAge / life;
 
@@ -280,8 +283,10 @@ public final class ConventionalBlastVisualV5 {
                 * (fromInnerFire ? 0.82F : 0.50F) + earlyRise
                 + signed(random, 13) * bodyRadius
                     * (fromInnerFire ? 0.49F : 0.38F);
-            float settleStart = 0.20F + unit(random, 10) * 0.24F;
-            float settleEnd = 0.70F + unit(random, 11) * 0.18F;
+            /* Keep the turbulent body airborne through most of its useful life.
+               Ground settling is a late transition, not the main motion. */
+            float settleStart = 0.38F + unit(random, 10) * 0.20F;
+            float settleEnd = 0.82F + unit(random, 11) * 0.13F;
             float settle = smoothstep(Mth.clamp((progress - settleStart)
                 / Math.max(0.10F, settleEnd - settleStart), 0.0F, 1.0F));
             float groundY = 0.08F + unit(random, 12) * (corePass ? 0.55F : 0.36F);
@@ -349,8 +354,8 @@ public final class ConventionalBlastVisualV5 {
                 * (1.0F - progress * 0.22F);
             float heightBand = bodyRadius * (0.20F + sectorWave * 0.78F)
                 + signed(random, 6) * bodyRadius * 0.20F;
-            float settle = smoothstep(Mth.clamp((progress - 0.48F)
-                / (0.34F + unit(random, 7) * 0.10F), 0.0F, 1.0F));
+            float settle = smoothstep(Mth.clamp((progress - 0.62F)
+                / (0.24F + unit(random, 7) * 0.10F), 0.0F, 1.0F));
             float py = Mth.lerp(settle,
                 -Math.max(1.1F, craterRadius * 0.22F) + heightBand,
                 0.08F + unit(random, 8) * 0.42F);
@@ -452,8 +457,8 @@ public final class ConventionalBlastVisualV5 {
                     + Mth.cos(angle) * crossNoise
                     + signed(puffSeed, 3) * 0.38F;
                 float progress = puffAge / smokeLife;
-                float settleStart = 0.16F + unit(puffSeed, 4) * 0.20F;
-                float settleEnd = 0.62F + unit(puffSeed, 5) * 0.22F;
+                float settleStart = 0.38F + unit(puffSeed, 4) * 0.18F;
+                float settleEnd = 0.80F + unit(puffSeed, 5) * 0.14F;
                 float settle = smoothstep(Mth.clamp((progress - settleStart)
                     / Math.max(0.12F, settleEnd - settleStart), 0.0F, 1.0F));
                 float airborneY = launchY + 0.03F * Math.min(puffAge, 18.0F);

@@ -73,6 +73,10 @@ public final class WarheadImpactService {
 		Vec3 effectivePosition = WarheadExplosionWorkManager.resolveDetonationCenter(level, pos, yield);
 		WarheadImpactEvent event = WarheadImpactEvent.create(id, level.getGameTime(),
 			effectivePosition, yield, seed);
+		/* Capture the atmospheric field before adding the radial blast impulse. The
+		   persistent cloud should drift with weather, not translate away from its own
+		   detonation as though the shockwave were a prevailing wind. */
+		Vec3 ambientWind = FireWindEngine.windAt(level, event.impactPosition());
 		FireWindEngine.addExplosionImpulse(level, event.impactPosition(),
 			48.0 + yield.visualScale() * (yield.nuclear() ? 72.0 : 38.0),
 			0.55 + yield.visualScale() * (yield.nuclear() ? 0.72 : 0.34),
@@ -88,7 +92,7 @@ public final class WarheadImpactService {
 			);
 		}
 
-		WarheadVisualNetworking.sendImpact(level, event.visualPayload(),
+		WarheadVisualNetworking.sendImpact(level, event.visualPayload(ambientWind),
 			event.impactPosition(), customFire);
 
 		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks = TestExplosionService.createExplosion(
@@ -147,9 +151,11 @@ public final class WarheadImpactService {
 			case ANTI_AIR_LAUNCH_FAILURE -> 0.30F;
 			default -> 0.24F;
 		};
+		Vec3 ambientWind = FireWindEngine.windAt(level, pos);
 		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(
 			id, pos.x, pos.y, pos.z, level.getGameTime(), seed,
-			WarheadPayloadType.CONVENTIONAL, scale, effect
+			WarheadPayloadType.CONVENTIONAL, scale, (float) ambientWind.x,
+			(float) ambientWind.z, effect
 		), pos);
 		if (effect == WarheadEffectProfile.ANTI_AIR_FALLBACK) {
 			TestExplosionService.createExplosion(level, null, pos, 8.0F);

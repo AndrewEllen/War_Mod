@@ -88,6 +88,7 @@ public final class NuclearCentralColumnRenderer {
                     * (0.00026F + unit(random, 14) * 0.00013F);
                 flow -= Mth.floor(flow);
                 float riseProgress = smoothstep(flow);
+                radial *= Mth.lerp(riseProgress, 1.0F, 0.64F);
                 float capUnderside = packedCapCenterY(age, scale)
                     - packedCapDepth(age, scale) * 0.42F;
                 float rise = Math.min(riseProgress * columnHeight,
@@ -210,8 +211,8 @@ public final class NuclearCentralColumnRenderer {
         float craterFloor = -Math.max(7.0F, craterRadius * 0.30F);
         float columnHeight = columnHeight(age, scale);
         float columnRadius = (5.4F + 2.75F * scale) * 2.35F;
-        float systemFade = age < 2_650.0 ? 1.0F
-            : smoothstep(Mth.clamp((float) ((3_300.0 - age) / 650.0),
+        float systemFade = age < 2_200.0 ? 1.0F
+            : smoothstep(Mth.clamp((float) ((3_300.0 - age) / 1_100.0),
                 0.0F, 1.0F));
         Basis basis = Basis.from(camera);
 
@@ -224,16 +225,12 @@ public final class NuclearCentralColumnRenderer {
             if (localAge < 0.0F) continue;
             float life = baseCloud
                 ? 1_080.0F + unit(random, 2) * 1_160.0F
-                : 1_520.0F + unit(random, 2) * 1_420.0F;
+                : 3_450.0F + unit(random, 2) * 650.0F;
             if (localAge >= life) continue;
             float progress = localAge / life;
-            /* The packed field owns the mushroom cap. Keeping this helper as an
-               upward feed prevents its individually timed particles forming a
-               separate smoke dome later in the sequence. */
-            /* The packed cloud already supplies the long-lived stalk.  Do not let
-               this short analytical smoke helper become a detached, skinny
-               replacement column after the incandescent feed is still active. */
-            if (!baseCloud && (progress > 0.80F || age > 1_800.0)) continue;
+            /* This renderer is the sole stalk owner in both backends. Recycle its
+               smoke through one continuous flow and fade the whole column as a
+               unit; independently expiring particles caused the late skinny stalk. */
             float angle = unit(random, 3) * Mth.TWO_PI
                 + localAge * signed(random, 4)
                     * (baseCloud ? 0.0030F : 0.0060F);
@@ -257,10 +254,15 @@ public final class NuclearCentralColumnRenderer {
                 py = Mth.lerp(settle, initialHeight, groundHeight);
                 particleRadius = 2.2F + unit(random, 10) * 3.9F;
             } else {
-                float narrowing = Mth.lerp(Mth.clamp((float) age / 2_150.0F,
-                    0.0F, 1.0F), 1.0F, 0.70F);
-                float radial = radialFraction * columnRadius * narrowing;
-                float riseProgress = Math.min(progress, 0.90F);
+                float narrowing = Mth.lerp(smoothstep(Mth.clamp(
+                    ((float) age - 700.0F) / 2_600.0F, 0.0F, 1.0F)),
+                    1.0F, 0.46F);
+                float flow = unit(random, 12) + localAge
+                    * (0.00020F + unit(random, 13) * 0.00012F);
+                flow -= Mth.floor(flow);
+                float riseProgress = smoothstep(flow);
+                float radial = radialFraction * columnRadius * narrowing
+                    * Mth.lerp(riseProgress, 1.0F, 0.62F);
                 float capUnderside = packedCapCenterY(age, scale)
                     - packedCapDepth(age, scale) * 0.42F;
                 float rise = Math.min(riseProgress * columnHeight,
@@ -282,8 +284,7 @@ public final class NuclearCentralColumnRenderer {
                     0.0F, 1.0F));
             float alpha = (baseCloud ? 0.86F : 0.95F)
                 * smoothstep(Mth.clamp(localAge / 7.0F, 0.0F, 1.0F))
-                * tail * systemFade * (baseCloud ? 1.0F : smoothstep(Mth.clamp(
-                    (0.84F - progress) / 0.08F, 0.0F, 1.0F)));
+                * (baseCloud ? tail : 1.0F) * systemFade;
             billboard(pose, buffer, px, py, pz, particleRadius,
                 unit(random, 10) * Mth.TWO_PI
                     + localAge * signed(random, 11) * 0.0038F,

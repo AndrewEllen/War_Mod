@@ -45,17 +45,36 @@ public final class NuclearParticleCloudRenderer {
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
         final List<? extends NuclearCloudSource> sources, final Quaternionf camera) {
+        renderFire(pose, buffer, age, visualScale, profile, seed, lod, hotPass,
+            sources, camera, Vec3.ZERO);
+    }
+
+    public static void renderFire(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final double age, final float visualScale, final WarheadClientVisualProfile profile,
+        final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
+        final List<? extends NuclearCloudSource> sources, final Quaternionf camera,
+        final Vec3 wind) {
         if (!valid(profile, age)) return;
-        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera,
-            hotPass ? Pass.HOT_FIRE : Pass.COOL_FIRE);
+        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, profile,
+            wind, hotPass ? Pass.HOT_FIRE : Pass.COOL_FIRE);
     }
 
     public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod,
         final List<? extends NuclearCloudSource> sources, final Quaternionf camera) {
+        renderSmoke(pose, buffer, age, visualScale, profile, seed, lod, sources,
+            camera, Vec3.ZERO);
+    }
+
+    public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final double age, final float visualScale, final WarheadClientVisualProfile profile,
+        final long seed, final WarheadMesh.Lod lod,
+        final List<? extends NuclearCloudSource> sources, final Quaternionf camera,
+        final Vec3 wind) {
         if (!valid(profile, age)) return;
-        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, Pass.SMOKE);
+        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, profile,
+            wind, Pass.SMOKE);
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
@@ -790,6 +809,10 @@ public final class NuclearParticleCloudRenderer {
             int inspected = 0;
             for (int activePosition = 0; activePosition < activeCount; activePosition++) {
                 int index = activeSlots[activePosition];
+                /* The analytical central renderer is the single owner of the
+                   nuclear stalk. Packed particles still travel through this region
+                   physically, but are not drawn as a second, thinner column. */
+                if (region[index] == REGION_STEM) continue;
                 inspected++;
                 float heat = temperature[index];
                 if (heat >= 0.70F) hotBucket[hotCount++] = index;
@@ -803,7 +826,8 @@ public final class NuclearParticleCloudRenderer {
 
         private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
             final double renderedAge, final WarheadMesh.Lod lod,
-            final Quaternionf camera, final Pass pass) {
+            final Quaternionf camera, final WarheadClientVisualProfile profile,
+            final Vec3 wind, final Pass pass) {
             ensureSimulated(renderedAge);
             int tick = Math.max(0, (int) Math.floor(renderedAge));
             prepareBuckets(tick, lod);
@@ -852,6 +876,23 @@ public final class NuclearParticleCloudRenderer {
                     * noiseAmplitude + signed(particleSeed[index], 16) * noiseAmplitude * 0.34F;
                 py += Mth.sin(phase * 0.71F + unit(particleSeed[index], 17) * Mth.PI)
                     * noiseAmplitude * 0.30F;
+                if (region[index] == REGION_CAP || region[index] == REGION_OUTER_CURL
+                    || region[index] == REGION_UNDER_CAP) {
+                    double dissipating = BlastCloudRenderer.dissipationProgress(profile,
+                        renderedAge);
+                    float spread = (float) (1.0 + smoothstep((float) dissipating) * 0.42);
+                    px *= spread;
+                    pz *= spread;
+                    py += (float) (profile.maximumCloudHeight() * 0.055
+                        * smoothstep((float) dissipating));
+                    Vec3 drift = BlastCloudRenderer.windOffset(
+                        region[index] == REGION_OUTER_CURL
+                            ? BlastCloudFlowRole.CAP_ROLLING_RIM
+                            : BlastCloudFlowRole.CAP_CORE,
+                        profile, renderedAge, wind);
+                    px += (float) drift.x;
+                    pz += (float) drift.z;
+                }
                 Colour colour = colour(temperature[index], progress, particleSeed[index], pass,
                     region[index]);
                 float drawRadius = radius[index] * renderScale(index, tick, pass);

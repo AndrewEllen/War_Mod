@@ -458,8 +458,17 @@ final class GpuVfxScheduler {
                 * Math.max(1.0, command.spawnCount());
         variance /= safe;
         double representationRatio = commands.size();
-        float combinedSize = (float) Math.min(maximumSize(commands) * 2.35,
-            Math.sqrt(sizeArea / safe) * Math.pow(representationRatio, 0.22));
+        float sizeGrowthLimit = switch (layer) {
+            case FIREBALL -> 1.24F;
+            case MUSHROOM_CLOUD, STEM -> 1.18F;
+            case FLAMES, SMOKE, EMBERS -> 1.30F;
+            default -> 1.65F;
+        };
+        /* Aggregation represents many sources through density and spread. Growing
+           one billboard several times larger turns distant fire/cloud LOD into a
+           conspicuous splodge, so semantic layers retain bounded card sizes. */
+        float combinedSize = (float) Math.min(maximumSize(commands) * sizeGrowthLimit,
+            Math.sqrt(sizeArea / safe) * Math.pow(representationRatio, 0.14));
         float combinedOpacity = (float) Math.min(1.0,
             opacity / safe * Math.pow(representationRatio, 0.12));
         float spread = (float) Math.sqrt(Math.max(0.0, spreadSq / safe + variance));
