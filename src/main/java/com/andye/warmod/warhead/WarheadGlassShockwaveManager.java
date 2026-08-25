@@ -6,6 +6,7 @@ import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkClass;
 import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkPermit;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.curtain.NuclearDestructionCurtainEmitter;
+import com.andye.warmod.worldgen.ModBiomes;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
@@ -28,7 +29,6 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -357,7 +357,7 @@ public final class WarheadGlassShockwaveManager {
         private final BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
         private final LongOpenHashSet pressureColumns = new LongOpenHashSet(MAX_COLUMNS_PER_WAVE_TICK * 2);
 		private final LongOpenHashSet dirtyBiomeChunks = new LongOpenHashSet();
-		private Holder<Biome> basaltDeltas;
+		private Holder<Biome> nuclearWasteland;
         private double processedRadius;
         private boolean pressureComplete;
 		private double curtainRadius;
@@ -1175,9 +1175,9 @@ public final class WarheadGlassShockwaveManager {
 		@SuppressWarnings("unchecked")
 		private void paintSurfaceBiome(final ServerLevel level, final int x,
 			final int surfaceY, final int z) {
-			if (basaltDeltas == null) {
-				basaltDeltas = level.registryAccess().lookupOrThrow(Registries.BIOME)
-					.getOrThrow(Biomes.BASALT_DELTAS);
+			if (nuclearWasteland == null) {
+				nuclearWasteland = level.registryAccess().lookupOrThrow(Registries.BIOME)
+					.getOrThrow(ModBiomes.NUCLEAR_WASTELAND);
 			}
 			LevelChunk chunk = level.getChunk(x >> 4, z >> 4);
 			int localQuartX = QuartPos.fromBlock(x) & 3;
@@ -1191,10 +1191,10 @@ public final class WarheadGlassShockwaveManager {
 					|| blockY >= level.dimensionType().minY() + level.dimensionType().height()) continue;
 				LevelChunkSection section = chunk.getSection(level.getSectionIndex(blockY));
 				if (section.getNoiseBiome(localQuartX, quartY & 3, localQuartZ)
-					.is(Biomes.BASALT_DELTAS)) continue;
+					.is(ModBiomes.NUCLEAR_WASTELAND)) continue;
 				PalettedContainer<Holder<Biome>> biomes =
 					(PalettedContainer<Holder<Biome>>) section.getBiomes();
-				biomes.set(localQuartX, quartY & 3, localQuartZ, basaltDeltas);
+				biomes.set(localQuartX, quartY & 3, localQuartZ, nuclearWasteland);
 				changed = true;
 			}
 			if (changed) {

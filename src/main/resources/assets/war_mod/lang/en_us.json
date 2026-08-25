@@ -57,5 +57,6 @@
   "item.war_mod.sniper_rifle": "Precision Sniper Rifle",
   "item.war_mod.pistol_ammo": "Pistol Ammunition",
   "item.war_mod.rifle_ammo": "Rifle Ammunition",
-  "item.war_mod.sniper_ammo": "Precision Rifle Ammunition"
+  "item.war_mod.sniper_ammo": "Precision Rifle Ammunition",
+  "biome.war_mod.nuclear_wasteland": "Nuclear Wasteland"
 }
