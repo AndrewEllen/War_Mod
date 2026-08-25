@@ -3,67 +3,66 @@ package com.andye.warmod.warhead.client.render;
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.warhead.client.WarheadDebrisTuning;
-import com.andye.warmod.warhead.network.ClientboundWarheadRenderControlPayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 
 /** Applies renderer controls received from the single server-owned /warmod tree. */
-public final class WarheadRenderCommands {
-    private WarheadRenderCommands() { }
+public final class WarheadClientControlHandler {
+    private WarheadClientControlHandler() { }
 
-    public static void accept(final ClientboundWarheadRenderControlPayload payload) {
+    public static void accept(final ClientboundWarheadClientControlPayload payload) {
         if (payload == null || !payload.isWellFormed()) return;
         switch (payload.action()) {
-            case ClientboundWarheadRenderControlPayload.STATUS -> status();
-            case ClientboundWarheadRenderControlPayload.PACKED -> {
+            case STATUS -> status();
+            case SET_CPU_MODE_PACKED -> {
                 WarheadRenderSettings.setParticleRenderer(
                     WarheadRenderSettings.ParticleRenderer.PACKED);
-                rendererStatus();
+                cpuModeStatus();
             }
-            case ClientboundWarheadRenderControlPayload.LEGACY -> {
+            case SET_CPU_MODE_LEGACY -> {
                 WarheadRenderSettings.setParticleRenderer(
                     WarheadRenderSettings.ParticleRenderer.LEGACY);
-                rendererStatus();
+                cpuModeStatus();
             }
-            case ClientboundWarheadRenderControlPayload.BUDGET -> {
+            case SET_RENDER_BUDGET -> {
                 WarheadRenderSettings.setParticleBudgetMultiplier(payload.value());
                 budgetStatus();
             }
-            case ClientboundWarheadRenderControlPayload.BUDGET_RESET -> {
+            case RESET_RENDER_BUDGET -> {
                 WarheadRenderSettings.resetParticleBudget();
                 budgetStatus();
             }
-            case ClientboundWarheadRenderControlPayload.DEBRIS_HORIZONTAL -> {
+            case SET_DEBRIS_HORIZONTAL -> {
                 WarheadDebrisTuning.setHorizontalVelocityMultiplier(payload.value());
                 debrisStatus();
             }
-            case ClientboundWarheadRenderControlPayload.DEBRIS_VERTICAL -> {
+            case SET_DEBRIS_VERTICAL -> {
                 WarheadDebrisTuning.setVerticalVelocityMultiplier(payload.value());
                 debrisStatus();
             }
-            case ClientboundWarheadRenderControlPayload.DEBRIS_RESET -> {
+            case RESET_DEBRIS -> {
                 WarheadDebrisTuning.reset();
                 debrisStatus();
             }
-            case ClientboundWarheadRenderControlPayload.DEBRIS_STATUS -> debrisStatus();
-            case ClientboundWarheadRenderControlPayload.BACKEND_AUTO ->
+            case DEBRIS_STATUS -> debrisStatus();
+            case SET_BACKEND_AUTO ->
                 setBackend(GpuParticleEngine.BackendPreference.AUTO);
-            case ClientboundWarheadRenderControlPayload.BACKEND_GPU ->
+            case SET_BACKEND_GPU ->
                 setBackend(GpuParticleEngine.BackendPreference.GPU);
-            case ClientboundWarheadRenderControlPayload.BACKEND_CPU ->
+            case SET_BACKEND_CPU ->
                 setBackend(GpuParticleEngine.BackendPreference.CPU);
-            case ClientboundWarheadRenderControlPayload.GPU_TEST_OFF ->
+            case SET_GPU_DIAGNOSTIC_OFF ->
                 setGpuTest(GpuParticleEngine.DiagnosticMode.OFF);
-            case ClientboundWarheadRenderControlPayload.GPU_TEST_DEPTH_OFF ->
+            case SET_GPU_DIAGNOSTIC_DEPTH_OFF ->
                 setGpuTest(GpuParticleEngine.DiagnosticMode.DEPTH_DISABLED);
-            case ClientboundWarheadRenderControlPayload.GPU_TEST_DEPTH_ON ->
+            case SET_GPU_DIAGNOSTIC_DEPTH_ON ->
                 setGpuTest(GpuParticleEngine.DiagnosticMode.DEPTH_ENABLED);
-            default -> { }
         }
     }
 
-    private static void rendererStatus() {
-        feedback("War Mod particle renderer: " + WarheadRenderSettings.displayName());
+    private static void cpuModeStatus() {
+        feedback("War Mod CPU particle mode: " + WarheadRenderSettings.displayName());
     }
 
     private static void budgetStatus() {
@@ -97,7 +96,12 @@ public final class WarheadRenderCommands {
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
         GpuParticleEngine.FireDebugCounters fire = gpu.fire();
         ClientPerformanceTelemetry.DebugSnapshot cpu = ClientPerformanceTelemetry.debugSnapshot();
-        feedback("War Mod renderer=" + WarheadRenderSettings.displayName()
+        String effectiveBackend = GpuParticleEngine.isGpuActive() ? "gpu" : "cpu";
+        feedback("War Mod backendPreference="
+            + gpu.preference().name().toLowerCase(java.util.Locale.ROOT)
+            + ", effectiveBackend=" + effectiveBackend
+            + ", gpuState=" + gpu.backend().name().toLowerCase(java.util.Locale.ROOT)
+            + ", cpuMode=" + WarheadRenderSettings.displayName()
             + ", budget=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
             + ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()
             + ", activeParticles=" + debug.activeParticles()
@@ -107,8 +111,7 @@ public final class WarheadRenderCommands {
             + ", deadSlots=" + gpu.deadSlots()
             + ", rejectedSpawns=" + gpu.rejectedSpawns()
             + ", debris=" + debug.activeDebrisFragments()
-            + ", backend=" + debug.activeRenderBackend()
-            + ", forced=" + gpu.preference().name().toLowerCase(java.util.Locale.ROOT)
+            + ", rasterPipeline=" + debug.activeRenderBackend()
             + ", vfxQuality=" + String.format(java.util.Locale.ROOT, "%.2f", gpu.adaptiveQuality())
             + ", vfxLayers=" + gpu.scheduledLayers()
             + ", vfxEmitters=" + gpu.scheduledEmitters());

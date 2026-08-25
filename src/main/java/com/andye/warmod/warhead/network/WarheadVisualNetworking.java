@@ -36,8 +36,8 @@ public final class WarheadVisualNetworking {
             ClientboundWarheadRemovePayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(ClientboundWarheadTimingCorrectionPayload.TYPE,
             ClientboundWarheadTimingCorrectionPayload.STREAM_CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(ClientboundWarheadRenderControlPayload.TYPE,
-            ClientboundWarheadRenderControlPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(ClientboundWarheadClientControlPayload.TYPE,
+            ClientboundWarheadClientControlPayload.STREAM_CODEC);
         payloadTypesRegistered = true;
     }
 

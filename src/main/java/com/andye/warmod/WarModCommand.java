@@ -3,7 +3,8 @@ package com.andye.warmod;
 import com.andye.warmod.diagnostics.WarModDiagnosticsCommand;
 import com.andye.warmod.icbm.IcbmCommand;
 import com.andye.warmod.warhead.WarheadFireSettings;
-import com.andye.warmod.warhead.network.ClientboundWarheadRenderControlPayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload.Action;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -23,13 +24,12 @@ public final class WarModCommand {
             register(dispatcher));
     }
 
-    private static void register(final CommandDispatcher<CommandSourceStack> dispatcher) {
+    static void register(final CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("warmod")
             .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
             .executes(WarModCommand::help)
             .then(IcbmCommand.command())
             .then(WarModDiagnosticsCommand.command())
-            .then(rendererCommand())
             .then(renderCommand())
             .then(debrisCommand())
             .then(fireCommand()));
@@ -49,72 +49,61 @@ public final class WarModCommand {
     private static int help(final CommandContext<CommandSourceStack> context) {
         context.getSource().sendSuccess(() -> Component.literal(
             "War Mod: /warmod icbm <yield> [cluster] <target> [launch], "
-                + "/warmod performance, /warmod render backend <auto|gpu|cpu>, "
-                + "/warmod renderer, /warmod debris, "
+                + "/warmod performance, /warmod render <status|backend|cpu-mode|budget|diagnose>, "
+                + "/warmod debris, "
                 + "/warmod fire mode <custom|vanilla>"), false);
         return 1;
-    }
-
-    private static LiteralArgumentBuilder<CommandSourceStack> rendererCommand() {
-        return Commands.literal("renderer")
-            .executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.STATUS, 0.0F))
-            .then(Commands.literal("status").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.STATUS, 0.0F)))
-            .then(Commands.literal("packed").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.PACKED, 0.0F)))
-            .then(Commands.literal("gpu").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BACKEND_GPU, 0.0F)))
-            .then(Commands.literal("legacy").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.LEGACY, 0.0F)))
-            .then(Commands.literal("cpu").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BACKEND_CPU, 0.0F)))
-            .then(Commands.literal("auto").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BACKEND_AUTO, 0.0F)))
-            .then(backendCommand())
-            .then(gpuTestCommand())
-            .then(budgetCommand());
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> renderCommand() {
         return Commands.literal("render")
             .executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.STATUS, 0.0F))
+                Action.STATUS, 0.0F))
             .then(Commands.literal("status").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.STATUS, 0.0F)))
+                Action.STATUS, 0.0F)))
             .then(backendCommand())
-            .then(gpuTestCommand())
-            .then(budgetCommand());
+            .then(cpuModeCommand())
+            .then(budgetCommand())
+            .then(diagnoseCommand());
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> backendCommand() {
         return Commands.literal("backend")
             .then(Commands.literal("auto").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BACKEND_AUTO, 0.0F)))
+                Action.SET_BACKEND_AUTO, 0.0F)))
             .then(Commands.literal("gpu").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BACKEND_GPU, 0.0F)))
+                Action.SET_BACKEND_GPU, 0.0F)))
             .then(Commands.literal("cpu").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BACKEND_CPU, 0.0F)));
+                Action.SET_BACKEND_CPU, 0.0F)));
     }
 
-    private static LiteralArgumentBuilder<CommandSourceStack> gpuTestCommand() {
-        return Commands.literal("gpu-test")
-            .then(Commands.literal("off").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.GPU_TEST_OFF, 0.0F)))
-            .then(Commands.literal("depth-off").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.GPU_TEST_DEPTH_OFF, 0.0F)))
-            .then(Commands.literal("depth-on").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.GPU_TEST_DEPTH_ON, 0.0F)));
+    private static LiteralArgumentBuilder<CommandSourceStack> cpuModeCommand() {
+        return Commands.literal("cpu-mode")
+            .then(Commands.literal("packed").executes(context -> sendClientControl(context,
+                Action.SET_CPU_MODE_PACKED, 0.0F)))
+            .then(Commands.literal("legacy").executes(context -> sendClientControl(context,
+                Action.SET_CPU_MODE_LEGACY, 0.0F)));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> diagnoseCommand() {
+        return Commands.literal("diagnose")
+            .then(Commands.literal("gpu")
+                .then(Commands.literal("off").executes(context -> sendClientControl(context,
+                    Action.SET_GPU_DIAGNOSTIC_OFF, 0.0F)))
+                .then(Commands.literal("depth-off").executes(context -> sendClientControl(context,
+                    Action.SET_GPU_DIAGNOSTIC_DEPTH_OFF, 0.0F)))
+                .then(Commands.literal("depth-on").executes(context -> sendClientControl(context,
+                    Action.SET_GPU_DIAGNOSTIC_DEPTH_ON, 0.0F))));
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> budgetCommand() {
         return Commands.literal("budget")
             .then(Commands.literal("reset").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.BUDGET_RESET, 0.0F)))
+                Action.RESET_RENDER_BUDGET, 0.0F)))
             .then(Commands.argument("multiplier",
                 com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0.01F))
                 .executes(context -> sendClientControl(context,
-                    ClientboundWarheadRenderControlPayload.BUDGET,
+                    Action.SET_RENDER_BUDGET,
                     com.mojang.brigadier.arguments.FloatArgumentType.getFloat(
                         context, "multiplier"))));
     }
@@ -122,34 +111,34 @@ public final class WarModCommand {
     private static LiteralArgumentBuilder<CommandSourceStack> debrisCommand() {
         return Commands.literal("debris")
             .executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.DEBRIS_STATUS, 0.0F))
+                Action.DEBRIS_STATUS, 0.0F))
             .then(Commands.literal("status").executes(context -> sendClientControl(context,
-                ClientboundWarheadRenderControlPayload.DEBRIS_STATUS, 0.0F)))
+                Action.DEBRIS_STATUS, 0.0F)))
             .then(Commands.literal("velocity")
                 .then(Commands.literal("horizontal")
                     .then(Commands.argument("multiplier",
                         com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0.0F, 4.0F))
                         .executes(context -> sendClientControl(context,
-                            ClientboundWarheadRenderControlPayload.DEBRIS_HORIZONTAL,
+                            Action.SET_DEBRIS_HORIZONTAL,
                             com.mojang.brigadier.arguments.FloatArgumentType.getFloat(
                                 context, "multiplier")))))
                 .then(Commands.literal("vertical")
                     .then(Commands.argument("multiplier",
                         com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0.0F, 4.0F))
                         .executes(context -> sendClientControl(context,
-                            ClientboundWarheadRenderControlPayload.DEBRIS_VERTICAL,
+                            Action.SET_DEBRIS_VERTICAL,
                             com.mojang.brigadier.arguments.FloatArgumentType.getFloat(
                                 context, "multiplier")))))
                 .then(Commands.literal("reset").executes(context -> sendClientControl(context,
-                    ClientboundWarheadRenderControlPayload.DEBRIS_RESET, 0.0F))));
+                    Action.RESET_DEBRIS, 0.0F))));
     }
 
     private static int sendClientControl(final CommandContext<CommandSourceStack> context,
-        final int action, final float value) {
+        final Action action, final float value) {
         try {
             ServerPlayer player = context.getSource().getPlayerOrException();
             ServerPlayNetworking.send(player,
-                new ClientboundWarheadRenderControlPayload(action, value));
+                new ClientboundWarheadClientControlPayload(action, value));
             return 1;
         } catch (Exception exception) {
             context.getSource().sendFailure(Component.literal(

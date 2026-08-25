@@ -6,8 +6,8 @@ import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
-import com.andye.warmod.warhead.network.ClientboundWarheadRenderControlPayload;
-import com.andye.warmod.warhead.client.render.WarheadRenderCommands;
+import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload;
+import com.andye.warmod.warhead.client.render.WarheadClientControlHandler;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -37,8 +37,8 @@ public final class ClientWarheadNetworking {
 			ClientWarheadVisualManager.INSTANCE.acceptRemove(payload);
 			ClientTerminalAudioManager.INSTANCE.acceptRemoval(payload.warheadId());
 		});
-		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadRenderControlPayload.TYPE,
-			(payload, context) -> WarheadRenderCommands.accept(payload));
+		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadClientControlPayload.TYPE,
+			(payload, context) -> WarheadClientControlHandler.accept(payload));
 		ClientTickEvents.END_CLIENT_TICK.register(ClientWarheadVisualManager.INSTANCE::tick);
 		ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> {
 			ClientWarheadVisualManager.INSTANCE.clear();
