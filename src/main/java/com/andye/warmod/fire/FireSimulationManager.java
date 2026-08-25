@@ -449,8 +449,12 @@ public final class FireSimulationManager {
         }
 
         long age = now - patch.ignitionGameTime;
-        if (patch.surfaceFlame && !profile.flammable()) {
-            long maximumSurfaceAge = 220L + Math.round(patch.targetIntensity * 300.0F);
+        if (patch.surfaceFlame) {
+            /* Surface-only fire has no consumable block to justify an
+               indefinite fuel loop. Age-cap both non-fuel flames and the LOW
+               non-consumable fuels (grass, moss, podzol), then give the smoke
+               phase a short natural decay. */
+            long maximumSurfaceAge = 140L + Math.round(patch.targetIntensity * 180.0F);
             if (age >= maximumSurfaceAge) {
                 patch.phase = FirePhase.SMOLDERING;
                 patch.fuel = Math.min(patch.fuel, 0.04F);

@@ -17,7 +17,7 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
         0.34F, 1_250, 1.00F, 0.58F, 0.82F);
     /** Organic ground supports a spreading surface burn but must not become a terrain hole. */
     public static final FireFuelProfile LOW = new FireFuelProfile(true, false,
-        0.40F, 520, 0.68F, 0.34F, 0.86F);
+        0.40F, 260, 0.68F, 0.34F, 0.86F);
 
     public static FireFuelProfile of(final BlockState state) {
         if (state.isAir() || state.is(FireFuelTags.IMMUNE)) return NONE;
@@ -32,11 +32,19 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
         if (state.is(FireFuelTags.LOW)) return LOW;
 
         String path = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+        return fallbackForPath(path);
+    }
+
+    static FireFuelProfile fallbackForPath(final String path) {
+        /* Keep non-consumable ground fuels ahead of the broad plant-name
+           fallback. This also preserves the intended classification when a
+           development data pack has not bound the fire-fuel tags yet. */
+        if (containsAny(path, "grass_block", "moss_block", "podzol", "mycelium"))
+            return LOW;
         if (containsAny(path, "grass", "fern", "bush", "vine", "bamboo", "sapling",
             "azalea", "cactus", "sugar_cane", "hay_block", "moss", "carpet")) return HIGH;
         if (containsAny(path, "wood", "log", "plank", "bookshelf", "fence", "door",
             "trapdoor", "wooden", "scaffolding")) return MEDIUM;
-        if (containsAny(path, "podzol", "mycelium")) return LOW;
         return NONE;
     }
 
