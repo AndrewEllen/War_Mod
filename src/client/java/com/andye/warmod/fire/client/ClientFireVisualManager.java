@@ -30,12 +30,15 @@ public final class ClientFireVisualManager {
 	private final Map<Long, VisualSmokeCluster> smokeClusters = new LinkedHashMap<>();
     private final ArrayDeque<FireWindImpulse> windImpulses = new ArrayDeque<>();
     private ClientLevel activeLevel;
+    private long highestGeneration = Long.MIN_VALUE;
 
     private ClientFireVisualManager() { }
 
     public synchronized void accept(final ClientboundFireStatePayload payload) {
         ClientLevel level = Minecraft.getInstance().level;
         if (!payload.isWellFormed() || !ensureCurrentLevel(level)) return;
+        if (payload.generation() <= highestGeneration) return;
+        highestGeneration = payload.generation();
         long receivedAt = level.getGameTime();
         boolean patchUpdate = payload.complete() || !payload.entries().isEmpty();
         HashSet<Long> received = new HashSet<>(payload.entries().size());
@@ -56,6 +59,7 @@ public final class ClientFireVisualManager {
                 heat, coverage, smoke, entry.phase(), entry.seed(), entry.ignitionGameTime(),
                 wind, previous == null ? 0.0F : previous.clumpStrength(), receivedAt));
         }
+        for (long removedId : payload.removedPatchIds()) patches.remove(removedId);
         if (payload.complete()) patches.keySet().removeIf(id -> !received.contains(id));
 		if (patchUpdate) recomputeClumps();
 		HashSet<Long> receivedEmbers = new HashSet<>(payload.embers().size());
@@ -139,6 +143,7 @@ public final class ClientFireVisualManager {
     public synchronized void clear() {
         patches.clear(); embers.clear(); smokeClusters.clear(); windImpulses.clear();
         ClientSmokeFlowField.INSTANCE.clear();
+        highestGeneration = Long.MIN_VALUE;
         activeLevel = null;
     }
 
@@ -147,6 +152,7 @@ public final class ClientFireVisualManager {
 		if (activeLevel != level) {
             patches.clear(); embers.clear(); smokeClusters.clear(); windImpulses.clear();
             ClientSmokeFlowField.INSTANCE.clear();
+            highestGeneration = Long.MIN_VALUE;
             activeLevel = level;
         }
         return true;

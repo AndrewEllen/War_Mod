@@ -7,6 +7,9 @@ import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.radar.RadarRemovalReason;
 import com.andye.warmod.radar.RadarTrackingService;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkClass;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkPermit;
 import com.andye.warmod.warhead.IncomingWarheadRegistry;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
@@ -152,6 +155,18 @@ public final class IncomingWarheadEntity extends Entity {
             return;
         }
 
+        try (WorkPermit permit = WarModServerWorkScheduler.acquire(server,
+            WorkClass.MISSILE_STREAMING, 400_000L)) {
+            if (!permit.available()) {
+                pauseForScheduler(server, previous);
+                return;
+            }
+            advanceAuthoritativeFlight(server, elapsed, previous, next);
+        }
+    }
+
+    private void advanceAuthoritativeFlight(final ServerLevel server,
+        final double elapsed, final Vec3 previous, final Vec3 next) {
         Set<ChunkPos> desired = desiredStreamingWindow(elapsed);
 
         if (!prepareStreamingWindow(server, desired)) {
@@ -193,6 +208,17 @@ public final class IncomingWarheadEntity extends Entity {
             setDeltaMovement(velocity);
             updateRotation(velocity);
             emitSonicBoom(server, next, velocity);
+        }
+    }
+
+    private void pauseForScheduler(final ServerLevel level, final Vec3 safePosition) {
+        pausedSimulationTicks++;
+        setPos(safePosition);
+        setDeltaMovement(Vec3.ZERO);
+        if (!waitingForChunks) {
+            waitingForChunks = true;
+            WarheadVisualNetworking.sendTimingCorrection(level, warheadId,
+                pausedSimulationTicks, true, safePosition);
         }
     }
 

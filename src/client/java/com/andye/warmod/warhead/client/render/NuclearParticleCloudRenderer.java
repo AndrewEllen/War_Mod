@@ -78,6 +78,8 @@ public final class NuclearParticleCloudRenderer {
         else FIELDS.keySet().removeIf(seed -> !activeSeeds.contains(seed));
     }
 
+    public static synchronized void clearLevel() { FIELDS.clear(); }
+
     private static boolean valid(final WarheadClientVisualProfile profile, final double age) {
         return profile != null && profile.payloadType() == WarheadPayloadType.NUCLEAR
             && age >= 0.0 && age < profile.totalImpactLifetimeTicks();

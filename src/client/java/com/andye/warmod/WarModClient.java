@@ -40,6 +40,8 @@ import com.andye.warmod.icbm.client.audio.ClientIcbmAudioManager;
 import com.andye.warmod.warhead.client.audio.ClientTerminalAudioManager;
 import com.andye.warmod.icbm.client.render.IcbmWorldRenderer;
 import com.andye.warmod.particle.WarheadParticleClient;
+import com.andye.warmod.particle.gpu.GpuParticleEngine;
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.radar.client.ClientRadarNetworking;
 import com.andye.warmod.radar.client.RadarKeyBindings;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
@@ -85,6 +87,8 @@ public final class WarModClient implements ClientModInitializer {
 		MenuScreens.register(ModMenus.PHALANX, PhalanxScreen::new);
         MenuScreens.register(ModMenus.ARTILLERY_CANNON, ArtilleryCannonScreen::new);
 		WarheadParticleClient.register();
+		GpuParticleEngine.register();
+		ClientPerformanceTelemetry.register();
 		WarheadWorldRenderer.register();
 		NuclearDestructionCurtainRenderer.register();
 		FireWorldRenderer.register();

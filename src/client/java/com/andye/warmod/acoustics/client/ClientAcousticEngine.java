@@ -28,6 +28,7 @@ public final class ClientAcousticEngine {
 	private static final int MAX_PENDING_EVENTS = 512;
 	private static final int MAX_SCHEDULED_SOUNDS = 2048;
 	private static final long MAX_LIFETIME_AFTER_EXPECTED_ARRIVAL = 100L;
+	private static final int MAX_NEW_ENVIRONMENT_PROBES_PER_TICK = 2;
 
 	private final Map<UUID, PendingAcousticEvent> pendingEvents = new LinkedHashMap<>();
 	private final PriorityQueue<ScheduledAcousticSound> scheduledSounds = new PriorityQueue<>(
@@ -77,9 +78,11 @@ public final class ClientAcousticEngine {
 		activeLevel = null;
 		ShockwaveHearingManager.INSTANCE.clear(Minecraft.getInstance());
 		ExplosionShakeManager.INSTANCE.clear();
+		AcousticEnvironmentCache.INSTANCE.clear();
 	}
 
 	private void processPending(final ClientLevel clientLevel, final Player listener) {
+		int remainingNewProbes = MAX_NEW_ENVIRONMENT_PROBES_PER_TICK;
 		Iterator<Map.Entry<UUID, PendingAcousticEvent>> iterator = pendingEvents.entrySet().iterator();
 		while (iterator.hasNext()) {
 			PendingAcousticEvent pending = iterator.next().getValue();
@@ -101,6 +104,10 @@ public final class ClientAcousticEngine {
 				definition.propagationSpeedBlocksPerSecond());
 
 			if (waveRadius >= listenerDistance) {
+				boolean cached = AcousticEnvironmentCache.INSTANCE.contains(clientLevel,
+					sourcePosition, listenerEyePosition, definition.responseProfile(), clientTick);
+				if (!cached && remainingNewProbes <= 0) continue;
+				if (!cached) remainingNewProbes--;
 				activate(payload, definition, sourcePosition, listenerDistance,
 					listenerEyePosition, expectedArrival);
 				iterator.remove();
@@ -120,8 +127,8 @@ public final class ClientAcousticEngine {
 
 		double unobstructedGain = AcousticAttenuation.gain(
 			listenerDistance, distanceSound, payload.volume());
-		AcousticEnvironment environment = AcousticEnvironmentProbe.probe(activeLevel,
-			sourcePosition, listenerEyePosition, definition.responseProfile());
+		AcousticEnvironment environment = AcousticEnvironmentCache.INSTANCE.probe(activeLevel,
+			sourcePosition, listenerEyePosition, definition.responseProfile(), clientTick);
 		double transmissionGain = environment.transmissionGain(definition.responseProfile());
 		double gain = unobstructedGain * transmissionGain;
 		AcousticDistanceSound playbackSound = soundForTransmission(

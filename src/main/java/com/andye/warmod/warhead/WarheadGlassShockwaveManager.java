@@ -1,6 +1,9 @@
 package com.andye.warmod.warhead;
 
 import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkClass;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkPermit;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.curtain.NuclearDestructionCurtainEmitter;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -51,7 +54,6 @@ public final class WarheadGlassShockwaveManager {
         WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK;
     private static final int UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int MAX_COLUMNS_PER_WAVE_TICK = 2_048;
-    private static final long LEVEL_WORK_BUDGET_NANOS = 5_000_000L;
     private static final long PREPARATION_WORK_BUDGET_NANOS = 3_000_000L;
     private static final int NUCLEAR_PREPARATION_COLUMNS_PER_TICK = 8_192;
     private static final long IMPACT_PREPARATION_CATCHUP_NANOS = 6_000_000L;
@@ -234,14 +236,19 @@ public final class WarheadGlassShockwaveManager {
             return;
         }
         long gameTime = level.getGameTime();
-        long deadline = System.nanoTime() + LEVEL_WORK_BUDGET_NANOS;
-        int scheduledWaves = waves.size();
 		LongOpenHashSet dirtyBiomeChunks = new LongOpenHashSet();
-        for (int index = 0; index < scheduledWaves; index++) {
-            if (index > 0 && System.nanoTime() >= deadline) break;
-            Wave wave = waves.removeFirst();
-            if (!wave.advance(level, gameTime, deadline)) waves.addLast(wave);
-			wave.drainDirtyBiomeChunks(dirtyBiomeChunks);
+        try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
+            WorkClass.NUCLEAR_AFTERMATH, 5_000_000L)) {
+            if (permit.available()) {
+                long deadline = permit.deadlineNanos();
+                int scheduledWaves = waves.size();
+                for (int index = 0; index < scheduledWaves; index++) {
+                    if (index > 0 && System.nanoTime() >= deadline) break;
+                    Wave wave = waves.removeFirst();
+                    if (!wave.advance(level, gameTime, deadline)) waves.addLast(wave);
+					wave.drainDirtyBiomeChunks(dirtyBiomeChunks);
+                }
+            }
         }
 		if (!dirtyBiomeChunks.isEmpty()) {
 			List<ChunkAccess> changed = new ArrayList<>(dirtyBiomeChunks.size());
@@ -280,23 +287,28 @@ public final class WarheadGlassShockwaveManager {
             return;
         }
         long now = level.getGameTime();
-        long deadline = System.nanoTime() + PREPARATION_WORK_BUDGET_NANOS;
-        Iterator<Map.Entry<java.util.UUID, NuclearTerrainPreparation>> iterator =
-            preparations.entrySet().iterator();
-        int remaining = NUCLEAR_PREPARATION_COLUMNS_PER_TICK;
-        int entriesRemaining = preparations.size();
-        while (iterator.hasNext()) {
-            if (System.nanoTime() >= deadline) break;
-            Map.Entry<java.util.UUID, NuclearTerrainPreparation> entry = iterator.next();
-            NuclearTerrainPreparation preparation = entry.getValue();
-            int slice = Math.max(1, remaining / Math.max(1, entriesRemaining));
-            entriesRemaining--;
-            if (now >= preparation.expiresAt) {
-                iterator.remove();
-                continue;
+        try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
+            WorkClass.BACKGROUND_PREP, PREPARATION_WORK_BUDGET_NANOS)) {
+            if (permit.available()) {
+                long deadline = permit.deadlineNanos();
+                Iterator<Map.Entry<java.util.UUID, NuclearTerrainPreparation>> iterator =
+                    preparations.entrySet().iterator();
+                int remaining = NUCLEAR_PREPARATION_COLUMNS_PER_TICK;
+                int entriesRemaining = preparations.size();
+                while (iterator.hasNext()) {
+                    if (System.nanoTime() >= deadline) break;
+                    Map.Entry<java.util.UUID, NuclearTerrainPreparation> entry = iterator.next();
+                    NuclearTerrainPreparation preparation = entry.getValue();
+                    int slice = Math.max(1, remaining / Math.max(1, entriesRemaining));
+                    entriesRemaining--;
+                    if (now >= preparation.expiresAt) {
+                        iterator.remove();
+                        continue;
+                    }
+                    if (remaining <= 0 || preparation.complete()) continue;
+                    remaining -= preparation.advance(level, Math.min(slice, remaining), deadline);
+                }
             }
-            if (remaining <= 0 || preparation.complete()) continue;
-            remaining -= preparation.advance(level, Math.min(slice, remaining), deadline);
         }
         if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
         WarModPerformanceDiagnostics.record(
@@ -311,6 +323,17 @@ public final class WarheadGlassShockwaveManager {
         NuclearTerrainPreparation preparation = preparations.remove(impactId);
         if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
         return preparation;
+    }
+
+    public static synchronized boolean hasPendingWork(final ServerLevel level,
+        final java.util.UUID warheadId) {
+        Map<java.util.UUID, NuclearTerrainPreparation> preparations =
+            NUCLEAR_PREPARATIONS.get(level);
+        if (preparations != null && preparations.containsKey(warheadId)) return true;
+        ArrayDeque<Wave> waves = WAVES.get(level);
+        if (waves == null) return false;
+        for (Wave wave : waves) if (wave.warheadId.equals(warheadId)) return true;
+        return false;
     }
 
     private static final class Wave {

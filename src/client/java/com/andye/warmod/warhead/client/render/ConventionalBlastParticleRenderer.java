@@ -1,13 +1,18 @@
 package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.client.TerrainSurfaceCache;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -92,10 +97,10 @@ public final class ConventionalBlastParticleRenderer {
 
     public static void renderSurfaceFront(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final double physicalRadius, final float visualScale, final long seed,
-        final WarheadMesh.Lod lod, final Quaternionf camera) {
+        final Vec3 impactPosition, final WarheadMesh.Lod lod, final Quaternionf camera) {
         if (!WarheadRenderSettings.usePackedParticles()) {
             LegacyConventionalBlastRenderer.renderSurfaceFront(pose, buffer, age, physicalRadius,
-                visualScale, seed, lod, camera);
+                visualScale, seed, impactPosition, lod, camera);
             return;
         }
         /* The moving ground front owns a separate packed field. It must not lose
@@ -103,33 +108,47 @@ public final class ConventionalBlastParticleRenderer {
          * detonation needs the most terrain dust. */
         Field field = field(seed ^ SURFACE_KEY_MASK, visualScale, true);
         field.emitSurfaceFront(age, physicalRadius, lod);
-        field.render(pose, buffer, age, lod, camera, Pass.SURFACE_FRONT);
+        field.render(pose, buffer, age, lod, camera, Pass.SURFACE_FRONT, impactPosition);
     }
 
     /** Vanilla explosion-texture flecks carried by the outward pressure front. */
     public static void renderSurfaceExplosionPuffs(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double age, final double physicalRadius,
-        final float visualScale, final long seed, final WarheadMesh.Lod lod,
-        final Quaternionf camera) {
+        final float visualScale, final long seed, final Vec3 impactPosition,
+        final WarheadMesh.Lod lod, final Quaternionf camera) {
         if (!WarheadRenderSettings.usePackedParticles()) return;
         Field field = field(seed ^ SURFACE_KEY_MASK, visualScale, true);
         field.emitSurfaceFront(age, physicalRadius, lod);
-        field.render(pose, buffer, age, lod, camera, Pass.EXPLOSION_FRONT);
+        field.render(pose, buffer, age, lod, camera, Pass.EXPLOSION_FRONT, impactPosition);
     }
 
     public static void renderNuclearReturnFront(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double age, final double returnRadius,
-        final float yieldScale, final long seed, final WarheadMesh.Lod lod,
-        final Quaternionf camera) {
+        final float yieldScale, final long seed, final Vec3 impactPosition,
+        final WarheadMesh.Lod lod, final Quaternionf camera) {
         if (!WarheadRenderSettings.usePackedParticles()) {
             LegacyConventionalBlastRenderer.renderNuclearReturnFront(pose, buffer, age, returnRadius,
-                yieldScale, seed, lod, camera);
+                yieldScale, seed, lod, impactPosition, camera);
             return;
         }
         Field field = field(seed ^ NUCLEAR_KEY_MASK, yieldScale, true);
         field.emitReturnFront(age, returnRadius, lod);
-        field.render(pose, buffer, age, lod, camera, Pass.RETURN_FRONT);
+        field.render(pose, buffer, age, lod, camera, Pass.RETURN_FRONT, impactPosition);
     }
+
+    /** Releases all packed arrays whose owning impact has expired. */
+    public static synchronized void retainFields(final Set<Long> activeImpactSeeds) {
+        if (activeImpactSeeds == null || activeImpactSeeds.isEmpty()) {
+            FIELDS.clear();
+            return;
+        }
+        FIELDS.keySet().removeIf(key -> !activeImpactSeeds.contains(key)
+            && !activeImpactSeeds.contains(key ^ SURFACE_KEY_MASK)
+            && !activeImpactSeeds.contains(key ^ NUCLEAR_KEY_MASK));
+    }
+
+    /** Explicit dimension/world lifecycle hook. */
+    public static synchronized void clearLevel() { FIELDS.clear(); }
 
     public static synchronized DebugSnapshot debugSnapshot() {
         if (!WarheadRenderSettings.usePackedParticles()) {
@@ -758,6 +777,12 @@ public final class ConventionalBlastParticleRenderer {
         private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
             final double renderedAge, final WarheadMesh.Lod lod, final Quaternionf camera,
             final Pass pass) {
+            render(pose, buffer, renderedAge, lod, camera, pass, null);
+        }
+
+        private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+            final double renderedAge, final WarheadMesh.Lod lod, final Quaternionf camera,
+            final Pass pass, final Vec3 impactPosition) {
             ensureSimulated(renderedAge);
             float partial = (float) Mth.clamp(renderedAge - Math.floor(renderedAge), 0.0, 1.0);
             Basis basis = Basis.from(camera);
@@ -784,6 +809,14 @@ public final class ConventionalBlastParticleRenderer {
                 float px = Mth.lerp(partial, previousX[index], x[index]);
                 float py = Mth.lerp(partial, previousY[index], y[index]);
                 float pz = Mth.lerp(partial, previousZ[index], z[index]);
+                if (impactPosition != null && (pass == Pass.SURFACE_FRONT
+                    || pass == Pass.EXPLOSION_FRONT || pass == Pass.RETURN_FRONT)) {
+                    ClientLevel level = Minecraft.getInstance().level;
+                    TerrainSurfaceCache.SurfaceSample surface = TerrainSurfaceCache.INSTANCE.sample(
+                        level, impactPosition.x + px, impactPosition.z + pz);
+                    if (surface != null) py = (float) (surface.position().y - impactPosition.y)
+                        + Math.max(0.06F, py);
+                }
                 Colour colour = colour(index, pass);
                 float drawRadius = radius[index];
                 if (pass == Pass.SMOKE_CORE) drawRadius *= 1.20F;

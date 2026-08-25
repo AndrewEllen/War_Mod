@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -28,6 +29,7 @@ import net.minecraft.world.level.storage.LevelResource;
  */
 public final class WarModPerformanceDiagnostics {
     public enum Subsystem {
+        WAR_MOD_SCHEDULED_WORK("War Mod scheduled work total"),
         NUCLEAR_CRATER("nuclear crater mutation"),
         NUCLEAR_WAVE("nuclear aftermath wave"),
         NUCLEAR_PREPARATION("nuclear terrain preparation"),
@@ -43,16 +45,20 @@ public final class WarModPerformanceDiagnostics {
 
     public enum Gauge {
         ACTIVE_NUCLEAR_CRATERS("active nuclear craters"),
+        PENDING_CRATER_BLOCK_MUTATIONS("pending crater block mutations"),
+        ACTIVE_CHUNK_LEASES("active chunk leases"),
         ACTIVE_NUCLEAR_WAVES("active nuclear waves"),
         ACTIVE_NUCLEAR_PREPARATIONS("active terrain preparations"),
         PENDING_NUCLEAR_MUTATIONS("pending prepared terrain mutations"),
         ACTIVE_FIRE_PATCHES("active fire patches"),
+        DORMANT_FIRE_PATCHES("dormant fire patches"),
         ACTIVE_FIRE_EMBERS("active fire embers"),
         FIRE_SNAPSHOT_IN_PROGRESS("fire snapshot in progress"),
         FIRE_SNAPSHOT_PENDING_PATCHES("fire snapshot patches remaining"),
         CURTAIN_EMISSIONS("curtain emissions"),
         CURTAIN_RECIPIENTS("curtain packet recipients"),
-        FIRE_NETWORK_PACKETS("fire visual packets");
+        FIRE_NETWORK_PACKETS("fire visual packets"),
+        SCHEDULER_OVERRUNS("shared scheduler deadline overruns");
 
         private final String label;
         Gauge(final String label) { this.label = label; }
@@ -100,6 +106,11 @@ public final class WarModPerformanceDiagnostics {
         if (subsystem == null || startedNanos <= 0L) return;
         long elapsed = Math.max(0L, System.nanoTime() - startedNanos);
         TIMINGS.get(subsystem).add(elapsed);
+    }
+
+    public static synchronized void recordNanos(final Subsystem subsystem, final long elapsedNanos) {
+        if (subsystem != null && elapsedNanos >= 0L)
+            TIMINGS.get(subsystem).add(elapsedNanos);
     }
 
     public static synchronized void gauge(final Gauge gauge, final long value) {
@@ -184,7 +195,10 @@ public final class WarModPerformanceDiagnostics {
             .append("Scope: aggregate server-thread timings; not a per-line trace.\n\n")
             .append("Server tick observer (last ").append(RECENT_TICKS_NANOS.size())
             .append(" ticks): ").append(format(recentAverageMspt())).append(" mspt, ")
-            .append(format(recentTps())).append(" TPS\n")
+            .append(format(recentTps())).append(" TPS, p50=")
+            .append(format(recentTickPercentile(0.50))).append(" ms, p95=")
+            .append(format(recentTickPercentile(0.95))).append(" ms, p99=")
+            .append(format(recentTickPercentile(0.99))).append(" ms\n")
             .append("Server tick observer lifetime: ").append(tickSamples).append(" samples, avg ")
             .append(format(nanosToMillis(tickSamples == 0L ? 0L : totalTickNanos / tickSamples)))
             .append(" mspt, peak ").append(format(nanosToMillis(peakTickNanos))).append(" ms\n\n")
@@ -195,7 +209,10 @@ public final class WarModPerformanceDiagnostics {
                 .append(timing.samples).append(", avg=")
                 .append(format(timing.averageMillis())).append(" ms, peak=")
                 .append(format(timing.peakMillis())).append(" ms, recent=")
-                .append(format(timing.recentAverageMillis())).append(" ms\n");
+                .append(format(timing.recentAverageMillis())).append(" ms, p50=")
+                .append(format(timing.recentPercentileMillis(0.50))).append(" ms, p95=")
+                .append(format(timing.recentPercentileMillis(0.95))).append(" ms, p99=")
+                .append(format(timing.recentPercentileMillis(0.99))).append(" ms\n");
         }
         report.append("\nCounters/gauges since last /icpm reset:\n");
         for (Gauge gauge : Gauge.values()) {
@@ -225,6 +242,17 @@ public final class WarModPerformanceDiagnostics {
         return mspt <= 0.0 ? 20.0 : Math.min(20.0, 1_000.0 / mspt);
     }
 
+    private static double recentTickPercentile(final double percentile) {
+        if (RECENT_TICKS_NANOS.isEmpty()) return 0.0;
+        long[] sorted = new long[RECENT_TICKS_NANOS.size()];
+        int index = 0;
+        for (long value : RECENT_TICKS_NANOS) sorted[index++] = value;
+        Arrays.sort(sorted);
+        int selected = Math.min(sorted.length - 1,
+            Math.max(0, (int) Math.ceil(percentile * sorted.length) - 1));
+        return nanosToMillis(sorted[selected]);
+    }
+
     private static double nanosToMillis(final long nanos) { return nanos / 1_000_000.0; }
     private static String format(final double value) { return String.format(Locale.ROOT, "%.2f", value); }
 
@@ -249,6 +277,16 @@ public final class WarModPerformanceDiagnostics {
             long sum = 0L;
             for (long value : recent) sum += value;
             return nanosToMillis(sum / recent.size());
+        }
+        private double recentPercentileMillis(final double percentile) {
+            if (recent.isEmpty()) return 0.0;
+            long[] sorted = new long[recent.size()];
+            int index = 0;
+            for (long value : recent) sorted[index++] = value;
+            Arrays.sort(sorted);
+            int selected = Math.min(sorted.length - 1,
+                Math.max(0, (int) Math.ceil(percentile * sorted.length) - 1));
+            return nanosToMillis(sorted[selected]);
         }
         private void reset() { recent.clear(); total = 0L; samples = 0L; peak = 0L; }
     }

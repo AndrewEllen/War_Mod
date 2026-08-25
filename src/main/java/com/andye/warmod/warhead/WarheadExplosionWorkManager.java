@@ -2,14 +2,19 @@ package com.andye.warmod.warhead;
 
 import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkClass;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkPermit;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -92,6 +97,8 @@ public final class WarheadExplosionWorkManager {
 		| Block.UPDATE_KNOWN_SHAPE
 		| Block.UPDATE_SUPPRESS_DROPS;
 	private static final Map<ServerLevel, LevelWork> LEVELS = new WeakHashMap<>();
+	private static final Map<ServerLevel, Map<UUID, CraterPlanPreparation>> CRATER_PREPARATIONS =
+		new WeakHashMap<>();
 	private static final Map<WarheadYield, CompletableFuture<ShapeTemplate>> TEMPLATES = new EnumMap<>(WarheadYield.class);
 	private static final ExecutorService SHAPE_EXECUTOR = Executors.newFixedThreadPool(
 		Math.max(1, Math.min(2, Runtime.getRuntime().availableProcessors() / 4)),
@@ -201,6 +208,44 @@ public final class WarheadExplosionWorkManager {
 		return work == null || work.craterExcavationComplete();
 	}
 
+	public static synchronized boolean hasPendingWork(final ServerLevel level,
+		final UUID warheadId) {
+		LevelWork levelWork = LEVELS.get(level);
+		ExplosionWork work = levelWork == null ? null : levelWork.byWarhead.get(warheadId);
+		return work != null && !work.finished;
+	}
+
+	/** Begins the read-only half of a two-phase, section-batched crater commit. */
+	public static synchronized void prepareCraterMutationPlan(
+		final ServerLevel level, final UUID warheadId, final Vec3 center,
+		final WarheadYield yield, final long seed, final int lifetimeTicks
+	) {
+		if (level == null || warheadId == null || center == null || yield == null
+			|| !center.isFinite()) return;
+		Map<UUID, CraterPlanPreparation> preparations = CRATER_PREPARATIONS
+			.computeIfAbsent(level, ignored -> new HashMap<>());
+		long expiresAt = level.getGameTime() + Math.max(1, lifetimeTicks);
+		CraterPlanPreparation existing = preparations.get(warheadId);
+		if (existing != null && existing.compatible(center, yield, seed)) {
+			existing.expiresAt = Math.max(existing.expiresAt, expiresAt);
+			return;
+		}
+		preparations.put(warheadId, new CraterPlanPreparation(warheadId, center,
+			StrategicExplosionProfiles.get(yield), seed, templateFuture(yield), expiresAt));
+	}
+
+	public static synchronized void invalidatePreparedCraterPlans(
+		final ServerLevel level, final UUID exceptWarheadId, final Vec3 center,
+		final double radius
+	) {
+		Map<UUID, CraterPlanPreparation> preparations = CRATER_PREPARATIONS.get(level);
+		if (preparations == null) return;
+		double radiusSqr = radius * radius;
+		preparations.entrySet().removeIf(entry -> !entry.getKey().equals(exceptWarheadId)
+			&& entry.getValue().center.distanceToSqr(center) <= radiusSqr);
+		if (preparations.isEmpty()) CRATER_PREPARATIONS.remove(level);
+	}
+
 	private static ExplosionWork scheduleDetonation(
 		final ServerLevel level,
 		final @Nullable ServerPlayer source,
@@ -217,19 +262,23 @@ public final class WarheadExplosionWorkManager {
 		ExplosionWork existing = levelWork.byWarhead.get(warheadId);
 		if (existing != null && !existing.finished) return null;
 
+		CraterMutationPlan mutationPlan = takePreparedCraterPlan(level, warheadId,
+			position, yield, seed);
 		ExplosionWork work = new ExplosionWork(
 			warheadId,
 			position,
 			profile,
 			seed,
 			templateFuture(yield),
+			mutationPlan,
 			level.getGameTime(),
 			customFire
 		);
 		levelWork.works.add(work);
 		levelWork.byWarhead.put(warheadId, work);
 		levelWork.addVoidVolume(work.voidVolume);
-		applyImmediateEntityEffects(level, source, position, profile.entityBlastRadius());
+		levelWork.entityBlasts.addLast(new EntityBlastWork(
+			source, position, profile.entityBlastRadius()));
 		work.explosionContext = new FastExplosion(level, source, position, profile.entityBlastRadius());
 		return work;
 	}
@@ -270,28 +319,58 @@ public final class WarheadExplosionWorkManager {
 		));
 	}
 
+	private static CraterMutationPlan takePreparedCraterPlan(final ServerLevel level,
+		final UUID warheadId, final Vec3 center, final WarheadYield yield, final long seed) {
+		Map<UUID, CraterPlanPreparation> preparations = CRATER_PREPARATIONS.get(level);
+		if (preparations == null) return null;
+		CraterPlanPreparation preparation = preparations.remove(warheadId);
+		if (preparations.isEmpty()) CRATER_PREPARATIONS.remove(level);
+		return preparation != null && preparation.compatible(center, yield, seed)
+			? preparation.completedPlan : null;
+	}
+
 	private static synchronized void tickLevel(final ServerLevel level) {
+		advanceCraterPreparations(level);
 		LevelWork levelWork = LEVELS.get(level);
 		if (levelWork == null) {
 			WarModPerformanceDiagnostics.gauge(
 				WarModPerformanceDiagnostics.Gauge.ACTIVE_NUCLEAR_CRATERS, 0L);
+			WarModPerformanceDiagnostics.gauge(
+				WarModPerformanceDiagnostics.Gauge.PENDING_CRATER_BLOCK_MUTATIONS, 0L);
 			return;
 		}
 		long diagnosticsStarted = WarModPerformanceDiagnostics.begin();
 		long activeNuclear = levelWork.works.stream()
 			.filter(work -> !work.finished && work.profile.yield().nuclear()).count();
+		long pendingCraterMutations = levelWork.works.stream()
+			.filter(work -> !work.finished).mapToLong(ExplosionWork::pendingCraterMutations).sum();
 		WarModPerformanceDiagnostics.gauge(
 			WarModPerformanceDiagnostics.Gauge.ACTIVE_NUCLEAR_CRATERS, activeNuclear);
+		WarModPerformanceDiagnostics.gauge(
+			WarModPerformanceDiagnostics.Gauge.PENDING_CRATER_BLOCK_MUTATIONS,
+			pendingCraterMutations);
 		long now = level.getGameTime();
+		try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
+			WorkClass.ENTITY_BLAST, 2_000_000L)) {
+			if (permit.available()) levelWork.advanceEntityBlasts(level, permit.deadlineNanos());
+		}
 		/*
 		 * Nuclear catch-up is intentionally isolated from ordinary explosion work.
 		 * A front-gated crater is skipped for the rest of this tick instead of
 		 * spinning until the deadline while waiting for the visual shockwave.
 		 */
-		applyWorkClass(level, levelWork, true, NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
-			NUCLEAR_APPLICATION_SLICE, NUCLEAR_APPLICATION_BUDGET_NANOS);
-		applyWorkClass(level, levelWork, false, MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
-			APPLICATION_SLICE, BLOCK_APPLICATION_BUDGET_NANOS);
+		try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
+			WorkClass.CRATER_COMMIT,
+			Math.max(NUCLEAR_APPLICATION_BUDGET_NANOS, BLOCK_APPLICATION_BUDGET_NANOS))) {
+			if (permit.available()) {
+				applyWorkClass(level, levelWork, true,
+					NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
+					NUCLEAR_APPLICATION_SLICE, permit.deadlineNanos());
+				applyWorkClass(level, levelWork, false,
+					MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
+					APPLICATION_SLICE, permit.deadlineNanos());
+			}
+		}
 
 		Iterator<ExplosionWork> iterator = levelWork.works.iterator();
 		while (iterator.hasNext()) {
@@ -302,7 +381,7 @@ public final class WarheadExplosionWorkManager {
 			iterator.remove();
 		}
 		levelWork.normaliseCursor();
-		if (levelWork.works.isEmpty()) LEVELS.remove(level);
+		if (levelWork.works.isEmpty() && levelWork.entityBlasts.isEmpty()) LEVELS.remove(level);
 		WarModPerformanceDiagnostics.record(
 			WarModPerformanceDiagnostics.Subsystem.NUCLEAR_CRATER, diagnosticsStarted);
 	}
@@ -313,14 +392,14 @@ public final class WarheadExplosionWorkManager {
 		final boolean nuclear,
 		final int changeBudget,
 		final int applicationSlice,
-		final long timeBudgetNanos
+		final long deadline
 	) {
 		if (!levelWork.hasActiveWork(nuclear)) return;
-		long deadline = System.nanoTime() + timeBudgetNanos;
 		int remaining = changeBudget;
 		Set<UUID> unavailableThisTick = new HashSet<>();
 		while (remaining > 0 && System.nanoTime() < deadline) {
-			ExplosionWork work = levelWork.nextApplicationWork(nuclear, unavailableThisTick);
+			ExplosionWork work = levelWork.nextApplicationWork(level, nuclear,
+				unavailableThisTick, applicationSlice);
 			if (work == null) break;
 			int changed = work.apply(level, levelWork, Math.min(applicationSlice, remaining), deadline);
 			remaining -= Math.max(1, changed);
@@ -332,67 +411,27 @@ public final class WarheadExplosionWorkManager {
 
 	private static synchronized void clear() {
 		LEVELS.clear();
+		CRATER_PREPARATIONS.clear();
 	}
 
-	private static void applyImmediateEntityEffects(
-		final ServerLevel level,
-		final @Nullable Entity source,
-		final Vec3 center,
-		final float radius
-	) {
-		FastExplosion explosion = new FastExplosion(level, source, center, radius);
-		level.gameEvent(source, GameEvent.EXPLODE, center);
-		float doubleRadius = radius * 2.0F;
-		if (doubleRadius < 1.0E-5F) return;
-		AABB bounds = new AABB(
-			center.x - doubleRadius - 1.0,
-			center.y - doubleRadius - 1.0,
-			center.z - doubleRadius - 1.0,
-			center.x + doubleRadius + 1.0,
-			center.y + doubleRadius + 1.0,
-			center.z + doubleRadius + 1.0
-		);
-		ExplosionDamageCalculator calculator = source == null
-			? new ExplosionDamageCalculator()
-			: new EntityBasedExplosionDamageCalculator(source);
-
-		/* Query with a null exclusion so the owner is not accidentally immune to
-		 * their own conventional or nuclear warhead. The source remains attached
-		 * to the damage source for attribution. */
-		for (Entity entity : level.getEntities(null, bounds)) {
-			/* Existing loose items and XP are vapourised instead of becoming a second lag source. */
-			if (entity instanceof ExperienceOrb || entity instanceof ItemEntity) {
-				entity.discard();
-				continue;
+	private static void advanceCraterPreparations(final ServerLevel level) {
+		Map<UUID, CraterPlanPreparation> preparations = CRATER_PREPARATIONS.get(level);
+		if (preparations == null || preparations.isEmpty()) return;
+		long now = level.getGameTime();
+		preparations.values().removeIf(preparation -> now > preparation.expiresAt);
+		if (preparations.isEmpty()) {
+			CRATER_PREPARATIONS.remove(level);
+			return;
+		}
+		try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
+			WorkClass.BACKGROUND_PREP, 2_000_000L)) {
+			if (!permit.available()) return;
+			long deadline = permit.deadlineNanos();
+			int remaining = 16_384;
+			for (CraterPlanPreparation preparation : preparations.values()) {
+				if (System.nanoTime() >= deadline || remaining <= 0) break;
+				remaining -= preparation.advance(level, remaining, deadline);
 			}
-			if (entity.ignoreExplosion(explosion)) continue;
-			double normalizedDistance = Math.sqrt(entity.distanceToSqr(center)) / doubleRadius;
-			if (normalizedDistance > 1.0) continue;
-			Vec3 entityOrigin = entity instanceof PrimedTnt ? entity.position() : entity.getEyePosition();
-			Vec3 difference = entityOrigin.subtract(center);
-			if (difference.lengthSqr() < 1.0E-9) difference = new Vec3(0.0, 1.0, 0.0);
-			Vec3 direction = difference.normalize();
-			boolean damage = calculator.shouldDamageEntity(explosion, entity);
-			float knockbackMultiplier = calculator.getKnockbackMultiplier(entity);
-			/* Seven fixed collision rays preserve real cover without allowing a
-			 * strategic yield to turn into an unbounded visibility workload. The
-			 * vanilla damage calculator supplies proximity falloff; this value is
-			 * strictly the terrain/wall transmission term. */
-			float exposure = !damage && knockbackMultiplier == 0.0F
-				? 0.0F : terrainExposure(level, center, entity);
-			if (damage) {
-				entity.hurtServer(level, explosion.getDamageSource(),
-					calculator.getEntityDamageAmount(explosion, entity, exposure));
-			}
-			double resistance = entity instanceof LivingEntity living
-				? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)
-				: 0.0;
-			double power = (1.0 - normalizedDistance) * exposure * knockbackMultiplier * (1.0 - resistance);
-			entity.push(direction.scale(power));
-			if (entity.is(EntityTypeTags.REDIRECTABLE_PROJECTILE) && entity instanceof Projectile projectile) {
-				projectile.setOwner(explosion.getDamageSource().getEntity());
-			}
-			entity.onExplosionHit(source);
 		}
 	}
 
@@ -451,12 +490,94 @@ public final class WarheadExplosionWorkManager {
 		return (mix(value) >>> 11) * 0x1.0p-53;
 	}
 
+	private static final class EntityBlastWork {
+		private final @Nullable Entity source;
+		private final Vec3 center;
+		private final float radius;
+		private final float doubleRadius;
+		private @Nullable FastExplosion explosion;
+		private @Nullable ExplosionDamageCalculator calculator;
+		private List<Entity> entities = List.of();
+		private int index;
+
+		private EntityBlastWork(final @Nullable Entity source, final Vec3 center,
+			final float radius) {
+			this.source = source;
+			this.center = center;
+			this.radius = radius;
+			this.doubleRadius = radius * 2.0F;
+		}
+
+		private boolean advance(final ServerLevel level, final long deadline) {
+			if (explosion == null) {
+				explosion = new FastExplosion(level, source, center, radius);
+				calculator = source == null ? new ExplosionDamageCalculator()
+					: new EntityBasedExplosionDamageCalculator(source);
+				level.gameEvent(source, GameEvent.EXPLODE, center);
+				if (doubleRadius < 1.0E-5F) return true;
+				AABB bounds = new AABB(
+					center.x - doubleRadius - 1.0, center.y - doubleRadius - 1.0,
+					center.z - doubleRadius - 1.0, center.x + doubleRadius + 1.0,
+					center.y + doubleRadius + 1.0, center.z + doubleRadius + 1.0);
+				/* Null exclusion intentionally keeps the owner eligible for its own blast. */
+				entities = level.getEntities(null, bounds);
+			}
+			int processed = 0;
+			while (index < entities.size() && processed < 128
+				&& System.nanoTime() < deadline) {
+				apply(level, entities.get(index++));
+				processed++;
+			}
+			return index >= entities.size();
+		}
+
+		private void apply(final ServerLevel level, final Entity entity) {
+			if (entity.isRemoved()) return;
+			if (entity instanceof ExperienceOrb || entity instanceof ItemEntity) {
+				entity.discard();
+				return;
+			}
+			if (entity.ignoreExplosion(explosion)) return;
+			double normalizedDistance = Math.sqrt(entity.distanceToSqr(center)) / doubleRadius;
+			if (normalizedDistance > 1.0) return;
+			Vec3 entityOrigin = entity instanceof PrimedTnt ? entity.position() : entity.getEyePosition();
+			Vec3 difference = entityOrigin.subtract(center);
+			if (difference.lengthSqr() < 1.0E-9) difference = new Vec3(0.0, 1.0, 0.0);
+			Vec3 direction = difference.normalize();
+			boolean damage = calculator.shouldDamageEntity(explosion, entity);
+			float knockbackMultiplier = calculator.getKnockbackMultiplier(entity);
+			float exposure = !damage && knockbackMultiplier == 0.0F
+				? 0.0F : terrainExposure(level, center, entity);
+			if (damage) entity.hurtServer(level, explosion.getDamageSource(),
+				calculator.getEntityDamageAmount(explosion, entity, exposure));
+			double resistance = entity instanceof LivingEntity living
+				? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE) : 0.0;
+			double power = (1.0 - normalizedDistance) * exposure * knockbackMultiplier
+				* (1.0 - resistance);
+			entity.push(direction.scale(power));
+			if (entity.is(EntityTypeTags.REDIRECTABLE_PROJECTILE)
+				&& entity instanceof Projectile projectile) {
+				projectile.setOwner(explosion.getDamageSource().getEntity());
+			}
+			entity.onExplosionHit(source);
+		}
+	}
+
 	private static final class LevelWork {
 		private final List<ExplosionWork> works = new ArrayList<>();
+		private final ArrayDeque<EntityBlastWork> entityBlasts = new ArrayDeque<>();
 		private final Map<UUID, ExplosionWork> byWarhead = new HashMap<>();
 		private final LongOpenHashSet pendingBlocks = new LongOpenHashSet();
 		private final Map<Long, List<VoidVolume>> volumesByChunk = new HashMap<>();
 		private int applicationCursor;
+
+		private void advanceEntityBlasts(final ServerLevel level, final long deadline) {
+			int scheduled = entityBlasts.size();
+			for (int index = 0; index < scheduled && System.nanoTime() < deadline; index++) {
+				EntityBlastWork work = entityBlasts.removeFirst();
+				if (!work.advance(level, deadline)) entityBlasts.addLast(work);
+			}
+		}
 
 		private void addVoidVolume(final VoidVolume volume) {
 			for (int chunkX = volume.minimumChunkX; chunkX <= volume.maximumChunkX; chunkX++) {
@@ -496,14 +617,26 @@ public final class WarheadExplosionWorkManager {
 			pendingBlocks.remove(packed);
 		}
 
-		private ExplosionWork nextApplicationWork(final boolean nuclear, final Set<UUID> unavailable) {
+		private ExplosionWork nextApplicationWork(final ServerLevel level, final boolean nuclear,
+			final Set<UUID> unavailable, final int applicationSlice) {
 			if (works.isEmpty()) return null;
-			for (int checked = 0; checked < works.size(); checked++) {
+			int eligible = 0;
+			for (ExplosionWork work : works) {
+				if (!work.finished && work.profile.yield().nuclear() == nuclear
+					&& !unavailable.contains(work.warheadId)) eligible++;
+			}
+			for (int checked = 0; checked < Math.max(1, eligible) * 5; checked++) {
 				if (applicationCursor >= works.size()) applicationCursor = 0;
 				ExplosionWork work = works.get(applicationCursor++);
 				if (!work.finished
 					&& work.profile.yield().nuclear() == nuclear
-					&& !unavailable.contains(work.warheadId)) return work;
+					&& !unavailable.contains(work.warheadId)) {
+					work.schedulingDeficit += work.schedulingWeight(level) * 512;
+					if (work.schedulingDeficit >= applicationSlice) {
+						work.schedulingDeficit -= applicationSlice;
+						return work;
+					}
+				}
 			}
 			return null;
 		}
@@ -526,6 +659,7 @@ public final class WarheadExplosionWorkManager {
 		private final StrategicExplosionProfile profile;
 		private final long seed;
 		private final CompletableFuture<ShapeTemplate> templateFuture;
+		private final @Nullable CraterMutationPlan mutationPlan;
 		private final VoidVolume voidVolume;
 		private final long detonationGameTime;
 		private final boolean customFire;
@@ -564,6 +698,11 @@ public final class WarheadExplosionWorkManager {
 		 * against the same surface-work budget as the column that discovered it. */
 		private int resolvedSnowChanges;
 		private FastExplosion explosionContext;
+		private int schedulingDeficit;
+		private long visitedCraterMutations;
+		private int mutationBatchIndex;
+		private int mutationSpanIndex;
+		private int mutationY = Integer.MIN_VALUE;
 
 		private ExplosionWork(
 			final UUID warheadId,
@@ -571,6 +710,7 @@ public final class WarheadExplosionWorkManager {
 			final StrategicExplosionProfile profile,
 			final long seed,
 			final CompletableFuture<ShapeTemplate> templateFuture,
+			final @Nullable CraterMutationPlan mutationPlan,
 			final long gameTime,
 			final boolean customFire
 		) {
@@ -579,6 +719,7 @@ public final class WarheadExplosionWorkManager {
 			this.profile = profile;
 			this.seed = seed;
 			this.templateFuture = templateFuture;
+			this.mutationPlan = mutationPlan;
 			this.voidVolume = new VoidVolume(center, profile);
 			this.detonationGameTime = gameTime;
 			this.customFire = customFire;
@@ -601,8 +742,27 @@ public final class WarheadExplosionWorkManager {
 			return template != null || templateFuture.isDone();
 		}
 
+		private int schedulingWeight(final ServerLevel level) {
+			if (level.getGameTime() - detonationGameTime <= 20L) return 4;
+			for (ServerPlayer player : level.players()) {
+				if (player.distanceToSqr(center) <= 256.0 * 256.0) return 3;
+			}
+			return 1;
+		}
+
+		private long pendingCraterMutations() {
+			if (mutationPlan != null) {
+				return Math.max(0L, mutationPlan.blockCount - visitedCraterMutations);
+			}
+			ShapeTemplate ready = template;
+			if (ready == null && templateFuture.isDone()) ready = templateFuture.getNow(null);
+			return ready == null ? 0L : Math.max(0L, ready.blockCount - visitedCraterMutations);
+		}
+
 		private boolean craterExcavationComplete() {
-			return template != null && columnIndex >= template.columns.length;
+			return mutationPlan != null
+				? mutationBatchIndex >= mutationPlan.batches.size()
+				: template != null && columnIndex >= template.columns.length;
 		}
 
 		private int apply(
@@ -621,7 +781,13 @@ public final class WarheadExplosionWorkManager {
 			/* Surface damage is released with the visible pressure front, not after the crater is finished. */
 			changed += advanceSurfaceWave(level, Math.max(8, budget / 3), deadline);
 			while (changed < budget && System.nanoTime() < deadline && !finished) {
-				if (columnIndex < template.columns.length) {
+				if (mutationPlan != null && !craterExcavationComplete()) {
+					PreparedStep step = advancePreparedMutation(level, levelWork);
+					if (!step.attempted()) break;
+					visitedCraterMutations++;
+					visited++;
+					if (step.changed()) changed++;
+				} else if (mutationPlan == null && columnIndex < template.columns.length) {
 					if (currentColumn == null) {
 						Column nextColumn = template.columns[columnIndex];
 						currentColumn = nextColumn;
@@ -642,6 +808,7 @@ public final class WarheadExplosionWorkManager {
 					}
 					cursor.set(currentWorldX, centerY + currentY, currentWorldZ);
 					int yOffset = currentY--;
+					visitedCraterMutations++;
 					boolean topOfColumn = yOffset == currentTopY;
 					boolean bottomOfColumn = yOffset == currentColumn.bottomY;
 					visited++;
@@ -702,7 +869,7 @@ public final class WarheadExplosionWorkManager {
 					if (resistance > threshold) return false;
 				}
 
-				if (state.is(Blocks.TNT)) {
+				if (state.is(Blocks.TNT) || state.hasBlockEntity()) {
 					FastExplosion explosion = explosionContext == null
 						? new FastExplosion(level, null, center, profile.entityBlastRadius())
 						: explosionContext;
@@ -728,10 +895,19 @@ public final class WarheadExplosionWorkManager {
 
 		private BlockState nuclearCraterShell(final BlockState original,
 			final BlockPos position, final double normalized) {
-			long packed = position.asLong();
-			long hash = mix(seed ^ packed ^ 0x4352415445525F53L);
+			return plannedCraterShell(profile, seed, center, original, position, normalized);
+		}
+
+		private boolean magmaFissure(final BlockPos position, final double normalized) {
+			return plannedMagmaFissure(profile, seed, center, position, normalized);
+		}
+
+		private static BlockState plannedCraterShell(final StrategicExplosionProfile profile,
+			final long seed, final Vec3 center, final BlockState original,
+			final BlockPos position, final double normalized) {
+			long hash = mix(seed ^ position.asLong() ^ 0x4352415445525F53L);
 			double selector = unit(hash);
-			if (magmaFissure(position, normalized)) {
+			if (plannedMagmaFissure(profile, seed, center, position, normalized)) {
 				return Blocks.MAGMA_BLOCK.defaultBlockState();
 			}
 			if (original.is(Blocks.SAND)) {
@@ -756,7 +932,8 @@ public final class WarheadExplosionWorkManager {
 			return Blocks.TUFF.defaultBlockState();
 		}
 
-		private boolean magmaFissure(final BlockPos position, final double normalized) {
+		private static boolean plannedMagmaFissure(final StrategicExplosionProfile profile,
+			final long seed, final Vec3 center, final BlockPos position, final double normalized) {
 			if (normalized > 0.94) return false;
 			return NuclearCrackField.contains(seed, center.x, center.z,
 				position.getX() + 0.5, position.getZ() + 0.5,
@@ -830,6 +1007,52 @@ public final class WarheadExplosionWorkManager {
 				}
 			}
 			return changed;
+		}
+
+		private PreparedStep advancePreparedMutation(final ServerLevel level,
+			final LevelWork levelWork) {
+			while (mutationBatchIndex < mutationPlan.batches.size()) {
+				SectionMutationBatch batch = mutationPlan.batches.get(mutationBatchIndex);
+				if (mutationSpanIndex >= batch.spans.size()) {
+					mutationBatchIndex++;
+					mutationSpanIndex = 0;
+					mutationY = Integer.MIN_VALUE;
+					continue;
+				}
+				MutationSpan span = batch.spans.get(mutationSpanIndex);
+				if (mutationY == Integer.MIN_VALUE) mutationY = span.topY;
+				if (mutationY < span.bottomY) {
+					mutationSpanIndex++;
+					mutationY = Integer.MIN_VALUE;
+					continue;
+				}
+				int y = mutationY--;
+				cursor.set(span.x, y, span.z);
+				if (!level.isInWorldBounds(cursor) || !level.getChunkSource().hasChunk(
+					SectionPos.blockToSectionCoord(span.x),
+					SectionPos.blockToSectionCoord(span.z))) {
+					return new PreparedStep(true, false);
+				}
+				boolean top = y == span.columnTopY;
+				boolean bottom = y == span.columnBottomY;
+				BlockState live = level.getBlockState(cursor);
+				if (!live.equals(span.expectedState) || span.kind == MutationKind.SAFE_SPECIAL) {
+					return new PreparedStep(true, destroyAt(level, levelWork, cursor,
+						span.radial, y - centerY, top, bottom));
+				}
+				long packed = cursor.asLong();
+				if (!levelWork.claim(packed)) return new PreparedStep(true, false);
+				try {
+					boolean changed = level.setBlock(cursor, span.replacement,
+						FAST_REMOVE_FLAGS);
+					if (changed && top) removeUnsupportedAbove(level, cursor,
+						profile.yield().nuclear());
+					return new PreparedStep(true, changed);
+				} finally {
+					levelWork.release(packed);
+				}
+			}
+			return new PreparedStep(false, false);
 		}
 
 		private double currentNuclearCraterFront(final ServerLevel level) {
@@ -1085,10 +1308,14 @@ public final class WarheadExplosionWorkManager {
 	private static final class ShapeTemplate {
 		private final Column[] columns;
 		private final SurfacePoint[] surfacePoints;
+		private final long blockCount;
 
 		private ShapeTemplate(final Column[] columns, final SurfacePoint[] surfacePoints) {
 			this.columns = columns;
 			this.surfacePoints = surfacePoints;
+			long count = 0L;
+			for (Column column : columns) count += column.topY - column.bottomY + 1L;
+			this.blockCount = count;
 		}
 
 		private static ShapeTemplate create(final StrategicExplosionProfile profile) {
@@ -1126,6 +1353,197 @@ public final class WarheadExplosionWorkManager {
 			SurfacePoint[] surfaceArray = surface.toArray(SurfacePoint[]::new);
 			Arrays.sort(surfaceArray, Comparator.comparingDouble(point -> point.radial));
 			return new ShapeTemplate(array, surfaceArray);
+		}
+	}
+
+	private enum MutationKind { FAST_SIMPLE, SAFE_SPECIAL }
+
+	private record PreparedStep(boolean attempted, boolean changed) { }
+	private record SectionKey(int chunkX, int sectionY, int chunkZ) { }
+	private record MutationSpan(
+		int x, int z, int bottomY, int topY, int columnBottomY, int columnTopY,
+		double radial, MutationKind kind, BlockState expectedState, BlockState replacement
+	) { }
+	private record SectionMutationBatch(SectionKey section, List<MutationSpan> spans,
+		double minimumRadial) { }
+	private record CraterMutationPlan(List<SectionMutationBatch> batches, long blockCount) { }
+	private record PlannedMutation(MutationKind kind, BlockState expected,
+		BlockState replacement) { }
+
+	/** Incremental main-thread classifier; publishes only a fully immutable plan. */
+	private static final class CraterPlanPreparation {
+		private final UUID warheadId;
+		private final Vec3 center;
+		private final StrategicExplosionProfile profile;
+		private final long seed;
+		private final CompletableFuture<ShapeTemplate> templateFuture;
+		private final LinkedHashMap<SectionKey, ArrayList<MutationSpan>> spansBySection =
+			new LinkedHashMap<>();
+		private long expiresAt;
+		private ShapeTemplate template;
+		private int columnIndex;
+		private Column currentColumn;
+		private int currentX;
+		private int currentZ;
+		private int currentY = Integer.MIN_VALUE;
+		private int currentTopY;
+		private MutationKind runKind;
+		private BlockState runExpected;
+		private BlockState runReplacement;
+		private int runTopY;
+		private int runBottomY;
+		private int runColumnTopY;
+		private int runColumnBottomY;
+		private double runRadial;
+		private @Nullable SectionKey runSection;
+		private @Nullable CraterMutationPlan completedPlan;
+
+		private CraterPlanPreparation(final UUID warheadId, final Vec3 center,
+			final StrategicExplosionProfile profile, final long seed,
+			final CompletableFuture<ShapeTemplate> templateFuture, final long expiresAt) {
+			this.warheadId = warheadId;
+			this.center = center;
+			this.profile = profile;
+			this.seed = seed;
+			this.templateFuture = templateFuture;
+			this.expiresAt = expiresAt;
+		}
+
+		private boolean compatible(final Vec3 candidate, final WarheadYield yield,
+			final long candidateSeed) {
+			return profile.yield() == yield && seed == candidateSeed
+				&& center.distanceToSqr(candidate) <= 1.0E-6;
+		}
+
+		private int advance(final ServerLevel level, final int budget, final long deadline) {
+			if (completedPlan != null || budget <= 0) return 0;
+			if (template == null) {
+				if (!templateFuture.isDone()) return 0;
+				template = templateFuture.join();
+			}
+			int visited = 0;
+			BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
+			while (visited < budget && System.nanoTime() < deadline) {
+				if (currentColumn == null) {
+					flushRun();
+					if (columnIndex >= template.columns.length) {
+						completePlan();
+						break;
+					}
+					currentColumn = template.columns[columnIndex++];
+					currentX = Mth.floor(center.x) + currentColumn.dx;
+					currentZ = Mth.floor(center.z) + currentColumn.dz;
+					if (!level.getChunkSource().hasChunk(currentX >> 4, currentZ >> 4)) {
+						currentColumn = null;
+						continue;
+					}
+					int centerY = Mth.floor(center.y);
+					int surfaceOffset = level.getHeight(Heightmap.Types.MOTION_BLOCKING,
+						currentX, currentZ) - 1 - centerY;
+					int topOffset = Math.min(currentColumn.topY,
+						Math.max(currentColumn.bottomY, surfaceOffset));
+					currentTopY = centerY + topOffset;
+					currentY = currentTopY;
+				}
+				int centerY = Mth.floor(center.y);
+				int columnBottomY = centerY + currentColumn.bottomY;
+				if (currentY < columnBottomY) {
+					flushRun();
+					currentColumn = null;
+					currentY = Integer.MIN_VALUE;
+					continue;
+				}
+				position.set(currentX, currentY, currentZ);
+				visited++;
+				PlannedMutation mutation = classify(level, position, currentColumn,
+					currentY - centerY, currentY == columnBottomY);
+				append(position, mutation, currentColumn.radial, columnBottomY, currentTopY);
+				currentY--;
+			}
+			return visited;
+		}
+
+		private @Nullable PlannedMutation classify(final ServerLevel level,
+			final BlockPos position, final Column column, final int yOffset,
+			final boolean bottomOfColumn) {
+			if (!level.isInWorldBounds(position)) return null;
+			BlockState state = level.getBlockState(position);
+			FluidState fluid = state.getFluidState();
+			if (state.isAir() && fluid.isEmpty()) return null;
+			if (state.getDestroySpeed(level, position) < 0.0F) return null;
+			double verticalRadius = yOffset < 0 ? profile.downwardRadius() : profile.upwardRadius();
+			double vertical = Math.abs(yOffset) / Math.max(1.0, verticalRadius);
+			double normalized = Math.sqrt(Math.min(1.0,
+				column.radial * column.radial + vertical * vertical));
+			if (normalized > profile.guaranteedVoidScale()) {
+				float resistance = Math.max(state.getBlock().getExplosionResistance(),
+					fluid.getExplosionResistance());
+				float threshold = profile.maximumDestroyResistance()
+					* (float) Math.max(0.08, 1.0 - normalized * profile.edgeResistanceScale());
+				if (resistance > threshold) return null;
+			}
+			MutationKind kind = state.is(Blocks.TNT) || state.hasBlockEntity()
+				? MutationKind.SAFE_SPECIAL : MutationKind.FAST_SIMPLE;
+			BlockState replacement = profile.yield().nuclear() && bottomOfColumn
+				? ExplosionWork.plannedCraterShell(profile, seed, center, state, position, normalized)
+				: Blocks.AIR.defaultBlockState();
+			return new PlannedMutation(kind, state, replacement);
+		}
+
+		private void append(final BlockPos position, final @Nullable PlannedMutation mutation,
+			final double radial, final int columnBottomY, final int columnTopY) {
+			if (mutation == null) {
+				flushRun();
+				return;
+			}
+			SectionKey section = new SectionKey(position.getX() >> 4,
+				SectionPos.blockToSectionCoord(position.getY()), position.getZ() >> 4);
+			boolean extend = runSection != null && runSection.equals(section)
+				&& runKind == mutation.kind && runExpected.equals(mutation.expected)
+				&& runReplacement.equals(mutation.replacement)
+				&& runBottomY - 1 == position.getY();
+			if (!extend) {
+				flushRun();
+				runSection = section;
+				runKind = mutation.kind;
+				runExpected = mutation.expected;
+				runReplacement = mutation.replacement;
+				runTopY = position.getY();
+				runColumnTopY = columnTopY;
+				runColumnBottomY = columnBottomY;
+				runRadial = radial;
+			}
+			runBottomY = position.getY();
+		}
+
+		private void flushRun() {
+			if (runSection == null) return;
+			spansBySection.computeIfAbsent(runSection, ignored -> new ArrayList<>())
+				.add(new MutationSpan(currentX, currentZ, runBottomY, runTopY,
+					runColumnBottomY, runColumnTopY, runRadial, runKind,
+					runExpected, runReplacement));
+			runSection = null;
+			runKind = null;
+			runExpected = null;
+			runReplacement = null;
+		}
+
+		private void completePlan() {
+			flushRun();
+			ArrayList<SectionMutationBatch> batches = new ArrayList<>(spansBySection.size());
+			long blockCount = 0L;
+			for (Map.Entry<SectionKey, ArrayList<MutationSpan>> entry : spansBySection.entrySet()) {
+				entry.getValue().sort(Comparator.comparingDouble(MutationSpan::radial));
+				double minimum = entry.getValue().isEmpty() ? Double.MAX_VALUE
+					: entry.getValue().getFirst().radial;
+				for (MutationSpan span : entry.getValue())
+					blockCount += span.topY - span.bottomY + 1L;
+				batches.add(new SectionMutationBatch(entry.getKey(),
+					List.copyOf(entry.getValue()), minimum));
+			}
+			batches.sort(Comparator.comparingDouble(SectionMutationBatch::minimumRadial));
+			completedPlan = new CraterMutationPlan(List.copyOf(batches), blockCount);
+			spansBySection.clear();
 		}
 	}
 

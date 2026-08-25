@@ -17,7 +17,9 @@ import net.minecraft.world.phys.Vec3;
 
 public final class WarheadVisualNetworking {
     private static final int MAX_RECENT_IMPACTS = 128;
+    private static final int MAX_STATE_SEQUENCES = 512;
     private static final Map<UUID, ImpactDescriptor> RECENT_IMPACTS = new LinkedHashMap<>();
+    private static final Map<UUID, Long> STATE_SEQUENCES = new LinkedHashMap<>();
     private static boolean payloadTypesRegistered;
 
     private WarheadVisualNetworking() { }
@@ -39,9 +41,15 @@ public final class WarheadVisualNetworking {
         payloadTypesRegistered = true;
     }
 
-    public static void sendLaunch(final ServerLevel level, final ClientboundWarheadLaunchPayload payload,
+    public static synchronized void sendLaunch(final ServerLevel level,
+        final ClientboundWarheadLaunchPayload payload,
         final Vec3 target) {
-        if (payload.isWellFormed()) sendToNearby(level, payload, target);
+        if (payload == null || payload.warheadId() == null) return;
+        STATE_SEQUENCES.put(payload.warheadId(), 1L);
+        trimStateSequences();
+        ClientboundWarheadLaunchPayload authoritative = payload.withAuthoritativeState(
+            1L, level.getGameTime());
+        if (authoritative.isWellFormed()) sendToNearby(level, authoritative, target);
     }
 
     public static synchronized void sendImpact(final ServerLevel level,
@@ -52,15 +60,19 @@ public final class WarheadVisualNetworking {
     public static synchronized void sendImpact(final ServerLevel level,
         final ClientboundWarheadImpactPayload payload, final Vec3 impact,
 		final boolean customFire) {
-        if (!payload.isWellFormed()) return;
+        if (payload == null || payload.warheadId() == null) return;
+        ClientboundWarheadImpactPayload authoritative = payload.withAuthoritativeState(
+            nextSequence(payload.warheadId()), level.getGameTime());
+        if (!authoritative.isWellFormed()) return;
         while (RECENT_IMPACTS.size() >= MAX_RECENT_IMPACTS) {
             UUID oldest = RECENT_IMPACTS.keySet().iterator().next();
             RECENT_IMPACTS.remove(oldest);
         }
-        RECENT_IMPACTS.put(payload.warheadId(), new ImpactDescriptor(payload.impactVisualScale(),
-            payload.payloadType() == WarheadPayloadType.NUCLEAR));
-        WarheadGlassShockwaveManager.schedule(level, payload, impact, customFire);
-        sendToNearby(level, payload, impact);
+        RECENT_IMPACTS.put(authoritative.warheadId(), new ImpactDescriptor(
+            authoritative.impactVisualScale(),
+            authoritative.payloadType() == WarheadPayloadType.NUCLEAR));
+        WarheadGlassShockwaveManager.schedule(level, authoritative, impact, customFire);
+        sendToNearby(level, authoritative, impact);
     }
 
     public static synchronized void sendDebris(final ServerLevel level,
@@ -72,17 +84,22 @@ public final class WarheadVisualNetworking {
         if (tuned.isWellFormed() && !tuned.entries().isEmpty()) sendToNearby(level, tuned, impact);
     }
 
-    public static void sendRemove(final ServerLevel level, final UUID id, final Vec3 target) {
+    public static synchronized void sendRemove(final ServerLevel level, final UUID id,
+        final Vec3 target) {
         Objects.requireNonNull(id, "warheadId");
         Objects.requireNonNull(target, "intendedTarget");
-        ClientboundWarheadRemovePayload payload = new ClientboundWarheadRemovePayload(id);
+        ClientboundWarheadRemovePayload payload = new ClientboundWarheadRemovePayload(id,
+            nextSequence(id), WarheadNetworkState.REMOVED, level.getGameTime(),
+            target.x, target.y, target.z);
         if (payload.isWellFormed()) sendToNearby(level, payload, target);
     }
 
-    public static void sendTimingCorrection(final ServerLevel level, final UUID id,
+    public static synchronized void sendTimingCorrection(final ServerLevel level, final UUID id,
         final int pausedSimulationTicks, final boolean waiting, final Vec3 safePosition) {
         ClientboundWarheadTimingCorrectionPayload payload = new ClientboundWarheadTimingCorrectionPayload(
-            id, level.getGameTime(), pausedSimulationTicks, waiting, safePosition);
+            id, nextSequence(id), waiting ? WarheadNetworkState.WAITING_FOR_WORLD
+                : WarheadNetworkState.FLIGHT, level.getGameTime(), pausedSimulationTicks,
+            safePosition);
         if (payload.isWellFormed()) sendToNearby(level, payload, safePosition);
     }
 
@@ -93,6 +110,20 @@ public final class WarheadVisualNetworking {
                 <= WarheadConstants.VISUAL_RANGE_BLOCKS * WarheadConstants.VISUAL_RANGE_BLOCKS) {
                 ServerPlayNetworking.send(player, payload);
             }
+        }
+    }
+
+    private static long nextSequence(final UUID id) {
+        long sequence = STATE_SEQUENCES.getOrDefault(id, 0L) + 1L;
+        STATE_SEQUENCES.put(id, sequence);
+        trimStateSequences();
+        return sequence;
+    }
+
+    private static void trimStateSequences() {
+        while (STATE_SEQUENCES.size() > MAX_STATE_SEQUENCES) {
+            UUID oldest = STATE_SEQUENCES.keySet().iterator().next();
+            STATE_SEQUENCES.remove(oldest);
         }
     }
 

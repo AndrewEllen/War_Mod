@@ -5,6 +5,7 @@ import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.fire.FireCellSnapshot;
 import com.andye.warmod.fire.FireEmberSnapshot;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -15,19 +16,13 @@ import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
-/**
- * Converts immutable fire snapshots into per-player payloads away from the server tick.
- * The only main-thread work is capturing player positions and sending completed packets.
- */
+/** Assembles already AOI-filtered immutable fire deltas away from the server tick. */
 final class AsyncFireSnapshotDispatcher {
-    private static final double VISUAL_RANGE = 320.0;
-    private static final double SMOKE_CLUSTER_RANGE = 1_536.0;
     private static final int SMOKE_CLUSTER_CELL_SIZE = 32;
     private static final int MIN_SMOKE_CLUSTER_HOSTS = 8;
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
@@ -39,30 +34,18 @@ final class AsyncFireSnapshotDispatcher {
 
     private AsyncFireSnapshotDispatcher() { }
 
-    static void queue(final ServerLevel level, final List<FireCellSnapshot> snapshots,
-        final List<FireEmberSnapshot> embers, final boolean authoritative) {
-        if (level == null) return;
-        List<Viewer> viewers = new ArrayList<>();
-        for (ServerPlayer player : PlayerLookup.level(level))
-            viewers.add(new Viewer(player.getUUID(), player.position()));
-        if (viewers.isEmpty()) return;
-        SnapshotInput input = new SnapshotInput(level.getGameTime(), List.copyOf(snapshots),
-            List.copyOf(embers), List.copyOf(viewers), authoritative);
+    static void queue(final ServerLevel level, final List<FireNetworking.ViewerDelta> deltas) {
+        if (level == null || deltas == null || deltas.isEmpty()) return;
+        SnapshotInput input = new SnapshotInput(level.getGameTime(), List.copyOf(deltas));
         synchronized (AsyncFireSnapshotDispatcher.class) {
             LevelQueue queue = LEVELS.computeIfAbsent(level, ignored -> new LevelQueue());
-            /* Never let a frequent ember-only refresh displace an authoritative patch
-             * snapshot that is already waiting behind the active preparation job. */
-            boolean emberOnly = !input.authoritative() && input.snapshots().isEmpty();
-            boolean authoritativePending = queue.latest != null
-                && (queue.latest.authoritative() || !queue.latest.snapshots().isEmpty());
-            if (!emberOnly || !authoritativePending) queue.latest = input;
+            queue.pending.addLast(input);
             if (!queue.running) start(level, queue);
         }
     }
 
     private static void start(final ServerLevel level, final LevelQueue queue) {
-        SnapshotInput input = queue.latest;
-        queue.latest = null;
+        SnapshotInput input = queue.pending.removeFirst();
         queue.running = true;
         CompletableFuture.supplyAsync(() -> prepare(input), EXECUTOR)
             .whenComplete((batch, failure) -> level.getServer().execute(
@@ -90,7 +73,7 @@ final class AsyncFireSnapshotDispatcher {
         synchronized (AsyncFireSnapshotDispatcher.class) {
             LevelQueue queue = LEVELS.get(level);
             if (queue == null) return;
-            if (queue.latest != null) start(level, queue);
+            if (!queue.pending.isEmpty()) start(level, queue);
             else {
                 queue.running = false;
                 LEVELS.remove(level);
@@ -99,93 +82,45 @@ final class AsyncFireSnapshotDispatcher {
     }
 
     private static PreparedBatch prepare(final SnapshotInput input) {
-        double rangeSquared = VISUAL_RANGE * VISUAL_RANGE;
-        double clusterRangeSquared = SMOKE_CLUSTER_RANGE * SMOKE_CLUSTER_RANGE;
-        int chunkRadius = (int) Math.ceil(VISUAL_RANGE / 16.0);
-        Map<Long, List<FireCellSnapshot>> buckets = new HashMap<>();
-        Map<Long, SmokeClusterAccumulator> clusterBuckets = new HashMap<>();
-        for (FireCellSnapshot snapshot : input.snapshots()) {
-            int chunkX = snapshot.anchor().host().getX() >> 4;
-            int chunkZ = snapshot.anchor().host().getZ() >> 4;
-            buckets.computeIfAbsent(key(chunkX, chunkZ), ignored -> new ArrayList<>())
-                .add(snapshot);
-            if (snapshot.smoke() >= 0.018F) {
-                int cellX = Math.floorDiv(snapshot.anchor().host().getX(), SMOKE_CLUSTER_CELL_SIZE);
-                int cellZ = Math.floorDiv(snapshot.anchor().host().getZ(), SMOKE_CLUSTER_CELL_SIZE);
-                clusterBuckets.computeIfAbsent(key(cellX, cellZ),
-                    ignored -> new SmokeClusterAccumulator(cellX, cellZ)).add(snapshot);
-            }
-        }
-        List<SmokeCluster> clusters = clusterBuckets.values().stream()
-            .filter(SmokeClusterAccumulator::isWildfire)
-            .map(SmokeClusterAccumulator::finish).toList();
-        List<PreparedViewer> prepared = new ArrayList<>(input.viewers().size());
-        for (Viewer viewer : input.viewers()) {
-            PriorityQueue<RankedSnapshot> nearest = new PriorityQueue<>(
-                ClientboundFireStatePayload.MAX_ENTRIES + 1,
-                Comparator.comparingDouble(RankedSnapshot::distanceSquared).reversed());
-            int playerChunkX = (int) Math.floor(viewer.position().x) >> 4;
-            int playerChunkZ = (int) Math.floor(viewer.position().z) >> 4;
-            int candidateCount = 0;
-            for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
-                for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
-                    List<FireCellSnapshot> candidates = buckets.get(
-                        key(playerChunkX + dx, playerChunkZ + dz));
-                    if (candidates == null) continue;
-                    for (FireCellSnapshot snapshot : candidates) {
-                        double distanceSquared = viewer.position().distanceToSqr(
-                            snapshot.anchor().position());
-                        if (distanceSquared > rangeSquared) continue;
-                        candidateCount++;
-                        nearest.add(new RankedSnapshot(snapshot, distanceSquared));
-                        if (nearest.size() > ClientboundFireStatePayload.MAX_ENTRIES) nearest.poll();
-                    }
-                }
-            }
-            List<ClientboundFireStatePayload.Entry> entries = nearest.stream()
-                .sorted(Comparator.comparingDouble(RankedSnapshot::distanceSquared))
-                .map(ranked -> entry(ranked.snapshot())).toList();
-            PriorityQueue<RankedEmber> nearestEmbers = new PriorityQueue<>(
-                ClientboundFireStatePayload.MAX_EMBERS + 1,
-                Comparator.comparingDouble(RankedEmber::distanceSquared).reversed());
-            int emberCount = 0;
-            for (FireEmberSnapshot ember : input.embers()) {
-                double distanceSquared = viewer.position().distanceToSqr(ember.position());
-                if (distanceSquared > rangeSquared) continue;
-                emberCount++;
-                nearestEmbers.add(new RankedEmber(ember, distanceSquared));
-                if (nearestEmbers.size() > ClientboundFireStatePayload.MAX_EMBERS)
-                    nearestEmbers.poll();
-            }
-            List<ClientboundFireStatePayload.EmberEntry> emberEntries = nearestEmbers.stream()
-                .sorted(Comparator.comparingDouble(RankedEmber::distanceSquared))
-                .map(ranked -> emberEntry(ranked.snapshot())).toList();
-            PriorityQueue<RankedSmokeCluster> nearestClusters = new PriorityQueue<>(
-                ClientboundFireStatePayload.MAX_SMOKE_CLUSTERS + 1,
-                Comparator.comparingDouble(RankedSmokeCluster::distanceSquared).reversed());
-            int clusterCount = 0;
-            for (SmokeCluster cluster : clusters) {
-                double distanceSquared = viewer.position().distanceToSqr(cluster.position());
-                if (distanceSquared > clusterRangeSquared) continue;
-                clusterCount++;
-                nearestClusters.add(new RankedSmokeCluster(cluster, distanceSquared));
-                if (nearestClusters.size() > ClientboundFireStatePayload.MAX_SMOKE_CLUSTERS)
-                    nearestClusters.poll();
-            }
-            List<ClientboundFireStatePayload.SmokeClusterEntry> clusterEntries =
-                nearestClusters.stream()
-                    .sorted(Comparator.comparingDouble(RankedSmokeCluster::distanceSquared))
-                    .map(ranked -> clusterEntry(ranked.cluster())).toList();
+        List<PreparedViewer> viewers = new ArrayList<>(input.deltas().size());
+        for (FireNetworking.ViewerDelta delta : input.deltas()) {
+            List<ClientboundFireStatePayload.Entry> entries = delta.changedPatches().stream()
+                .map(AsyncFireSnapshotDispatcher::entry).toList();
+            List<ClientboundFireStatePayload.EmberEntry> embers = delta.embers().stream()
+                .map(AsyncFireSnapshotDispatcher::emberEntry).toList();
+            List<ClientboundFireStatePayload.SmokeClusterEntry> clusters = smokeClusters(
+                delta.viewerPosition(), delta.smokeClusterSources());
             ClientboundFireStatePayload payload = new ClientboundFireStatePayload(
-                input.gameTime(), input.authoritative()
-                    && candidateCount <= ClientboundFireStatePayload.MAX_ENTRIES,
-                entries, emberCount <= ClientboundFireStatePayload.MAX_EMBERS, emberEntries,
-                input.authoritative()
-                    && clusterCount <= ClientboundFireStatePayload.MAX_SMOKE_CLUSTERS,
-                clusterEntries);
-            prepared.add(new PreparedViewer(viewer.playerId(), payload));
+                input.gameTime(), delta.generation(), delta.complete(), entries,
+                delta.removedPatchIds(), true, embers, delta.smokeClusterComplete(), clusters);
+            viewers.add(new PreparedViewer(delta.playerId(), payload));
         }
-        return new PreparedBatch(List.copyOf(prepared));
+        return new PreparedBatch(List.copyOf(viewers));
+    }
+
+    private static List<ClientboundFireStatePayload.SmokeClusterEntry> smokeClusters(
+        final Vec3 viewer, final List<FireCellSnapshot> sources) {
+        Map<Long, SmokeClusterAccumulator> buckets = new HashMap<>();
+        for (FireCellSnapshot snapshot : sources) {
+            if (snapshot.smoke() < 0.018F) continue;
+            int cellX = Math.floorDiv(snapshot.anchor().host().getX(), SMOKE_CLUSTER_CELL_SIZE);
+            int cellZ = Math.floorDiv(snapshot.anchor().host().getZ(), SMOKE_CLUSTER_CELL_SIZE);
+            buckets.computeIfAbsent(key(cellX, cellZ),
+                ignored -> new SmokeClusterAccumulator(cellX, cellZ)).add(snapshot);
+        }
+        PriorityQueue<RankedSmokeCluster> nearest = new PriorityQueue<>(
+            ClientboundFireStatePayload.MAX_SMOKE_CLUSTERS + 1,
+            Comparator.comparingDouble(RankedSmokeCluster::distanceSquared).reversed());
+        for (SmokeClusterAccumulator accumulator : buckets.values()) {
+            if (!accumulator.isWildfire()) continue;
+            SmokeCluster cluster = accumulator.finish();
+            nearest.add(new RankedSmokeCluster(cluster,
+                viewer.distanceToSqr(cluster.position())));
+            if (nearest.size() > ClientboundFireStatePayload.MAX_SMOKE_CLUSTERS) nearest.poll();
+        }
+        return nearest.stream().sorted(Comparator.comparingDouble(
+                RankedSmokeCluster::distanceSquared))
+            .map(ranked -> clusterEntry(ranked.cluster())).toList();
     }
 
     private static ClientboundFireStatePayload.Entry entry(final FireCellSnapshot snapshot) {
@@ -227,15 +162,12 @@ final class AsyncFireSnapshotDispatcher {
 
     private static final class LevelQueue {
         private boolean running;
-        private SnapshotInput latest;
+        private final ArrayDeque<SnapshotInput> pending = new ArrayDeque<>();
     }
-    private record SnapshotInput(long gameTime, List<FireCellSnapshot> snapshots,
-        List<FireEmberSnapshot> embers, List<Viewer> viewers, boolean authoritative) { }
-    private record Viewer(UUID playerId, Vec3 position) { }
+
+    private record SnapshotInput(long gameTime, List<FireNetworking.ViewerDelta> deltas) { }
     private record PreparedViewer(UUID playerId, ClientboundFireStatePayload payload) { }
     private record PreparedBatch(List<PreparedViewer> viewers) { }
-    private record RankedSnapshot(FireCellSnapshot snapshot, double distanceSquared) { }
-    private record RankedEmber(FireEmberSnapshot snapshot, double distanceSquared) { }
     private record RankedSmokeCluster(SmokeCluster cluster, double distanceSquared) { }
     private record SmokeCluster(long id, Vec3 position, float smoke, float heat,
         float radius, Vec3 wind, long seed, int memberCount) { }
@@ -257,7 +189,8 @@ final class AsyncFireSnapshotDispatcher {
         private int memberCount;
 
         private SmokeClusterAccumulator(final int cellX, final int cellZ) {
-            this.cellX = cellX; this.cellZ = cellZ;
+            this.cellX = cellX;
+            this.cellZ = cellZ;
             seed = mix(key(cellX, cellZ) ^ 0x534D4F4B455F434CL);
         }
 
@@ -267,7 +200,8 @@ final class AsyncFireSnapshotDispatcher {
                 snapshot.smoke() * (0.35 + snapshot.coverage() * 0.65));
             Vec3 position = snapshot.anchor().position();
             weight += sampleWeight;
-            x += position.x * sampleWeight; y += position.y * sampleWeight;
+            x += position.x * sampleWeight;
+            y += position.y * sampleWeight;
             z += position.z * sampleWeight;
             windX += snapshot.wind().x * sampleWeight;
             windY += snapshot.wind().y * sampleWeight;

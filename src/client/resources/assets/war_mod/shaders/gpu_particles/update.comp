@@ -1,0 +1,36 @@
+#version 430 core
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec4 position_age;
+    vec4 velocity_lifetime;
+    vec4 colour_size;
+    uvec4 metadata;
+};
+
+layout(std430, binding = 0) buffer ParticleBuffer { Particle particles[]; };
+uniform uint particleCapacity;
+uniform float deltaSeconds;
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= particleCapacity) return;
+    Particle particle = particles[id];
+    float lifetime = particle.velocity_lifetime.w;
+    if (lifetime <= 0.0 || particle.position_age.w >= lifetime) return;
+    float age = particle.position_age.w + deltaSeconds;
+    if (age >= lifetime) {
+        particles[id].velocity_lifetime.w = 0.0;
+        return;
+    }
+    vec3 velocity = particle.velocity_lifetime.xyz;
+    uint type = particle.metadata.x;
+    float drag = type == 1u || type == 4u ? 0.992 : 0.975;
+    velocity *= pow(drag, deltaSeconds * 60.0);
+    if (type == 0u || type == 3u) velocity.y += 1.8 * deltaSeconds;
+    if (type == 1u || type == 4u || type == 6u) velocity.y += 0.55 * deltaSeconds;
+    if (type == 2u) velocity.y -= 2.4 * deltaSeconds;
+    particles[id].position_age = vec4(particle.position_age.xyz
+        + velocity * deltaSeconds, age);
+    particles[id].velocity_lifetime.xyz = velocity;
+}

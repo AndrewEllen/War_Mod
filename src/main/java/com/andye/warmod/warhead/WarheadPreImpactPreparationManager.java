@@ -3,6 +3,9 @@ package com.andye.warmod.warhead;
 import com.andye.warmod.entity.IncomingWarheadEntity;
 import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkClass;
+import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkPermit;
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
 import java.util.ArrayDeque;
 import java.util.HashMap;
@@ -30,7 +33,6 @@ import net.minecraft.world.phys.Vec3;
  * rereading the same blocks and depth layers.
  */
 public final class WarheadPreImpactPreparationManager {
-    private static final long LEVEL_WORK_BUDGET_NANOS = 2_000_000L;
     private static final int MAX_CHECKS_PER_LEVEL_TICK = 384;
     private static final int WORK_SLICE = 64;
     private static final int IMPACT_FINISH_CHECK_BUDGET = 768;
@@ -78,6 +80,8 @@ public final class WarheadPreImpactPreparationManager {
     ) {
         if (level == null || warheadId == null || intendedTarget == null
             || !intendedTarget.isFinite() || yield == null || !yield.nuclear()) return;
+        WarheadExplosionWorkManager.prepareCraterMutationPlan(level, warheadId,
+            intendedTarget, yield, seed, lifetimeTicks);
         WarheadGlassShockwaveManager.prepareNuclearTerrain(
             level, warheadId, intendedTarget, yield, seed, lifetimeTicks);
     }
@@ -104,7 +108,8 @@ public final class WarheadPreImpactPreparationManager {
          * final slice here rather than moving the entire scan onto impact.
          */
         if (!preparation.compatible(effectiveCenter, yield, seed)) {
-            preparation.prepareForImpact(effectiveCenter, yield, seed, levelWork.terrainCache);
+            preparation.prepareForImpact(level, effectiveCenter, yield, seed,
+                levelWork.terrainCache);
         }
         if (!preparation.complete()) {
             preparation.sampler.advance(level, IMPACT_FINISH_CHECK_BUDGET);
@@ -151,6 +156,8 @@ public final class WarheadPreImpactPreparationManager {
         int minimumCraterY = Mth.floor(
             center.y - profile.downwardRadius() - CRATER_DEPTH_INVALIDATION_MARGIN);
         levelWork.terrainCache.invalidateAround(center, radius, deepCraterRadius, minimumCraterY);
+        WarheadExplosionWorkManager.invalidatePreparedCraterPlans(
+            level, exceptWarheadId, center, radius);
 
         double radiusSqr;
         for (Preparation preparation : levelWork.byId.values()) {
@@ -200,20 +207,25 @@ public final class WarheadPreImpactPreparationManager {
         }
         if (levelWork.queue.isEmpty()) return;
 
-        long deadline = System.nanoTime() + LEVEL_WORK_BUDGET_NANOS;
-        int checksRemaining = MAX_CHECKS_PER_LEVEL_TICK;
-        int scheduled = levelWork.queue.size();
+        try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
+            WorkClass.BACKGROUND_PREP, 2_000_000L)) {
+            if (!permit.available()) return;
+            long deadline = permit.deadlineNanos();
+            int checksRemaining = MAX_CHECKS_PER_LEVEL_TICK;
+            int scheduled = levelWork.queue.size();
 
-        for (int index = 0; index < scheduled && checksRemaining > 0; index++) {
-            if (index > 0 && System.nanoTime() >= deadline) break;
-            UUID id = levelWork.queue.removeFirst();
-            Preparation preparation = levelWork.byId.get(id);
-            if (preparation == null) continue;
-            preparation.queued = false;
+            for (int index = 0; index < scheduled && checksRemaining > 0; index++) {
+                if (index > 0 && System.nanoTime() >= deadline) break;
+                UUID id = levelWork.queue.removeFirst();
+                Preparation preparation = levelWork.byId.get(id);
+                if (preparation == null) continue;
+                preparation.queued = false;
 
-            int used = preparation.advance(level, levelWork, Math.min(WORK_SLICE, checksRemaining));
-            checksRemaining -= Math.max(1, used);
-            if (!preparation.complete()) levelWork.enqueue(preparation);
+                int used = preparation.advance(level, levelWork,
+                    Math.min(WORK_SLICE, checksRemaining));
+                checksRemaining -= Math.max(1, used);
+                if (!preparation.complete()) levelWork.enqueue(preparation);
+            }
         }
         cleanupLevel(level, levelWork);
     }
@@ -278,6 +290,9 @@ public final class WarheadPreImpactPreparationManager {
                 );
                 seed = entity.visualSeed();
                 effectiveCenter = WarheadExplosionWorkManager.resolveDetonationCenter(level, intendedTarget, yield);
+                WarheadExplosionWorkManager.prepareCraterMutationPlan(level, warheadId,
+                    effectiveCenter, yield, seed,
+                    Math.max(1, (int) (expiresAt - level.getGameTime())));
                 scheduleKnownNuclearTerrain(
                     level, warheadId, effectiveCenter, yield, seed,
                     Math.max(1, (int) (expiresAt - level.getGameTime()))
@@ -288,6 +303,7 @@ public final class WarheadPreImpactPreparationManager {
         }
 
         private void prepareForImpact(
+            final ServerLevel level,
             final Vec3 center,
             final WarheadYield actualYield,
             final long actualSeed,
@@ -296,6 +312,8 @@ public final class WarheadPreImpactPreparationManager {
             effectiveCenter = center;
             yield = actualYield;
             seed = actualSeed;
+            WarheadExplosionWorkManager.prepareCraterMutationPlan(
+                level, warheadId, center, actualYield, actualSeed, 1);
             sampler = WarheadDebrisSourceSampler.begin(center, actualYield, actualSeed, terrainCache);
         }
 

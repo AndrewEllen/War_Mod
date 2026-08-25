@@ -71,7 +71,9 @@ public final class WarheadImpactService {
 		boolean customFire = WarheadYieldRegistry.usesCustomFire(level, id, radarRootTrackId);
 		StrategicExplosionProfile craterProfile = StrategicExplosionProfiles.get(yield);
 		Vec3 effectivePosition = WarheadExplosionWorkManager.resolveDetonationCenter(level, pos, yield);
-		FireWindEngine.addExplosionImpulse(level, effectivePosition,
+		WarheadImpactEvent event = WarheadImpactEvent.create(id, level.getGameTime(),
+			effectivePosition, yield, seed);
+		FireWindEngine.addExplosionImpulse(level, event.impactPosition(),
 			48.0 + yield.visualScale() * (yield.nuclear() ? 72.0 : 38.0),
 			0.55 + yield.visualScale() * (yield.nuclear() ? 0.72 : 0.34),
 			yield.nuclear() ? 110 : 56);
@@ -80,57 +82,53 @@ public final class WarheadImpactService {
 				level,
 				id,
 				radarRootTrackId,
-				effectivePosition,
+				event.impactPosition(),
 				yield.payloadType(),
 				yield.visualScale()
 			);
 		}
 
-		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(
-			id,
-			effectivePosition.x,
-			effectivePosition.y,
-			effectivePosition.z,
-			level.getGameTime(),
-			seed,
-			yield.payloadType(),
-			yield.visualScale(),
-			yield.effectProfile()
-		), effectivePosition, customFire);
+		WarheadVisualNetworking.sendImpact(level, event.visualPayload(),
+			event.impactPosition(), customFire);
 
 		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks = TestExplosionService.createExplosion(
 			level,
 			owner,
 			id,
-			effectivePosition,
-			yield,
-			seed,
+			event.impactPosition(),
+			event.yield(),
+			event.seed(),
 			customFire
 		);
-		spawnDebris(level, id, effectivePosition, seed, destroyedBlocks, yield, craterProfile);
+		spawnDebris(level, event, destroyedBlocks, craterProfile);
 
 		float thudVolume = Mth.clamp(0.50F + yield.visualScale() * 0.09F, 0.55F, 1.15F);
-		AcousticEngine.playSound(
+		AcousticEngine.playSoundAtTime(
 			level,
-			effectivePosition,
+			event.impactPosition(),
 			AcousticSounds.WARHEAD_IMPACT_THUD_ID,
 			SoundSource.BLOCKS,
 			thudVolume,
-			Mth.clamp(1.08F - yield.visualScale() * 0.035F, 0.78F, 1.10F)
+			Mth.clamp(1.08F - yield.visualScale() * 0.035F, 0.78F, 1.10F),
+			event.impactServerTick(), event.acousticEventId("impact_thud"),
+			event.seed() ^ 0x494D504143545448L
 		);
-		AcousticEngine.playSound(
+		AcousticEngine.playSoundAtTime(
 			level,
-			effectivePosition,
+			event.impactPosition(),
 			yield == WarheadYield.HIGH_EXPLOSIVE
 				? AcousticSounds.TACTICAL_HE_EXPLOSION_ID
 				: AcousticSounds.LARGE_EXPLOSION_ID,
 			SoundSource.BLOCKS,
 			yield.acousticVolume(),
-			yield.acousticPitch()
+			yield.acousticPitch(), event.impactServerTick(),
+			event.acousticEventId("main_explosion"),
+			event.seed() ^ 0x4D41494E5F424F4FL
 		);
 
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
-			WarMod.LOGGER.info("Warhead {} impacted: yield={}, position={}", id, yield.getSerializedName(), effectivePosition);
+			WarMod.LOGGER.info("Warhead {} impacted: sequence={}, yield={}, position={}",
+				id, event.impactSequence(), yield.getSerializedName(), event.impactPosition());
 		}
 	}
 
@@ -168,13 +166,14 @@ public final class WarheadImpactService {
 
 	private static void spawnDebris(
 		final ServerLevel level,
-		final UUID impactId,
-		final Vec3 center,
-		final long seed,
+		final WarheadImpactEvent event,
 		final List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks,
-		final WarheadYield yield,
 		final StrategicExplosionProfile craterProfile
 	) {
+		UUID impactId = event.impactId();
+		Vec3 center = event.impactPosition();
+		long seed = event.seed();
+		WarheadYield yield = event.yield();
 		int blockBudget = Math.min(yield.maximumDebris(), destroyedBlocks.size());
 		if (blockBudget <= 0) return;
 		PriorityQueue<RankedDestroyedBlock> selected = new PriorityQueue<>(
@@ -262,7 +261,7 @@ public final class WarheadImpactService {
 			));
 		}
 		WarheadVisualNetworking.sendDebris(level, new ClientboundWarheadDebrisPayload(
-			impactId, center.x, center.y, center.z, level.getGameTime(), entries
+			impactId, center.x, center.y, center.z, event.impactServerTick(), entries
 		), center);
 	}
 

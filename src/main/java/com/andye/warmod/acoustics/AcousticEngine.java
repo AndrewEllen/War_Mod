@@ -40,6 +40,31 @@ public final class AcousticEngine {
 		return payload.eventId();
 	}
 
+	/** Emits a sound layer on an already-established authoritative event clock. */
+	public static UUID playSoundAtTime(
+		final ServerLevel level,
+		final Vec3 sourcePosition,
+		final Identifier definitionId,
+		final SoundSource soundSource,
+		final float volume,
+		final float pitch,
+		final long emissionGameTime,
+		final UUID eventId,
+		final long randomSeed
+	) {
+		AcousticSoundDefinition definition = validate(level, sourcePosition,
+			definitionId, soundSource, volume, pitch);
+		ClientboundAcousticEventPayload payload = payload(sourcePosition, definitionId,
+			soundSource, volume, pitch, emissionGameTime, eventId, randomSeed);
+		double maxDistanceSquared = definition.maximumDistanceBlocks()
+			* definition.maximumDistanceBlocks();
+		for (ServerPlayer player : PlayerLookup.level(level)) {
+			if (player.distanceToSqr(sourcePosition) <= maxDistanceSquared)
+				AcousticNetworking.send(player, payload);
+		}
+		return payload.eventId();
+	}
+
 	/** Sends a normal propagated event to one listener, used for listener-specific flybys. */
 	public static UUID playSoundFor(
 		final ServerPlayer player,
@@ -83,13 +108,21 @@ public final class AcousticEngine {
 	private static ClientboundAcousticEventPayload payload(final ServerLevel level,
 		final Vec3 sourcePosition, final Identifier definitionId,
 		final SoundSource soundSource, final float volume, final float pitch) {
+		return payload(sourcePosition, definitionId, soundSource, volume, pitch,
+			level.getGameTime(), UUID.randomUUID(), ThreadLocalRandom.current().nextLong());
+	}
+
+	private static ClientboundAcousticEventPayload payload(final Vec3 sourcePosition,
+		final Identifier definitionId, final SoundSource soundSource, final float volume,
+		final float pitch, final long emissionGameTime, final UUID eventId,
+		final long randomSeed) {
 		return new ClientboundAcousticEventPayload(
-			UUID.randomUUID(), definitionId,
+			eventId, definitionId,
 			sourcePosition.x, sourcePosition.y, sourcePosition.z,
-			level.getGameTime(),
+			emissionGameTime,
 			Math.max(0.0F, Math.min(4.0F, volume)),
 			Math.max(0.10F, Math.min(4.0F, pitch)),
-			ThreadLocalRandom.current().nextLong(), soundSource
+			randomSeed, soundSource
 		);
 	}
 }

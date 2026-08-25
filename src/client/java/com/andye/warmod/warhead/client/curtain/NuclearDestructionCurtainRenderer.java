@@ -1,5 +1,8 @@
 package com.andye.warmod.warhead.client.curtain;
 
+import com.andye.warmod.particle.gpu.GpuParticleEngine;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.EmitterCommand;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
 import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainManager.CurtainAnchor;
 import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainManager.CurtainBandView;
 import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainManager.CurtainImpactView;
@@ -41,7 +44,10 @@ public final class NuclearDestructionCurtainRenderer {
         List<CurtainImpactView> visible = new ArrayList<>();
         for (CurtainImpactView impact : ClientNuclearCurtainManager.INSTANCE.snapshot(level)) {
             if (impact.center().distanceTo(camera.pos) <= MAX_DISTANCE + 96.0
-                && !impact.bands().isEmpty()) visible.add(impact);
+                && !impact.bands().isEmpty()) {
+                visible.add(impact);
+                submitGpuCurtain(impact, camera.pos, level.getGameTime());
+            }
         }
         frame = visible.isEmpty() ? Frame.EMPTY : new Frame(camera.pos,
             camera.orientation == null ? new Quaternionf() : new Quaternionf(camera.orientation),
@@ -52,9 +58,40 @@ public final class NuclearDestructionCurtainRenderer {
     private static void submit(final LevelRenderContext context) {
         Frame snapshot = frame;
         if (snapshot == Frame.EMPTY || snapshot.impacts().isEmpty() || context.poseStack() == null) return;
+        if (GpuParticleEngine.isGpuActive()) return;
         context.submitNodeCollector().submitCustomGeometry(context.poseStack(),
             NuclearCurtainRenderPipelines.curtain(),
 			(pose, buffer) -> render(pose, buffer, snapshot));
+    }
+
+    private static void submitGpuCurtain(final CurtainImpactView impact,
+        final Vec3 camera, final long gameTime) {
+        int submitted = 0;
+        for (CurtainBandView band : impact.bands()) {
+            double age = Math.max(0.0, gameTime - band.spawnGameTime());
+            if (age > BAND_HOLD_TICKS + BAND_FADE_TICKS) continue;
+            float fade = (float) Math.pow(1.0 - Mth.clamp(
+                (age - BAND_HOLD_TICKS) / BAND_FADE_TICKS, 0.0, 1.0), 1.18);
+            List<CurtainAnchor> anchors = band.anchors();
+            for (int index = 0; index < anchors.size() && submitted < 1_536; index++) {
+                CurtainAnchor anchor = anchors.get(index);
+                double distance = anchor.position().distanceTo(camera);
+                int stride = distance > 960.0 ? 6 : distance > 480.0 ? 3 : 1;
+                if (index % stride != 0) continue;
+                DustColour colour = dustColour(anchor.seed());
+                GpuParticleEngine.submit(new EmitterCommand(anchor.position(),
+                    new Vec3(0.0, 0.18 + anchor.height() * 0.12, 0.0),
+                    impact.visualScale(), 5.8F,
+                    colour.red() / 255.0F, colour.green() / 255.0F,
+                    colour.blue() / 255.0F, Math.max(1.4F, anchor.width() * 0.24F),
+                    Math.max(0.8F, anchor.width() * 0.32F), 0.35F,
+                    Math.max(1, Math.round(8.0F * fade)),
+                    (int) (anchor.seed() ^ anchor.seed() >>> 32),
+                    ParticleType.CURTAIN, 0));
+                submitted++;
+            }
+            if (submitted >= 1_536) break;
+        }
     }
 
     private static void render(final PoseStack.Pose pose, final VertexConsumer buffer,

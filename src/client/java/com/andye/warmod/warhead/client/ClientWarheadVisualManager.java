@@ -6,6 +6,9 @@ import com.andye.warmod.warhead.WarheadEffectProfile;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.WarheadYieldScaling;
+import com.andye.warmod.warhead.client.render.ConventionalBlastParticleRenderer;
+import com.andye.warmod.warhead.client.render.NuclearParticleCloudRenderer;
+import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
@@ -39,6 +42,8 @@ public final class ClientWarheadVisualManager {
 	private final Set<UUID> deliveredVisualShake = new HashSet<>();
 	private final Set<UUID> deliveredReturnShake = new HashSet<>();
 	private final Set<UUID> nuclearFlashExposed = new HashSet<>();
+	private final Map<UUID, Long> highestStateSequences = new LinkedHashMap<>();
+	private final Set<UUID> terminalWarheads = new HashSet<>();
 	private ClientLevel activeLevel;
 
 	private ClientWarheadVisualManager() {
@@ -46,6 +51,7 @@ public final class ClientWarheadVisualManager {
 
 	public synchronized void acceptLaunch(final ClientboundWarheadLaunchPayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
+		if (!this.acceptSequence(payload.warheadId(), payload.stateSequence(), false)) return;
 		this.activeWarheads.remove(payload.warheadId());
 		this.removeOldestIfAtCapacity(this.activeWarheads, WarheadConstants.MAX_ACTIVE_CLIENT_WARHEADS);
 		this.activeWarheads.put(payload.warheadId(), WarheadVisualState.fromPayload(payload));
@@ -53,6 +59,7 @@ public final class ClientWarheadVisualManager {
 
 	public synchronized void acceptImpact(final ClientboundWarheadImpactPayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
+		if (!this.acceptSequence(payload.warheadId(), payload.stateSequence(), true)) return;
 		ImpactVisualState existing = this.activeImpacts.get(payload.warheadId());
 		if (existing != null
 			&& existing.visualSeed() == payload.visualSeed()
@@ -81,12 +88,14 @@ public final class ClientWarheadVisualManager {
 
 	public synchronized void acceptTimingCorrection(final ClientboundWarheadTimingCorrectionPayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
+		if (!this.acceptSequence(payload.warheadId(), payload.stateSequence(), false)) return;
 		WarheadVisualState state = this.activeWarheads.get(payload.warheadId());
 		if (state != null) state.applyTimingCorrection(payload);
 	}
 
 	public synchronized void acceptRemove(final ClientboundWarheadRemovePayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
+		if (!this.acceptSequence(payload.warheadId(), payload.stateSequence(), true)) return;
 		this.activeWarheads.remove(payload.warheadId());
 	}
 
@@ -146,8 +155,13 @@ public final class ClientWarheadVisualManager {
 		this.deliveredVisualShake.clear();
 		this.deliveredReturnShake.clear();
 		this.nuclearFlashExposed.clear();
+		this.highestStateSequences.clear();
+		this.terminalWarheads.clear();
 		TerrainSurfaceCache.INSTANCE.clear();
 		ClientDebrisBatchManager.INSTANCE.clear();
+		ConventionalBlastParticleRenderer.clearLevel();
+		NuclearParticleCloudRenderer.clearLevel();
+		GpuParticleEngine.clearLevel();
 		this.activeLevel = null;
 	}
 
@@ -164,8 +178,13 @@ public final class ClientWarheadVisualManager {
 			this.deliveredVisualShake.clear();
 			this.deliveredReturnShake.clear();
 			this.nuclearFlashExposed.clear();
+			this.highestStateSequences.clear();
+			this.terminalWarheads.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
+			ConventionalBlastParticleRenderer.clearLevel();
+			NuclearParticleCloudRenderer.clearLevel();
+			GpuParticleEngine.clearLevel();
 			this.activeLevel = null;
 			return false;
 		}
@@ -176,9 +195,28 @@ public final class ClientWarheadVisualManager {
 			this.deliveredVisualShake.clear();
 			this.deliveredReturnShake.clear();
 			this.nuclearFlashExposed.clear();
+			this.highestStateSequences.clear();
+			this.terminalWarheads.clear();
 			TerrainSurfaceCache.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
+			ConventionalBlastParticleRenderer.clearLevel();
+			NuclearParticleCloudRenderer.clearLevel();
+			GpuParticleEngine.clearLevel();
 			this.activeLevel = level;
+		}
+		return true;
+	}
+
+	private boolean acceptSequence(final UUID id, final long sequence,
+		final boolean terminal) {
+		if (id == null || sequence <= this.highestStateSequences.getOrDefault(id, 0L)
+			|| this.terminalWarheads.contains(id)) return false;
+		this.highestStateSequences.put(id, sequence);
+		if (terminal) this.terminalWarheads.add(id);
+		while (this.highestStateSequences.size() > 512) {
+			UUID oldest = this.highestStateSequences.keySet().iterator().next();
+			this.highestStateSequences.remove(oldest);
+			this.terminalWarheads.remove(oldest);
 		}
 		return true;
 	}

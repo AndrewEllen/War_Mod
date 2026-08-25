@@ -10,11 +10,13 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
 /** Sparse authoritative fire-patch snapshot; particles are reconstructed client-side. */
-public record ClientboundFireStatePayload(long serverGameTime, boolean complete, List<Entry> entries,
+public record ClientboundFireStatePayload(long serverGameTime, long generation,
+    boolean complete, List<Entry> entries, List<Long> removedPatchIds,
     boolean emberComplete, List<EmberEntry> embers, boolean smokeClusterComplete,
     List<SmokeClusterEntry> smokeClusters)
     implements CustomPacketPayload {
     public static final int MAX_ENTRIES = 768;
+	public static final int MAX_REMOVED_ENTRIES = 768;
 	public static final int MAX_EMBERS = 96;
     public static final int MAX_SMOKE_CLUSTERS = 192;
     public static final Type<ClientboundFireStatePayload> TYPE = new Type<>(
@@ -25,6 +27,7 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
     private static void write(final RegistryFriendlyByteBuf buffer,
         final ClientboundFireStatePayload payload) {
         buffer.writeLong(payload.serverGameTime);
+        buffer.writeLong(payload.generation);
         buffer.writeBoolean(payload.complete);
         int count = Math.min(MAX_ENTRIES, payload.entries.size());
         buffer.writeVarInt(count);
@@ -40,6 +43,10 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
             buffer.writeFloat(entry.windX); buffer.writeFloat(entry.windY);
             buffer.writeFloat(entry.windZ);
         }
+		int removedCount = Math.min(MAX_REMOVED_ENTRIES, payload.removedPatchIds.size());
+		buffer.writeVarInt(removedCount);
+		for (int index = 0; index < removedCount; index++)
+			buffer.writeLong(payload.removedPatchIds.get(index));
 		buffer.writeBoolean(payload.emberComplete);
 		int emberCount = Math.min(MAX_EMBERS, payload.embers.size());
 		buffer.writeVarInt(emberCount);
@@ -70,6 +77,7 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
 
     private static ClientboundFireStatePayload read(final RegistryFriendlyByteBuf buffer) {
         long gameTime = buffer.readLong();
+        long generation = buffer.readLong();
         boolean complete = buffer.readBoolean();
         int count = buffer.readVarInt();
         if (count < 0 || count > MAX_ENTRIES)
@@ -89,6 +97,11 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
                 intensity, heat, coverage, smoke, phase, seed, ignition,
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat()));
         }
+		int removedCount = buffer.readVarInt();
+		if (removedCount < 0 || removedCount > MAX_REMOVED_ENTRIES)
+			throw new IllegalArgumentException("Invalid removed fire entry count");
+		List<Long> removed = new ArrayList<>(removedCount);
+		for (int index = 0; index < removedCount; index++) removed.add(buffer.readLong());
 		boolean emberComplete = buffer.readBoolean();
 		int emberCount = buffer.readVarInt();
 		if (emberCount < 0 || emberCount > MAX_EMBERS)
@@ -109,15 +122,18 @@ public record ClientboundFireStatePayload(long serverGameTime, boolean complete,
                 buffer.readDouble(), buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat(), buffer.readLong(),
                 buffer.readVarInt()));
-        return new ClientboundFireStatePayload(gameTime, complete, List.copyOf(entries),
-			emberComplete, List.copyOf(embers), smokeClusterComplete, List.copyOf(smokeClusters));
+        return new ClientboundFireStatePayload(gameTime, generation, complete,
+            List.copyOf(entries), List.copyOf(removed), emberComplete, List.copyOf(embers),
+            smokeClusterComplete, List.copyOf(smokeClusters));
     }
 
     public boolean isWellFormed() {
-        if (entries == null || entries.size() > MAX_ENTRIES || embers == null
+        if (generation < 0L || entries == null || entries.size() > MAX_ENTRIES
+            || removedPatchIds == null || removedPatchIds.size() > MAX_REMOVED_ENTRIES || embers == null
 			|| embers.size() > MAX_EMBERS || smokeClusters == null
             || smokeClusters.size() > MAX_SMOKE_CLUSTERS) return false;
         for (Entry entry : entries) if (entry == null || !entry.isWellFormed()) return false;
+		for (Long id : removedPatchIds) if (id == null || id <= 0L) return false;
 		for (EmberEntry ember : embers) if (ember == null || !ember.isWellFormed()) return false;
 		for (SmokeClusterEntry cluster : smokeClusters)
             if (cluster == null || !cluster.isWellFormed()) return false;
