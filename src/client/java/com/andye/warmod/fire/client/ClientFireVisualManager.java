@@ -6,6 +6,7 @@ import com.andye.warmod.fire.FireSurfaceAnchor;
 import com.andye.warmod.fire.network.ClientboundFireStatePayload;
 import com.andye.warmod.fire.network.ClientboundFireWindImpulsePayload;
 import com.andye.warmod.fire.wind.FireWindImpulse;
+import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.ArrayDeque;
@@ -36,8 +37,15 @@ public final class ClientFireVisualManager {
 
     public synchronized void accept(final ClientboundFireStatePayload payload) {
         ClientLevel level = Minecraft.getInstance().level;
-        if (!payload.isWellFormed() || !ensureCurrentLevel(level)) return;
-        if (payload.generation() <= highestGeneration) return;
+        if (payload == null || !payload.isWellFormed() || !ensureCurrentLevel(level)) {
+            GpuParticleEngine.recordFirePacket(false, false);
+            return;
+        }
+        if (payload.generation() <= highestGeneration) {
+            GpuParticleEngine.recordFirePacket(false, true);
+            return;
+        }
+        GpuParticleEngine.recordFirePacket(true, false);
         highestGeneration = payload.generation();
         long receivedAt = level.getGameTime();
         boolean patchUpdate = payload.complete() || !payload.entries().isEmpty();

@@ -8,13 +8,17 @@ import com.andye.warmod.fire.client.ClientFireVisualManager.VisualSmokeCluster;
 import com.andye.warmod.fire.client.ClientSmokeFlowField;
 import com.andye.warmod.fire.client.ClientSmokeFlowField.SmokeFlow;
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
-import com.andye.warmod.particle.gpu.GpuParticleEngine.EmitterCommand;
-import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldCluster;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldEmber;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldPatch;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldSubmission;
 import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
@@ -30,6 +34,7 @@ public final class FireWorldRenderer {
     private static final double MAX_DISTANCE = 320.0;
     private static final double MIN_SMOKE_CLUSTER_DISTANCE = 288.0;
     private static final double MAX_SMOKE_CLUSTER_DISTANCE = 1_536.0;
+    private static final int GPU_FIELD_CELL_SIZE = 64;
     private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
     private static boolean registered;
 
@@ -48,6 +53,7 @@ public final class FireWorldRenderer {
         CameraRenderState camera = context.levelState().cameraRenderState;
         if (level == null || camera == null || camera.pos == null) {
             currentFrame = RenderFrame.EMPTY;
+            GpuParticleEngine.recordClientFirePatches(0);
             ClientPerformanceTelemetry.recordFireNanos(
                 Math.max(0L, System.nanoTime() - extractionStarted));
             return;
@@ -57,31 +63,41 @@ public final class FireWorldRenderer {
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         double gameTime = level.getGameTime()
             + context.deltaTracker().getGameTimeDeltaPartialTick(true);
+        boolean packedFallback = !GpuParticleEngine.isGpuActive();
         List<FireRenderPatch> patches = new ArrayList<>();
-        for (VisualPatch patch : ClientFireVisualManager.INSTANCE.snapshot(level)) {
+        List<VisualPatch> clientPatches = ClientFireVisualManager.INSTANCE.snapshot(level);
+        GpuParticleEngine.recordClientFirePatches(clientPatches.size());
+        Map<Long, FireFieldBuilder> gpuFields = new LinkedHashMap<>();
+        for (VisualPatch patch : clientPatches) {
             Vec3 worldPosition = patch.anchor().position();
             double distance = worldPosition.distanceTo(cameraPosition);
             if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
             Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
                 patch.wind(), gameTime);
-            SmokeFlow smokeFlow = ClientSmokeFlowField.INSTANCE.request(level,
-                patch.anchor(), level.getGameTime());
-            submitGpuFire(worldPosition, wind, patch.intensity(), patch.heat(),
-                patch.coverage(), patch.smoke(), patch.seed(), distance);
-            patches.add(new FireRenderPatch(worldPosition.subtract(cameraPosition),
-                patch.anchor().face(), patch.intensity(), patch.heat(), patch.coverage(),
-                patch.smoke(), patch.phase(), patch.seed(), patch.ignitionGameTime(),
-				wind, patch.clumpStrength(), distance, smokeFlow));
+            field(gpuFields, worldPosition).patches.add(new FireFieldPatch(patch.id(),
+                worldPosition, wind, patch.intensity(), patch.heat(), patch.coverage(),
+                patch.smoke(), patch.seed()));
+            if (packedFallback) {
+                SmokeFlow smokeFlow = ClientSmokeFlowField.INSTANCE.request(level,
+                    patch.anchor(), level.getGameTime());
+                patches.add(new FireRenderPatch(worldPosition.subtract(cameraPosition),
+                    patch.anchor().face(), patch.intensity(), patch.heat(), patch.coverage(),
+                    patch.smoke(), patch.phase(), patch.seed(), patch.ignitionGameTime(),
+					wind, patch.clumpStrength(), distance, smokeFlow));
+            }
         }
 		List<FireRenderEmber> embers = new ArrayList<>();
 		for (VisualEmber ember : ClientFireVisualManager.INSTANCE.emberSnapshot(level)) {
 			Vec3 worldPosition = ember.position();
 			double distance = worldPosition.distanceTo(cameraPosition);
 			if (!Double.isFinite(distance) || distance > MAX_DISTANCE) continue;
-			GpuParticleEngine.submit(new EmitterCommand(worldPosition, ember.velocity(), 1.0F,
-				0.55F, 1.0F, 0.42F, 0.08F, 0.085F, 0.08F, 0.30F,
-				24, foldSeed(ember.seed()), ParticleType.EMBER, 0));
-			List<FireRenderEmberTrail> trail = ember.trail().stream()
+            float emberImportance = Math.max(0.1F, ember.intensity()
+                * (0.85F + (float) Math.min(1.5, ember.velocity().length()) * 0.35F));
+            field(gpuFields, worldPosition).embers.add(new FireFieldEmber(ember.id(),
+                worldPosition, ember.velocity(), Math.max(0.05F, ember.intensity()),
+                0.075F + ember.intensity() * 0.035F, emberImportance, ember.seed()));
+            if (!packedFallback) continue;
+            List<FireRenderEmberTrail> trail = ember.trail().stream()
 				.map(sample -> new FireRenderEmberTrail(
 					sample.position().subtract(cameraPosition),
                     ClientFireVisualManager.INSTANCE.effectiveWind(sample.position(),
@@ -101,20 +117,20 @@ public final class FireWorldRenderer {
                 || distance > MAX_SMOKE_CLUSTER_DISTANCE) continue;
             Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
                 cluster.wind(), gameTime);
-            float clusterScale = Math.max(1.0F, cluster.radius());
-            GpuParticleEngine.submit(new EmitterCommand(worldPosition,
-                wind.scale(0.18).add(0.0, 0.85, 0.0), clusterScale, 5.5F,
-                0.17F, 0.18F, 0.17F, Math.max(2.0F, clusterScale * 0.35F),
-                Math.max(1.0F, clusterScale * 0.45F), 0.38F,
-                Math.min(900, 70 + cluster.memberCount() * 3), foldSeed(cluster.seed()),
-                ParticleType.SMOKE, 0));
-            smokeClusters.add(new FireRenderSmokeCluster(worldPosition.subtract(cameraPosition),
-                cluster.smoke(), cluster.heat(), cluster.radius(), wind, cluster.seed(),
-                cluster.memberCount(), distance));
+            field(gpuFields, worldPosition).clusters.add(new FireFieldCluster(cluster.id(),
+                worldPosition, wind, cluster.smoke(), cluster.heat(), cluster.radius(),
+                cluster.memberCount(), cluster.seed()));
+            if (packedFallback) smokeClusters.add(new FireRenderSmokeCluster(
+                worldPosition.subtract(cameraPosition), cluster.smoke(), cluster.heat(),
+                cluster.radius(), wind, cluster.seed(), cluster.memberCount(), distance));
         }
         currentFrame = patches.isEmpty() && embers.isEmpty() && smokeClusters.isEmpty()
             ? RenderFrame.EMPTY : new RenderFrame(gameTime, orientation, List.copyOf(patches),
                 List.copyOf(embers), List.copyOf(smokeClusters));
+        for (FireFieldBuilder builder : gpuFields.values()) {
+            FireFieldSubmission submission = builder.finish();
+            if (submission != null) GpuParticleEngine.submitFireField(submission);
+        }
         ClientPerformanceTelemetry.recordFireNanos(
             Math.max(0L, System.nanoTime() - extractionStarted));
     }
@@ -156,29 +172,51 @@ public final class FireWorldRenderer {
 				frame.gameTime(), frame.embers(), frame.cameraOrientation()));
     }
 
-    private static void submitGpuFire(final Vec3 position, final Vec3 wind,
-        final float intensity, final float heat, final float coverage,
-        final float smoke, final long seed, final double distance) {
-        float lod = distance < 96.0 ? 1.0F : distance < 224.0 ? 0.55F : 0.24F;
-        float scale = Math.max(0.18F, coverage * (0.55F + intensity * 0.55F));
-        int folded = foldSeed(seed);
-        GpuParticleEngine.submit(new EmitterCommand(position,
-            wind.scale(0.10).add(0.0, 1.2 + heat * 0.9, 0.0), scale,
-            0.75F + intensity * 0.45F, 1.0F, 0.22F + heat * 0.34F, 0.035F,
-            0.13F + scale * 0.20F, 0.10F + scale * 0.24F, 0.50F,
-            Math.max(3, Math.round((42.0F + intensity * 80.0F) * lod)), folded,
-            ParticleType.FIRE, 0));
-        if (smoke > 0.02F) {
-            GpuParticleEngine.submit(new EmitterCommand(position.add(0.0, 0.3, 0.0),
-                wind.scale(0.22).add(0.0, 0.72 + heat * 0.36, 0.0), scale,
-                3.2F + smoke * 2.4F, 0.16F, 0.17F, 0.16F,
-                0.45F + scale * 0.48F, 0.18F + scale * 0.34F, 0.32F,
-                Math.max(2, Math.round((18.0F + smoke * 46.0F) * lod)),
-                folded ^ 0x534D4F4B, ParticleType.SMOKE, 0));
-        }
+    private static FireFieldBuilder field(final Map<Long, FireFieldBuilder> fields,
+        final Vec3 position) {
+        int cellX = Math.floorDiv((int) Math.floor(position.x), GPU_FIELD_CELL_SIZE);
+        int cellZ = Math.floorDiv((int) Math.floor(position.z), GPU_FIELD_CELL_SIZE);
+        long key = ((long) cellX << 32) ^ (cellZ & 0xFFFF_FFFFL);
+        return fields.computeIfAbsent(key, ignored -> new FireFieldBuilder(key));
     }
 
-    private static int foldSeed(final long seed) { return (int) (seed ^ seed >>> 32); }
+    private static final class FireFieldBuilder {
+        private final long regionId;
+        private final List<FireFieldPatch> patches = new ArrayList<>();
+        private final List<FireFieldEmber> embers = new ArrayList<>();
+        private final List<FireFieldCluster> clusters = new ArrayList<>();
+
+        private FireFieldBuilder(final long regionId) { this.regionId = regionId; }
+
+        private FireFieldSubmission finish() {
+            if (patches.isEmpty() && embers.isEmpty() && clusters.isEmpty()) return null;
+            double x = 0.0, y = 0.0, z = 0.0;
+            int count = 0;
+            for (FireFieldPatch patch : patches) {
+                x += patch.position().x; y += patch.position().y; z += patch.position().z;
+                count++;
+            }
+            for (FireFieldEmber ember : embers) {
+                x += ember.position().x; y += ember.position().y; z += ember.position().z;
+                count++;
+            }
+            for (FireFieldCluster cluster : clusters) {
+                x += cluster.position().x; y += cluster.position().y; z += cluster.position().z;
+                count++;
+            }
+            Vec3 center = new Vec3(x / Math.max(1, count), y / Math.max(1, count),
+                z / Math.max(1, count));
+            double radius = 4.0;
+            for (FireFieldPatch patch : patches)
+                radius = Math.max(radius, center.distanceTo(patch.position()) + 2.0);
+            for (FireFieldEmber ember : embers)
+                radius = Math.max(radius, center.distanceTo(ember.position()) + 2.0);
+            for (FireFieldCluster cluster : clusters)
+                radius = Math.max(radius, center.distanceTo(cluster.position()) + cluster.radius());
+            return new FireFieldSubmission(regionId, center, (float) Math.min(128.0, radius),
+                List.copyOf(patches), List.copyOf(embers), List.copyOf(clusters));
+        }
+    }
 
     record FireRenderPatch(Vec3 relativePosition, Direction face, float intensity,
         float heat, float coverage, float smoke, FirePhase phase, long seed,

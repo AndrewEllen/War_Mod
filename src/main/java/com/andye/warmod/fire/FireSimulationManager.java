@@ -313,9 +313,19 @@ public final class FireSimulationManager {
         long now = level.getGameTime();
         boolean hadPatches = state.activePatchCount > 0;
         boolean hadEmbers = !state.embers.isEmpty();
+        boolean hasViewers = !PlayerLookup.level(level).isEmpty();
+        if (hasViewers && now % NETWORK_INTERVAL_TICKS == 0L)
+            state.patchRefreshPending = true;
+        if (hasViewers && (hadEmbers || !state.embers.isEmpty())
+            && now % EMBER_NETWORK_INTERVAL_TICKS == 0L) state.emberRefreshPending = true;
         state.newIgnitionsThisTick = 0;
+        /* A due replication cycle keeps a small share of the normal 8 ms lane.
+           Dense fire can otherwise consume the entire cooperative allowance on
+           every tick and starve the first visual snapshot indefinitely. */
+        long activeBudget = state.patchRefreshPending || state.emberRefreshPending
+            ? Math.min(FIRE_TICK_BUDGET_NANOS, 7_000_000L) : FIRE_TICK_BUDGET_NANOS;
         try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
-            WorkClass.FIRE_ACTIVE, FIRE_TICK_BUDGET_NANOS)) {
+            WorkClass.FIRE_ACTIVE, activeBudget)) {
             if (permit.available()) {
                 long simulationDeadline = permit.deadlineNanos();
                 expireDormantPatches(state, now, simulationDeadline);
@@ -339,18 +349,23 @@ public final class FireSimulationManager {
             }
         }
 
-        boolean hasViewers = !PlayerLookup.level(level).isEmpty();
-        boolean patchCycle = hasViewers && ((hadPatches && state.activePatchCount == 0)
-            || now % NETWORK_INTERVAL_TICKS == 0L);
-        boolean emberCycle = hasViewers && (hadEmbers || !state.embers.isEmpty())
-            && now % EMBER_NETWORK_INTERVAL_TICKS == 0L;
-        if (patchCycle || emberCycle) {
+        if (hasViewers && hadPatches && state.activePatchCount == 0)
+            state.patchRefreshPending = true;
+        if (!hasViewers) {
+            state.patchRefreshPending = false;
+            state.emberRefreshPending = false;
+        }
+        if (state.patchRefreshPending || state.emberRefreshPending) {
             try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
                 WorkClass.FIRE_NETWORK, 4_000_000L)) {
                 if (permit.available()) {
                     long snapshotDiagnosticsStarted = WarModPerformanceDiagnostics.begin();
-                    sendAreaOfInterestDeltas(level, state, now, patchCycle,
-                        permit.deadlineNanos());
+                    boolean queued = sendAreaOfInterestDeltas(level, state, now,
+                        state.patchRefreshPending, permit.deadlineNanos());
+                    if (queued) {
+                        state.patchRefreshPending = false;
+                        state.emberRefreshPending = false;
+                    }
                     WarModPerformanceDiagnostics.record(
                         WarModPerformanceDiagnostics.Subsystem.FIRE_SNAPSHOT_PREPARATION,
                         snapshotDiagnosticsStarted);
@@ -1206,11 +1221,11 @@ public final class FireSimulationManager {
         for (Patch candidate : matches) removePatch(state, candidate);
     }
 
-    private static void sendAreaOfInterestDeltas(final ServerLevel level,
+    private static boolean sendAreaOfInterestDeltas(final ServerLevel level,
         final LevelState state, final long now, final boolean includePatches,
         final long deadline) {
         List<ServerPlayer> players = List.copyOf(PlayerLookup.level(level));
-        if (players.isEmpty()) return;
+        if (players.isEmpty()) return false;
         state.replicationGeneration++;
         HashSet<java.util.UUID> present = new HashSet<>();
         List<FireNetworking.ViewerDelta> deltas = new ArrayList<>(players.size());
@@ -1224,6 +1239,7 @@ public final class FireSimulationManager {
         }
         state.viewerReplication.keySet().retainAll(present);
         FireNetworking.sendDeltas(level, deltas);
+        return !deltas.isEmpty();
     }
 
     private static FireNetworking.ViewerDelta buildViewerDelta(final ServerLevel level,
@@ -1704,6 +1720,8 @@ public final class FireSimulationManager {
         private long lastHealthyNuclearEvictionTick = Long.MIN_VALUE;
         private int activePatchCount;
         private int newIgnitionsThisTick;
+        private boolean patchRefreshPending;
+        private boolean emberRefreshPending;
     }
 
     private static final class Patch {

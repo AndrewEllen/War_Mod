@@ -1,8 +1,11 @@
 package com.andye.warmod.warhead.client.curtain;
 
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectClass;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectHandle;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EmitterCommand;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.VisualLayer;
 import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainManager.CurtainAnchor;
 import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainManager.CurtainBandView;
 import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainManager.CurtainImpactView;
@@ -67,6 +70,7 @@ public final class NuclearDestructionCurtainRenderer {
     private static void submitGpuCurtain(final CurtainImpactView impact,
         final Vec3 camera, final long gameTime) {
         int submitted = 0;
+        List<EmitterCommand> curtain = new ArrayList<>();
         for (CurtainBandView band : impact.bands()) {
             double age = Math.max(0.0, gameTime - band.spawnGameTime());
             if (age > BAND_HOLD_TICKS + BAND_FADE_TICKS) continue;
@@ -79,7 +83,7 @@ public final class NuclearDestructionCurtainRenderer {
                 int stride = distance > 960.0 ? 6 : distance > 480.0 ? 3 : 1;
                 if (index % stride != 0) continue;
                 DustColour colour = dustColour(anchor.seed());
-                GpuParticleEngine.submit(new EmitterCommand(anchor.position(),
+                curtain.add(new EmitterCommand(anchor.position(),
                     new Vec3(0.0, 0.18 + anchor.height() * 0.12, 0.0),
                     impact.visualScale(), 5.8F,
                     colour.red() / 255.0F, colour.green() / 255.0F,
@@ -91,6 +95,12 @@ public final class NuclearDestructionCurtainRenderer {
                 submitted++;
             }
             if (submitted >= 1_536) break;
+        }
+        if (!curtain.isEmpty()) {
+            float bounds = 96.0F + impact.visualScale() * 640.0F;
+            EffectHandle effect = GpuParticleEngine.beginEffect(EffectClass.CURTAIN,
+                GpuParticleEngine.stableId(impact.id()), impact.center(), bounds, 1.25F);
+            effect.submitLayer(VisualLayer.GROUND_CURTAIN, List.copyOf(curtain));
         }
     }
 

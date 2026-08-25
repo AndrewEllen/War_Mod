@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead.client.render;
 
+import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import com.andye.warmod.warhead.client.WarheadDebrisTuning;
 import com.andye.warmod.warhead.network.ClientboundWarheadRenderControlPayload;
 import net.minecraft.client.Minecraft;
@@ -68,6 +69,8 @@ public final class WarheadRenderCommands {
 
     private static void status() {
         WarheadWorldRenderer.DebugSnapshot debug = WarheadWorldRenderer.debugSnapshot();
+        GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
+        GpuParticleEngine.FireDebugCounters fire = gpu.fire();
         feedback("War Mod renderer=" + WarheadRenderSettings.displayName()
             + ", budget=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
             + ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()
@@ -76,7 +79,19 @@ public final class WarheadRenderCommands {
             + ", spawned/tick=" + debug.spawnedParticlesPerTick()
             + ", culled=" + debug.culledParticles()
             + ", debris=" + debug.activeDebrisFragments()
-            + ", backend=" + debug.activeRenderBackend());
+            + ", backend=" + debug.activeRenderBackend()
+            + ", vfxQuality=" + String.format(java.util.Locale.ROOT, "%.2f", gpu.adaptiveQuality())
+            + ", vfxLayers=" + gpu.scheduledLayers()
+            + ", vfxEmitters=" + gpu.scheduledEmitters());
+        feedback("War Mod fire VFX: clientPatches=" + fire.clientPatches()
+            + ", fieldSubmissions=" + fire.fieldSubmissions()
+            + ", fireSpawned=" + fire.fireSpawned()
+            + ", fireVisible=" + fire.fireVisible()
+            + ", smokeSpawned=" + fire.smokeSpawned()
+            + ", smokeVisible=" + fire.smokeVisible()
+            + ", packetsAccepted=" + fire.acceptedPackets()
+            + ", packetsRejected=" + fire.rejectedPackets()
+            + ", stalePackets=" + fire.stalePackets());
     }
 
     private static void feedback(final String message) {

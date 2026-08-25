@@ -52,5 +52,5 @@ void main() {
     particles[slot].colour_size = vec4(emitter.colour.rgb,
         emitter.parameters.x * mix(0.72, 1.28, unit(seed ^ 0xfd7046c5u)));
     particles[slot].metadata = uvec4(emitter.metadata.z, emitter.metadata.y,
-        emitter.metadata.w, 0u);
+        emitter.metadata.w, floatBitsToUint(emitter.colour.a));
 }
