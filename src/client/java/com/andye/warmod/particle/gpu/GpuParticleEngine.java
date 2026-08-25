@@ -133,7 +133,7 @@ public final class GpuParticleEngine {
     private static boolean registered, resetRequested, extensionShaderPath;
     private static boolean backendSwitchRequested, diagnosticStateLogged;
     private static int particleBuffer, emitterBuffer, visibleBuffer, indirectBuffer;
-    private static int deadListBuffer, dispatchBuffer, vertexArray;
+    private static int deadListBuffer, dispatchBuffer, vertexArray, statsScratchBuffer;
     private static final int[] aliveBuffers = new int[2];
     private static final int[] statsBuffers = new int[STATS_RING_SIZE];
     private static final long[] statsFences = new long[STATS_RING_SIZE];
@@ -170,6 +170,7 @@ public final class GpuParticleEngine {
     private static int receivedFirePatchEntries, storedFirePatches;
     private static long deadSlots = PARTICLE_CAPACITY;
     private static long distanceCulled, sizeCulled, frustumCulled;
+    private static long statsReadbackSkipped;
     private static long debugSamplesPassed = -1L;
     private static ProbeStage automaticProbeStage = ProbeStage.DEPTH_DISABLED;
     private static boolean depthDisabledProbePassed, depthEnabledProbePassed;
@@ -290,7 +291,7 @@ public final class GpuParticleEngine {
             rejectedParticles, deadSlots,
             PARTICLE_CAPACITY, vram, gpuTimings(), adaptiveQuality,
             scheduledLayerCount, scheduledEmitterCount, distanceCulled, sizeCulled,
-            frustumCulled, diagnosticMode, debugSamplesPassed, fire);
+            frustumCulled, statsReadbackSkipped, diagnosticMode, debugSamplesPassed, fire);
     }
 
     private static synchronized void submitLayer(final EffectDescriptor descriptor,
@@ -358,7 +359,9 @@ public final class GpuParticleEngine {
                 viewportWidth, viewportHeight);
             collectCompletedStats();
             int statsSlot = acquireStatsSlot();
-            resetFrameBuffers(stack, statsSlot);
+            int frameStatsBuffer = statsSlot >= 0
+                ? statsBuffers[statsSlot] : statsScratchBuffer;
+            resetFrameBuffers(stack, frameStatsBuffer);
             long schedulerStarted = System.nanoTime();
             ScheduledFrame scheduled = GpuVfxScheduler.schedule(submissions,
                 cameraInfo, adaptiveQuality, frameSequence, deltaSeconds,
@@ -370,7 +373,7 @@ public final class GpuParticleEngine {
             int spawned = uploadEmitters(scheduled.emitters(), deltaSeconds);
             requestedParticles += spawned;
 
-            bindStorageBuffers(statsSlot);
+            bindStorageBuffers(frameStatsBuffer);
             prepareDispatch(false);
             runTimedGpuStage(GpuStage.UPDATE, () -> dispatchUpdate(deltaSeconds));
             if (!scheduled.emitters().isEmpty()) runTimedGpuStage(GpuStage.SPAWN,
@@ -380,12 +383,15 @@ public final class GpuParticleEngine {
                 viewProjection, viewportHeight, cameraInfo.projectionScale(), stack));
             runTimedGpuStage(GpuStage.RASTER, () -> draw(camera, viewProjection, state, stack));
             aliveBufferIndex = 1 - aliveBufferIndex;
-            statsFences[statsSlot] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-            statsInFlight[statsSlot] = true;
+            if (statsSlot >= 0) {
+                statsFences[statsSlot] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+                statsInFlight[statsSlot] = true;
+            }
         } catch (RuntimeException exception) {
             WarMod.LOGGER.error("GPU VFX backend failed; returning to packed fallback", exception);
             destroyResources(); backend = Backend.CPU_FALLBACK; readiness = Readiness.FAILED;
         } finally {
+            releaseScratchStatsBuffer();
             state.restore();
             ClientPerformanceTelemetry.recordGpuEngineCpuNanos(
                 Math.max(0L, System.nanoTime() - cpuStarted));
@@ -571,7 +577,7 @@ public final class GpuParticleEngine {
         buffer.putFloat((float) x).putFloat((float) y).putFloat((float) z).putFloat((float) w);
     }
 
-    private static void bindStorageBuffers(final int statsSlot) {
+    private static void bindStorageBuffers(final int statsBuffer) {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, emitterBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, visibleBuffer);
@@ -579,7 +585,7 @@ public final class GpuParticleEngine {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, deadListBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, aliveBuffers[aliveBufferIndex]);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, aliveBuffers[1 - aliveBufferIndex]);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, statsBuffers[statsSlot]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, statsBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, dispatchBuffer);
     }
 
@@ -612,10 +618,10 @@ public final class GpuParticleEngine {
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
-    private static void resetFrameBuffers(final MemoryStack stack, final int statsSlot) {
+    private static void resetFrameBuffers(final MemoryStack stack, final int statsBuffer) {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, aliveBuffers[1 - aliveBufferIndex]);
         glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, stack.calloc(Integer.BYTES));
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, statsBuffers[statsSlot]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, statsBuffer);
         glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L,
             stack.calloc(STATS_UINTS * Integer.BYTES));
         ByteBuffer commands = stack.malloc(TYPE_COUNT * INDIRECT_COMMAND_STRIDE);
@@ -731,11 +737,17 @@ public final class GpuParticleEngine {
                 return slot;
             }
         }
-        int slot = statsCursor;
-        glClientWaitSync(statsFences[slot], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED);
-        collectStatsSlot(slot);
-        statsCursor = (slot + 1) % STATS_RING_SIZE;
-        return slot;
+        statsReadbackSkipped++;
+        statsScratchBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
+            (long) STATS_UINTS * Integer.BYTES, GL_STREAM_DRAW);
+        return -1;
+    }
+
+    private static void releaseScratchStatsBuffer() {
+        if (statsScratchBuffer == 0) return;
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, 0);
+        glDeleteBuffers(statsScratchBuffer);
+        statsScratchBuffer = 0;
     }
 
     private static void collectCompletedStats() {
@@ -938,6 +950,7 @@ public final class GpuParticleEngine {
         if (indirectBuffer != 0) glDeleteBuffers(indirectBuffer);
         if (deadListBuffer != 0) glDeleteBuffers(deadListBuffer);
         if (dispatchBuffer != 0) glDeleteBuffers(dispatchBuffer);
+        if (statsScratchBuffer != 0) glDeleteBuffers(statsScratchBuffer);
         if (debugParticleBuffer != 0) glDeleteBuffers(debugParticleBuffer);
         if (debugVisibleBuffer != 0) glDeleteBuffers(debugVisibleBuffer);
         for (int aliveBuffer : aliveBuffers) if (aliveBuffer != 0) glDeleteBuffers(aliveBuffer);
@@ -958,7 +971,7 @@ public final class GpuParticleEngine {
         if (sampleQueries[1] != 0) glDeleteQueries(sampleQueries[1]);
         updateProgram = spawnProgram = cullProgram = prepareProgram = renderProgram = 0;
         particleBuffer = emitterBuffer = visibleBuffer = indirectBuffer = deadListBuffer = 0;
-        dispatchBuffer = debugParticleBuffer = debugVisibleBuffer = 0;
+        dispatchBuffer = debugParticleBuffer = debugVisibleBuffer = statsScratchBuffer = 0;
         Arrays.fill(aliveBuffers, 0); Arrays.fill(statsBuffers, 0);
         Arrays.fill(statsFences, 0L); Arrays.fill(statsInFlight, false);
         Arrays.fill(sampleQueries, 0); Arrays.fill(sampleQueryIssued, false);
@@ -1075,6 +1088,7 @@ public final class GpuParticleEngine {
         long deadSlots, int capacity, long vramBytes, GpuStageTimings gpuTime,
         double adaptiveQuality, int scheduledLayers, int scheduledEmitters,
         long distanceCulled, long sizeCulled, long frustumCulled,
+        long statsReadbackSkipped,
         DiagnosticMode diagnosticMode, long diagnosticSamplesPassed,
         FireDebugCounters fire) { }
     public record FireDebugCounters(int clientPatches, int fieldSubmissions,

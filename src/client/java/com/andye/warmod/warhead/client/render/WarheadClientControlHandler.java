@@ -119,6 +119,7 @@ public final class WarheadClientControlHandler {
         feedback("War Mod GPU truth: distanceCulled=" + gpu.distanceCulled()
             + ", sizeCulled=" + gpu.sizeCulled()
             + ", frustumCulled=" + gpu.frustumCulled()
+            + ", statsReadbackSkipped=" + gpu.statsReadbackSkipped()
             + ", requestedSpawns=" + gpu.requestedParticles()
             + ", acceptedSpawns=" + gpu.submittedParticles()
             + ", debug=" + gpu.diagnosticMode().name().toLowerCase(java.util.Locale.ROOT)
