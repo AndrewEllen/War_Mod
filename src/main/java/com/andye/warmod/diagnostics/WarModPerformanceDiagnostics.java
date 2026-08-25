@@ -57,11 +57,11 @@ public final class WarModPerformanceDiagnostics {
         FIRE_SNAPSHOT_PENDING_PATCHES("fire snapshot patches remaining"),
         CURTAIN_EMISSIONS("curtain emissions"),
         CURTAIN_RECIPIENTS("curtain packet recipients"),
-        FIRE_NETWORK_PACKETS("fire visual packets"),
+        FIRE_SNAPSHOT_PACKETS_SENT("fire snapshot packets sent"),
         FIRE_VIEWER_NEARBY_CANDIDATES("fire viewer nearby candidates"),
-        FIRE_VIEWER_CHANGED_PATCHES("fire viewer changed patches"),
+        FIRE_VIEWER_SELECTED_PATCHES("fire viewer selected patches"),
+        FIRE_SNAPSHOT_ENTRIES_BUILT("fire snapshot entries built"),
         FIRE_COMPLETE_SNAPSHOTS("fire complete snapshots"),
-        FIRE_ASYNC_QUEUED_PATCH_ENTRIES("fire async queued patch entries"),
         FIRE_NETWORK_SENT_PATCH_ENTRIES("fire network sent patch entries"),
         SCHEDULER_OVERRUNS("shared scheduler deadline overruns");
 

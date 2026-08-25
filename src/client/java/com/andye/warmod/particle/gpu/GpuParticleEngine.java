@@ -252,7 +252,7 @@ public final class GpuParticleEngine {
         if (accepted) acceptedFirePackets++;
         else { rejectedFirePackets++; if (stale) staleFirePackets++; }
         if (accepted) {
-            receivedFirePatchEntries += Math.max(0, receivedEntries);
+            receivedFirePatchEntries = Math.max(0, receivedEntries);
             storedFirePatches = Math.max(0, storedPatches);
         }
     }

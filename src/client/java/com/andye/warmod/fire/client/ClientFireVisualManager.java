@@ -23,8 +23,8 @@ import net.minecraft.world.phys.Vec3;
 
 public final class ClientFireVisualManager {
     public static final ClientFireVisualManager INSTANCE = new ClientFireVisualManager();
-    /* A complete authoritative snapshot is deliberately built over several
-       bounded server ticks. Keep the last published visual stable between cycles. */
+    /* Each packet is a complete capped representation, so a lost update is
+       repaired by the next cycle without a prior-version dependency. */
     private static final int EXPIRY_TICKS = 160;
     private final Map<Long, VisualPatch> patches = new LinkedHashMap<>();
 	private final Map<Long, EmberVisual> embers = new LinkedHashMap<>();
@@ -48,9 +48,10 @@ public final class ClientFireVisualManager {
         highestGeneration = payload.generation();
         long receivedAt = level.getGameTime();
         boolean patchUpdate = payload.complete() || !payload.entries().isEmpty();
-        HashSet<Long> received = new HashSet<>(payload.entries().size());
+        LinkedHashMap<Long, VisualPatch> replacement = payload.complete()
+            ? new LinkedHashMap<>(payload.entries().size())
+            : new LinkedHashMap<>(patches);
         for (ClientboundFireStatePayload.Entry entry : payload.entries()) {
-            received.add(entry.id());
             VisualPatch previous = patches.get(entry.id());
             Vec3 incomingWind = new Vec3(entry.windX(), entry.windY(), entry.windZ());
             Vec3 wind = previous == null ? incomingWind : previous.wind().lerp(incomingWind, 0.34);
@@ -62,12 +63,13 @@ public final class ClientFireVisualManager {
             Direction face = Direction.values()[Byte.toUnsignedInt(entry.face())];
             FireSurfaceAnchor anchor = new FireSurfaceAnchor(BlockPos.of(entry.packedHost()), face,
                 entry.localX(), entry.localY(), entry.localZ());
-            patches.put(entry.id(), new VisualPatch(entry.id(), anchor, entry.intensity(),
+            replacement.put(entry.id(), new VisualPatch(entry.id(), anchor, entry.intensity(),
                 heat, coverage, smoke, entry.phase(), entry.seed(), entry.ignitionGameTime(),
                 wind, previous == null ? 0.0F : previous.clumpStrength(), receivedAt));
         }
-        for (long removedId : payload.removedPatchIds()) patches.remove(removedId);
-        if (payload.complete()) patches.keySet().removeIf(id -> !received.contains(id));
+        for (long removedId : payload.removedPatchIds()) replacement.remove(removedId);
+        patches.clear();
+        patches.putAll(replacement);
 		if (patchUpdate) recomputeClumps();
 		HashSet<Long> receivedEmbers = new HashSet<>(payload.embers().size());
 		for (ClientboundFireStatePayload.EmberEntry entry : payload.embers()) {
