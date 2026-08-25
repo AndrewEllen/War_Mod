@@ -140,6 +140,11 @@ public final class GpuParticleEngine {
     private static final boolean[] statsInFlight = new boolean[STATS_RING_SIZE];
     private static int debugParticleBuffer, debugVisibleBuffer;
     private static int updateProgram, spawnProgram, cullProgram, prepareProgram, renderProgram;
+    private static PrepareUniforms prepareUniforms;
+    private static UpdateUniforms updateUniforms;
+    private static SpawnUniforms spawnUniforms;
+    private static CullUniforms cullUniforms;
+    private static RenderUniforms renderUniforms;
     private static final int[][] timeQueries = new int[GpuStage.values().length][2];
     private static final boolean[][] timeQueryIssued =
         new boolean[GpuStage.values().length][2];
@@ -455,6 +460,7 @@ public final class GpuParticleEngine {
             cullProgram = computeProgram("cull.comp");
             prepareProgram = computeProgram("prepare_dispatch.comp");
             renderProgram = graphicsProgram("particle.vert", "particle.frag");
+            cacheRequiredUniforms();
             particleBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
                 (long) PARTICLE_CAPACITY * PARTICLE_STRIDE, GL_DYNAMIC_DRAW);
             emitterBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
@@ -501,6 +507,56 @@ public final class GpuParticleEngine {
     private static int createBuffer(final int target, final long bytes, final int usage) {
         int buffer = glGenBuffers(); glBindBuffer(target, buffer);
         glBufferData(target, bytes, usage); glBindBuffer(target, 0); return buffer;
+    }
+
+    private static void cacheRequiredUniforms() {
+        validateInterfaceLayout();
+        prepareUniforms = new PrepareUniforms(
+            requiredUniform(prepareProgram, "useNextAliveList"),
+            requiredUniform(prepareProgram, "particleTypeCount"));
+        updateUniforms = new UpdateUniforms(
+            requiredUniform(updateProgram, "particleCapacity"),
+            requiredUniform(updateProgram, "particleTypeCount"),
+            requiredUniform(updateProgram, "deltaSeconds"));
+        spawnUniforms = new SpawnUniforms(
+            requiredUniform(spawnProgram, "particleCapacity"),
+            requiredUniform(spawnProgram, "particleTypeCount"),
+            requiredUniform(spawnProgram, "emitterCount"),
+            requiredUniform(spawnProgram, "spawnEpoch"));
+        cullUniforms = new CullUniforms(
+            requiredUniform(cullProgram, "particleCapacity"),
+            requiredUniform(cullProgram, "particleTypeCount"),
+            requiredUniform(cullProgram, "viewportHeight"),
+            requiredUniform(cullProgram, "projectionScale"),
+            requiredUniform(cullProgram, "cameraPosition"),
+            requiredUniform(cullProgram, "viewProjection"));
+        renderUniforms = new RenderUniforms(
+            requiredUniform(renderProgram, "viewProjection"),
+            requiredUniform(renderProgram, "cameraPosition"),
+            requiredUniform(renderProgram, "cameraRight"),
+            requiredUniform(renderProgram, "cameraUp"),
+            requiredUniform(renderProgram, "visibleBase"),
+            requiredUniform(renderProgram, "directDebug"),
+            requiredUniform(renderProgram, "diagnosticVisible"));
+    }
+
+    private static int requiredUniform(final int program, final String name) {
+        int location = glGetUniformLocation(program, name);
+        if (location < 0)
+            throw new IllegalStateException("GPU VFX program " + program
+                + " is missing required uniform '" + name + "'");
+        return location;
+    }
+
+    private static void validateInterfaceLayout() {
+        if (PARTICLE_STRIDE != 4 * 4 * Float.BYTES
+            || EMITTER_STRIDE != (4 * 4 * Float.BYTES) + (4 * Integer.BYTES)
+            || INDIRECT_COMMAND_STRIDE != 4 * Integer.BYTES)
+            throw new IllegalStateException("GPU VFX Java/GLSL stride contract is invalid");
+        for (ParticleType type : ParticleType.values()) {
+            if (type.shaderId != type.ordinal())
+                throw new IllegalStateException("GPU VFX particle type IDs must be contiguous");
+        }
     }
 
     private static void clearParticleStorage() {
@@ -591,18 +647,18 @@ public final class GpuParticleEngine {
 
     private static void prepareDispatch(final boolean useNextAliveList) {
         glUseProgram(prepareProgram);
-        glUniform1i(glGetUniformLocation(prepareProgram, "useNextAliveList"),
+        glUniform1i(prepareUniforms.useNextAliveList(),
             useNextAliveList ? GL_TRUE : GL_FALSE);
-        glUniform1ui(glGetUniformLocation(prepareProgram, "particleTypeCount"), TYPE_COUNT);
+        glUniform1ui(prepareUniforms.particleTypeCount(), TYPE_COUNT);
         glDispatchCompute(1, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT);
     }
 
     private static void dispatchUpdate(final float deltaSeconds) {
         glUseProgram(updateProgram);
-        glUniform1ui(glGetUniformLocation(updateProgram, "particleCapacity"), PARTICLE_CAPACITY);
-        glUniform1ui(glGetUniformLocation(updateProgram, "particleTypeCount"), TYPE_COUNT);
-        glUniform1f(glGetUniformLocation(updateProgram, "deltaSeconds"), deltaSeconds);
+        glUniform1ui(updateUniforms.particleCapacity(), PARTICLE_CAPACITY);
+        glUniform1ui(updateUniforms.particleTypeCount(), TYPE_COUNT);
+        glUniform1f(updateUniforms.deltaSeconds(), deltaSeconds);
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchBuffer);
         glDispatchComputeIndirect(0L);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -610,10 +666,10 @@ public final class GpuParticleEngine {
 
     private static void dispatchSpawn(final int emitterCount) {
         glUseProgram(spawnProgram);
-        glUniform1ui(glGetUniformLocation(spawnProgram, "particleCapacity"), PARTICLE_CAPACITY);
-        glUniform1ui(glGetUniformLocation(spawnProgram, "particleTypeCount"), TYPE_COUNT);
-        glUniform1ui(glGetUniformLocation(spawnProgram, "emitterCount"), emitterCount);
-        glUniform1ui(glGetUniformLocation(spawnProgram, "spawnEpoch"), (int) frameSequence);
+        glUniform1ui(spawnUniforms.particleCapacity(), PARTICLE_CAPACITY);
+        glUniform1ui(spawnUniforms.particleTypeCount(), TYPE_COUNT);
+        glUniform1ui(spawnUniforms.emitterCount(), emitterCount);
+        glUniform1ui(spawnUniforms.spawnEpoch(), (int) frameSequence);
         glDispatchCompute(emitterCount, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
@@ -635,13 +691,13 @@ public final class GpuParticleEngine {
     private static void dispatchCull(final Vec3 camera, final Matrix4f viewProjection,
         final int viewportHeight, final float projectionScale, final MemoryStack stack) {
         glUseProgram(cullProgram);
-        glUniform1ui(glGetUniformLocation(cullProgram, "particleCapacity"), PARTICLE_CAPACITY);
-        glUniform1ui(glGetUniformLocation(cullProgram, "particleTypeCount"), TYPE_COUNT);
-        glUniform1f(glGetUniformLocation(cullProgram, "viewportHeight"), viewportHeight);
-        glUniform1f(glGetUniformLocation(cullProgram, "projectionScale"), projectionScale);
-        glUniform3f(glGetUniformLocation(cullProgram, "cameraPosition"),
+        glUniform1ui(cullUniforms.particleCapacity(), PARTICLE_CAPACITY);
+        glUniform1ui(cullUniforms.particleTypeCount(), TYPE_COUNT);
+        glUniform1f(cullUniforms.viewportHeight(), viewportHeight);
+        glUniform1f(cullUniforms.projectionScale(), projectionScale);
+        glUniform3f(cullUniforms.cameraPosition(),
             (float) camera.x, (float) camera.y, (float) camera.z);
-        uniformMatrix(cullProgram, "viewProjection", viewProjection, stack);
+        uniformMatrix(cullUniforms.viewProjection(), viewProjection, stack);
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchBuffer);
         glDispatchComputeIndirect(0L);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT);
@@ -653,30 +709,30 @@ public final class GpuParticleEngine {
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F).rotate(orientation);
         Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F).rotate(orientation);
-        glUseProgram(renderProgram); uniformMatrix(renderProgram, "viewProjection", viewProjection, stack);
-        glUniform3f(glGetUniformLocation(renderProgram, "cameraPosition"),
+        glUseProgram(renderProgram);
+        uniformMatrix(renderUniforms.viewProjection(), viewProjection, stack);
+        glUniform3f(renderUniforms.cameraPosition(),
             (float) camera.pos.x, (float) camera.pos.y, (float) camera.pos.z);
-        glUniform3f(glGetUniformLocation(renderProgram, "cameraRight"), right.x, right.y, right.z);
-        glUniform3f(glGetUniformLocation(renderProgram, "cameraUp"), up.x, up.y, up.z);
-        glUniform1i(glGetUniformLocation(renderProgram, "directDebug"), GL_FALSE);
+        glUniform3f(renderUniforms.cameraRight(), right.x, right.y, right.z);
+        glUniform3f(renderUniforms.cameraUp(), up.x, up.y, up.z);
+        glUniform1i(renderUniforms.directDebug(), GL_FALSE);
         glBindVertexArray(vertexArray); glEnable(GL_BLEND); glEnable(GL_DEPTH_TEST);
         glDepthFunc(state.depthFunction()); glDepthMask(false); glDisable(GL_CULL_FACE);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
-        int visibleBaseUniform = glGetUniformLocation(renderProgram, "visibleBase");
         for (ParticleType type : ParticleType.values()) {
             if (type == ParticleType.FIRE || type == ParticleType.EMBER
                 || type == ParticleType.EXPLOSION_FIRE) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
             else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glUniform1ui(visibleBaseUniform, type.shaderId * PARTICLE_CAPACITY);
+            glUniform1ui(renderUniforms.visibleBase(), type.shaderId * PARTICLE_CAPACITY);
             glDrawArraysIndirect(GL_TRIANGLE_STRIP,
                 (long) type.shaderId * INDIRECT_COMMAND_STRIDE);
         }
     }
 
-    private static void uniformMatrix(final int program, final String name,
-        final Matrix4f matrix, final MemoryStack stack) {
+    private static void uniformMatrix(final int location, final Matrix4f matrix,
+        final MemoryStack stack) {
         FloatBuffer values = stack.mallocFloat(16); matrix.get(values);
-        glUniformMatrix4fv(glGetUniformLocation(program, name), false, values);
+        glUniformMatrix4fv(location, false, values);
     }
 
     private static void runTimedGpuStage(final GpuStage stage, final Runnable work) {
@@ -811,14 +867,14 @@ public final class GpuParticleEngine {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, debugParticleBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, debugVisibleBuffer);
         glUseProgram(renderProgram);
-        uniformMatrix(renderProgram, "viewProjection", viewProjection, stack);
-        glUniform3f(glGetUniformLocation(renderProgram, "cameraPosition"),
+        uniformMatrix(renderUniforms.viewProjection(), viewProjection, stack);
+        glUniform3f(renderUniforms.cameraPosition(),
             (float) camera.pos.x, (float) camera.pos.y, (float) camera.pos.z);
-        glUniform3f(glGetUniformLocation(renderProgram, "cameraRight"), right.x, right.y, right.z);
-        glUniform3f(glGetUniformLocation(renderProgram, "cameraUp"), up.x, up.y, up.z);
-        glUniform1ui(glGetUniformLocation(renderProgram, "visibleBase"), 0);
-        glUniform1i(glGetUniformLocation(renderProgram, "directDebug"), GL_TRUE);
-        glUniform1i(glGetUniformLocation(renderProgram, "diagnosticVisible"),
+        glUniform3f(renderUniforms.cameraRight(), right.x, right.y, right.z);
+        glUniform3f(renderUniforms.cameraUp(), up.x, up.y, up.z);
+        glUniform1ui(renderUniforms.visibleBase(), 0);
+        glUniform1i(renderUniforms.directDebug(), GL_TRUE);
+        glUniform1i(renderUniforms.diagnosticVisible(),
             visible ? GL_TRUE : GL_FALSE);
         glBindVertexArray(vertexArray); glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -970,6 +1026,8 @@ public final class GpuParticleEngine {
         if (sampleQueries[0] != 0) glDeleteQueries(sampleQueries[0]);
         if (sampleQueries[1] != 0) glDeleteQueries(sampleQueries[1]);
         updateProgram = spawnProgram = cullProgram = prepareProgram = renderProgram = 0;
+        prepareUniforms = null; updateUniforms = null; spawnUniforms = null;
+        cullUniforms = null; renderUniforms = null;
         particleBuffer = emitterBuffer = visibleBuffer = indirectBuffer = deadListBuffer = 0;
         dispatchBuffer = debugParticleBuffer = debugVisibleBuffer = statsScratchBuffer = 0;
         Arrays.fill(aliveBuffers, 0); Arrays.fill(statsBuffers, 0);
@@ -985,6 +1043,18 @@ public final class GpuParticleEngine {
         value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L;
         value ^= value >>> 27; value *= 0x94D049BB133111EBL; return value ^ value >>> 31;
     }
+
+    private record PrepareUniforms(int useNextAliveList, int particleTypeCount) { }
+    private record UpdateUniforms(int particleCapacity, int particleTypeCount,
+        int deltaSeconds) { }
+    private record SpawnUniforms(int particleCapacity, int particleTypeCount,
+        int emitterCount, int spawnEpoch) { }
+    private record CullUniforms(int particleCapacity, int particleTypeCount,
+        int viewportHeight, int projectionScale, int cameraPosition,
+        int viewProjection) { }
+    private record RenderUniforms(int viewProjection, int cameraPosition,
+        int cameraRight, int cameraUp, int visibleBase, int directDebug,
+        int diagnosticVisible) { }
 
     public static final class EffectHandle {
         private final EffectDescriptor descriptor;
