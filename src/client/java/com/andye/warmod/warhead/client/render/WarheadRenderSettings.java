@@ -32,6 +32,11 @@ public final class WarheadRenderSettings {
 		return particleBudgetMultiplier;
 	}
 
+	/** Keeps the existing 10x default neutral for the GPU scheduler. */
+	public static double gpuBudgetScale() {
+		return Math.max(0.001, particleBudgetMultiplier / DEFAULT_PARTICLE_BUDGET_MULTIPLIER);
+	}
+
 	public static int conventionalParticleBudget() {
 		return scaledCapacity(65_536);
 	}

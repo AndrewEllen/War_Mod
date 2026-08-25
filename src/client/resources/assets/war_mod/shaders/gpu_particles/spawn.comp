@@ -17,9 +17,16 @@ struct Emitter {
 
 layout(std430, binding = 0) buffer ParticleBuffer { Particle particles[]; };
 layout(std430, binding = 1) readonly buffer EmitterBuffer { Emitter emitters[]; };
-layout(std430, binding = 4) buffer AllocationState { uint nextSlot; };
+layout(std430, binding = 4) buffer DeadList { uint deadCount; uint deadIds[]; };
+layout(std430, binding = 6) buffer AliveOutput {
+    uint outputAliveCount;
+    uint outputAliveIds[];
+};
+layout(std430, binding = 7) buffer StatsBuffer { uint stats[]; };
 uniform uint particleCapacity;
+uniform uint particleTypeCount;
 uniform uint emitterCount;
+uniform uint spawnEpoch;
 
 uint hash32(uint value) {
     value ^= value >> 16;
@@ -30,6 +37,19 @@ uint hash32(uint value) {
 }
 float unit(uint value) { return float(hash32(value)) / 4294967295.0; }
 
+bool popDead(out uint particleId) {
+    uint available = atomicAdd(deadCount, 0u);
+    while (available > 0u) {
+        uint previous = atomicCompSwap(deadCount, available, available - 1u);
+        if (previous == available) {
+            particleId = deadIds[available - 1u];
+            return particleId < particleCapacity;
+        }
+        available = previous;
+    }
+    return false;
+}
+
 void main() {
     uint emitterId = gl_WorkGroupID.x;
     uint lane = gl_LocalInvocationID.x;
@@ -37,20 +57,30 @@ void main() {
     Emitter emitter = emitters[emitterId];
     uint spawnCount = min(emitter.metadata.x, 64u);
     if (lane >= spawnCount) return;
-    uint seed = emitter.metadata.y ^ hash32(lane + emitterId * 131u);
+    uint type = min(emitter.metadata.z, particleTypeCount - 1u);
+    uint slot;
+    if (!popDead(slot)) {
+        atomicAdd(stats[particleTypeCount * 2u + type], 1u);
+        return;
+    }
+    uint seed = emitter.metadata.y ^ hash32(lane + emitterId * 131u)
+        ^ hash32(spawnEpoch * 0x9e3779b9u);
     float angle = unit(seed) * 6.28318530718;
     float radius = sqrt(unit(seed ^ 0x9e3779b9u)) * emitter.parameters.y;
     float vertical = (unit(seed ^ 0x85ebca6bu) - 0.35) * emitter.parameters.y * 0.45;
     vec3 offset = vec3(cos(angle) * radius, vertical, sin(angle) * radius);
     vec3 jitter = vec3(unit(seed ^ 0xc2b2ae35u) - 0.5,
         unit(seed ^ 0x27d4eb2fu), unit(seed ^ 0x165667b1u) - 0.5);
-    uint slot = atomicAdd(nextSlot, 1u) % particleCapacity;
     particles[slot].position_age = vec4(emitter.position_scale.xyz + offset, 0.0);
     particles[slot].velocity_lifetime = vec4(emitter.velocity_lifetime.xyz
         + jitter * emitter.parameters.z, max(0.05, emitter.velocity_lifetime.w
         * mix(0.75, 1.25, unit(seed ^ 0xd3a2646cu))));
     particles[slot].colour_size = vec4(emitter.colour.rgb,
         emitter.parameters.x * mix(0.72, 1.28, unit(seed ^ 0xfd7046c5u)));
-    particles[slot].metadata = uvec4(emitter.metadata.z, emitter.metadata.y,
+    particles[slot].metadata = uvec4(type, seed,
         emitter.metadata.w, floatBitsToUint(emitter.colour.a));
+    uint outputIndex = atomicAdd(outputAliveCount, 1u);
+    if (outputIndex < particleCapacity) outputAliveIds[outputIndex] = slot;
+    atomicAdd(stats[type], 1u);
+    atomicAdd(stats[particleTypeCount + type], 1u);
 }

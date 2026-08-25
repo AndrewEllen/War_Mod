@@ -7,6 +7,8 @@
     "FirearmAimFovMixin",
     "GameRendererCleanupMixin",
     "MinecraftFirearmInputMixin",
+    "ParticleEngineTelemetryMixin",
+    "QuadParticleFeatureTelemetryMixin",
     "SniperScopeMixin",
     "WarheadTerrainVisualTimingMixin",
     "WarheadWorldVisualTimingMixin"

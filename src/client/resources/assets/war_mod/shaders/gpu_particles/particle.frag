@@ -5,6 +5,7 @@ flat in uint particleType;
 flat in uint particleSeed;
 in float particleAge;
 out vec4 fragColor;
+uniform bool directDebug;
 
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -14,6 +15,12 @@ float hash12(vec2 p) {
 
 void main() {
     vec2 centered = quadUv * 2.0 - 1.0;
+    if (directDebug) {
+        float debugAlpha = 1.0 - smoothstep(0.72, 1.0, length(centered));
+        if (debugAlpha < 0.008) discard;
+        fragColor = vec4(1.0, 0.0, 1.0, debugAlpha);
+        return;
+    }
     bool fire = particleType == 0u || particleType == 3u;
     bool ember = particleType == 2u;
     float alpha;

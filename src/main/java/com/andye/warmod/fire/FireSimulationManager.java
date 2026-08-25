@@ -66,7 +66,8 @@ public final class FireSimulationManager {
     private static final int MAX_EMBER_COLLISION_STEPS = 12;
 	/* This is the showcase fire budget: enough headroom for crown fires to climb
 	 * and throw firebrands while still leaving the rest of the server tick intact. */
-	private static final long FIRE_TICK_BUDGET_NANOS = 14_000_000L;
+    private static final long FIRE_TICK_BUDGET_NANOS = 14_000_000L;
+    private static final long FIRE_NETWORK_RESERVATION_NANOS = 1_250_000L;
     private static final int COMPLETE_SNAPSHOT_INTERVAL_TICKS = 400;
     private static final double FIRE_VISUAL_RADIUS = 320.0;
     private static final double FIRE_VISUAL_RADIUS_SQUARED = FIRE_VISUAL_RADIUS * FIRE_VISUAL_RADIUS;
@@ -324,6 +325,9 @@ public final class FireSimulationManager {
            every tick and starve the first visual snapshot indefinitely. */
         long activeBudget = state.patchRefreshPending || state.emberRefreshPending
             ? Math.min(FIRE_TICK_BUDGET_NANOS, 7_000_000L) : FIRE_TICK_BUDGET_NANOS;
+        if (state.patchRefreshPending || state.emberRefreshPending)
+            WarModServerWorkScheduler.reserve(level, WorkClass.FIRE_NETWORK,
+                FIRE_NETWORK_RESERVATION_NANOS);
         try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
             WorkClass.FIRE_ACTIVE, activeBudget)) {
             if (permit.available()) {
@@ -1251,8 +1255,12 @@ public final class FireSimulationManager {
         List<Long> removed = List.of();
         boolean complete = false;
         if (includePatches) {
-            PriorityQueue<RankedPatch> nearest = nearbyPatches(state, viewer);
-            int candidateCount = nearest.size();
+            NearbyPatches nearby = nearbyPatches(state, viewer);
+            PriorityQueue<RankedPatch> nearest = nearby.nearest();
+            int candidateCount = nearby.candidateCount();
+            WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_VIEWER_NEARBY_CANDIDATES,
+                candidateCount);
             List<RankedPatch> selected = nearest.stream()
                 .sorted((left, right) -> Double.compare(left.distanceSquared(),
                     right.distanceSquared())).toList();
@@ -1280,17 +1288,22 @@ public final class FireSimulationManager {
                 if (!currentVersions.containsKey(knownId)) removals.add(knownId);
             }
             changed = List.copyOf(updates);
+            WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_VIEWER_CHANGED_PATCHES,
+                changed.size());
             removed = List.copyOf(removals);
             clusterSources = smokeClusterSources(level, state, viewer, now, snapshotCache);
             replication.knownVersions.clear();
             replication.knownVersions.putAll(currentVersions);
             if (recovery) replication.lastCompleteTick = now;
+            if (complete) WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_COMPLETE_SNAPSHOTS, 1L);
         }
-        return new FireNetworking.ViewerDelta(player.getUUID(), viewer, generation, complete,
+        return new FireNetworking.ViewerDelta(player.getUUID(), viewer, now, generation, complete,
             changed, removed, nearbyEmbers(level, state, viewer), clusterSources, includePatches);
     }
 
-    private static PriorityQueue<RankedPatch> nearbyPatches(final LevelState state,
+    private static NearbyPatches nearbyPatches(final LevelState state,
         final Vec3 viewer) {
         int maximum = com.andye.warmod.fire.network.ClientboundFireStatePayload.MAX_ENTRIES;
         PriorityQueue<RankedPatch> nearest = new PriorityQueue<>(maximum + 1,
@@ -1298,6 +1311,7 @@ public final class FireSimulationManager {
         int chunkRadius = Mth.ceil(FIRE_VISUAL_RADIUS / 16.0);
         int playerChunkX = Mth.floor(viewer.x) >> 4;
         int playerChunkZ = Mth.floor(viewer.z) >> 4;
+        int candidateCount = 0;
         for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
             for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
                 Set<Long> ids = state.patchChunkIndex.get(
@@ -1309,12 +1323,13 @@ public final class FireSimulationManager {
                         continue;
                     double distanceSquared = viewer.distanceToSqr(patch.anchor.position());
                     if (distanceSquared > FIRE_VISUAL_RADIUS_SQUARED) continue;
+                    candidateCount++;
                     nearest.add(new RankedPatch(patch, distanceSquared));
                     if (nearest.size() > maximum) nearest.poll();
                 }
             }
         }
-        return nearest;
+        return new NearbyPatches(nearest, candidateCount);
     }
 
     private static List<FireCellSnapshot> smokeClusterSources(final ServerLevel level,
@@ -1774,6 +1789,7 @@ public final class FireSimulationManager {
     private record CachedVentilation(float factor, long expiresAt) { }
     private record DormantExpiry(long patchId, long expiryTick) { }
     private record RankedPatch(Patch patch, double distanceSquared) { }
+    private record NearbyPatches(PriorityQueue<RankedPatch> nearest, int candidateCount) { }
     private record RankedEmberSnapshot(FireEmberSnapshot snapshot, double distanceSquared) { }
     private static final class ViewerReplication {
         private final HashMap<Long, Long> knownVersions = new HashMap<>();

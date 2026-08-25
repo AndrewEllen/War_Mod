@@ -12,12 +12,14 @@ import com.andye.warmod.particle.gpu.GpuParticleEngine.FrameSubmissions;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.VisualLayer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -30,14 +32,16 @@ import org.joml.Vector4f;
  */
 final class GpuVfxScheduler {
     static final int MAX_SCHEDULED_EMITTERS = 4_096;
-    private static final double BASE_COST_BUDGET = 115_000.0;
+    private static final double BASE_SPAWN_RATE_BUDGET = 155_250.0;
+    private static final double BASE_FRAGMENT_COST_BUDGET = 115_000.0;
     private static final int STALE_LOD_FRAMES = 600;
     private static final Map<LayerKey, LodState> LOD_STATES = new HashMap<>();
 
     private GpuVfxScheduler() { }
 
     static synchronized ScheduledFrame schedule(final FrameSubmissions submissions,
-        final CameraInfo camera, final double adaptiveQuality, final long frameSequence) {
+        final CameraInfo camera, final double adaptiveQuality, final long frameSequence,
+        final float deltaSeconds, final long deadSlots, final double budgetScale) {
         ArrayList<EffectSubmission> effects = new ArrayList<>(submissions.effects());
         for (FireFieldSubmission field : submissions.fireFields()) {
             EffectSubmission expanded = expandFireField(field, camera, frameSequence);
@@ -70,11 +74,16 @@ final class GpuVfxScheduler {
             }
         }
 
-        double remainingCost = BASE_COST_BUDGET * Mth.clamp(adaptiveQuality, 0.22, 1.35);
-        remainingCost = allocatePhase(demands, remainingCost, AllocationPhase.CRITICAL);
-        remainingCost = allocatePhase(demands, remainingCost, AllocationPhase.QUALITY);
-        remainingCost = allocatePhase(demands, remainingCost, AllocationPhase.TARGET);
-        allocatePhase(demands, remainingCost, AllocationPhase.MAXIMUM);
+        double quality = Mth.clamp(adaptiveQuality, 0.22, 1.35);
+        double scale = Math.max(0.001, budgetScale);
+        BudgetState budget = new BudgetState(
+            BASE_SPAWN_RATE_BUDGET * quality * scale,
+            BASE_FRAGMENT_COST_BUDGET * quality * scale,
+            Math.max(0.0, deadSlots) / Math.max(0.001, deltaSeconds));
+        allocatePhase(demands, budget, AllocationPhase.CRITICAL);
+        allocatePhase(demands, budget, AllocationPhase.QUALITY);
+        allocatePhase(demands, budget, AllocationPhase.TARGET);
+        allocatePhase(demands, budget, AllocationPhase.MAXIMUM);
         allocateEmitterSlots(demands);
 
         ArrayList<EmitterCommand> scheduled = new ArrayList<>(MAX_SCHEDULED_EMITTERS);
@@ -92,7 +101,7 @@ final class GpuVfxScheduler {
         LOD_STATES.entrySet().removeIf(entry ->
             frameSequence - entry.getValue().lastSeenFrame > STALE_LOD_FRAMES);
         return new ScheduledFrame(List.copyOf(scheduled), Map.copyOf(scheduledByLayer),
-            demands.size(), BASE_COST_BUDGET * adaptiveQuality - remainingCost);
+            demands.size(), budget.allocatedFragmentCost);
     }
 
     static synchronized void clear() { LOD_STATES.clear(); }
@@ -201,68 +210,84 @@ final class GpuVfxScheduler {
         }
     }
 
-    private static double allocatePhase(final List<LayerDemand> demands,
-        double remainingCost, final AllocationPhase phase) {
-        if (remainingCost <= 0.0) return 0.0;
+    private static void allocatePhase(final List<LayerDemand> demands,
+        final BudgetState budget, final AllocationPhase phase) {
+        if (budget.exhausted()) return;
         if (phase == AllocationPhase.CRITICAL) {
+            ArrayList<LayerDemand> critical = new ArrayList<>();
+            double requestedRate = 0.0;
             double requestedCost = 0.0;
-            double totalWeight = 0.0;
             for (LayerDemand demand : demands) {
                 if (demand.layer.canDisappear()) continue;
                 double goal = Math.min(demand.requestedRate, Math.max(1.0,
                     phase.goal(demand.layer)));
                 double initial = Math.min(goal, 12.0);
+                if (initial <= 0.0) continue;
+                critical.add(demand);
+                requestedRate += initial;
                 requestedCost += initial * demand.particleCost;
-                totalWeight += demand.weight;
             }
-            double available = Math.min(remainingCost, requestedCost);
-            for (LayerDemand demand : demands) {
-                if (demand.layer.canDisappear()) continue;
+            double fairScale = Math.min(1.0, Math.min(
+                budget.remainingSpawnRate / Math.max(0.01, requestedRate),
+                Math.min(budget.remainingLiveSlotRate / Math.max(0.01, requestedRate),
+                    budget.remainingFragmentCost / Math.max(0.01, requestedCost))));
+            for (LayerDemand demand : critical) {
                 double goal = Math.min(demand.requestedRate, Math.max(1.0,
                     phase.goal(demand.layer)));
-                double desired = Math.min(goal, 12.0);
-                double grant = requestedCost <= available + 0.01 ? desired
-                    : Math.min(desired, available * demand.weight
-                        / Math.max(0.01, totalWeight) / demand.particleCost);
-                demand.allocatedRate += grant;
-                remainingCost -= grant * demand.particleCost;
+                demand.allocatedRate += budget.grant(
+                    Math.min(goal, 12.0) * fairScale, demand.particleCost);
             }
         }
-        for (int pass = 0; pass < 5 && remainingCost > 0.5; pass++) {
+        for (int pass = 0; pass < 5 && !budget.exhausted(); pass++) {
             double totalWeight = 0.0;
             for (LayerDemand demand : demands) {
                 if (demand.remaining(phase) > 0.01) totalWeight += demand.weight;
             }
             if (totalWeight <= 0.0) break;
-            double before = remainingCost;
+            double before = budget.remainingFragmentCost;
             for (LayerDemand demand : demands) {
                 double need = demand.remaining(phase);
                 if (need <= 0.01) continue;
                 double share = before * demand.weight / totalWeight;
-                double granted = Math.min(need, share / demand.particleCost);
-                demand.allocatedRate += granted;
-                remainingCost -= granted * demand.particleCost;
+                double desired = Math.min(need, share / demand.particleCost);
+                demand.allocatedRate += budget.grant(desired, demand.particleCost);
             }
-            if (before - remainingCost < 0.5) break;
+            if (before - budget.remainingFragmentCost < 0.5) break;
         }
-        return Math.max(0.0, remainingCost);
     }
 
     private static void allocateEmitterSlots(final List<LayerDemand> demands) {
         int remaining = MAX_SCHEDULED_EMITTERS;
-        for (LayerDemand demand : demands) {
-            if (demand.allocatedRate <= 0.0 || demand.commands.isEmpty()) continue;
+        ArrayList<LayerDemand> active = new ArrayList<>();
+        for (LayerDemand demand : demands)
+            if (demand.allocatedRate > 0.0 && !demand.commands.isEmpty()) active.add(demand);
+        active.sort(Comparator.comparingDouble((LayerDemand demand) -> demand.weight).reversed()
+            .thenComparingLong(demand -> demand.descriptor.id())
+            .thenComparingInt(demand -> demand.layer.ordinal()));
+        for (LayerDemand demand : active) {
+            if (remaining <= 0) break;
             demand.allocatedSlots = 1;
             remaining--;
         }
+        boolean topologyProgress = true;
+        while (remaining > 0 && topologyProgress) {
+            topologyProgress = false;
+            for (LayerDemand demand : active) {
+                if (remaining <= 0) break;
+                if (demand.allocatedSlots >= demand.topologyFloor()) continue;
+                demand.allocatedSlots++;
+                remaining--;
+                topologyProgress = true;
+            }
+        }
         while (remaining > 0) {
             double totalWeight = 0.0;
-            for (LayerDemand demand : demands) {
+            for (LayerDemand demand : active) {
                 if (demand.allocatedSlots < demand.desiredSlots()) totalWeight += demand.weight;
             }
             if (totalWeight <= 0.0) break;
             int before = remaining;
-            for (LayerDemand demand : demands) {
+            for (LayerDemand demand : active) {
                 int need = demand.desiredSlots() - demand.allocatedSlots;
                 if (need <= 0 || remaining <= 0) continue;
                 int share = Math.max(1, (int) Math.floor(before * demand.weight / totalWeight));
@@ -282,29 +307,108 @@ final class GpuVfxScheduler {
             ordered.sort(Comparator.comparingDouble(EmitterCommand::importance).reversed()
                 .thenComparingInt(EmitterCommand::seed));
             ordered = new ArrayList<>(ordered.subList(0, slots));
-        } else {
-            ordered.sort(Comparator.comparingLong(command ->
-                mix64(Integer.toUnsignedLong(command.seed()) ^ demand.descriptor.id())));
+            return scaleCommands(ordered, demand.allocatedRate);
+        }
+        List<List<EmitterCommand>> buckets = topologyBuckets(demand);
+        if (buckets.isEmpty()) return List.of();
+        if (buckets.size() > slots) {
+            ArrayList<List<EmitterCommand>> selected = new ArrayList<>(slots);
+            for (int slot = 0; slot < slots; slot++) {
+                int index = (int) ((long) slot * buckets.size() / slots);
+                selected.add(buckets.get(index));
+            }
+            buckets = selected;
+        }
+        int[] slotsPerBucket = new int[buckets.size()];
+        Arrays.fill(slotsPerBucket, 1);
+        int remaining = slots - buckets.size();
+        while (remaining > 0) {
+            boolean progress = false;
+            for (int bucket = 0; bucket < buckets.size() && remaining > 0; bucket++) {
+                if (slotsPerBucket[bucket] >= buckets.get(bucket).size()) continue;
+                slotsPerBucket[bucket]++;
+                remaining--;
+                progress = true;
+            }
+            if (!progress) break;
         }
         double ratePerSlot = demand.allocatedRate / slots;
         ArrayList<EmitterCommand> result = new ArrayList<>(slots);
-        if (ordered.size() <= slots) {
-            double requested = ordered.stream().mapToDouble(EmitterCommand::spawnCount).sum();
-            double scale = requested <= 0.0 ? 0.0 : demand.allocatedRate / requested;
-            for (EmitterCommand command : ordered) {
-                int rate = Math.max(1, (int) Math.round(command.spawnCount() * scale));
-                result.add(command.withSpawnCount(rate));
+        for (int bucketIndex = 0; bucketIndex < buckets.size(); bucketIndex++) {
+            ArrayList<EmitterCommand> bucket = new ArrayList<>(buckets.get(bucketIndex));
+            bucket.sort(Comparator.comparingLong(command -> mix64(
+                Integer.toUnsignedLong(command.seed()) ^ demand.descriptor.id())));
+            int bucketSlots = slotsPerBucket[bucketIndex];
+            for (int slot = 0; slot < bucketSlots; slot++) {
+                int start = (int) ((long) slot * bucket.size() / bucketSlots);
+                int end = (int) ((long) (slot + 1) * bucket.size() / bucketSlots);
+                result.add(aggregate(bucket.subList(start, Math.max(start + 1, end)),
+                    Math.max(1, (int) Math.round(ratePerSlot)), demand.layer,
+                    demand.descriptor.id() ^ ((long) demand.layer.ordinal() << 48)
+                        ^ ((long) bucketIndex << 20) ^ slot));
             }
-            return result;
-        }
-        for (int slot = 0; slot < slots; slot++) {
-            int start = (int) ((long) slot * ordered.size() / slots);
-            int end = (int) ((long) (slot + 1) * ordered.size() / slots);
-            result.add(aggregate(ordered.subList(start, Math.max(start + 1, end)),
-                Math.max(1, (int) Math.round(ratePerSlot)), demand.layer,
-                demand.descriptor.id() ^ ((long) demand.layer.ordinal() << 48) ^ slot));
         }
         return result;
+    }
+
+    private static List<EmitterCommand> scaleCommands(final List<EmitterCommand> commands,
+        final double allocatedRate) {
+        double requested = commands.stream().mapToDouble(EmitterCommand::spawnCount).sum();
+        double scale = requested <= 0.0 ? 0.0 : allocatedRate / requested;
+        ArrayList<EmitterCommand> result = new ArrayList<>(commands.size());
+        for (EmitterCommand command : commands)
+            result.add(command.withSpawnCount(Math.max(1,
+                (int) Math.round(command.spawnCount() * scale))));
+        return result;
+    }
+
+    private static List<List<EmitterCommand>> topologyBuckets(final LayerDemand demand) {
+        TreeMap<Long, ArrayList<EmitterCommand>> buckets = new TreeMap<>();
+        for (EmitterCommand command : demand.commands)
+            buckets.computeIfAbsent(topologyKey(demand, command), ignored -> new ArrayList<>())
+                .add(command);
+        return new ArrayList<>(buckets.values());
+    }
+
+    private static long topologyKey(final LayerDemand demand, final EmitterCommand command) {
+        Vec3 relative = command.position().subtract(demand.descriptor.position());
+        double angle = Math.atan2(relative.z, relative.x);
+        if (angle < 0.0) angle += Math.PI * 2.0;
+        double radius = Math.sqrt(relative.x * relative.x + relative.z * relative.z);
+        double bounds = Math.max(1.0, demand.descriptor.boundsRadius());
+        int angularBins = switch (demand.layer) {
+            case SHOCKWAVE, GROUND_CURTAIN, GROUND_DUST -> 24;
+            case MUSHROOM_CLOUD, FIREBALL -> 16;
+            case STEM -> 8;
+            default -> 12;
+        };
+        int angleBin = Math.min(angularBins - 1,
+            (int) Math.floor(angle / (Math.PI * 2.0) * angularBins));
+        int radialBin = switch (demand.layer) {
+            case MUSHROOM_CLOUD, FIREBALL -> Math.min(2,
+                (int) Math.floor(radius / bounds * 3.0));
+            case FLAMES, SMOKE -> Math.min(3, (int) Math.floor(radius / bounds * 4.0));
+            default -> 0;
+        };
+        int heightBin = switch (demand.layer) {
+            case MUSHROOM_CLOUD, STEM -> Math.min(5, Math.max(0,
+                (int) Math.floor((relative.y / bounds + 0.25) * 4.0)));
+            case FIREBALL, FLAMES, SMOKE -> Math.min(3, Math.max(0,
+                (int) Math.floor((relative.y / bounds + 0.25) * 3.0)));
+            default -> 0;
+        };
+        return ((long) angleBin << 32) | ((long) heightBin << 16) | radialBin;
+    }
+
+    private static int topologyMinimum(final VisualLayer layer) {
+        return switch (layer) {
+            case FIREBALL -> 18;
+            case MUSHROOM_CLOUD, SHOCKWAVE, GROUND_CURTAIN -> 24;
+            case STEM -> 16;
+            case FLAMES, SMOKE -> 8;
+            case GROUND_DUST -> 12;
+            case DEBRIS, EMBERS, DETAIL -> 1;
+        };
     }
 
     private static EmitterCommand aggregate(final List<EmitterCommand> commands,
@@ -521,6 +625,7 @@ final class GpuVfxScheduler {
         private final double weight;
         private double allocatedRate;
         private int allocatedSlots;
+        private int cachedTopologyFloor = -1;
 
         private LayerDemand(final EffectDescriptor descriptor, final VisualLayer layer,
             final List<EmitterCommand> commands, final LodState lod,
@@ -541,7 +646,45 @@ final class GpuVfxScheduler {
 
         private int desiredSlots() {
             int rateSlots = Math.max(1, (int) Math.ceil(allocatedRate / 64.0));
-            return Math.min(commands.size(), rateSlots);
+            return Math.min(commands.size(), Math.max(rateSlots, topologyFloor()));
+        }
+
+        private int topologyFloor() {
+            if (commands.isEmpty()) return 0;
+            if (cachedTopologyFloor < 0) cachedTopologyFloor = Math.min(commands.size(),
+                Math.min(topologyMinimum(layer), topologyBuckets(this).size()));
+            return cachedTopologyFloor;
+        }
+    }
+
+    private static final class BudgetState {
+        private double remainingSpawnRate;
+        private double remainingFragmentCost;
+        private double remainingLiveSlotRate;
+        private double allocatedFragmentCost;
+
+        private BudgetState(final double spawnRate, final double fragmentCost,
+            final double liveSlotRate) {
+            remainingSpawnRate = Math.max(0.0, spawnRate);
+            remainingFragmentCost = Math.max(0.0, fragmentCost);
+            remainingLiveSlotRate = Math.max(0.0, liveSlotRate);
+        }
+
+        private double grant(final double requestedRate, final double particleCost) {
+            if (requestedRate <= 0.0 || exhausted()) return 0.0;
+            double safeCost = Math.max(0.25, particleCost);
+            double granted = Math.min(requestedRate, Math.min(remainingSpawnRate,
+                Math.min(remainingLiveSlotRate, remainingFragmentCost / safeCost)));
+            remainingSpawnRate -= granted;
+            remainingLiveSlotRate -= granted;
+            remainingFragmentCost -= granted * safeCost;
+            allocatedFragmentCost += granted * safeCost;
+            return Math.max(0.0, granted);
+        }
+
+        private boolean exhausted() {
+            return remainingSpawnRate <= 0.01 || remainingLiveSlotRate <= 0.01
+                || remainingFragmentCost <= 0.01;
         }
     }
 

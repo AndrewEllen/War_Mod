@@ -11,6 +11,12 @@ public final class ClientPerformanceTelemetry {
     private static final Samples EXPLOSION = new Samples();
     private static final Samples FIRE = new Samples();
     private static final Samples GPU_ENGINE_CPU = new Samples();
+    private static final Samples GPU_EXTRACTION_CPU = new Samples();
+    private static final Samples GPU_SCHEDULER_CPU = new Samples();
+    private static final Samples TERRAIN_SHOCKFRONT_CPU = new Samples();
+    private static final Samples VANILLA_PARTICLE_EXTRACTION_CPU = new Samples();
+    private static final Samples VANILLA_PARTICLE_RENDER_CPU = new Samples();
+    private static long vanillaParticleCount;
     private static long frameStarted;
     private static boolean registered;
 
@@ -34,16 +40,40 @@ public final class ClientPerformanceTelemetry {
     public static synchronized void recordGpuEngineCpuNanos(final long nanos) {
         GPU_ENGINE_CPU.add(nanos);
     }
+    public static synchronized void recordGpuExtractionNanos(final long nanos) {
+        GPU_EXTRACTION_CPU.add(nanos);
+    }
+    public static synchronized void recordGpuSchedulerNanos(final long nanos) {
+        GPU_SCHEDULER_CPU.add(nanos);
+    }
+    public static synchronized void recordTerrainShockfrontNanos(final long nanos) {
+        TERRAIN_SHOCKFRONT_CPU.add(nanos);
+    }
+    public static synchronized void recordVanillaParticleExtractionNanos(final long nanos,
+        final long particleCount) {
+        VANILLA_PARTICLE_EXTRACTION_CPU.add(nanos);
+        vanillaParticleCount = Math.max(0L, particleCount);
+    }
+    public static synchronized void recordVanillaParticleRenderNanos(final long nanos) {
+        VANILLA_PARTICLE_RENDER_CPU.add(nanos);
+    }
 
     public static synchronized DebugSnapshot debugSnapshot() {
         return new DebugSnapshot(FRAME.snapshot(), EXPLOSION.snapshot(), FIRE.snapshot(),
-            GPU_ENGINE_CPU.snapshot());
+            GPU_ENGINE_CPU.snapshot(), GPU_EXTRACTION_CPU.snapshot(),
+            GPU_SCHEDULER_CPU.snapshot(), TERRAIN_SHOCKFRONT_CPU.snapshot(),
+            vanillaParticleCount, VANILLA_PARTICLE_EXTRACTION_CPU.snapshot(),
+            VANILLA_PARTICLE_RENDER_CPU.snapshot());
     }
 
     public record Percentiles(double p50Millis, double p95Millis,
         double p99Millis, double maximumMillis) { }
     public record DebugSnapshot(Percentiles frame, Percentiles explosionExtraction,
-        Percentiles fireExtraction, Percentiles gpuEngineCpu) { }
+        Percentiles fireExtraction, Percentiles gpuEngineCpu,
+        Percentiles gpuExtractionCpu, Percentiles gpuSchedulerCpu,
+        Percentiles terrainShockfrontCpu, long vanillaParticleCount,
+        Percentiles vanillaParticleExtractionCpu,
+        Percentiles vanillaParticleRenderCpu) { }
 
     private static final class Samples {
         private final ArrayDeque<Long> values = new ArrayDeque<>(WINDOW);

@@ -58,6 +58,11 @@ public final class WarModPerformanceDiagnostics {
         CURTAIN_EMISSIONS("curtain emissions"),
         CURTAIN_RECIPIENTS("curtain packet recipients"),
         FIRE_NETWORK_PACKETS("fire visual packets"),
+        FIRE_VIEWER_NEARBY_CANDIDATES("fire viewer nearby candidates"),
+        FIRE_VIEWER_CHANGED_PATCHES("fire viewer changed patches"),
+        FIRE_COMPLETE_SNAPSHOTS("fire complete snapshots"),
+        FIRE_ASYNC_QUEUED_PATCH_ENTRIES("fire async queued patch entries"),
+        FIRE_NETWORK_SENT_PATCH_ENTRIES("fire network sent patch entries"),
         SCHEDULER_OVERRUNS("shared scheduler deadline overruns");
 
         private final String label;

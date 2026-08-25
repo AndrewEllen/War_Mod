@@ -668,7 +668,7 @@ public final class WarheadWorldRenderer {
 
     public static DebugSnapshot debugSnapshot() {
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
-        if (gpu.backend() == GpuParticleEngine.Backend.GPU_COMPUTE) {
+        if (GpuParticleEngine.isGpuActive()) {
             return new DebugSnapshot((int) Math.min(Integer.MAX_VALUE, gpu.activeParticles()),
                 (int) Math.min(Integer.MAX_VALUE, gpu.visibleParticles()), 0,
                 (int) Math.min(Integer.MAX_VALUE, gpu.culledParticles()),

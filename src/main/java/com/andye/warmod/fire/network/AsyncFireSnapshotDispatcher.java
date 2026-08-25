@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -37,9 +39,14 @@ final class AsyncFireSnapshotDispatcher {
     static void queue(final ServerLevel level, final List<FireNetworking.ViewerDelta> deltas) {
         if (level == null || deltas == null || deltas.isEmpty()) return;
         SnapshotInput input = new SnapshotInput(level.getGameTime(), List.copyOf(deltas));
+        int queuedEntries = deltas.stream().mapToInt(delta -> delta.changedPatches().size()).sum();
+        WarModPerformanceDiagnostics.add(
+            WarModPerformanceDiagnostics.Gauge.FIRE_ASYNC_QUEUED_PATCH_ENTRIES,
+            queuedEntries);
         synchronized (AsyncFireSnapshotDispatcher.class) {
             LevelQueue queue = LEVELS.computeIfAbsent(level, ignored -> new LevelQueue());
-            queue.pending.addLast(input);
+            if (queue.pending.isEmpty()) queue.pending.addLast(input);
+            else queue.pending.addLast(coalesce(queue.pending.removeLast(), input));
             if (!queue.running) start(level, queue);
         }
     }
@@ -59,14 +66,19 @@ final class AsyncFireSnapshotDispatcher {
         } else if (batch != null) {
             long started = WarModPerformanceDiagnostics.begin();
             int sent = 0;
+            int sentEntries = 0;
             for (PreparedViewer prepared : batch.viewers()) {
                 ServerPlayer player = level.getServer().getPlayerList().getPlayer(prepared.playerId());
                 if (player == null || player.level() != level) continue;
                 ServerPlayNetworking.send(player, prepared.payload());
                 sent++;
+                sentEntries += prepared.payload().entries().size();
             }
             WarModPerformanceDiagnostics.add(
                 WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_PACKETS, sent);
+            WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_SENT_PATCH_ENTRIES,
+                sentEntries);
             WarModPerformanceDiagnostics.record(
                 WarModPerformanceDiagnostics.Subsystem.FIRE_NETWORK, started);
         }
@@ -91,11 +103,47 @@ final class AsyncFireSnapshotDispatcher {
             List<ClientboundFireStatePayload.SmokeClusterEntry> clusters = smokeClusters(
                 delta.viewerPosition(), delta.smokeClusterSources());
             ClientboundFireStatePayload payload = new ClientboundFireStatePayload(
-                input.gameTime(), delta.generation(), delta.complete(), entries,
+                delta.serverGameTime(), delta.generation(), delta.complete(), entries,
                 delta.removedPatchIds(), true, embers, delta.smokeClusterComplete(), clusters);
             viewers.add(new PreparedViewer(delta.playerId(), payload));
         }
         return new PreparedBatch(List.copyOf(viewers));
+    }
+
+    private static SnapshotInput coalesce(final SnapshotInput older,
+        final SnapshotInput newer) {
+        LinkedHashMap<UUID, FireNetworking.ViewerDelta> viewers = new LinkedHashMap<>();
+        for (FireNetworking.ViewerDelta delta : older.deltas())
+            viewers.put(delta.playerId(), delta);
+        for (FireNetworking.ViewerDelta delta : newer.deltas())
+            viewers.merge(delta.playerId(), delta, AsyncFireSnapshotDispatcher::merge);
+        return new SnapshotInput(newer.gameTime(), List.copyOf(viewers.values()));
+    }
+
+    private static FireNetworking.ViewerDelta merge(final FireNetworking.ViewerDelta older,
+        final FireNetworking.ViewerDelta newer) {
+        LinkedHashMap<Long, FireCellSnapshot> changed = new LinkedHashMap<>();
+        HashSet<Long> removed = new HashSet<>();
+        if (!newer.complete()) {
+            for (FireCellSnapshot patch : older.changedPatches()) changed.put(patch.id(), patch);
+            removed.addAll(older.removedPatchIds());
+        }
+        for (FireCellSnapshot patch : newer.changedPatches()) {
+            changed.put(patch.id(), patch);
+            removed.remove(patch.id());
+        }
+        for (long removedId : newer.removedPatchIds()) {
+            changed.remove(removedId);
+            removed.add(removedId);
+        }
+        boolean smokeComplete = older.smokeClusterComplete()
+            || newer.smokeClusterComplete();
+        List<FireCellSnapshot> smokeSources = newer.smokeClusterComplete()
+            ? newer.smokeClusterSources() : older.smokeClusterSources();
+        return new FireNetworking.ViewerDelta(newer.playerId(), newer.viewerPosition(),
+            newer.serverGameTime(), newer.generation(), older.complete() || newer.complete(),
+            List.copyOf(changed.values()), List.copyOf(removed), newer.embers(),
+            smokeSources, smokeComplete);
     }
 
     private static List<ClientboundFireStatePayload.SmokeClusterEntry> smokeClusters(

@@ -1,6 +1,7 @@
 package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.warhead.client.WarheadDebrisTuning;
 import com.andye.warmod.warhead.network.ClientboundWarheadRenderControlPayload;
 import net.minecraft.client.Minecraft;
@@ -45,6 +46,18 @@ public final class WarheadRenderCommands {
                 debrisStatus();
             }
             case ClientboundWarheadRenderControlPayload.DEBRIS_STATUS -> debrisStatus();
+            case ClientboundWarheadRenderControlPayload.BACKEND_AUTO ->
+                setBackend(GpuParticleEngine.BackendPreference.AUTO);
+            case ClientboundWarheadRenderControlPayload.BACKEND_GPU ->
+                setBackend(GpuParticleEngine.BackendPreference.GPU);
+            case ClientboundWarheadRenderControlPayload.BACKEND_CPU ->
+                setBackend(GpuParticleEngine.BackendPreference.CPU);
+            case ClientboundWarheadRenderControlPayload.GPU_TEST_OFF ->
+                setGpuTest(GpuParticleEngine.DiagnosticMode.OFF);
+            case ClientboundWarheadRenderControlPayload.GPU_TEST_DEPTH_OFF ->
+                setGpuTest(GpuParticleEngine.DiagnosticMode.DEPTH_DISABLED);
+            case ClientboundWarheadRenderControlPayload.GPU_TEST_DEPTH_ON ->
+                setGpuTest(GpuParticleEngine.DiagnosticMode.DEPTH_ENABLED);
             default -> { }
         }
     }
@@ -67,22 +80,58 @@ public final class WarheadRenderCommands {
             + "x (applies to newly spawned debris)");
     }
 
+    private static void setBackend(final GpuParticleEngine.BackendPreference preference) {
+        GpuParticleEngine.setBackendPreference(preference);
+        feedback("War Mod particle backend preference: "
+            + preference.name().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private static void setGpuTest(final GpuParticleEngine.DiagnosticMode mode) {
+        GpuParticleEngine.setDiagnosticMode(mode);
+        feedback("War Mod direct GPU billboard test: "
+            + mode.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'));
+    }
+
     private static void status() {
         WarheadWorldRenderer.DebugSnapshot debug = WarheadWorldRenderer.debugSnapshot();
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
         GpuParticleEngine.FireDebugCounters fire = gpu.fire();
+        ClientPerformanceTelemetry.DebugSnapshot cpu = ClientPerformanceTelemetry.debugSnapshot();
         feedback("War Mod renderer=" + WarheadRenderSettings.displayName()
             + ", budget=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
             + ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()
-            + ", simulatedParticles=" + debug.activeParticles()
-            + ", representedParticles=" + debug.representedParticles()
+            + ", activeParticles=" + debug.activeParticles()
+            + ", visibleInstances=" + gpu.visibleParticles()
             + ", spawned/tick=" + debug.spawnedParticlesPerTick()
-            + ", culled=" + debug.culledParticles()
+            + ", gpuAlive=" + gpu.activeParticles()
+            + ", deadSlots=" + gpu.deadSlots()
+            + ", rejectedSpawns=" + gpu.rejectedSpawns()
             + ", debris=" + debug.activeDebrisFragments()
             + ", backend=" + debug.activeRenderBackend()
+            + ", forced=" + gpu.preference().name().toLowerCase(java.util.Locale.ROOT)
             + ", vfxQuality=" + String.format(java.util.Locale.ROOT, "%.2f", gpu.adaptiveQuality())
             + ", vfxLayers=" + gpu.scheduledLayers()
             + ", vfxEmitters=" + gpu.scheduledEmitters());
+        feedback("War Mod GPU truth: distanceCulled=" + gpu.distanceCulled()
+            + ", sizeCulled=" + gpu.sizeCulled()
+            + ", frustumCulled=" + gpu.frustumCulled()
+            + ", requestedSpawns=" + gpu.requestedParticles()
+            + ", acceptedSpawns=" + gpu.submittedParticles()
+            + ", debug=" + gpu.diagnosticMode().name().toLowerCase(java.util.Locale.ROOT)
+            + ", anySamplesPassed=" + gpu.diagnosticSamplesPassed());
+        feedback("War Mod GPU ms p50/p95/p99: update=" + timing(gpu.gpuTime().update())
+            + ", spawn=" + timing(gpu.gpuTime().spawn())
+            + ", cull=" + timing(gpu.gpuTime().cull())
+            + ", raster=" + timing(gpu.gpuTime().raster()));
+        feedback("War Mod CPU ms p50/p95/p99: effectExtract="
+            + timing(cpu.explosionExtraction())
+            + ", fireExtract=" + timing(cpu.fireExtraction())
+            + ", gpuDrain=" + timing(cpu.gpuExtractionCpu())
+            + ", vfxSchedule=" + timing(cpu.gpuSchedulerCpu())
+            + ", terrain=" + timing(cpu.terrainShockfrontCpu())
+            + ", vanillaExtract=" + timing(cpu.vanillaParticleExtractionCpu())
+            + ", vanillaRender=" + timing(cpu.vanillaParticleRenderCpu())
+            + ", vanillaCount=" + cpu.vanillaParticleCount());
         feedback("War Mod fire VFX: clientPatches=" + fire.clientPatches()
             + ", fieldSubmissions=" + fire.fieldSubmissions()
             + ", fireSpawned=" + fire.fireSpawned()
@@ -91,7 +140,23 @@ public final class WarheadRenderCommands {
             + ", smokeVisible=" + fire.smokeVisible()
             + ", packetsAccepted=" + fire.acceptedPackets()
             + ", packetsRejected=" + fire.rejectedPackets()
-            + ", stalePackets=" + fire.stalePackets());
+            + ", stalePackets=" + fire.stalePackets()
+            + ", receivedPatchEntries=" + fire.receivedPatchEntries()
+            + ", storedPatches=" + fire.storedPatches());
+    }
+
+    private static String timing(final GpuParticleEngine.GpuTiming timing) {
+        return format(timing.p50Millis()) + "/" + format(timing.p95Millis())
+            + "/" + format(timing.p99Millis());
+    }
+
+    private static String timing(final ClientPerformanceTelemetry.Percentiles timing) {
+        return format(timing.p50Millis()) + "/" + format(timing.p95Millis())
+            + "/" + format(timing.p99Millis());
+    }
+
+    private static String format(final double value) {
+        return String.format(java.util.Locale.ROOT, "%.3f", value);
     }
 
     private static void feedback(final String message) {

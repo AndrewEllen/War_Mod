@@ -9,22 +9,36 @@ struct Particle {
 };
 
 layout(std430, binding = 0) buffer ParticleBuffer { Particle particles[]; };
+layout(std430, binding = 4) buffer DeadList { uint deadCount; uint deadIds[]; };
+layout(std430, binding = 5) readonly buffer AliveInput {
+    uint inputAliveCount;
+    uint inputAliveIds[];
+};
+layout(std430, binding = 6) buffer AliveOutput {
+    uint outputAliveCount;
+    uint outputAliveIds[];
+};
+layout(std430, binding = 7) buffer StatsBuffer { uint stats[]; };
 uniform uint particleCapacity;
+uniform uint particleTypeCount;
 uniform float deltaSeconds;
 
 void main() {
-    uint id = gl_GlobalInvocationID.x;
+    uint aliveIndex = gl_GlobalInvocationID.x;
+    if (aliveIndex >= inputAliveCount) return;
+    uint id = inputAliveIds[aliveIndex];
     if (id >= particleCapacity) return;
     Particle particle = particles[id];
     float lifetime = particle.velocity_lifetime.w;
-    if (lifetime <= 0.0 || particle.position_age.w >= lifetime) return;
     float age = particle.position_age.w + deltaSeconds;
-    if (age >= lifetime) {
+    if (lifetime <= 0.0 || age >= lifetime) {
         particles[id].velocity_lifetime.w = 0.0;
+        uint deadIndex = atomicAdd(deadCount, 1u);
+        if (deadIndex < particleCapacity) deadIds[deadIndex] = id;
         return;
     }
     vec3 velocity = particle.velocity_lifetime.xyz;
-    uint type = particle.metadata.x;
+    uint type = min(particle.metadata.x, particleTypeCount - 1u);
     float drag = type == 1u || type == 4u ? 0.992 : 0.975;
     velocity *= pow(drag, deltaSeconds * 60.0);
     if (type == 0u || type == 3u) velocity.y += 1.8 * deltaSeconds;
@@ -33,4 +47,7 @@ void main() {
     particles[id].position_age = vec4(particle.position_age.xyz
         + velocity * deltaSeconds, age);
     particles[id].velocity_lifetime.xyz = velocity;
+    uint outputIndex = atomicAdd(outputAliveCount, 1u);
+    if (outputIndex < particleCapacity) outputAliveIds[outputIndex] = id;
+    atomicAdd(stats[type], 1u);
 }

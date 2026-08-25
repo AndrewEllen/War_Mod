@@ -20,6 +20,7 @@ public final class TerrainShockfrontField {
 	private final Vec3 impactPosition;
 	private final long visualSeed;
 	private final List<TerrainShockfrontSpoke> spokes;
+	private final int[] buildOrder = new int[MAX_SPOKES];
 	private int nextSpokeToBuild;
 
 	public TerrainShockfrontField(final Vec3 impactPosition, final long visualSeed) {
@@ -30,6 +31,9 @@ public final class TerrainShockfrontField {
 		for (int index = 0; index < MAX_SPOKES; index++) {
 			generated.add(new TerrainShockfrontSpoke(
 				phase + Math.PI * 2.0 * index / MAX_SPOKES));
+			/* Bit reversal spreads every early refinement pass around the full
+			 * circle instead of building one contiguous angular wedge first. */
+			this.buildOrder[index] = Integer.reverse(index) >>> 24;
 		}
 		this.spokes = List.copyOf(generated);
 	}
@@ -43,6 +47,11 @@ public final class TerrainShockfrontField {
 
 	public synchronized int buildToDistance(final ClientLevel level,
 		final double requiredDistance, final int maximumNodes) {
+		return this.buildToDistanceUntil(level, requiredDistance, maximumNodes, Long.MAX_VALUE);
+	}
+
+	public synchronized int buildToDistanceUntil(final ClientLevel level,
+		final double requiredDistance, final int maximumNodes, final long deadlineNanos) {
 		if (level == null || maximumNodes <= 0 || !Double.isFinite(requiredDistance)) return 0;
 		int targetSampleIndex = Math.max(1, Math.min(
 			MAX_HORIZONTAL_RANGE / SAMPLE_SPACING,
@@ -51,14 +60,19 @@ public final class TerrainShockfrontField {
 		int built = 0;
 		int unavailable = 0;
 		while (built < buildLimit && unavailable < this.spokes.size()) {
-			TerrainShockfrontSpoke spoke = this.spokes.get(this.nextSpokeToBuild);
+			if (System.nanoTime() >= deadlineNanos) break;
+			TerrainShockfrontSpoke spoke = this.spokes.get(
+				this.buildOrder[this.nextSpokeToBuild]);
 			this.nextSpokeToBuild = (this.nextSpokeToBuild + 1) % this.spokes.size();
 			if (spoke.complete() || spoke.nextSampleIndex() > targetSampleIndex) {
 				unavailable++;
 				continue;
 			}
+			if (!this.buildOneSample(level, spoke, spoke.nextSampleIndex())) {
+				unavailable++;
+				continue;
+			}
 			unavailable = 0;
-			this.buildOneSample(level, spoke, spoke.nextSampleIndex());
 			spoke.advanceSampleIndex();
 			built++;
 		}
@@ -104,16 +118,19 @@ public final class TerrainShockfrontField {
 		if (node != null) node.markEmitted(gameTime);
 	}
 
-	private void buildOneSample(final ClientLevel level,
+	private boolean buildOneSample(final ClientLevel level,
 		final TerrainShockfrontSpoke spoke, final int sampleIndex) {
 		double horizontalDistance = sampleIndex * SAMPLE_SPACING;
 		double x = this.impactPosition.x + Math.cos(spoke.angle()) * horizontalDistance;
 		double z = this.impactPosition.z + Math.sin(spoke.angle()) * horizontalDistance;
+		int blockX = (int) Math.floor(x);
+		int blockZ = (int) Math.floor(z);
+		if (level.getChunkSource().getChunkNow(blockX >> 4, blockZ >> 4) == null) return false;
 		TerrainSurfaceCache.SurfaceSample surface =
 			TerrainSurfaceCache.INSTANCE.sample(level, x, z);
 		if (surface == null) {
 			spoke.markComplete();
-			return;
+			return true;
 		}
 
 		TerrainShockfrontNode previous = spoke.previousNode();
@@ -122,7 +139,7 @@ public final class TerrainShockfrontField {
 		double verticalChange = Math.abs(surface.position().y - previousPosition.y);
 		if (verticalChange > MAX_VERTICAL_STEP) {
 			spoke.markComplete();
-			return;
+			return true;
 		}
 
 		double stepDistance = previous == null
@@ -135,6 +152,7 @@ public final class TerrainShockfrontField {
 			surface.surfaceBlock(), surface.surfaceState(), cumulativeDistance,
 			this.impactPosition.distanceTo(surface.position()), true,
 			surface.tintColor()));
+		return true;
 	}
 
 	private static List<TerrainShockfrontNode> interleave(

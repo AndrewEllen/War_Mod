@@ -1,6 +1,7 @@
 package com.andye.warmod.warhead.client;
 
 import com.andye.warmod.acoustics.client.ExplosionShakeManager;
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadEffectProfile;
 import com.andye.warmod.warhead.WarheadPayloadType;
@@ -32,12 +33,13 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 
 public final class ClientWarheadVisualManager {
 	public static final ClientWarheadVisualManager INSTANCE = new ClientWarheadVisualManager();
-	private static final int TOTAL_TERRAIN_BUILD_BUDGET = 32_768;
-	private static final int MAX_TERRAIN_BUILD_PER_IMPACT = 8_192;
+	private static final long TERRAIN_BUILD_BUDGET_NANOS = 900_000L;
+	private static final int TERRAIN_BUILD_SAFETY_LIMIT = 8_192;
 	private static final double TERRAIN_LOOKAHEAD_BLOCKS = 96.0;
 
 	private final Map<UUID, WarheadVisualState> activeWarheads = new LinkedHashMap<>();
 	private final Map<UUID, ImpactVisualState> activeImpacts = new LinkedHashMap<>();
+	private final Map<UUID, TerrainShockfrontField> preImpactShockfronts = new LinkedHashMap<>();
 	private final Set<UUID> volumetricImpacts = new HashSet<>();
 	private final Set<UUID> deliveredVisualShake = new HashSet<>();
 	private final Set<UUID> deliveredReturnShake = new HashSet<>();
@@ -55,6 +57,8 @@ public final class ClientWarheadVisualManager {
 		this.activeWarheads.remove(payload.warheadId());
 		this.removeOldestIfAtCapacity(this.activeWarheads, WarheadConstants.MAX_ACTIVE_CLIENT_WARHEADS);
 		this.activeWarheads.put(payload.warheadId(), WarheadVisualState.fromPayload(payload));
+		this.preImpactShockfronts.put(payload.warheadId(), new TerrainShockfrontField(
+			new Vec3(payload.targetX(), payload.targetY(), payload.targetZ()), payload.visualSeed()));
 	}
 
 	public synchronized void acceptImpact(final ClientboundWarheadImpactPayload payload) {
@@ -75,7 +79,11 @@ public final class ClientWarheadVisualManager {
 		this.volumetricImpacts.remove(payload.warheadId());
 		this.deliveredVisualShake.remove(payload.warheadId());
 		this.deliveredReturnShake.remove(payload.warheadId());
-		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload);
+		Vec3 incomingPosition = new Vec3(payload.impactX(), payload.impactY(), payload.impactZ());
+		TerrainShockfrontField prepared = this.preImpactShockfronts.remove(payload.warheadId());
+		if (prepared != null && (prepared.visualSeed() != payload.visualSeed()
+			|| prepared.impactPosition().distanceToSqr(incomingPosition) > 16.0)) prepared = null;
+		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload, prepared);
 		this.nuclearFlashExposed.remove(payload.warheadId());
 		if (incoming.payloadType() == WarheadPayloadType.NUCLEAR
 			&& hasDirectNuclearView(Minecraft.getInstance(), incoming.impactPosition())) {
@@ -97,6 +105,7 @@ public final class ClientWarheadVisualManager {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
 		if (!this.acceptSequence(payload.warheadId(), payload.stateSequence(), true)) return;
 		this.activeWarheads.remove(payload.warheadId());
+		this.preImpactShockfronts.remove(payload.warheadId());
 	}
 
 	public synchronized void tick(final Minecraft client) {
@@ -107,7 +116,11 @@ public final class ClientWarheadVisualManager {
 
 		Iterator<Map.Entry<UUID, WarheadVisualState>> warheadIterator = this.activeWarheads.entrySet().iterator();
 		while (warheadIterator.hasNext()) {
-			if (warheadIterator.next().getValue().isExpired(gameTime, 0.0)) warheadIterator.remove();
+			Map.Entry<UUID, WarheadVisualState> entry = warheadIterator.next();
+			if (entry.getValue().isExpired(gameTime, 0.0)) {
+				this.preImpactShockfronts.remove(entry.getKey());
+				warheadIterator.remove();
+			}
 		}
 		Iterator<Map.Entry<UUID, ImpactVisualState>> impactIterator = this.activeImpacts.entrySet().iterator();
 		while (impactIterator.hasNext()) {
@@ -124,11 +137,12 @@ public final class ClientWarheadVisualManager {
 		this.deliverSupplementalImpactShake(client, gameTime);
 		this.deliverNuclearReturnShake(client, gameTime);
 
-		int remainingTerrainBudget = TOTAL_TERRAIN_BUILD_BUDGET;
-		int impactCount = Math.max(1, this.activeImpacts.size());
-		int fairShare = Math.min(MAX_TERRAIN_BUILD_PER_IMPACT, Math.max(512, remainingTerrainBudget / impactCount));
+		long terrainStarted = System.nanoTime();
+		long terrainDeadline = terrainStarted + TERRAIN_BUILD_BUDGET_NANOS;
+		int remainingImpactCount = Math.max(1, this.activeImpacts.size());
 		for (ImpactVisualState state : this.activeImpacts.values()) {
-			if (remainingTerrainBudget <= 0) break;
+			long nowNanos = System.nanoTime();
+			if (nowNanos >= terrainDeadline) break;
 			double age = state.ageTicks(gameTime, 0.0);
 			if (state.payloadType() == WarheadPayloadType.NUCLEAR) {
 				age *= WarheadVisualMath.NUCLEAR_TIME_SCALE;
@@ -138,19 +152,37 @@ public final class ClientWarheadVisualManager {
 				TerrainShockfrontField.MAX_HORIZONTAL_RANGE,
 				WarheadVisualMath.groundShockwaveDistance(age, radiusScale) + TERRAIN_LOOKAHEAD_BLOCKS
 			);
-			int built = state.terrainShockfrontField().buildToDistance(
+			long sliceDeadline = nowNanos + Math.max(1L,
+				(terrainDeadline - nowNanos) / remainingImpactCount);
+			state.terrainShockfrontField().buildToDistanceUntil(
 				client.level,
 				requiredDistance,
-				Math.min(fairShare, remainingTerrainBudget)
+				TERRAIN_BUILD_SAFETY_LIMIT,
+				sliceDeadline
 			);
-			remainingTerrainBudget -= built;
+			remainingImpactCount--;
 		}
+		int remainingWarnings = Math.max(1, this.activeWarheads.size());
+		for (Map.Entry<UUID, WarheadVisualState> entry : this.activeWarheads.entrySet()) {
+			long nowNanos = System.nanoTime();
+			if (nowNanos >= terrainDeadline) break;
+			TerrainShockfrontField field = this.preImpactShockfronts.get(entry.getKey());
+			if (field == null) continue;
+			long sliceDeadline = nowNanos + Math.max(1L,
+				(terrainDeadline - nowNanos) / remainingWarnings);
+			field.buildToDistanceUntil(client.level, TerrainShockfrontField.MAX_HORIZONTAL_RANGE,
+				TERRAIN_BUILD_SAFETY_LIMIT, sliceDeadline);
+			remainingWarnings--;
+		}
+		ClientPerformanceTelemetry.recordTerrainShockfrontNanos(
+			Math.max(0L, System.nanoTime() - terrainStarted));
 
 	}
 
 	public synchronized void clear() {
 		this.activeWarheads.clear();
 		this.activeImpacts.clear();
+		this.preImpactShockfronts.clear();
 		this.volumetricImpacts.clear();
 		this.deliveredVisualShake.clear();
 		this.deliveredReturnShake.clear();
@@ -174,6 +206,7 @@ public final class ClientWarheadVisualManager {
 		if (level == null) {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
+			this.preImpactShockfronts.clear();
 			this.volumetricImpacts.clear();
 			this.deliveredVisualShake.clear();
 			this.deliveredReturnShake.clear();
@@ -191,6 +224,7 @@ public final class ClientWarheadVisualManager {
 		if (this.activeLevel != level) {
 			this.activeWarheads.clear();
 			this.activeImpacts.clear();
+			this.preImpactShockfronts.clear();
 			this.volumetricImpacts.clear();
 			this.deliveredVisualShake.clear();
 			this.deliveredReturnShake.clear();
@@ -342,8 +376,9 @@ public final class ClientWarheadVisualManager {
 		while (states.size() >= capacity) {
 			Iterator<UUID> iterator = states.keySet().iterator();
 			if (!iterator.hasNext()) return;
-			iterator.next();
+			UUID removed = iterator.next();
 			iterator.remove();
+			if (states == this.activeWarheads) this.preImpactShockfronts.remove(removed);
 		}
 	}
 

@@ -57,13 +57,29 @@ public final class WarModServerWorkScheduler {
         long now = System.nanoTime();
         long classBudget = workClass.weight() >= WorkClass.CRATER_COMMIT.weight()
             ? HARD_MAXIMUM_NANOS : NORMAL_TARGET_NANOS;
+        long reservedForOtherClasses = state.reservations.entrySet().stream()
+            .filter(entry -> entry.getKey() != workClass)
+            .mapToLong(Map.Entry::getValue).sum();
         long remaining = Math.max(0L,
-            classBudget - state.totalWorkNanos - state.reservedNanos);
+            classBudget - state.totalWorkNanos - state.reservedNanos
+                - reservedForOtherClasses);
         if (remaining <= 0L) return WorkPermit.UNAVAILABLE;
+        state.reservations.remove(workClass);
         long granted = Math.min(requestedNanos, remaining);
         state.reservedNanos += granted;
         long deadline = saturatedAdd(now, granted);
         return new WorkPermit(state, workClass, now, deadline, granted);
+    }
+
+    /**
+     * Reserves a same-tick slice before a higher-volume class starts draining
+     * the shared deadline. The reservation is released when its owner acquires.
+     */
+    public static synchronized void reserve(final ServerLevel level,
+        final WorkClass workClass, final long nanos) {
+        if (level == null || workClass == null || nanos <= 0L) return;
+        TickState state = STATES.computeIfAbsent(level.getServer(), ignored -> TickState.begin());
+        state.reservations.merge(workClass, Math.min(nanos, NORMAL_TARGET_NANOS), Math::max);
     }
 
     public static synchronized long hardDeadline(final ServerLevel level) {
@@ -138,6 +154,7 @@ public final class WarModServerWorkScheduler {
     private static final class TickState {
         private final long tickStartNanos;
         private final EnumMap<WorkClass, Long> byClass = new EnumMap<>(WorkClass.class);
+        private final EnumMap<WorkClass, Long> reservations = new EnumMap<>(WorkClass.class);
         private long totalWorkNanos;
         private long reservedNanos;
         private long overruns;

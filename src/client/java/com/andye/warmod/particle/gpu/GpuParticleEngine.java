@@ -6,6 +6,7 @@ import com.andye.warmod.WarMod;
 import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.particle.gpu.GpuVfxScheduler.CameraInfo;
 import com.andye.warmod.particle.gpu.GpuVfxScheduler.ScheduledFrame;
+import com.andye.warmod.warhead.client.render.WarheadRenderSettings;
 import com.mojang.blaze3d.systems.RenderSystem;
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,6 +43,8 @@ import org.lwjgl.system.MemoryUtil;
  */
 public final class GpuParticleEngine {
     public enum Backend { UNINITIALIZED, GPU_COMPUTE, CPU_FALLBACK }
+    public enum BackendPreference { AUTO, GPU, CPU }
+    public enum DiagnosticMode { OFF, DEPTH_DISABLED, DEPTH_ENABLED }
     public enum EffectClass { NUCLEAR, CONVENTIONAL, FIRE_FIELD, CURTAIN, LEGACY }
 
     public enum VisualLayer {
@@ -99,6 +102,8 @@ public final class GpuParticleEngine {
     private static final int PARTICLE_STRIDE = 64;
     private static final int EMITTER_STRIDE = 80;
     private static final int INDIRECT_COMMAND_STRIDE = 16;
+    private static final int STATS_UINTS = TYPE_COUNT * 4 + 4;
+    private static final int STATS_RING_SIZE = 6;
     private static final String SHADER_ROOT = "/assets/war_mod/shaders/gpu_particles/";
     private static final LinkedHashMap<EffectKey, PendingEffect> PENDING_EFFECTS =
         new LinkedHashMap<>();
@@ -108,25 +113,47 @@ public final class GpuParticleEngine {
         MAX_EMITTERS_PER_FRAME * EMITTER_STRIDE);
 
     private static volatile Backend backend = Backend.UNINITIALIZED;
+    private static volatile BackendPreference backendPreference = BackendPreference.AUTO;
+    private static volatile DiagnosticMode diagnosticMode = DiagnosticMode.OFF;
     private static boolean registered, resetRequested, extensionShaderPath;
+    private static boolean backendSwitchRequested, diagnosticStateLogged;
     private static int particleBuffer, emitterBuffer, visibleBuffer, indirectBuffer;
-    private static int allocationBuffer, vertexArray;
-    private static int updateProgram, spawnProgram, cullProgram, renderProgram;
-    private static final int[] timeQueries = new int[2];
-    private static final boolean[] timeQueryIssued = new boolean[2];
-    private static final int[][] visibilityQueries = new int[TYPE_COUNT][2];
-    private static final boolean[][] visibilityQueryIssued = new boolean[TYPE_COUNT][2];
-    private static final int[] visibilityQueryCursor = new int[TYPE_COUNT];
+    private static int deadListBuffer, dispatchBuffer, vertexArray;
+    private static final int[] aliveBuffers = new int[2];
+    private static final int[] statsBuffers = new int[STATS_RING_SIZE];
+    private static final long[] statsFences = new long[STATS_RING_SIZE];
+    private static final boolean[] statsInFlight = new boolean[STATS_RING_SIZE];
+    private static int debugParticleBuffer, debugVisibleBuffer;
+    private static int updateProgram, spawnProgram, cullProgram, prepareProgram, renderProgram;
+    private static final int[][] timeQueries = new int[GpuStage.values().length][2];
+    private static final boolean[][] timeQueryIssued =
+        new boolean[GpuStage.values().length][2];
+    private static final int[] timeQueryCursor = new int[GpuStage.values().length];
+    private static final int[] sampleQueries = new int[2];
+    private static final boolean[] sampleQueryIssued = new boolean[2];
+    private static int sampleQueryCursor;
     private static final long[] visibleByType = new long[TYPE_COUNT];
     private static final long[] activeByType = new long[TYPE_COUNT];
+    private static final int[] requestedByType = new int[TYPE_COUNT];
     private static final int[] spawnedByType = new int[TYPE_COUNT];
-    private static final ArrayDeque<Long> GPU_TIMES_NANOS = new ArrayDeque<>(120);
-    private static int timeQueryCursor;
-    private static long previousFrameNanos, submittedParticles, frameSequence;
+    private static final int[] rejectedByType = new int[TYPE_COUNT];
+    @SuppressWarnings("unchecked")
+    private static final ArrayDeque<Long>[] GPU_TIMES_NANOS = new ArrayDeque[] {
+        new ArrayDeque<Long>(120), new ArrayDeque<Long>(120),
+        new ArrayDeque<Long>(120), new ArrayDeque<Long>(120)
+    };
+    private static final double[] gpuStageEwmaMillis = new double[GpuStage.values().length];
+    private static int aliveBufferIndex, statsCursor;
+    private static long previousFrameNanos, submittedParticles, requestedParticles;
+    private static long rejectedParticles, frameSequence;
     private static double adaptiveQuality = 1.0, gpuTimeEwmaMillis;
     private static int scheduledLayerCount, scheduledEmitterCount;
     private static int clientFirePatches, fireFieldSubmissions;
     private static int acceptedFirePackets, rejectedFirePackets, staleFirePackets;
+    private static int receivedFirePatchEntries, storedFirePatches;
+    private static long deadSlots = PARTICLE_CAPACITY;
+    private static long distanceCulled, sizeCulled, frustumCulled;
+    private static long debugSamplesPassed = -1L;
 
     private GpuParticleEngine() { }
 
@@ -137,7 +164,25 @@ public final class GpuParticleEngine {
     }
 
     public static Backend backend() { return backend; }
-    public static boolean isGpuActive() { return backend == Backend.GPU_COMPUTE; }
+    public static BackendPreference backendPreference() { return backendPreference; }
+    public static DiagnosticMode diagnosticMode() { return diagnosticMode; }
+    public static boolean isGpuActive() {
+        return backend == Backend.GPU_COMPUTE
+            && backendPreference != BackendPreference.CPU && !backendSwitchRequested;
+    }
+    public static synchronized void setBackendPreference(final BackendPreference preference) {
+        if (preference == null) throw new IllegalArgumentException("preference");
+        if (backendPreference == preference && !backendSwitchRequested) return;
+        backendPreference = preference;
+        backendSwitchRequested = true;
+        resetRequested = true;
+    }
+    public static synchronized void setDiagnosticMode(final DiagnosticMode mode) {
+        if (mode == null) throw new IllegalArgumentException("mode");
+        diagnosticMode = mode;
+        diagnosticStateLogged = false;
+        debugSamplesPassed = -1L;
+    }
     public static long stableId(final UUID id) {
         return id == null ? 0L : mix64(id.getMostSignificantBits() ^ id.getLeastSignificantBits());
     }
@@ -170,17 +215,24 @@ public final class GpuParticleEngine {
     }
 
     public static synchronized void recordFirePacket(final boolean accepted,
-        final boolean stale) {
+        final boolean stale, final int receivedEntries, final int storedPatches) {
         if (accepted) acceptedFirePackets++;
         else { rejectedFirePackets++; if (stale) staleFirePackets++; }
+        if (accepted) {
+            receivedFirePatchEntries += Math.max(0, receivedEntries);
+            storedFirePatches = Math.max(0, storedPatches);
+        }
     }
 
     public static synchronized void clearLevel() {
         PENDING_EFFECTS.clear(); PENDING_FIRE_FIELDS.clear();
         GpuVfxScheduler.clear(); resetRequested = true;
         Arrays.fill(activeByType, 0L); Arrays.fill(visibleByType, 0L);
-        Arrays.fill(spawnedByType, 0); clientFirePatches = fireFieldSubmissions = 0;
+        Arrays.fill(requestedByType, 0); Arrays.fill(spawnedByType, 0);
+        Arrays.fill(rejectedByType, 0);
+        clientFirePatches = fireFieldSubmissions = receivedFirePatchEntries = storedFirePatches = 0;
         acceptedFirePackets = rejectedFirePackets = staleFirePackets = 0;
+        submittedParticles = requestedParticles = rejectedParticles = 0L;
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
@@ -189,16 +241,22 @@ public final class GpuParticleEngine {
         long vram = isGpuActive() ? (long) PARTICLE_CAPACITY * PARTICLE_STRIDE
             + (long) PARTICLE_CAPACITY * TYPE_COUNT * Integer.BYTES
             + (long) MAX_EMITTERS_PER_FRAME * EMITTER_STRIDE
-            + (long) TYPE_COUNT * INDIRECT_COMMAND_STRIDE + 4L : 0L;
+            + (long) TYPE_COUNT * INDIRECT_COMMAND_STRIDE
+            + 3L * (PARTICLE_CAPACITY + 1L) * Integer.BYTES
+            + (long) STATS_RING_SIZE * STATS_UINTS * Integer.BYTES : 0L;
         FireDebugCounters fire = new FireDebugCounters(clientFirePatches,
             fireFieldSubmissions, spawnedByType[ParticleType.FIRE.shaderId],
             visibleByType[ParticleType.FIRE.shaderId],
             spawnedByType[ParticleType.SMOKE.shaderId],
             visibleByType[ParticleType.SMOKE.shaderId], acceptedFirePackets,
-            rejectedFirePackets, staleFirePackets);
-        return new DebugSnapshot(backend, active, visible, Math.max(0L, active - visible),
-            submittedParticles, PARTICLE_CAPACITY, vram, gpuTiming(), adaptiveQuality,
-            scheduledLayerCount, scheduledEmitterCount, fire);
+            rejectedFirePackets, staleFirePackets, receivedFirePatchEntries,
+            storedFirePatches);
+        return new DebugSnapshot(backend, backendPreference, active, visible,
+            Math.max(0L, active - visible), submittedParticles, requestedParticles,
+            rejectedParticles, deadSlots,
+            PARTICLE_CAPACITY, vram, gpuTimings(), adaptiveQuality,
+            scheduledLayerCount, scheduledEmitterCount, distanceCulled, sizeCulled,
+            frustumCulled, diagnosticMode, debugSamplesPassed, fire);
     }
 
     private static synchronized void submitLayer(final EffectDescriptor descriptor,
@@ -218,8 +276,12 @@ public final class GpuParticleEngine {
     private static void render(final LevelRenderContext context) {
         long cpuStarted = System.nanoTime();
         RenderSystem.assertOnRenderThread();
-        if (backend == Backend.UNINITIALIZED) initialize();
+        if (backendSwitchRequested) applyBackendPreference();
+        else if (backend == Backend.UNINITIALIZED) initialize();
+        long extractionStarted = System.nanoTime();
         FrameSubmissions submissions = drainSubmissions();
+        ClientPerformanceTelemetry.recordGpuExtractionNanos(
+            Math.max(0L, System.nanoTime() - extractionStarted));
         if (backend != Backend.GPU_COMPUTE) return;
         if (resetRequested) { clearParticleStorage(); resetRequested = false; }
         CameraRenderState camera = context.levelState().cameraRenderState;
@@ -232,7 +294,6 @@ public final class GpuParticleEngine {
         previousFrameNanos = now; frameSequence++;
 
         GlState state = GlState.capture();
-        boolean gpuTimerActive = false;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             Matrix4f viewProjection = new Matrix4f(camera.projectionMatrix)
                 .mul(camera.viewRotationMatrix);
@@ -243,23 +304,37 @@ public final class GpuParticleEngine {
             CameraInfo cameraInfo = new CameraInfo(camera.pos, viewProjection,
                 Math.max(0.01F, Math.abs(camera.projectionMatrix.m11())),
                 viewportWidth, viewportHeight);
+            if (diagnosticMode != DiagnosticMode.OFF) {
+                drawDiagnostic(camera, viewProjection, state, stack);
+                return;
+            }
+            collectCompletedStats();
+            int statsSlot = acquireStatsSlot();
+            resetFrameBuffers(stack, statsSlot);
+            long schedulerStarted = System.nanoTime();
             ScheduledFrame scheduled = GpuVfxScheduler.schedule(submissions,
-                cameraInfo, adaptiveQuality, frameSequence);
+                cameraInfo, adaptiveQuality, frameSequence, deltaSeconds,
+                Math.max(0L, deadSlots), WarheadRenderSettings.gpuBudgetScale());
+            ClientPerformanceTelemetry.recordGpuSchedulerNanos(
+                Math.max(0L, System.nanoTime() - schedulerStarted));
             scheduledLayerCount = scheduled.visibleLayerCount();
             scheduledEmitterCount = scheduled.emitters().size();
             int spawned = uploadEmitters(scheduled.emitters(), deltaSeconds);
-            submittedParticles += spawned; updateActiveEstimates(deltaSeconds);
+            requestedParticles += spawned;
 
-            int query = beginGpuTimer(); gpuTimerActive = query != 0;
-            bindStorageBuffers(); dispatchUpdate(deltaSeconds);
-            if (!scheduled.emitters().isEmpty()) dispatchSpawn(scheduled.emitters().size());
-            resetIndirectCommands(stack);
-            dispatchCull(camera.pos, viewProjection, viewportHeight,
-                cameraInfo.projectionScale(), stack);
-            draw(camera, viewProjection, stack);
-            if (gpuTimerActive) { glEndQuery(GL_TIME_ELAPSED); gpuTimerActive = false; }
+            bindStorageBuffers(statsSlot);
+            prepareDispatch(false);
+            runTimedGpuStage(GpuStage.UPDATE, () -> dispatchUpdate(deltaSeconds));
+            if (!scheduled.emitters().isEmpty()) runTimedGpuStage(GpuStage.SPAWN,
+                () -> dispatchSpawn(scheduled.emitters().size()));
+            prepareDispatch(true);
+            runTimedGpuStage(GpuStage.CULL, () -> dispatchCull(camera.pos,
+                viewProjection, viewportHeight, cameraInfo.projectionScale(), stack));
+            runTimedGpuStage(GpuStage.RASTER, () -> draw(camera, viewProjection, state, stack));
+            aliveBufferIndex = 1 - aliveBufferIndex;
+            statsFences[statsSlot] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            statsInFlight[statsSlot] = true;
         } catch (RuntimeException exception) {
-            if (gpuTimerActive) glEndQuery(GL_TIME_ELAPSED);
             WarMod.LOGGER.error("GPU VFX backend failed; returning to packed fallback", exception);
             destroyResources(); backend = Backend.CPU_FALLBACK;
         } finally {
@@ -267,6 +342,17 @@ public final class GpuParticleEngine {
             ClientPerformanceTelemetry.recordGpuEngineCpuNanos(
                 Math.max(0L, System.nanoTime() - cpuStarted));
         }
+    }
+
+    private static void applyBackendPreference() {
+        destroyResources();
+        backendSwitchRequested = false;
+        if (backendPreference == BackendPreference.CPU) {
+            backend = Backend.CPU_FALLBACK;
+            return;
+        }
+        backend = Backend.UNINITIALIZED;
+        initialize();
     }
 
     private static synchronized FrameSubmissions drainSubmissions() {
@@ -285,6 +371,10 @@ public final class GpuParticleEngine {
     }
 
     private static void initialize() {
+        if (backendPreference == BackendPreference.CPU) {
+            backend = Backend.CPU_FALLBACK;
+            return;
+        }
         try {
             String backendName = RenderSystem.getDevice().getDeviceInfo().backendName();
             GLCapabilities capabilities = GL.getCapabilities();
@@ -295,18 +385,20 @@ public final class GpuParticleEngine {
                 && capabilities.GL_ARB_clear_buffer_object;
             boolean indirect = RenderSystem.getDevice().getDeviceInfo().features().drawIndirect()
                 && (capabilities.OpenGL40 || capabilities.GL_ARB_draw_indirect);
+            int storageBindings = glGetInteger(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
             if (backendName == null || !backendName.toLowerCase().contains("opengl")
-                || (!coreCompute && !extensionCompute) || !indirect) {
+                || (!coreCompute && !extensionCompute) || !indirect || storageBindings < 9) {
                 backend = Backend.CPU_FALLBACK;
                 WarMod.LOGGER.info("War Mod GPU VFX unavailable: backend={}, core43={}, "
-                    + "extensionCompute={}, indirect={}; using packed fallback",
-                    backendName, coreCompute, extensionCompute, indirect);
+                    + "extensionCompute={}, indirect={}, ssboBindings={}; using packed fallback",
+                    backendName, coreCompute, extensionCompute, indirect, storageBindings);
                 return;
             }
             extensionShaderPath = !coreCompute;
             updateProgram = computeProgram("update.comp");
             spawnProgram = computeProgram("spawn.comp");
             cullProgram = computeProgram("cull.comp");
+            prepareProgram = computeProgram("prepare_dispatch.comp");
             renderProgram = graphicsProgram("particle.vert", "particle.frag");
             particleBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
                 (long) PARTICLE_CAPACITY * PARTICLE_STRIDE, GL_DYNAMIC_DRAW);
@@ -316,13 +408,26 @@ public final class GpuParticleEngine {
                 (long) PARTICLE_CAPACITY * TYPE_COUNT * Integer.BYTES, GL_DYNAMIC_DRAW);
             indirectBuffer = createBuffer(GL_DRAW_INDIRECT_BUFFER,
                 (long) TYPE_COUNT * INDIRECT_COMMAND_STRIDE, GL_DYNAMIC_DRAW);
-            allocationBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER, 4L, GL_DYNAMIC_DRAW);
+            deadListBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
+                (long) (PARTICLE_CAPACITY + 1) * Integer.BYTES, GL_DYNAMIC_DRAW);
+            aliveBuffers[0] = createBuffer(GL_SHADER_STORAGE_BUFFER,
+                (long) (PARTICLE_CAPACITY + 1) * Integer.BYTES, GL_DYNAMIC_DRAW);
+            aliveBuffers[1] = createBuffer(GL_SHADER_STORAGE_BUFFER,
+                (long) (PARTICLE_CAPACITY + 1) * Integer.BYTES, GL_DYNAMIC_DRAW);
+            dispatchBuffer = createBuffer(GL_DISPATCH_INDIRECT_BUFFER, 12L, GL_DYNAMIC_DRAW);
+            for (int slot = 0; slot < STATS_RING_SIZE; slot++)
+                statsBuffers[slot] = createBuffer(GL_SHADER_STORAGE_BUFFER,
+                    (long) STATS_UINTS * Integer.BYTES, GL_STREAM_READ);
+            debugParticleBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
+                PARTICLE_STRIDE, GL_STREAM_DRAW);
+            debugVisibleBuffer = createBuffer(GL_SHADER_STORAGE_BUFFER,
+                Integer.BYTES, GL_STREAM_DRAW);
             vertexArray = glGenVertexArrays();
-            timeQueries[0] = glGenQueries(); timeQueries[1] = glGenQueries();
-            for (int type = 0; type < TYPE_COUNT; type++) {
-                visibilityQueries[type][0] = glGenQueries();
-                visibilityQueries[type][1] = glGenQueries();
+            for (int stage = 0; stage < GpuStage.values().length; stage++) {
+                timeQueries[stage][0] = glGenQueries();
+                timeQueries[stage][1] = glGenQueries();
             }
+            sampleQueries[0] = glGenQueries(); sampleQueries[1] = glGenQueries();
             clearParticleStorage(); backend = Backend.GPU_COMPUTE;
             WarMod.LOGGER.info("War Mod effect-aware GPU VFX enabled: {} particles, "
                 + "{} semantic emitter slots, extensionPath={}",
@@ -344,17 +449,38 @@ public final class GpuParticleEngine {
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleBuffer);
             glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_RGBA32UI,
                 GL_RGBA_INTEGER, GL_UNSIGNED_INT, zero);
-            glBindBuffer(GL_SHADER_STORAGE_BUFFER, allocationBuffer);
-            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, stack.calloc(4));
+            ByteBuffer dead = MemoryUtil.memAlloc((PARTICLE_CAPACITY + 1) * Integer.BYTES);
+            try {
+                dead.putInt(PARTICLE_CAPACITY);
+                for (int id = 0; id < PARTICLE_CAPACITY; id++) dead.putInt(id);
+                dead.flip();
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, deadListBuffer);
+                glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, dead);
+            } finally {
+                MemoryUtil.memFree(dead);
+            }
+            for (int aliveBuffer : aliveBuffers) {
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, aliveBuffer);
+                glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, stack.calloc(4));
+            }
+            for (int statsBuffer : statsBuffers) {
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, statsBuffer);
+                glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L,
+                    stack.calloc(STATS_UINTS * Integer.BYTES));
+            }
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         }
         previousFrameNanos = 0L;
+        aliveBufferIndex = 0;
+        deadSlots = PARTICLE_CAPACITY;
         Arrays.fill(activeByType, 0L); Arrays.fill(visibleByType, 0L);
+        Arrays.fill(requestedByType, 0); Arrays.fill(spawnedByType, 0);
+        Arrays.fill(rejectedByType, 0);
     }
 
     private static int uploadEmitters(final List<EmitterCommand> emitters,
         final float deltaSeconds) {
-        Arrays.fill(spawnedByType, 0);
+        Arrays.fill(requestedByType, 0);
         if (emitters.isEmpty()) return 0;
         EMITTER_STAGING.clear(); int totalSpawned = 0;
         for (EmitterCommand emitter : emitters) {
@@ -367,7 +493,7 @@ public final class GpuParticleEngine {
             putVec4(EMITTER_STAGING, emitter.size(), emitter.spread(),
                 emitter.velocityJitter(), emitter.importance());
             int spawnCount = frameSpawnCount(emitter, deltaSeconds);
-            totalSpawned += spawnCount; spawnedByType[emitter.type().shaderId] += spawnCount;
+            totalSpawned += spawnCount; requestedByType[emitter.type().shaderId] += spawnCount;
             EMITTER_STAGING.putInt(spawnCount).putInt(emitter.seed())
                 .putInt(emitter.type().shaderId).putInt(emitter.flags());
         }
@@ -386,52 +512,58 @@ public final class GpuParticleEngine {
         return whole + (unit < fraction ? 1 : 0);
     }
 
-    private static void updateActiveEstimates(final float deltaSeconds) {
-        float[] typicalLifetime = {1.15F, 5.0F, 0.65F, 2.6F, 8.0F, 3.2F, 5.8F};
-        for (int type = 0; type < TYPE_COUNT; type++) {
-            long expired = Math.max(activeByType[type] > 0L ? 1L : 0L,
-                (long) (activeByType[type] * deltaSeconds
-                    / Math.max(0.1F, typicalLifetime[type])));
-            activeByType[type] = Math.min(PARTICLE_CAPACITY,
-                Math.max(0L, activeByType[type] - expired) + spawnedByType[type]);
-        }
-        long total = Arrays.stream(activeByType).sum();
-        if (total <= PARTICLE_CAPACITY) return;
-        double scale = PARTICLE_CAPACITY / (double) total;
-        for (int type = 0; type < TYPE_COUNT; type++)
-            activeByType[type] = Math.round(activeByType[type] * scale);
-    }
-
     private static void putVec4(final ByteBuffer buffer, final double x, final double y,
         final double z, final double w) {
         buffer.putFloat((float) x).putFloat((float) y).putFloat((float) z).putFloat((float) w);
     }
 
-    private static void bindStorageBuffers() {
+    private static void bindStorageBuffers(final int statsSlot) {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, emitterBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, visibleBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, indirectBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, allocationBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, deadListBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, aliveBuffers[aliveBufferIndex]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, aliveBuffers[1 - aliveBufferIndex]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, statsBuffers[statsSlot]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, dispatchBuffer);
+    }
+
+    private static void prepareDispatch(final boolean useNextAliveList) {
+        glUseProgram(prepareProgram);
+        glUniform1i(glGetUniformLocation(prepareProgram, "useNextAliveList"),
+            useNextAliveList ? GL_TRUE : GL_FALSE);
+        glUniform1ui(glGetUniformLocation(prepareProgram, "particleTypeCount"), TYPE_COUNT);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT);
     }
 
     private static void dispatchUpdate(final float deltaSeconds) {
         glUseProgram(updateProgram);
         glUniform1ui(glGetUniformLocation(updateProgram, "particleCapacity"), PARTICLE_CAPACITY);
+        glUniform1ui(glGetUniformLocation(updateProgram, "particleTypeCount"), TYPE_COUNT);
         glUniform1f(glGetUniformLocation(updateProgram, "deltaSeconds"), deltaSeconds);
-        glDispatchCompute((PARTICLE_CAPACITY + 255) / 256, 1, 1);
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchBuffer);
+        glDispatchComputeIndirect(0L);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
     private static void dispatchSpawn(final int emitterCount) {
         glUseProgram(spawnProgram);
         glUniform1ui(glGetUniformLocation(spawnProgram, "particleCapacity"), PARTICLE_CAPACITY);
+        glUniform1ui(glGetUniformLocation(spawnProgram, "particleTypeCount"), TYPE_COUNT);
         glUniform1ui(glGetUniformLocation(spawnProgram, "emitterCount"), emitterCount);
+        glUniform1ui(glGetUniformLocation(spawnProgram, "spawnEpoch"), (int) frameSequence);
         glDispatchCompute(emitterCount, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
-    private static void resetIndirectCommands(final MemoryStack stack) {
+    private static void resetFrameBuffers(final MemoryStack stack, final int statsSlot) {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, aliveBuffers[1 - aliveBufferIndex]);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, stack.calloc(Integer.BYTES));
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, statsBuffers[statsSlot]);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L,
+            stack.calloc(STATS_UINTS * Integer.BYTES));
         ByteBuffer commands = stack.malloc(TYPE_COUNT * INDIRECT_COMMAND_STRIDE);
         for (int type = 0; type < TYPE_COUNT; type++)
             commands.putInt(4).putInt(0).putInt(0).putInt(0);
@@ -445,18 +577,18 @@ public final class GpuParticleEngine {
         glUseProgram(cullProgram);
         glUniform1ui(glGetUniformLocation(cullProgram, "particleCapacity"), PARTICLE_CAPACITY);
         glUniform1ui(glGetUniformLocation(cullProgram, "particleTypeCount"), TYPE_COUNT);
-        glUniform1ui(glGetUniformLocation(cullProgram, "frameSequence"), (int) frameSequence);
         glUniform1f(glGetUniformLocation(cullProgram, "viewportHeight"), viewportHeight);
         glUniform1f(glGetUniformLocation(cullProgram, "projectionScale"), projectionScale);
         glUniform3f(glGetUniformLocation(cullProgram, "cameraPosition"),
             (float) camera.x, (float) camera.y, (float) camera.z);
         uniformMatrix(cullProgram, "viewProjection", viewProjection, stack);
-        glDispatchCompute((PARTICLE_CAPACITY + 255) / 256, 1, 1);
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchBuffer);
+        glDispatchComputeIndirect(0L);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT);
     }
 
     private static void draw(final CameraRenderState camera,
-        final Matrix4f viewProjection, final MemoryStack stack) {
+        final Matrix4f viewProjection, final GlState state, final MemoryStack stack) {
         Quaternionf orientation = camera.orientation == null
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F).rotate(orientation);
@@ -466,18 +598,18 @@ public final class GpuParticleEngine {
             (float) camera.pos.x, (float) camera.pos.y, (float) camera.pos.z);
         glUniform3f(glGetUniformLocation(renderProgram, "cameraRight"), right.x, right.y, right.z);
         glUniform3f(glGetUniformLocation(renderProgram, "cameraUp"), up.x, up.y, up.z);
+        glUniform1i(glGetUniformLocation(renderProgram, "directDebug"), GL_FALSE);
         glBindVertexArray(vertexArray); glEnable(GL_BLEND); glEnable(GL_DEPTH_TEST);
-        glDepthMask(false); glDisable(GL_CULL_FACE); glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
+        glDepthFunc(state.depthFunction()); glDepthMask(false); glDisable(GL_CULL_FACE);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
         int visibleBaseUniform = glGetUniformLocation(renderProgram, "visibleBase");
         for (ParticleType type : ParticleType.values()) {
             if (type == ParticleType.FIRE || type == ParticleType.EMBER
                 || type == ParticleType.EXPLOSION_FIRE) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
             else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glUniform1ui(visibleBaseUniform, type.shaderId * PARTICLE_CAPACITY);
-            boolean visibilityQuery = beginVisibilityQuery(type.shaderId);
-            try { glDrawArraysIndirect(GL_TRIANGLE_STRIP,
-                (long) type.shaderId * INDIRECT_COMMAND_STRIDE); }
-            finally { if (visibilityQuery) glEndQuery(GL_PRIMITIVES_GENERATED); }
+            glDrawArraysIndirect(GL_TRIANGLE_STRIP,
+                (long) type.shaderId * INDIRECT_COMMAND_STRIDE);
         }
     }
 
@@ -487,49 +619,174 @@ public final class GpuParticleEngine {
         glUniformMatrix4fv(glGetUniformLocation(program, name), false, values);
     }
 
-    private static int beginGpuTimer() {
-        int slot = timeQueryCursor, query = timeQueries[slot];
+    private static void runTimedGpuStage(final GpuStage stage, final Runnable work) {
+        int query = beginGpuTimer(stage);
+        try { work.run(); }
+        finally { if (query != 0) glEndQuery(GL_TIME_ELAPSED); }
+    }
+
+    private static int beginGpuTimer(final GpuStage stage) {
+        int stageIndex = stage.ordinal();
+        int slot = timeQueryCursor[stageIndex], query = timeQueries[stageIndex][slot];
         if (query == 0) return 0;
-        if (timeQueryIssued[slot]) {
+        if (timeQueryIssued[stageIndex][slot]) {
             if (glGetQueryObjecti(query, GL_QUERY_RESULT_AVAILABLE) == GL_FALSE) return 0;
-            long nanos = glGetQueryObjecti64(query, GL_QUERY_RESULT);
+            long nanos = Math.max(0L, glGetQueryObjecti64(query, GL_QUERY_RESULT));
             synchronized (GpuParticleEngine.class) {
-                if (GPU_TIMES_NANOS.size() == 120) GPU_TIMES_NANOS.removeFirst();
-                GPU_TIMES_NANOS.addLast(Math.max(0L, nanos));
-                double millis = Math.max(0.0, nanos / 1_000_000.0);
-                gpuTimeEwmaMillis = gpuTimeEwmaMillis == 0.0 ? millis
-                    : gpuTimeEwmaMillis * 0.90 + millis * 0.10;
-                if (gpuTimeEwmaMillis > 2.35) adaptiveQuality -= 0.018;
-                else if (gpuTimeEwmaMillis < 1.55) adaptiveQuality += 0.009;
-                adaptiveQuality = Mth.clamp(adaptiveQuality, 0.22, 1.35);
+                ArrayDeque<Long> samples = GPU_TIMES_NANOS[stageIndex];
+                if (samples.size() == 120) samples.removeFirst();
+                samples.addLast(nanos);
+                double millis = nanos / 1_000_000.0;
+                gpuStageEwmaMillis[stageIndex] = gpuStageEwmaMillis[stageIndex] == 0.0
+                    ? millis : gpuStageEwmaMillis[stageIndex] * 0.90 + millis * 0.10;
+                if (stage == GpuStage.RASTER) {
+                    gpuTimeEwmaMillis = Arrays.stream(gpuStageEwmaMillis).sum();
+                    if (gpuTimeEwmaMillis > 2.35) adaptiveQuality -= 0.018;
+                    else if (gpuTimeEwmaMillis < 1.55) adaptiveQuality += 0.009;
+                    adaptiveQuality = Mth.clamp(adaptiveQuality, 0.22, 1.35);
+                }
             }
-            timeQueryIssued[slot] = false;
+            timeQueryIssued[stageIndex][slot] = false;
         }
-        glBeginQuery(GL_TIME_ELAPSED, query); timeQueryIssued[slot] = true;
-        timeQueryCursor = (slot + 1) & 1; return query;
+        glBeginQuery(GL_TIME_ELAPSED, query);
+        timeQueryIssued[stageIndex][slot] = true;
+        timeQueryCursor[stageIndex] = (slot + 1) & 1;
+        return query;
     }
 
-    private static boolean beginVisibilityQuery(final int type) {
-        int slot = visibilityQueryCursor[type], query = visibilityQueries[type][slot];
-        if (query == 0) return false;
-        if (visibilityQueryIssued[type][slot]) {
-            if (glGetQueryObjecti(query, GL_QUERY_RESULT_AVAILABLE) == GL_FALSE) return false;
-            long primitives = glGetQueryObjecti64(query, GL_QUERY_RESULT);
-            visibleByType[type] = Math.min(PARTICLE_CAPACITY, Math.max(0L, primitives / 2L));
-            visibilityQueryIssued[type][slot] = false;
-        }
-        glBeginQuery(GL_PRIMITIVES_GENERATED, query);
-        visibilityQueryIssued[type][slot] = true;
-        visibilityQueryCursor[type] = (slot + 1) & 1; return true;
+    private static GpuStageTimings gpuTimings() {
+        return new GpuStageTimings(gpuTiming(GpuStage.UPDATE), gpuTiming(GpuStage.SPAWN),
+            gpuTiming(GpuStage.CULL), gpuTiming(GpuStage.RASTER));
     }
 
-    private static GpuTiming gpuTiming() {
-        long[] sorted = new long[GPU_TIMES_NANOS.size()]; int index = 0;
-        for (long value : GPU_TIMES_NANOS) sorted[index++] = value;
+    private static GpuTiming gpuTiming(final GpuStage stage) {
+        ArrayDeque<Long> samples = GPU_TIMES_NANOS[stage.ordinal()];
+        long[] sorted = new long[samples.size()]; int index = 0;
+        for (long value : samples) sorted[index++] = value;
         Arrays.sort(sorted);
         return new GpuTiming(percentileMillis(sorted, 0.50), percentileMillis(sorted, 0.95),
             percentileMillis(sorted, 0.99), sorted.length == 0 ? 0.0
                 : sorted[sorted.length - 1] / 1_000_000.0);
+    }
+
+    private static int acquireStatsSlot() {
+        for (int offset = 0; offset < STATS_RING_SIZE; offset++) {
+            int slot = (statsCursor + offset) % STATS_RING_SIZE;
+            if (!statsInFlight[slot]) {
+                statsCursor = (slot + 1) % STATS_RING_SIZE;
+                return slot;
+            }
+        }
+        int slot = statsCursor;
+        glClientWaitSync(statsFences[slot], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED);
+        collectStatsSlot(slot);
+        statsCursor = (slot + 1) % STATS_RING_SIZE;
+        return slot;
+    }
+
+    private static void collectCompletedStats() {
+        for (int slot = 0; slot < STATS_RING_SIZE; slot++) {
+            if (!statsInFlight[slot] || statsFences[slot] == 0L) continue;
+            int result = glClientWaitSync(statsFences[slot], 0, 0L);
+            if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
+                collectStatsSlot(slot);
+        }
+    }
+
+    private static void collectStatsSlot(final int slot) {
+        ByteBuffer data = MemoryUtil.memAlloc(STATS_UINTS * Integer.BYTES);
+        try {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, statsBuffers[slot]);
+            glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, data);
+            for (int type = 0; type < TYPE_COUNT; type++) {
+                activeByType[type] = Integer.toUnsignedLong(data.getInt(type * Integer.BYTES));
+                spawnedByType[type] = data.getInt((TYPE_COUNT + type) * Integer.BYTES);
+                rejectedByType[type] = data.getInt((TYPE_COUNT * 2 + type) * Integer.BYTES);
+                visibleByType[type] = Integer.toUnsignedLong(
+                    data.getInt((TYPE_COUNT * 3 + type) * Integer.BYTES));
+                submittedParticles += Integer.toUnsignedLong(spawnedByType[type]);
+                rejectedParticles += Integer.toUnsignedLong(rejectedByType[type]);
+            }
+            deadSlots = Math.min(PARTICLE_CAPACITY, Integer.toUnsignedLong(
+                data.getInt((TYPE_COUNT * 4 + 3) * Integer.BYTES)));
+            distanceCulled = Integer.toUnsignedLong(data.getInt(TYPE_COUNT * 4 * Integer.BYTES));
+            sizeCulled = Integer.toUnsignedLong(data.getInt((TYPE_COUNT * 4 + 1) * Integer.BYTES));
+            frustumCulled = Integer.toUnsignedLong(data.getInt((TYPE_COUNT * 4 + 2) * Integer.BYTES));
+        } finally {
+            MemoryUtil.memFree(data);
+            if (statsFences[slot] != 0L) glDeleteSync(statsFences[slot]);
+            statsFences[slot] = 0L;
+            statsInFlight[slot] = false;
+        }
+    }
+
+    private static void drawDiagnostic(final CameraRenderState camera,
+        final Matrix4f viewProjection, final GlState state, final MemoryStack stack) {
+        Quaternionf orientation = camera.orientation == null
+            ? new Quaternionf() : new Quaternionf(camera.orientation);
+        Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F).rotate(orientation);
+        Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F).rotate(orientation);
+        Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F).rotate(orientation).normalize();
+        Vec3 position = camera.pos.add(forward.x * 5.0, forward.y * 5.0, forward.z * 5.0);
+        ByteBuffer particle = stack.malloc(PARTICLE_STRIDE);
+        putVec4(particle, position.x, position.y, position.z, 0.5);
+        putVec4(particle, 0.0, 0.0, 0.0, 10.0);
+        putVec4(particle, 1.0, 0.0, 1.0, 2.0);
+        particle.putInt(ParticleType.EXPLOSION_FIRE.shaderId).putInt(0x4D414745)
+            .putInt(0).putInt(Float.floatToRawIntBits(1.0F)).flip();
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, debugParticleBuffer);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, particle);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, debugVisibleBuffer);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, stack.ints(0));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, debugParticleBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, debugVisibleBuffer);
+        glUseProgram(renderProgram);
+        uniformMatrix(renderProgram, "viewProjection", viewProjection, stack);
+        glUniform3f(glGetUniformLocation(renderProgram, "cameraPosition"),
+            (float) camera.pos.x, (float) camera.pos.y, (float) camera.pos.z);
+        glUniform3f(glGetUniformLocation(renderProgram, "cameraRight"), right.x, right.y, right.z);
+        glUniform3f(glGetUniformLocation(renderProgram, "cameraUp"), up.x, up.y, up.z);
+        glUniform1ui(glGetUniformLocation(renderProgram, "visibleBase"), 0);
+        glUniform1i(glGetUniformLocation(renderProgram, "directDebug"), GL_TRUE);
+        glBindVertexArray(vertexArray); glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(false); glDisable(GL_CULL_FACE);
+        if (diagnosticMode == DiagnosticMode.DEPTH_DISABLED) glDisable(GL_DEPTH_TEST);
+        else { glEnable(GL_DEPTH_TEST); glDepthFunc(state.depthFunction()); }
+        logDiagnosticState(state);
+        boolean query = beginSampleQuery();
+        try { glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); }
+        finally { if (query) glEndQuery(GL_ANY_SAMPLES_PASSED); }
+    }
+
+    private static boolean beginSampleQuery() {
+        int slot = sampleQueryCursor, query = sampleQueries[slot];
+        if (query == 0) return false;
+        if (sampleQueryIssued[slot]) {
+            if (glGetQueryObjecti(query, GL_QUERY_RESULT_AVAILABLE) == GL_FALSE) return false;
+            debugSamplesPassed = glGetQueryObjecti64(query, GL_QUERY_RESULT);
+            sampleQueryIssued[slot] = false;
+        }
+        glBeginQuery(GL_ANY_SAMPLES_PASSED, query);
+        sampleQueryIssued[slot] = true;
+        sampleQueryCursor = (slot + 1) & 1;
+        return true;
+    }
+
+    private static void logDiagnosticState(final GlState state) {
+        if (diagnosticStateLogged) return;
+        diagnosticStateLogged = true;
+        GLCapabilities capabilities = GL.getCapabilities();
+        int clipOrigin = -1, clipDepthMode = -1;
+        if (capabilities.OpenGL45 || capabilities.GL_ARB_clip_control) {
+            clipOrigin = glGetInteger(0x935C);
+            clipDepthMode = glGetInteger(0x935D);
+        }
+        WarMod.LOGGER.info("GPU billboard diagnostic mode={} depthFunc={} depthClear={} "
+                + "clipOrigin={} clipDepthMode={} framebuffer={} viewport={},{},{},{}",
+            diagnosticMode, state.depthFunction(), glGetDouble(GL_DEPTH_CLEAR_VALUE),
+            clipOrigin, clipDepthMode, glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING),
+            state.viewport()[0], state.viewport()[1], state.viewport()[2], state.viewport()[3]);
     }
 
     private static double percentileMillis(final long[] sorted, final double fraction) {
@@ -587,25 +844,41 @@ public final class GpuParticleEngine {
         if (updateProgram != 0) glDeleteProgram(updateProgram);
         if (spawnProgram != 0) glDeleteProgram(spawnProgram);
         if (cullProgram != 0) glDeleteProgram(cullProgram);
+        if (prepareProgram != 0) glDeleteProgram(prepareProgram);
         if (renderProgram != 0) glDeleteProgram(renderProgram);
         if (particleBuffer != 0) glDeleteBuffers(particleBuffer);
         if (emitterBuffer != 0) glDeleteBuffers(emitterBuffer);
         if (visibleBuffer != 0) glDeleteBuffers(visibleBuffer);
         if (indirectBuffer != 0) glDeleteBuffers(indirectBuffer);
-        if (allocationBuffer != 0) glDeleteBuffers(allocationBuffer);
-        if (vertexArray != 0) glDeleteVertexArrays(vertexArray);
-        if (timeQueries[0] != 0) glDeleteQueries(timeQueries[0]);
-        if (timeQueries[1] != 0) glDeleteQueries(timeQueries[1]);
-        for (int type = 0; type < TYPE_COUNT; type++) {
-            if (visibilityQueries[type][0] != 0) glDeleteQueries(visibilityQueries[type][0]);
-            if (visibilityQueries[type][1] != 0) glDeleteQueries(visibilityQueries[type][1]);
-            Arrays.fill(visibilityQueries[type], 0);
-            Arrays.fill(visibilityQueryIssued[type], false); visibilityQueryCursor[type] = 0;
+        if (deadListBuffer != 0) glDeleteBuffers(deadListBuffer);
+        if (dispatchBuffer != 0) glDeleteBuffers(dispatchBuffer);
+        if (debugParticleBuffer != 0) glDeleteBuffers(debugParticleBuffer);
+        if (debugVisibleBuffer != 0) glDeleteBuffers(debugVisibleBuffer);
+        for (int aliveBuffer : aliveBuffers) if (aliveBuffer != 0) glDeleteBuffers(aliveBuffer);
+        for (int slot = 0; slot < STATS_RING_SIZE; slot++) {
+            if (statsFences[slot] != 0L) glDeleteSync(statsFences[slot]);
+            if (statsBuffers[slot] != 0) glDeleteBuffers(statsBuffers[slot]);
         }
-        updateProgram = spawnProgram = cullProgram = renderProgram = 0;
-        particleBuffer = emitterBuffer = visibleBuffer = indirectBuffer = allocationBuffer = 0;
-        vertexArray = 0; Arrays.fill(timeQueries, 0); Arrays.fill(timeQueryIssued, false);
-        GPU_TIMES_NANOS.clear();
+        if (vertexArray != 0) glDeleteVertexArrays(vertexArray);
+        for (int stage = 0; stage < GpuStage.values().length; stage++) {
+            if (timeQueries[stage][0] != 0) glDeleteQueries(timeQueries[stage][0]);
+            if (timeQueries[stage][1] != 0) glDeleteQueries(timeQueries[stage][1]);
+            Arrays.fill(timeQueries[stage], 0);
+            Arrays.fill(timeQueryIssued[stage], false);
+            timeQueryCursor[stage] = 0;
+            GPU_TIMES_NANOS[stage].clear();
+        }
+        if (sampleQueries[0] != 0) glDeleteQueries(sampleQueries[0]);
+        if (sampleQueries[1] != 0) glDeleteQueries(sampleQueries[1]);
+        updateProgram = spawnProgram = cullProgram = prepareProgram = renderProgram = 0;
+        particleBuffer = emitterBuffer = visibleBuffer = indirectBuffer = deadListBuffer = 0;
+        dispatchBuffer = debugParticleBuffer = debugVisibleBuffer = 0;
+        Arrays.fill(aliveBuffers, 0); Arrays.fill(statsBuffers, 0);
+        Arrays.fill(statsFences, 0L); Arrays.fill(statsInFlight, false);
+        Arrays.fill(sampleQueries, 0); Arrays.fill(sampleQueryIssued, false);
+        Arrays.fill(gpuStageEwmaMillis, 0.0);
+        vertexArray = sampleQueryCursor = statsCursor = 0;
+        gpuTimeEwmaMillis = 0.0;
     }
 
     private static long mix64(long value) {
@@ -708,15 +981,23 @@ public final class GpuParticleEngine {
         }
     }
 
-    public record DebugSnapshot(Backend backend, long activeParticles,
-        long visibleParticles, long culledParticles, long submittedParticles,
-        int capacity, long vramBytes, GpuTiming gpuTime, double adaptiveQuality,
-        int scheduledLayers, int scheduledEmitters, FireDebugCounters fire) { }
+    public record DebugSnapshot(Backend backend, BackendPreference preference,
+        long activeParticles, long visibleParticles, long culledParticles,
+        long submittedParticles, long requestedParticles, long rejectedSpawns,
+        long deadSlots, int capacity, long vramBytes, GpuStageTimings gpuTime,
+        double adaptiveQuality, int scheduledLayers, int scheduledEmitters,
+        long distanceCulled, long sizeCulled, long frustumCulled,
+        DiagnosticMode diagnosticMode, long diagnosticSamplesPassed,
+        FireDebugCounters fire) { }
     public record FireDebugCounters(int clientPatches, int fieldSubmissions,
         int fireSpawned, long fireVisible, int smokeSpawned, long smokeVisible,
-        int acceptedPackets, int rejectedPackets, int stalePackets) { }
+        int acceptedPackets, int rejectedPackets, int stalePackets,
+        int receivedPatchEntries, int storedPatches) { }
+    public record GpuStageTimings(GpuTiming update, GpuTiming spawn,
+        GpuTiming cull, GpuTiming raster) { }
     public record GpuTiming(double p50Millis, double p95Millis,
         double p99Millis, double maximumMillis) { }
+    private enum GpuStage { UPDATE, SPAWN, CULL, RASTER }
     private record EffectKey(EffectClass effectClass, long id) { }
     private static final class PendingEffect {
         private EffectDescriptor descriptor;
@@ -726,27 +1007,36 @@ public final class GpuParticleEngine {
     }
 
     private record GlState(int program, int vertexArray, int indirectBuffer,
+        int dispatchIndirectBuffer, int storageBuffer,
         int[] storageBindings, boolean blend, boolean depthTest, boolean cull,
         boolean depthWrite, int blendSourceRgb, int blendDestinationRgb,
-        int blendSourceAlpha, int blendDestinationAlpha) {
+        int blendSourceAlpha, int blendDestinationAlpha, int depthFunction,
+        int[] viewport) {
         private static GlState capture() {
-            int[] bindings = new int[5];
+            int[] bindings = new int[9];
             for (int index = 0; index < bindings.length; index++)
                 bindings[index] = glGetIntegeri(GL_SHADER_STORAGE_BUFFER_BINDING, index);
+            int[] viewport = new int[4];
+            glGetIntegerv(GL_VIEWPORT, viewport);
             return new GlState(glGetInteger(GL_CURRENT_PROGRAM),
                 glGetInteger(GL_VERTEX_ARRAY_BINDING), glGetInteger(GL_DRAW_INDIRECT_BUFFER_BINDING),
+                glGetInteger(GL_DISPATCH_INDIRECT_BUFFER_BINDING),
+                glGetInteger(GL_SHADER_STORAGE_BUFFER_BINDING),
                 bindings, glIsEnabled(GL_BLEND), glIsEnabled(GL_DEPTH_TEST),
                 glIsEnabled(GL_CULL_FACE), glGetBoolean(GL_DEPTH_WRITEMASK),
                 glGetInteger(GL_BLEND_SRC_RGB), glGetInteger(GL_BLEND_DST_RGB),
-                glGetInteger(GL_BLEND_SRC_ALPHA), glGetInteger(GL_BLEND_DST_ALPHA));
+                glGetInteger(GL_BLEND_SRC_ALPHA), glGetInteger(GL_BLEND_DST_ALPHA),
+                glGetInteger(GL_DEPTH_FUNC), viewport);
         }
         private void restore() {
             glUseProgram(program); glBindVertexArray(vertexArray);
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
+            glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchIndirectBuffer);
             for (int index = 0; index < storageBindings.length; index++)
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, index, storageBindings[index]);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, storageBuffer);
             setEnabled(GL_BLEND, blend); setEnabled(GL_DEPTH_TEST, depthTest);
-            setEnabled(GL_CULL_FACE, cull); glDepthMask(depthWrite);
+            setEnabled(GL_CULL_FACE, cull); glDepthMask(depthWrite); glDepthFunc(depthFunction);
             glBlendFuncSeparate(blendSourceRgb, blendDestinationRgb,
                 blendSourceAlpha, blendDestinationAlpha);
         }

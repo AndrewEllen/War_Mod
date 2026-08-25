@@ -38,14 +38,13 @@ public final class ClientFireVisualManager {
     public synchronized void accept(final ClientboundFireStatePayload payload) {
         ClientLevel level = Minecraft.getInstance().level;
         if (payload == null || !payload.isWellFormed() || !ensureCurrentLevel(level)) {
-            GpuParticleEngine.recordFirePacket(false, false);
+            GpuParticleEngine.recordFirePacket(false, false, 0, patches.size());
             return;
         }
         if (payload.generation() <= highestGeneration) {
-            GpuParticleEngine.recordFirePacket(false, true);
+            GpuParticleEngine.recordFirePacket(false, true, 0, patches.size());
             return;
         }
-        GpuParticleEngine.recordFirePacket(true, false);
         highestGeneration = payload.generation();
         long receivedAt = level.getGameTime();
         boolean patchUpdate = payload.complete() || !payload.entries().isEmpty();
@@ -94,6 +93,7 @@ public final class ClientFireVisualManager {
         }
         if (payload.smokeClusterComplete())
             smokeClusters.keySet().removeIf(id -> !receivedSmokeClusters.contains(id));
+        GpuParticleEngine.recordFirePacket(true, false, payload.entries().size(), patches.size());
     }
 
     public synchronized void acceptImpulse(final ClientboundFireWindImpulsePayload payload) {

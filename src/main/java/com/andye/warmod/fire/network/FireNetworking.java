@@ -45,7 +45,8 @@ public final class FireNetworking {
     }
 
     /** Immutable, already interest-filtered input for asynchronous packet assembly. */
-    public record ViewerDelta(UUID playerId, Vec3 viewerPosition, long generation,
+    public record ViewerDelta(UUID playerId, Vec3 viewerPosition, long serverGameTime,
+        long generation,
         boolean complete, List<FireCellSnapshot> changedPatches, List<Long> removedPatchIds,
         List<FireEmberSnapshot> embers, List<FireCellSnapshot> smokeClusterSources,
         boolean smokeClusterComplete) { }

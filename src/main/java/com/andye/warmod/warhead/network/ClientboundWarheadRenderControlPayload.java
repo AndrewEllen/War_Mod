@@ -19,6 +19,12 @@ public record ClientboundWarheadRenderControlPayload(int action, float value)
     public static final int DEBRIS_VERTICAL = 6;
     public static final int DEBRIS_RESET = 7;
     public static final int DEBRIS_STATUS = 8;
+    public static final int BACKEND_AUTO = 9;
+    public static final int BACKEND_GPU = 10;
+    public static final int BACKEND_CPU = 11;
+    public static final int GPU_TEST_OFF = 12;
+    public static final int GPU_TEST_DEPTH_OFF = 13;
+    public static final int GPU_TEST_DEPTH_ON = 14;
     public static final Type<ClientboundWarheadRenderControlPayload> TYPE = new Type<>(
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "warhead_render_control"));
     public static final StreamCodec<RegistryFriendlyByteBuf,
@@ -30,7 +36,7 @@ public record ClientboundWarheadRenderControlPayload(int action, float value)
             ClientboundWarheadRenderControlPayload::new);
 
     public boolean isWellFormed() {
-        return action >= STATUS && action <= DEBRIS_STATUS && Float.isFinite(value);
+        return action >= STATUS && action <= GPU_TEST_DEPTH_ON && Float.isFinite(value);
     }
 
     @Override
