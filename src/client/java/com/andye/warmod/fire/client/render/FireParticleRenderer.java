@@ -1,6 +1,7 @@
 package com.andye.warmod.fire.client.render;
 
 import com.andye.warmod.fire.FirePhase;
+import com.andye.warmod.fire.FireVisualLodPolicy;
 import com.andye.warmod.fire.client.ClientSmokeFlowField.SmokeFlow;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderPatch;
 import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmber;
@@ -59,7 +60,7 @@ public final class FireParticleRenderer {
                 float size = (float) ((0.095 + unit(value, 7) * 0.19)
                     * (0.55 + patch.coverage() * 0.72)
 					* (1.0 + patch.clumpStrength() * 0.28)
-                    * (1.0 - progress * 0.38));
+                    * (1.0 - progress * 0.38) * patch.lodScale());
                 float temperature = Mth.clamp(patch.heat()
                     * (1.16F - (float) progress * 0.48F), 0.0F, 1.0F);
                 Colour colour = fireColour(temperature);
@@ -78,6 +79,9 @@ public final class FireParticleRenderer {
         Basis basis = Basis.from(camera);
         for (FireRenderPatch patch : patches) {
             if (patch.heat() < 0.22F || patch.coverage() < 0.26F) continue;
+            double projectedEmberDiameter = patch.projectedHostDiameter() * 0.055;
+            if (unit(mix(patch.id() ^ EMBER_SEED), 0)
+                > FireVisualLodPolicy.emberRetention(projectedEmberDiameter)) continue;
             double patchAge = Math.max(0.0, gameTime - patch.ignitionGameTime());
             int samples = lodSamples(patch, 1,
                 Math.max(1, Mth.ceil(patch.coverage() * patch.intensity() * 3.0F)));
@@ -98,7 +102,8 @@ public final class FireParticleRenderer {
 					0.16 + progress * (0.32 + patch.intensity() * 0.36),
                     (unit(value, 3) - 0.5) * patch.coverage()
                         + patch.wind().z * windAge);
-                float radius = 0.025F + (float) unit(value, 4) * 0.038F;
+                float radius = (0.025F + (float) unit(value, 4) * 0.038F)
+                    * FireVisualLodPolicy.emberScale(projectedEmberDiameter);
                 billboard(pose, buffer, center, radius, 0.0F, 255,
                     118 + (int) (unit(value, 5) * 94), 28,
                     (float) (0.76 * (1.0 - progress)), 0xF000F0, basis);
@@ -116,7 +121,8 @@ public final class FireParticleRenderer {
 			double progress = Mth.clamp(age / Math.max(1.0, ember.lifetime()), 0.0, 1.0);
 			/* Keep the flame at the hot firebrand. Older positions become smoke below;
 			   a fixed backward chain looked like a detached, static flame object. */
-			int tongues = ember.distance() < 72.0 ? 3 : 1;
+			int tongues = ember.projectedDiameter() >= 3.25 ? 3
+                : ember.projectedDiameter() >= 1.15 ? 2 : 1;
 			for (int index = 0; index < tongues; index++) {
 				long value = mix(ember.seed() ^ index * 0x9E3779B97F4A7C15L);
 				double flutter = Math.sin(gameTime * (0.24 + unit(value, 0) * 0.12)
@@ -126,7 +132,8 @@ public final class FireParticleRenderer {
 					(unit(value, 3) - 0.5) * 0.050,
 					-flutter * 0.62 + (unit(value, 4) - 0.5) * 0.035);
 				float radius = (float) ((0.045 + ember.intensity() * 0.075)
-					* (1.0 - index * 0.13) * (1.0 - progress * 0.30));
+					* (1.0 - index * 0.13) * (1.0 - progress * 0.30)
+                    * ember.lodScale());
 				Colour colour = fireColour((float) (0.95 - progress * 0.35));
 				billboard(pose, buffer, center, radius,
 					(float) (gameTime * 0.08 + unit(value, 5) * Mth.TWO_PI),
@@ -144,7 +151,9 @@ public final class FireParticleRenderer {
 			double age = Math.max(0.0, gameTime - ember.startGameTime());
 			if (age < 5.0) continue;
 			List<FireRenderEmberTrail> trail = ember.trail();
-			int wisps = ember.distance() < 72.0 ? 8 : ember.distance() < 112.0 ? 4 : 2;
+			int wisps = ember.projectedDiameter() >= 3.25 ? 8
+                : ember.projectedDiameter() >= 1.15 ? 4
+                : ember.projectedDiameter() >= 0.60 ? 2 : 1;
 			int first = Math.max(0, trail.size() - wisps);
 			for (int index = first; index < trail.size(); index++) {
 				FireRenderEmberTrail sample = trail.get(index);
@@ -159,7 +168,8 @@ public final class FireParticleRenderer {
 					rank * 0.028 + Math.sin(gameTime * 0.10 + unit(value, 0) * Mth.TWO_PI) * 0.018,
 					sample.wind().z * rank * 0.030);
 				float radius = (float) ((0.065 + rank * 0.018 + ember.intensity() * 0.040)
-					* (0.85 + unit(value, 1) * 0.30));
+					* (0.85 + unit(value, 1) * 0.30)
+                    * Math.sqrt(ember.lodScale()));
 				int shade = 112 + (int) (unit(value, 2) * 28.0);
 				float alpha = (float) ((0.10F + ember.intensity() * 0.065F)
 					* Math.max(0.18, 1.0 - rank / 10.0));
@@ -227,7 +237,8 @@ public final class FireParticleRenderer {
                 float radius = (float) ((0.16 + unit(value, 5) * 0.31)
                     * (0.70 + progress * 1.20)
 					* (0.58 + patch.coverage() * 0.58)
-					* (1.0 + patch.clumpStrength() * 0.20));
+					* (1.0 + patch.clumpStrength() * 0.20)
+                    * patch.lodScale());
                 if (flow.enclosed()) radius = Math.min(radius,
                     Math.max(0.20F, flow.lateralRadius() * 0.42F));
                 int shade = Mth.clamp(150 - (int) (patch.smoke() * 72.0F)
@@ -252,9 +263,18 @@ public final class FireParticleRenderer {
         final Quaternionf camera) {
         Basis basis = Basis.from(camera);
         for (FireRenderSmokeCluster cluster : clusters) {
-            int lobes = cluster.distance() < 480.0 ? 9 : cluster.distance() < 960.0 ? 6 : 4;
-            float baseRadius = cluster.radius() * (0.48F + cluster.smoke() * 0.38F);
+            int lod = FireVisualLodPolicy.level(cluster.projectedHostDiameter());
+            int lobes = switch (lod) {
+                case 0 -> 7;
+                case 1 -> 5;
+                case 2 -> 3;
+                default -> 2;
+            };
+            float baseRadius = cluster.radius() * 0.82F;
             float baseHeight = cluster.radius() * (0.72F + cluster.smoke() * 0.65F);
+            float lobeRadius = Mth.clamp(0.32F
+                + (float) Math.sqrt(cluster.memberCount()) * 0.065F, 0.36F, 1.65F)
+                * FireVisualLodPolicy.particleScale(cluster.projectedHostDiameter());
             for (int index = 0; index < lobes; index++) {
                 long value = mix(cluster.seed() ^ SMOKE_SEED
                     ^ (long) index * 0xD1B54A32D192ED03L);
@@ -269,8 +289,8 @@ public final class FireParticleRenderer {
                     Math.cos(angle) * lateral + cluster.wind().x * drift + curl,
                     rise,
                     Math.sin(angle) * lateral + cluster.wind().z * drift - curl * 0.42);
-                float radius = baseRadius * (0.42F + (float) cycle * 0.48F)
-                    * (0.76F + (float) unit(value, 4) * 0.34F);
+                float radius = lobeRadius * (0.78F + (float) cycle * 0.40F)
+                    * (0.82F + (float) unit(value, 4) * 0.26F);
                 int shade = Mth.clamp(132 - (int) (cluster.smoke() * 58.0F)
                     - (int) (cycle * 22.0F) + (int) (unit(value, 5) * 15.0), 48, 146);
                 float alpha = (float) ((0.17 + cluster.smoke() * 0.34)
@@ -290,7 +310,13 @@ public final class FireParticleRenderer {
         Basis basis = Basis.from(camera);
         for (FireRenderSmokeCluster cluster : clusters) {
             if (cluster.heat() < 0.12F) continue;
-            int lobes = cluster.distance() < 480.0 ? 3 : cluster.distance() < 960.0 ? 2 : 1;
+            int lod = FireVisualLodPolicy.level(cluster.projectedHostDiameter());
+            int lobes = switch (lod) {
+                case 0 -> 5;
+                case 1 -> 4;
+                case 2 -> 3;
+                default -> 2;
+            };
             float intensity = Mth.clamp(cluster.heat(), 0.0F, 1.0F);
             for (int index = 0; index < lobes; index++) {
                 long value = mix(cluster.seed() ^ FLAME_SEED
@@ -302,8 +328,10 @@ public final class FireParticleRenderer {
                 Vec3 center = cluster.relativePosition().add(Math.cos(angle) * spread,
                     0.30 + cluster.radius() * (0.035 + phase * 0.055),
                     Math.sin(angle) * spread);
-                float size = cluster.radius() * (0.075F + intensity * 0.085F)
-                    * (0.82F + (float) unit(value, 4) * 0.32F);
+                float size = Mth.clamp(0.24F + intensity * 0.38F
+                    + (float) Math.sqrt(cluster.memberCount()) * 0.018F, 0.28F, 0.78F)
+                    * FireVisualLodPolicy.particleScale(cluster.projectedHostDiameter())
+                    * (0.86F + (float) unit(value, 4) * 0.24F);
                 Colour colour = fireColour(intensity * (1.0F - (float) phase * 0.18F));
                 float alpha = 0.34F + intensity * 0.42F;
                 billboard(pose, buffer, center, size,
@@ -323,9 +351,9 @@ public final class FireParticleRenderer {
 
     private static int lodSamples(final FireRenderPatch patch, final int minimum,
         final int maximum) {
-        double lod = patch.distance() < 48.0 ? 1.0
-            : patch.distance() < 112.0 ? 0.58 : 0.30;
-        return Mth.clamp((int) Math.ceil(maximum * lod), minimum, maximum);
+        double density = FireVisualLodPolicy.density(
+            FireVisualLodPolicy.level(patch.projectedHostDiameter()));
+        return Mth.clamp((int) Math.ceil(maximum * density), minimum, maximum);
     }
 
     private static float stageScale(final FirePhase phase, final float coverage) {

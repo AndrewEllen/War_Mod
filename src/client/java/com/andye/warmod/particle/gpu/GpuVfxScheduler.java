@@ -1,5 +1,6 @@
 package com.andye.warmod.particle.gpu;
 
+import com.andye.warmod.fire.FireVisualLodPolicy;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectClass;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectDescriptor;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectSubmission;
@@ -55,14 +56,19 @@ final class GpuVfxScheduler {
                 || !camera.visible(descriptor.position(), descriptor.boundsRadius())) continue;
             double projectedDiameter = camera.projectedDiameter(
                 descriptor.position(), descriptor.boundsRadius());
+            double lodDiameter = descriptor.effectClass() == EffectClass.FIRE_FIELD
+                ? camera.projectedDiameter(descriptor.position(), 0.75F)
+                : projectedDiameter;
             double screenImportance = screenImportance(projectedDiameter, camera.viewportHeight());
             for (Map.Entry<VisualLayer, List<EmitterCommand>> entry
                 : effect.layers().entrySet()) {
                 List<EmitterCommand> commands = entry.getValue();
                 if (commands == null || commands.isEmpty()) continue;
                 VisualLayer layer = entry.getKey();
-                LodState lod = lodState(new LayerKey(descriptor.effectClass(), descriptor.id(),
-                    layer), projectedDiameter, frameSequence);
+                LayerKey layerKey = new LayerKey(descriptor.effectClass(), descriptor.id(), layer);
+                LodState lod = descriptor.effectClass() == EffectClass.FIRE_FIELD
+                    ? fireLodState(layerKey, lodDiameter, frameSequence)
+                    : lodState(layerKey, lodDiameter, frameSequence);
                 double requested = commands.stream().mapToDouble(EmitterCommand::spawnCount).sum()
                     * lod.density;
                 if (requested <= 0.0) continue;
@@ -110,29 +116,33 @@ final class GpuVfxScheduler {
         final CameraInfo camera, final long frameSequence) {
         if (field == null || !field.valid() || !camera.visible(field.center(), field.radius()))
             return null;
-        double projectedDiameter = camera.projectedDiameter(field.center(), field.radius());
+        double projectedDiameter = camera.projectedDiameter(field.center(), 0.75F);
         LayerKey flameKey = new LayerKey(EffectClass.FIRE_FIELD, field.regionId(),
             VisualLayer.FLAMES);
-        LodState lod = lodState(flameKey, projectedDiameter, frameSequence);
+        LodState lod = fireLodState(flameKey, projectedDiameter, frameSequence);
         int cellSize = fireCellSize(lod.level);
         ArrayList<EmitterCommand> flames = new ArrayList<>();
         ArrayList<EmitterCommand> smoke = new ArrayList<>(field.clusters().size());
         float currentWeight = (float) lod.transition;
-        appendAggregatedFire(field, cellSize, Math.max(0.01F, currentWeight),
-            lod.density, flames, smoke);
+        appendAggregatedFire(field, cellSize, lod.level,
+            Math.max(0.01F, currentWeight), flames, smoke);
         if (lod.previousLevel != lod.level && lod.transition < 0.999) {
-            appendAggregatedFire(field, fireCellSize(lod.previousLevel),
-                Math.max(0.01F, 1.0F - currentWeight), lod.density, flames, smoke);
+            appendAggregatedFire(field, fireCellSize(lod.previousLevel), lod.previousLevel,
+                Math.max(0.01F, 1.0F - currentWeight), flames, smoke);
         }
         for (FireFieldCluster cluster : field.clusters()) {
-            int rate = Math.max(4, (int) Math.round(
-                (55.0F + cluster.memberCount() * 2.5F) * lod.density));
+            int rate = Math.max(3, Math.round(8.0F
+                + (float) Math.sqrt(cluster.memberCount()) * 5.5F));
+            float clusterSize = Math.min(1.60F, 0.42F
+                + (float) Math.sqrt(cluster.memberCount()) * 0.065F)
+                * FireVisualLodPolicy.particleScale(projectedDiameter);
+            float clusterSpread = Math.min(6.0F,
+                Math.max(0.8F, cluster.radius() * 0.24F));
             smoke.add(new EmitterCommand(cluster.position(),
                 cluster.wind().scale(0.18).add(0.0, 0.82, 0.0),
-                Math.max(1.0F, cluster.radius()), 6.2F,
+                1.0F, 5.4F,
                 0.14F, 0.15F, 0.14F, 0.44F,
-                Math.max(1.8F, cluster.radius() * 0.30F),
-                Math.max(1.0F, cluster.radius() * 0.42F), 0.34F,
+                clusterSize, clusterSpread, 0.28F,
                 rate, mix32(cluster.seed()), ParticleType.SMOKE, 0,
                 0.9F + cluster.smoke()));
         }
@@ -140,7 +150,7 @@ final class GpuVfxScheduler {
         ArrayList<FireFieldEmber> rankedEmbers = new ArrayList<>(field.embers());
         rankedEmbers.sort(Comparator.comparingDouble(FireFieldEmber::importance).reversed()
             .thenComparingLong(FireFieldEmber::id));
-        double emberDensity = Math.pow(lod.density, 1.45);
+        double emberDensity = Math.min(1.0, 0.55 + Math.sqrt(lod.density) * 0.45);
         ArrayList<EmitterCommand> embers = new ArrayList<>();
         for (FireFieldEmber ember : rankedEmbers) {
             double stable = unit(mix64(ember.id() ^ field.regionId()));
@@ -166,14 +176,13 @@ final class GpuVfxScheduler {
     private static int fireCellSize(final int lod) {
         return switch (lod) {
             case 0 -> 1;
-            case 1 -> 2;
-            case 2 -> 5;
-            default -> 12;
+            case 1, 2 -> 1;
+            default -> 2;
         };
     }
 
     private static void appendAggregatedFire(final FireFieldSubmission field,
-        final int cellSize, final float representationWeight, final double density,
+        final int cellSize, final int lodLevel, final float representationWeight,
         final List<EmitterCommand> flames, final List<EmitterCommand> smoke) {
         Map<Long, FireAccumulator> cells = new LinkedHashMap<>();
         for (FireFieldPatch patch : field.patches()) {
@@ -187,23 +196,25 @@ final class GpuVfxScheduler {
         for (Map.Entry<Long, FireAccumulator> entry : cells.entrySet()) {
             FireAggregate aggregate = entry.getValue().finish(cellSize);
             int flameRate = Math.max(1, (int) Math.round(
-                aggregate.flameRate() * density * representationWeight));
+                aggregate.flameRate() * representationWeight));
+            float sizeScale = FireVisualLodPolicy.particleScaleForLevel(lodLevel);
             flames.add(new EmitterCommand(aggregate.position(), aggregate.velocity(),
                 aggregate.scale(), 0.90F + aggregate.heat() * 0.48F,
                 1.0F, 0.20F + aggregate.heat() * 0.38F, 0.025F,
-                0.96F * representationWeight, aggregate.flameSize(),
+                0.96F * representationWeight, aggregate.flameSize() * sizeScale,
                 aggregate.spread(), 0.52F, flameRate,
                 mix32(entry.getKey() ^ field.regionId() ^ cellSize),
                 ParticleType.FIRE, 0, 1.0F + aggregate.heat()));
             if (aggregate.smoke() <= 0.018F) continue;
             int smokeRate = Math.max(1, (int) Math.round(
-                aggregate.smokeRate() * density * representationWeight));
+                aggregate.smokeRate() * representationWeight));
             smoke.add(new EmitterCommand(aggregate.position().add(0.0,
                 Math.max(0.25, aggregate.flameSize() * 0.45), 0.0),
                 aggregate.velocity().scale(0.58).add(0.0, 0.62, 0.0),
                 aggregate.scale(), 3.6F + aggregate.smoke() * 2.8F,
                 0.15F, 0.16F, 0.15F, 0.48F * representationWeight,
-                aggregate.smokeSize(), aggregate.spread() * 1.25F, 0.30F,
+                aggregate.smokeSize() * sizeScale,
+                aggregate.spread() * 1.25F, 0.30F,
                 smokeRate, mix32(entry.getKey() ^ field.regionId()
                     ^ 0x534D4F4BL ^ cellSize), ParticleType.SMOKE, 0,
                 0.72F + aggregate.smoke()));
@@ -491,24 +502,39 @@ final class GpuVfxScheduler {
 
     private static LodState lodState(final LayerKey key, final double projectedDiameter,
         final long frameSequence) {
+        return lodState(key, projectedDiameter, frameSequence, false);
+    }
+
+    private static LodState fireLodState(final LayerKey key, final double projectedDiameter,
+        final long frameSequence) {
+        return lodState(key, projectedDiameter, frameSequence, true);
+    }
+
+    private static LodState lodState(final LayerKey key, final double projectedDiameter,
+        final long frameSequence, final boolean fireField) {
         LodState state = LOD_STATES.computeIfAbsent(key, ignored -> new LodState());
-        int desired = desiredLod(projectedDiameter);
+        int desired = fireField ? FireVisualLodPolicy.level(projectedDiameter)
+            : desiredLod(projectedDiameter);
         if (!state.initialized) {
             state.level = desired;
             state.previousLevel = desired;
-            state.density = densityFor(desired);
+            state.density = fireField ? FireVisualLodPolicy.density(desired)
+                : densityFor(desired);
             state.transition = 1.0;
             state.initialized = true;
         } else if (desired > state.level) {
-            double threshold = thresholdFor(desired) * 0.84;
+            double threshold = (fireField ? fireThresholdFor(desired)
+                : thresholdFor(desired)) * 0.84;
             if (projectedDiameter < threshold) state.changeLevel(desired);
         } else if (desired < state.level) {
-            double threshold = thresholdFor(state.level) * 1.18;
+            double threshold = (fireField ? fireThresholdFor(state.level)
+                : thresholdFor(state.level)) * 1.18;
             if (projectedDiameter > threshold) state.changeLevel(desired);
         }
         if (state.lastSeenFrame != frameSequence && state.transition < 1.0)
             state.transition = Math.min(1.0, state.transition + 0.12);
-        double targetDensity = densityFor(state.level);
+        double targetDensity = fireField ? FireVisualLodPolicy.density(state.level)
+            : densityFor(state.level);
         state.density += (targetDensity - state.density) * 0.14;
         state.lastSeenFrame = frameSequence;
         return state;
@@ -536,6 +562,15 @@ final class GpuVfxScheduler {
             case 1 -> 220.0;
             case 2 -> 72.0;
             default -> 18.0;
+        };
+    }
+
+    private static double fireThresholdFor(final int level) {
+        return switch (level) {
+            case 0 -> Double.POSITIVE_INFINITY;
+            case 1 -> FireVisualLodPolicy.FULL_DETAIL_PIXELS;
+            case 2 -> FireVisualLodPolicy.MEDIUM_DETAIL_PIXELS;
+            default -> FireVisualLodPolicy.FAR_DETAIL_PIXELS;
         };
     }
 
@@ -724,17 +759,19 @@ final class GpuVfxScheduler {
             float aggregateHeat = (float) (heat / safe);
             float aggregateSmoke = (float) (smoke / safe);
             float aggregateIntensity = (float) (intensity / safe);
-            float volumeRadius = (float) Math.min(cellSize * 0.72,
-                Math.max(0.16, Math.sqrt(Math.max(0.08, coverage)) * 0.34));
-            float spread = (float) Math.min(cellSize * 0.75,
+            float averageCoverage = (float) (coverage / Math.max(1, members));
+            float volumeRadius = (float) Math.min(cellSize == 1 ? 0.48 : 0.72,
+                Math.max(0.16, 0.16 + Math.sqrt(Math.max(0.0, averageCoverage)) * 0.30));
+            float spread = (float) Math.min(cellSize * 0.68,
                 Math.max(0.08, Math.sqrt(variance) + volumeRadius * 0.38));
             float scale = Math.max(0.18F, volumeRadius);
-            float flameSize = Math.min(cellSize * 0.58F,
+            float flameSize = Math.min(0.58F,
                 Math.max(0.18F, volumeRadius * (0.82F + aggregateIntensity * 0.32F)));
-            float smokeSize = Math.min(cellSize * 0.72F,
+            float smokeSize = Math.min(0.86F,
                 Math.max(0.42F, volumeRadius * (1.28F + aggregateSmoke * 0.48F)));
-            float flameRate = members * (38.0F + aggregateIntensity * 72.0F);
-            float smokeRate = members * (14.0F + aggregateSmoke * 40.0F);
+            float memberScale = (float) Math.sqrt(Math.max(1, members));
+            float flameRate = 8.0F + memberScale * (6.0F + aggregateIntensity * 8.0F);
+            float smokeRate = 4.0F + memberScale * (3.0F + aggregateSmoke * 5.0F);
             Vec3 velocity = new Vec3(vx / safe, vy / safe, vz / safe)
                 .scale(0.11).add(0.0, 1.12 + aggregateHeat * 0.86, 0.0);
             return new FireAggregate(position, velocity, scale, aggregateHeat,
