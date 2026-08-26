@@ -9,10 +9,19 @@ public final class ClientPerformanceTelemetry {
     private static final int WINDOW = 240;
     private static final Samples FRAME = new Samples();
     private static final Samples EXPLOSION = new Samples();
+    private static final Samples IMPACT_PAYLOAD_ACCEPT = new Samples();
+    private static final Samples IMPACT_VISUAL_STATE_CONSTRUCTION = new Samples();
+    private static final Samples FIREBALL_LOBE_PREPARATION = new Samples();
+    private static final Samples CLOUD_LOBE_PREPARATION = new Samples();
+    private static final Samples DUST_NODE_SELECTION = new Samples();
+    private static final Samples DEBRIS_SNAPSHOT = new Samples();
+    private static final Samples MOVING_BLOCK_STATE_CONSTRUCTION = new Samples();
     private static final Samples FIRE = new Samples();
     private static final Samples GPU_ENGINE_CPU = new Samples();
     private static final Samples GPU_EXTRACTION_CPU = new Samples();
     private static final Samples GPU_SCHEDULER_CPU = new Samples();
+    private static final Samples GPU_EMITTER_UPLOAD_CPU = new Samples();
+    private static final Samples GPU_STATS_READBACK_CPU = new Samples();
     private static final Samples TERRAIN_SHOCKFRONT_CPU = new Samples();
     private static final Samples VANILLA_PARTICLE_EXTRACTION_CPU = new Samples();
     private static final Samples VANILLA_PARTICLE_RENDER_CPU = new Samples();
@@ -36,6 +45,29 @@ public final class ClientPerformanceTelemetry {
     public static synchronized void recordExplosionNanos(final long nanos) {
         EXPLOSION.add(nanos);
     }
+    public static synchronized void recordImpactPayloadAcceptNanos(final long nanos) {
+        IMPACT_PAYLOAD_ACCEPT.add(nanos);
+    }
+    public static synchronized void recordImpactVisualStateConstructionNanos(
+        final long nanos) {
+        IMPACT_VISUAL_STATE_CONSTRUCTION.add(nanos);
+    }
+    public static synchronized void recordFireballLobePreparationNanos(final long nanos) {
+        FIREBALL_LOBE_PREPARATION.add(nanos);
+    }
+    public static synchronized void recordCloudLobePreparationNanos(final long nanos) {
+        CLOUD_LOBE_PREPARATION.add(nanos);
+    }
+    public static synchronized void recordDustNodeSelectionNanos(final long nanos) {
+        DUST_NODE_SELECTION.add(nanos);
+    }
+    public static synchronized void recordDebrisSnapshotNanos(final long nanos) {
+        DEBRIS_SNAPSHOT.add(nanos);
+    }
+    public static synchronized void recordMovingBlockStateConstructionNanos(
+        final long nanos) {
+        MOVING_BLOCK_STATE_CONSTRUCTION.add(nanos);
+    }
     public static synchronized void recordFireNanos(final long nanos) { FIRE.add(nanos); }
     public static synchronized void recordGpuEngineCpuNanos(final long nanos) {
         GPU_ENGINE_CPU.add(nanos);
@@ -45,6 +77,12 @@ public final class ClientPerformanceTelemetry {
     }
     public static synchronized void recordGpuSchedulerNanos(final long nanos) {
         GPU_SCHEDULER_CPU.add(nanos);
+    }
+    public static synchronized void recordGpuEmitterUploadNanos(final long nanos) {
+        GPU_EMITTER_UPLOAD_CPU.add(nanos);
+    }
+    public static synchronized void recordGpuStatsReadbackNanos(final long nanos) {
+        GPU_STATS_READBACK_CPU.add(nanos);
     }
     public static synchronized void recordTerrainShockfrontNanos(final long nanos) {
         TERRAIN_SHOCKFRONT_CPU.add(nanos);
@@ -59,9 +97,14 @@ public final class ClientPerformanceTelemetry {
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
-        return new DebugSnapshot(FRAME.snapshot(), EXPLOSION.snapshot(), FIRE.snapshot(),
+        return new DebugSnapshot(FRAME.snapshot(), EXPLOSION.snapshot(),
+            IMPACT_PAYLOAD_ACCEPT.snapshot(), IMPACT_VISUAL_STATE_CONSTRUCTION.snapshot(),
+            FIREBALL_LOBE_PREPARATION.snapshot(), CLOUD_LOBE_PREPARATION.snapshot(),
+            DUST_NODE_SELECTION.snapshot(), DEBRIS_SNAPSHOT.snapshot(),
+            MOVING_BLOCK_STATE_CONSTRUCTION.snapshot(), FIRE.snapshot(),
             GPU_ENGINE_CPU.snapshot(), GPU_EXTRACTION_CPU.snapshot(),
-            GPU_SCHEDULER_CPU.snapshot(), TERRAIN_SHOCKFRONT_CPU.snapshot(),
+            GPU_SCHEDULER_CPU.snapshot(), GPU_EMITTER_UPLOAD_CPU.snapshot(),
+            GPU_STATS_READBACK_CPU.snapshot(), TERRAIN_SHOCKFRONT_CPU.snapshot(),
             vanillaParticleCount, VANILLA_PARTICLE_EXTRACTION_CPU.snapshot(),
             VANILLA_PARTICLE_RENDER_CPU.snapshot());
     }
@@ -69,8 +112,13 @@ public final class ClientPerformanceTelemetry {
     public record Percentiles(double p50Millis, double p95Millis,
         double p99Millis, double maximumMillis) { }
     public record DebugSnapshot(Percentiles frame, Percentiles explosionExtraction,
+        Percentiles impactPayloadAccept, Percentiles impactVisualStateConstruction,
+        Percentiles fireballLobePreparation, Percentiles cloudLobePreparation,
+        Percentiles dustNodeSelection, Percentiles debrisSnapshot,
+        Percentiles movingBlockStateConstruction,
         Percentiles fireExtraction, Percentiles gpuEngineCpu,
         Percentiles gpuExtractionCpu, Percentiles gpuSchedulerCpu,
+        Percentiles gpuEmitterUploadCpu, Percentiles gpuStatsReadbackCpu,
         Percentiles terrainShockfrontCpu, long vanillaParticleCount,
         Percentiles vanillaParticleExtractionCpu,
         Percentiles vanillaParticleRenderCpu) { }

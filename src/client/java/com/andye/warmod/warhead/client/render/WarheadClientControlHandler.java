@@ -66,10 +66,18 @@ public final class WarheadClientControlHandler {
     }
 
     private static void budgetStatus() {
-        feedback("War Mod particle budget: "
+        GpuParticleEngine.GpuBudgetSnapshot gpu = GpuParticleEngine.budgetSnapshot();
+        feedback("War Mod particle budget request="
             + WarheadRenderSettings.particleBudgetMultiplier()
-            + "x (conventional cap " + WarheadRenderSettings.conventionalParticleBudget()
-            + "; nuclear showcase effects use a protected independent floor)");
+            + "x; CPU conventionalCapacity="
+            + WarheadRenderSettings.conventionalParticleBudget()
+            + ", CPU nuclearSupplementCapacity="
+            + WarheadRenderSettings.nuclearSupplementBudget()
+            + "; GPU configuredScale=" + format(gpu.configuredScale())
+            + "x, effectiveSpawnRate=" + Math.round(gpu.spawnRatePerSecond()) + "/s"
+            + ", effectiveFragmentCost=" + Math.round(gpu.fragmentCostPerSecond()) + "/s"
+            + ", hardEmitterCap=" + gpu.emitterCapacity()
+            + ", hardParticleCap=" + gpu.particleCapacity());
     }
 
     private static void debrisStatus() {
@@ -94,6 +102,10 @@ public final class WarheadClientControlHandler {
     private static void status() {
         WarheadWorldRenderer.DebugSnapshot debug = WarheadWorldRenderer.debugSnapshot();
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
+        GpuParticleEngine.GpuBudgetSnapshot gpuBudget =
+            GpuParticleEngine.budgetSnapshot();
+        GpuParticleEngine.GpuProbeSnapshot gpuProbe =
+            GpuParticleEngine.probeSnapshot();
         GpuParticleEngine.FireDebugCounters fire = gpu.fire();
         ClientPerformanceTelemetry.DebugSnapshot cpu = ClientPerformanceTelemetry.debugSnapshot();
         feedback("War Mod backendPreference="
@@ -103,7 +115,7 @@ public final class WarheadClientControlHandler {
             + ", gpuResources=" + gpu.backend().name().toLowerCase(java.util.Locale.ROOT)
             + ", gpuReadiness=" + gpu.readiness().name().toLowerCase(java.util.Locale.ROOT)
             + ", cpuMode=" + WarheadRenderSettings.displayName()
-            + ", budget=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
+            + ", budgetRequest=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
             + ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()
             + ", activeParticles=" + debug.activeParticles()
             + ", visibleInstances=" + gpu.visibleParticles()
@@ -112,7 +124,7 @@ public final class WarheadClientControlHandler {
             + ", deadSlots=" + gpu.deadSlots()
             + ", rejectedSpawns=" + gpu.rejectedSpawns()
             + ", debris=" + debug.activeDebrisFragments()
-            + ", rasterPipeline=" + debug.activeRenderBackend()
+            + ", activePipeline=" + debug.activeRenderBackend()
             + ", vfxQuality=" + String.format(java.util.Locale.ROOT, "%.2f", gpu.adaptiveQuality())
             + ", vfxLayers=" + gpu.scheduledLayers()
             + ", vfxEmitters=" + gpu.scheduledEmitters());
@@ -124,15 +136,68 @@ public final class WarheadClientControlHandler {
             + ", acceptedSpawns=" + gpu.submittedParticles()
             + ", debug=" + gpu.diagnosticMode().name().toLowerCase(java.util.Locale.ROOT)
             + ", anySamplesPassed=" + gpu.diagnosticSamplesPassed());
-        feedback("War Mod GPU ms p50/p95/p99: update=" + timing(gpu.gpuTime().update())
+        feedback("War Mod GPU readiness proof: stage=" + gpuProbe.stage()
+            + ", depthOff=" + gpuProbe.depthDisabledPassed()
+            + ", depthOn=" + gpuProbe.depthEnabledPassed()
+            + ", worldOcclusion=" + gpuProbe.worldOcclusionPassed()
+            + ", directEmitterTypes=" + gpuProbe.directEmitterTypesPassed()
+            + "/" + gpuProbe.directEmitterTypesRequired());
+        feedback("War Mod effective budgets: CPU conventionalCapacity="
+            + WarheadRenderSettings.conventionalParticleBudget()
+            + ", CPU nuclearSupplementCapacity="
+            + WarheadRenderSettings.nuclearSupplementBudget()
+            + "; GPU scale=" + format(gpuBudget.configuredScale())
+            + "x, adaptiveQuality=" + format(gpuBudget.adaptiveQuality())
+            + ", spawnRate=" + Math.round(gpuBudget.spawnRatePerSecond()) + "/s"
+            + ", fragmentCost=" + Math.round(gpuBudget.fragmentCostPerSecond()) + "/s"
+            + ", emitterCap=" + gpuBudget.emitterCapacity()
+            + ", particleCap=" + gpuBudget.particleCapacity()
+            + ", availableSlots=" + gpuBudget.availableDeadSlots());
+        java.util.Map<GpuParticleEngine.VisualLayer,
+            GpuParticleEngine.GpuLayerScheduleSnapshot> layerSchedules =
+                GpuParticleEngine.layerScheduleSnapshot();
+        if (layerSchedules.isEmpty()) {
+            feedback("War Mod semantic layer routing: GPU scheduler inactive; "
+                + "established CPU layers remain the fallback.");
+        } else {
+            layerSchedules.entrySet().stream()
+                .sorted(java.util.Map.Entry.comparingByKey())
+                .forEach(entry -> {
+                    GpuParticleEngine.GpuLayerScheduleSnapshot layer = entry.getValue();
+                    feedback("War Mod layer "
+                        + entry.getKey().name().toLowerCase(java.util.Locale.ROOT)
+                        + ": commandsSubmitted=" + layer.commandsSubmitted()
+                        + ", emitters=" + layer.emittersRequested() + "/"
+                        + layer.emittersScheduled()
+                        + ", schedulerParticles=" + layer.particlesRequested() + "/"
+                        + layer.particlesAccepted() + "/"
+                        + layer.particlesRejectedByScheduler()
+                        + ", deadListRejected=" + layer.particlesRejectedByDeadList()
+                        + ", alive=" + layer.aliveParticles()
+                        + ", visible=" + layer.visibleInstances()
+                        + ", sharedType=" + layer.sharedParticleType()
+                        + ", backendUsed=gpu, fallbackUsed=false");
+                });
+        }
+        feedback("War Mod GPU ms p50/p95/p99/max: update=" + timing(gpu.gpuTime().update())
             + ", spawn=" + timing(gpu.gpuTime().spawn())
             + ", cull=" + timing(gpu.gpuTime().cull())
             + ", raster=" + timing(gpu.gpuTime().raster()));
-        feedback("War Mod CPU ms p50/p95/p99: effectExtract="
+        feedback("War Mod impact CPU ms p50/p95/p99/max: payloadAccept="
+            + timing(cpu.impactPayloadAccept())
+            + ", visualState=" + timing(cpu.impactVisualStateConstruction())
+            + ", fireballLobes=" + timing(cpu.fireballLobePreparation())
+            + ", cloudLobes=" + timing(cpu.cloudLobePreparation())
+            + ", dustNodes=" + timing(cpu.dustNodeSelection())
+            + ", debrisSnapshot=" + timing(cpu.debrisSnapshot())
+            + ", movingBlockState=" + timing(cpu.movingBlockStateConstruction()));
+        feedback("War Mod frame CPU ms p50/p95/p99/max: effectExtract="
             + timing(cpu.explosionExtraction())
             + ", fireExtract=" + timing(cpu.fireExtraction())
             + ", gpuDrain=" + timing(cpu.gpuExtractionCpu())
             + ", vfxSchedule=" + timing(cpu.gpuSchedulerCpu())
+            + ", emitterUpload=" + timing(cpu.gpuEmitterUploadCpu())
+            + ", statsReadback=" + timing(cpu.gpuStatsReadbackCpu())
             + ", terrain=" + timing(cpu.terrainShockfrontCpu())
             + ", vanillaExtract=" + timing(cpu.vanillaParticleExtractionCpu())
             + ", vanillaRender=" + timing(cpu.vanillaParticleRenderCpu())
@@ -152,12 +217,12 @@ public final class WarheadClientControlHandler {
 
     private static String timing(final GpuParticleEngine.GpuTiming timing) {
         return format(timing.p50Millis()) + "/" + format(timing.p95Millis())
-            + "/" + format(timing.p99Millis());
+            + "/" + format(timing.p99Millis()) + "/" + format(timing.maximumMillis());
     }
 
     private static String timing(final ClientPerformanceTelemetry.Percentiles timing) {
         return format(timing.p50Millis()) + "/" + format(timing.p95Millis())
-            + "/" + format(timing.p99Millis());
+            + "/" + format(timing.p99Millis()) + "/" + format(timing.maximumMillis());
     }
 
     private static String format(final double value) {

@@ -149,10 +149,13 @@ public final class WarheadWorldRenderer {
                     : impactLod == WarheadMesh.Lod.MEDIUM ? 9_000 : 5_000
                 : impactLod == WarheadMesh.Lod.NEAR ? 8_000
                     : impactLod == WarheadMesh.Lod.MEDIUM ? 5_000 : 2_400) * budgetScale);
+            long dustSelectionStarted = System.nanoTime();
             List<TerrainShockfrontNode> dustNodes = groundEffects(state.effectProfile())
                 ? state.terrainShockfrontField().activeDustNodes(groundDistance,
                     frontierSpokeCount(impactLod), dustLimit, gameTime)
                 : List.of();
+            ClientPerformanceTelemetry.recordDustNodeSelectionNanos(
+                Math.max(0L, System.nanoTime() - dustSelectionStarted));
             for (TerrainShockfrontNode node : dustNodes) {
                 if (node.state() == TerrainShockfrontNode.State.READY) {
                     state.terrainShockfrontField().markEmitted(node, gameTime);
@@ -179,9 +182,14 @@ public final class WarheadWorldRenderer {
         ConventionalBlastParticleRenderer.retainFields(activeConventionalFieldSeeds);
 
         List<DebrisFrame> debris = new ArrayList<>();
-        for (ClientDebrisBatchManager.RenderSample sample
-            : ClientDebrisBatchManager.INSTANCE.snapshot(level, gameTime, partialTick,
-                cameraPosition, cameraOrientation, MAX_DISTANCE)) {
+        long debrisSnapshotStarted = System.nanoTime();
+        List<ClientDebrisBatchManager.RenderSample> debrisSamples =
+            ClientDebrisBatchManager.INSTANCE.snapshot(level, gameTime, partialTick,
+                cameraPosition, cameraOrientation, MAX_DISTANCE);
+        ClientPerformanceTelemetry.recordDebrisSnapshotNanos(
+            Math.max(0L, System.nanoTime() - debrisSnapshotStarted));
+        long movingBlockStateStarted = System.nanoTime();
+        for (ClientDebrisBatchManager.RenderSample sample : debrisSamples) {
             if (!visibleSphere(cameraPosition, cameraOrientation, sample.position(),
                 Math.max(4.0, sample.scale() * 4.0))) continue;
             BlockPos blockPosition = BlockPos.containing(sample.position());
@@ -195,6 +203,8 @@ public final class WarheadWorldRenderer {
             movingBlock.lightEngine = level.getLightEngine();
             debris.add(new DebrisFrame(sample, movingBlock, debrisTrailColour(sample)));
         }
+        ClientPerformanceTelemetry.recordMovingBlockStateConstructionNanos(
+            Math.max(0L, System.nanoTime() - movingBlockStateStarted));
         currentFrame = new RenderFrame(cameraPosition, cameraOrientation,
             List.copyOf(warheads), List.copyOf(impacts), List.copyOf(debris));
 
@@ -690,7 +700,7 @@ public final class WarheadWorldRenderer {
                 (int) Math.min(Integer.MAX_VALUE, gpu.visibleParticles()), 0,
                 (int) Math.min(Integer.MAX_VALUE, gpu.culledParticles()),
                 ClientDebrisBatchManager.INSTANCE.activeFragmentCount(),
-                "gpu_compute_ssbo_indirect");
+                "gpu_compute_simulation_indirect_draw");
         }
         ConventionalBlastVisualV5.DebugSnapshot conventional =
             ConventionalBlastVisualV5.debugSnapshot();
@@ -709,8 +719,8 @@ public final class WarheadWorldRenderer {
                 + nuclear.culledSimulatedParticles(),
             ClientDebrisBatchManager.INSTANCE.activeFragmentCount(),
             WarheadRenderPipelines.compatibilityRendererActive()
-                ? "cpu_assembled_fabric_gpu_raster_pipeline"
-                : "cpu_assembled_custom_gpu_raster_pipeline");
+                ? "cpu_simulation_fabric_draw"
+                : "cpu_simulation_custom_gl_draw");
     }
 
     private static void playReturnWaveSound(final ClientLevel level,

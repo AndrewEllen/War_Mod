@@ -62,6 +62,16 @@ public final class ClientWarheadVisualManager {
 	}
 
 	public synchronized void acceptImpact(final ClientboundWarheadImpactPayload payload) {
+		long payloadStarted = System.nanoTime();
+		try {
+			this.acceptImpactInternal(payload);
+		} finally {
+			ClientPerformanceTelemetry.recordImpactPayloadAcceptNanos(
+				Math.max(0L, System.nanoTime() - payloadStarted));
+		}
+	}
+
+	private void acceptImpactInternal(final ClientboundWarheadImpactPayload payload) {
 		if (!payload.isWellFormed() || !this.ensureCurrentLevel(Minecraft.getInstance().level)) return;
 		if (!this.acceptSequence(payload.warheadId(), payload.stateSequence(), true)) return;
 		ImpactVisualState existing = this.activeImpacts.get(payload.warheadId());
@@ -83,7 +93,10 @@ public final class ClientWarheadVisualManager {
 		TerrainShockfrontField prepared = this.preImpactShockfronts.remove(payload.warheadId());
 		if (prepared != null && (prepared.visualSeed() != payload.visualSeed()
 			|| prepared.impactPosition().distanceToSqr(incomingPosition) > 16.0)) prepared = null;
+		long constructionStarted = System.nanoTime();
 		ImpactVisualState incoming = ImpactVisualState.fromPayload(payload, prepared);
+		ClientPerformanceTelemetry.recordImpactVisualStateConstructionNanos(
+			Math.max(0L, System.nanoTime() - constructionStarted));
 		this.nuclearFlashExposed.remove(payload.warheadId());
 		if (incoming.payloadType() == WarheadPayloadType.NUCLEAR
 			&& hasDirectNuclearView(Minecraft.getInstance(), incoming.impactPosition())) {

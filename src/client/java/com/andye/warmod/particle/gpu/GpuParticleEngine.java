@@ -26,9 +26,15 @@ import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -170,6 +176,8 @@ public final class GpuParticleEngine {
     private static long rejectedParticles, frameSequence;
     private static double adaptiveQuality = 1.0, gpuTimeEwmaMillis;
     private static int scheduledLayerCount, scheduledEmitterCount;
+    private static volatile Map<VisualLayer, GpuLayerScheduleSnapshot>
+        lastLayerSchedules = Map.of();
     private static int clientFirePatches, fireFieldSubmissions;
     private static int acceptedFirePackets, rejectedFirePackets, staleFirePackets;
     private static int receivedFirePatchEntries, storedFirePatches;
@@ -179,6 +187,9 @@ public final class GpuParticleEngine {
     private static long debugSamplesPassed = -1L;
     private static ProbeStage automaticProbeStage = ProbeStage.DEPTH_DISABLED;
     private static boolean depthDisabledProbePassed, depthEnabledProbePassed;
+    private static boolean worldOcclusionProbePassed;
+    private static final EnumSet<ParticleType> DIRECT_EMITTER_PROBES_PASSED =
+        EnumSet.noneOf(ParticleType.class);
 
     private GpuParticleEngine() { }
 
@@ -204,6 +215,13 @@ public final class GpuParticleEngine {
     }
     public static boolean canRender(final VisualLayer layer) {
         return layer != null && isGpuReady() && GPU_CAPABLE_LAYERS.contains(layer);
+    }
+    static boolean readinessProofComplete(final boolean depthDisabled,
+        final boolean depthEnabled, final boolean worldOcclusion,
+        final int directEmitterTypesPassed, final int directEmitterTypesRequired) {
+        return depthDisabled && depthEnabled && worldOcclusion
+            && directEmitterTypesRequired > 0
+            && directEmitterTypesPassed == directEmitterTypesRequired;
     }
     /** Compatibility alias for callers that only need the effective backend. */
     public static boolean isGpuActive() {
@@ -272,6 +290,7 @@ public final class GpuParticleEngine {
         clientFirePatches = fireFieldSubmissions = receivedFirePatchEntries = storedFirePatches = 0;
         acceptedFirePackets = rejectedFirePackets = staleFirePackets = 0;
         submittedParticles = requestedParticles = rejectedParticles = 0L;
+        lastLayerSchedules = Map.of();
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
@@ -299,6 +318,27 @@ public final class GpuParticleEngine {
             frustumCulled, statsReadbackSkipped, diagnosticMode, debugSamplesPassed, fire);
     }
 
+    public static synchronized GpuBudgetSnapshot budgetSnapshot() {
+        double configuredScale = WarheadRenderSettings.gpuBudgetScale();
+        GpuVfxScheduler.BudgetLimits limits = GpuVfxScheduler.budgetLimits(
+            adaptiveQuality, configuredScale);
+        return new GpuBudgetSnapshot(configuredScale, adaptiveQuality,
+            limits.spawnRatePerSecond(), limits.fragmentCostPerSecond(),
+            limits.emitterCapacity(), PARTICLE_CAPACITY, Math.max(0L, deadSlots));
+    }
+
+    public static synchronized GpuProbeSnapshot probeSnapshot() {
+        return new GpuProbeSnapshot(
+            automaticProbeStage.name().toLowerCase(java.util.Locale.ROOT),
+            depthDisabledProbePassed, depthEnabledProbePassed,
+            worldOcclusionProbePassed, DIRECT_EMITTER_PROBES_PASSED.size(),
+            ParticleType.values().length);
+    }
+
+    public static Map<VisualLayer, GpuLayerScheduleSnapshot> layerScheduleSnapshot() {
+        return lastLayerSchedules;
+    }
+
     private static synchronized void submitLayer(final EffectDescriptor descriptor,
         final VisualLayer layer, final List<EmitterCommand> commands) {
         if (descriptor == null || !descriptor.valid() || layer == null
@@ -324,7 +364,10 @@ public final class GpuParticleEngine {
         FrameSubmissions submissions = drainSubmissions();
         ClientPerformanceTelemetry.recordGpuExtractionNanos(
             Math.max(0L, System.nanoTime() - extractionStarted));
-        if (backend != Backend.GPU_COMPUTE) return;
+        if (backend != Backend.GPU_COMPUTE) {
+            lastLayerSchedules = Map.of();
+            return;
+        }
         CameraRenderState camera = context.levelState().cameraRenderState;
         if (camera == null || camera.pos == null || camera.projectionMatrix == null
             || camera.viewRotationMatrix == null) return;
@@ -339,6 +382,7 @@ public final class GpuParticleEngine {
             Matrix4f viewProjection = new Matrix4f(camera.projectionMatrix)
                 .mul(camera.viewRotationMatrix);
             if (diagnosticMode != DiagnosticMode.OFF) {
+                lastLayerSchedules = Map.of();
                 drawDiagnostic(camera, viewProjection, state, stack,
                     diagnosticMode == DiagnosticMode.DEPTH_ENABLED, true,
                     diagnosticMode == DiagnosticMode.DEPTH_ENABLED
@@ -347,11 +391,10 @@ public final class GpuParticleEngine {
                 return;
             }
             if (readiness != Readiness.READY) {
+                lastLayerSchedules = Map.of();
                 if (readiness == Readiness.FAILED) return;
                 readiness = Readiness.PROBING;
-                drawDiagnostic(camera, viewProjection, state, stack,
-                    automaticProbeStage == ProbeStage.DEPTH_ENABLED, false,
-                    automaticProbeStage, true);
+                runAutomaticProbe(camera, viewProjection, state, stack);
                 return;
             }
             if (resetRequested) { clearParticleStorage(); resetRequested = false; }
@@ -362,7 +405,10 @@ public final class GpuParticleEngine {
             CameraInfo cameraInfo = new CameraInfo(camera.pos, viewProjection,
                 Math.max(0.01F, Math.abs(camera.projectionMatrix.m11())),
                 viewportWidth, viewportHeight);
+            long statsReadbackStarted = System.nanoTime();
             collectCompletedStats();
+            ClientPerformanceTelemetry.recordGpuStatsReadbackNanos(
+                Math.max(0L, System.nanoTime() - statsReadbackStarted));
             int statsSlot = acquireStatsSlot();
             int frameStatsBuffer = statsSlot >= 0
                 ? statsBuffers[statsSlot] : statsScratchBuffer;
@@ -375,7 +421,11 @@ public final class GpuParticleEngine {
                 Math.max(0L, System.nanoTime() - schedulerStarted));
             scheduledLayerCount = scheduled.visibleLayerCount();
             scheduledEmitterCount = scheduled.emitters().size();
+            lastLayerSchedules = layerScheduleSnapshots(scheduled.layerSchedules());
+            long emitterUploadStarted = System.nanoTime();
             int spawned = uploadEmitters(scheduled.emitters(), deltaSeconds);
+            ClientPerformanceTelemetry.recordGpuEmitterUploadNanos(
+                Math.max(0L, System.nanoTime() - emitterUploadStarted));
             requestedParticles += spawned;
 
             bindStorageBuffers(frameStatsBuffer);
@@ -428,6 +478,39 @@ public final class GpuParticleEngine {
         List<FireFieldSubmission> fireFields = List.copyOf(PENDING_FIRE_FIELDS.values());
         PENDING_EFFECTS.clear(); PENDING_FIRE_FIELDS.clear();
         return new FrameSubmissions(List.copyOf(effects), fireFields);
+    }
+
+    private static Map<VisualLayer, GpuLayerScheduleSnapshot> layerScheduleSnapshots(
+        final Map<VisualLayer, GpuVfxScheduler.LayerSchedule> schedules) {
+        if (schedules == null || schedules.isEmpty()) return Map.of();
+        EnumMap<VisualLayer, GpuLayerScheduleSnapshot> snapshots =
+            new EnumMap<>(VisualLayer.class);
+        schedules.forEach((layer, schedule) -> {
+            ParticleType type = particleTypeForLayer(layer);
+            int shaderId = type == null ? -1 : type.shaderId;
+            snapshots.put(layer, new GpuLayerScheduleSnapshot(
+                schedule.commandsSubmitted(), schedule.emittersRequested(),
+                schedule.emittersScheduled(), schedule.particlesRequested(),
+                schedule.particlesAccepted(), schedule.particlesRejected(),
+                type == null ? "none" : type.name().toLowerCase(java.util.Locale.ROOT),
+                shaderId < 0 ? 0L : Integer.toUnsignedLong(rejectedByType[shaderId]),
+                shaderId < 0 ? 0L : activeByType[shaderId],
+                shaderId < 0 ? 0L : visibleByType[shaderId]));
+        });
+        return Map.copyOf(snapshots);
+    }
+
+    private static ParticleType particleTypeForLayer(final VisualLayer layer) {
+        return switch (layer) {
+            case FIREBALL -> ParticleType.EXPLOSION_FIRE;
+            case MUSHROOM_CLOUD, STEM -> ParticleType.EXPLOSION_SMOKE;
+            case GROUND_CURTAIN -> ParticleType.CURTAIN;
+            case GROUND_DUST -> ParticleType.GROUND_DUST;
+            case FLAMES -> ParticleType.FIRE;
+            case SMOKE -> ParticleType.SMOKE;
+            case EMBERS -> ParticleType.EMBER;
+            case SHOCKWAVE, DEBRIS, DETAIL -> null;
+        };
     }
 
     private static void initialize() {
@@ -495,6 +578,8 @@ public final class GpuParticleEngine {
             automaticProbeStage = ProbeStage.DEPTH_DISABLED;
             depthDisabledProbePassed = false;
             depthEnabledProbePassed = false;
+            worldOcclusionProbePassed = false;
+            DIRECT_EMITTER_PROBES_PASSED.clear();
             WarMod.LOGGER.info("War Mod effect-aware GPU VFX enabled: {} particles, "
                 + "{} semantic emitter slots, extensionPath={}",
                 PARTICLE_CAPACITY, MAX_EMITTERS_PER_FRAME, !coreCompute);
@@ -842,6 +927,65 @@ public final class GpuParticleEngine {
         }
     }
 
+    private static void runAutomaticProbe(final CameraRenderState camera,
+        final Matrix4f viewProjection, final GlState state, final MemoryStack stack) {
+        if (automaticProbeStage.particleType() != null) {
+            drawEmitterProbe(camera, viewProjection, state, stack,
+                automaticProbeStage);
+            return;
+        }
+        drawDiagnostic(camera, viewProjection, state, stack,
+            automaticProbeStage != ProbeStage.DEPTH_DISABLED, false,
+            automaticProbeStage, true);
+    }
+
+    private static void drawEmitterProbe(final CameraRenderState camera,
+        final Matrix4f viewProjection, final GlState state, final MemoryStack stack,
+        final ProbeStage stage) {
+        ParticleType particleType = stage.particleType();
+        if (particleType == null) return;
+        Quaternionf orientation = camera.orientation == null
+            ? new Quaternionf() : new Quaternionf(camera.orientation);
+        Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F)
+            .rotate(orientation).normalize();
+        Vec3 position = camera.pos.add(forward.x * 0.75,
+            forward.y * 0.75, forward.z * 0.75);
+        EmitterCommand emitter = new EmitterCommand(position, Vec3.ZERO,
+            1.0F, 2.0F, 1.0F, 0.35F, 0.08F, 1.0F,
+            0.18F, 0.01F, 0.0F, 64,
+            0x50524F42 ^ particleType.shaderId, particleType, 0, 1.0F);
+        int statsBuffer = statsBuffers[0];
+        clearParticleStorage();
+        resetFrameBuffers(stack, statsBuffer);
+        uploadEmitters(List.of(emitter), 1.0F / 60.0F);
+        bindStorageBuffers(statsBuffer);
+        prepareDispatch(false);
+        dispatchUpdate(1.0F / 60.0F);
+        dispatchSpawn(1);
+
+        /* Spawned particles begin at age zero, where the established envelope
+           is deliberately transparent. Advance that exact compute output once
+           before probing cull and raster so the real fragment path is tested. */
+        aliveBufferIndex = 1 - aliveBufferIndex;
+        resetFrameBuffers(stack, statsBuffer);
+        bindStorageBuffers(statsBuffer);
+        prepareDispatch(false);
+        dispatchUpdate(0.06F);
+        prepareDispatch(true);
+        int viewportHeight = Math.max(1, state.viewport()[3]);
+        float projectionScale = Math.max(0.01F,
+            Math.abs(camera.projectionMatrix.m11()));
+        dispatchCull(camera.pos, viewProjection, viewportHeight,
+            projectionScale, stack);
+        glColorMask(false, false, false, false);
+        boolean query = beginSampleQuery(stage, true);
+        try {
+            draw(camera, viewProjection, state, stack);
+        } finally {
+            if (query) glEndQuery(GL_ANY_SAMPLES_PASSED);
+        }
+    }
+
     private static void drawDiagnostic(final CameraRenderState camera,
         final Matrix4f viewProjection, final GlState state, final MemoryStack stack,
         final boolean depthEnabled, final boolean visible, final ProbeStage probeStage,
@@ -851,13 +995,22 @@ public final class GpuParticleEngine {
         Vector3f right = new Vector3f(1.0F, 0.0F, 0.0F).rotate(orientation);
         Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F).rotate(orientation);
         Vector3f forward = new Vector3f(0.0F, 0.0F, -1.0F).rotate(orientation).normalize();
-        double probeDistance = automatic ? 0.5 : 5.0;
-        Vec3 position = camera.pos.add(forward.x * probeDistance,
-            forward.y * probeDistance, forward.z * probeDistance);
+        Vec3 position;
+        if (automatic && probeStage == ProbeStage.WORLD_OCCLUSION) {
+            position = occludedProbePosition(camera.pos, forward);
+            if (position == null) return;
+        } else {
+            double probeDistance = automatic ? 0.5 : 5.0;
+            position = camera.pos.add(forward.x * probeDistance,
+                forward.y * probeDistance, forward.z * probeDistance);
+        }
+        float diagnosticSize = automatic
+            ? (probeStage == ProbeStage.WORLD_OCCLUSION ? 0.035F : 0.12F)
+            : 2.0F;
         ByteBuffer particle = stack.malloc(PARTICLE_STRIDE);
         putVec4(particle, position.x, position.y, position.z, 0.5);
         putVec4(particle, 0.0, 0.0, 0.0, 10.0);
-        putVec4(particle, 1.0, 0.0, 1.0, 2.0);
+        putVec4(particle, 1.0, 0.0, 1.0, diagnosticSize);
         particle.putInt(ParticleType.EXPLOSION_FIRE.shaderId).putInt(0x4D414745)
             .putInt(0).putInt(Float.floatToRawIntBits(1.0F)).flip();
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, debugParticleBuffer);
@@ -881,10 +1034,25 @@ public final class GpuParticleEngine {
         glDepthMask(false); glDisable(GL_CULL_FACE);
         if (!depthEnabled) glDisable(GL_DEPTH_TEST);
         else { glEnable(GL_DEPTH_TEST); glDepthFunc(state.depthFunction()); }
+        if (automatic) glColorMask(false, false, false, false);
         logDiagnosticState(state);
         boolean query = beginSampleQuery(probeStage, automatic);
         try { glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); }
         finally { if (query) glEndQuery(GL_ANY_SAMPLES_PASSED); }
+    }
+
+    private static Vec3 occludedProbePosition(final Vec3 cameraPosition,
+        final Vector3f forward) {
+        ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) return null;
+        Vec3 direction = new Vec3(forward.x, forward.y, forward.z).normalize();
+        Vec3 end = cameraPosition.add(direction.scale(32.0));
+        BlockHitResult hit = level.clip(new ClipContext(cameraPosition, end,
+            ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE,
+            CollisionContext.empty()));
+        if (hit.getType() != HitResult.Type.BLOCK
+            || hit.getLocation().distanceToSqr(cameraPosition) < 0.25) return null;
+        return hit.getLocation().add(direction.scale(0.22));
     }
 
     private static boolean beginSampleQuery(final ProbeStage stage, final boolean automatic) {
@@ -909,21 +1077,27 @@ public final class GpuParticleEngine {
         final boolean passed) {
         if (!automatic || stage == null || readiness == Readiness.FAILED
             || readiness == Readiness.READY) return;
-        if (!passed) {
+        boolean expectedSamples = stage != ProbeStage.WORLD_OCCLUSION;
+        if (passed != expectedSamples) {
+            if (stage == ProbeStage.WORLD_OCCLUSION) return;
             readiness = Readiness.FAILED;
             WarMod.LOGGER.warn("War Mod GPU readiness probe failed at {}; retaining CPU visuals",
                 stage.name().toLowerCase(java.util.Locale.ROOT));
             return;
         }
-        if (stage == ProbeStage.DEPTH_DISABLED) {
-            depthDisabledProbePassed = true;
-            automaticProbeStage = ProbeStage.DEPTH_ENABLED;
-        } else {
-            depthEnabledProbePassed = true;
+        switch (stage) {
+            case DEPTH_DISABLED -> depthDisabledProbePassed = true;
+            case DEPTH_ENABLED -> depthEnabledProbePassed = true;
+            case WORLD_OCCLUSION -> worldOcclusionProbePassed = true;
+            default -> DIRECT_EMITTER_PROBES_PASSED.add(stage.particleType());
         }
-        if (depthDisabledProbePassed && depthEnabledProbePassed) {
+        automaticProbeStage = stage.next();
+        if (readinessProofComplete(depthDisabledProbePassed,
+            depthEnabledProbePassed, worldOcclusionProbePassed,
+            DIRECT_EMITTER_PROBES_PASSED.size(), ParticleType.values().length)) {
             readiness = Readiness.READY;
-            WarMod.LOGGER.info("War Mod GPU raster readiness probes passed; GPU layers enabled");
+            WarMod.LOGGER.info("War Mod GPU depth, occlusion, and all {} direct-emitter "
+                + "readiness probes passed; GPU layers enabled", ParticleType.values().length);
         }
     }
 
@@ -1037,6 +1211,11 @@ public final class GpuParticleEngine {
         Arrays.fill(gpuStageEwmaMillis, 0.0);
         vertexArray = sampleQueryCursor = statsCursor = 0;
         gpuTimeEwmaMillis = 0.0;
+        automaticProbeStage = ProbeStage.DEPTH_DISABLED;
+        depthDisabledProbePassed = depthEnabledProbePassed = false;
+        worldOcclusionProbePassed = false;
+        DIRECT_EMITTER_PROBES_PASSED.clear();
+        lastLayerSchedules = Map.of();
     }
 
     private static long mix64(long value) {
@@ -1165,11 +1344,42 @@ public final class GpuParticleEngine {
         int fireSpawned, long fireVisible, int smokeSpawned, long smokeVisible,
         int acceptedPackets, int rejectedPackets, int stalePackets,
         int receivedPatchEntries, int storedPatches) { }
+    public record GpuBudgetSnapshot(double configuredScale, double adaptiveQuality,
+        double spawnRatePerSecond, double fragmentCostPerSecond,
+        int emitterCapacity, int particleCapacity, long availableDeadSlots) { }
+    public record GpuProbeSnapshot(String stage, boolean depthDisabledPassed,
+        boolean depthEnabledPassed, boolean worldOcclusionPassed,
+        int directEmitterTypesPassed, int directEmitterTypesRequired) { }
+    public record GpuLayerScheduleSnapshot(int commandsSubmitted,
+        int emittersRequested, int emittersScheduled,
+        long particlesRequested, long particlesAccepted,
+        long particlesRejectedByScheduler, String sharedParticleType,
+        long particlesRejectedByDeadList, long aliveParticles,
+        long visibleInstances) { }
     public record GpuStageTimings(GpuTiming update, GpuTiming spawn,
         GpuTiming cull, GpuTiming raster) { }
     public record GpuTiming(double p50Millis, double p95Millis,
         double p99Millis, double maximumMillis) { }
-    private enum ProbeStage { DEPTH_DISABLED, DEPTH_ENABLED }
+    private enum ProbeStage {
+        DEPTH_DISABLED(null),
+        DEPTH_ENABLED(null),
+        WORLD_OCCLUSION(null),
+        DIRECT_FIRE(ParticleType.FIRE),
+        DIRECT_SMOKE(ParticleType.SMOKE),
+        DIRECT_EMBER(ParticleType.EMBER),
+        DIRECT_EXPLOSION_FIRE(ParticleType.EXPLOSION_FIRE),
+        DIRECT_EXPLOSION_SMOKE(ParticleType.EXPLOSION_SMOKE),
+        DIRECT_GROUND_DUST(ParticleType.GROUND_DUST),
+        DIRECT_CURTAIN(ParticleType.CURTAIN);
+
+        private final ParticleType particleType;
+        ProbeStage(final ParticleType particleType) { this.particleType = particleType; }
+        private ParticleType particleType() { return particleType; }
+        private ProbeStage next() {
+            ProbeStage[] stages = values();
+            return stages[Math.min(stages.length - 1, ordinal() + 1)];
+        }
+    }
     private enum GpuStage { UPDATE, SPAWN, CULL, RASTER }
     private record EffectKey(EffectClass effectClass, long id) { }
     private static final class PendingEffect {
@@ -1184,13 +1394,22 @@ public final class GpuParticleEngine {
         int[] storageBindings, boolean blend, boolean depthTest, boolean cull,
         boolean depthWrite, int blendSourceRgb, int blendDestinationRgb,
         int blendSourceAlpha, int blendDestinationAlpha, int depthFunction,
-        int[] viewport) {
+        int[] viewport, boolean[] colourWriteMask) {
         private static GlState capture() {
             int[] bindings = new int[9];
             for (int index = 0; index < bindings.length; index++)
                 bindings[index] = glGetIntegeri(GL_SHADER_STORAGE_BUFFER_BINDING, index);
             int[] viewport = new int[4];
             glGetIntegerv(GL_VIEWPORT, viewport);
+            boolean[] colourWriteMask = new boolean[4];
+            ByteBuffer maskValues = MemoryUtil.memAlloc(4);
+            try {
+                glGetBooleanv(GL_COLOR_WRITEMASK, maskValues);
+                for (int index = 0; index < colourWriteMask.length; index++)
+                    colourWriteMask[index] = maskValues.get(index) != 0;
+            } finally {
+                MemoryUtil.memFree(maskValues);
+            }
             return new GlState(glGetInteger(GL_CURRENT_PROGRAM),
                 glGetInteger(GL_VERTEX_ARRAY_BINDING), glGetInteger(GL_DRAW_INDIRECT_BUFFER_BINDING),
                 glGetInteger(GL_DISPATCH_INDIRECT_BUFFER_BINDING),
@@ -1199,7 +1418,7 @@ public final class GpuParticleEngine {
                 glIsEnabled(GL_CULL_FACE), glGetBoolean(GL_DEPTH_WRITEMASK),
                 glGetInteger(GL_BLEND_SRC_RGB), glGetInteger(GL_BLEND_DST_RGB),
                 glGetInteger(GL_BLEND_SRC_ALPHA), glGetInteger(GL_BLEND_DST_ALPHA),
-                glGetInteger(GL_DEPTH_FUNC), viewport);
+                glGetInteger(GL_DEPTH_FUNC), viewport, colourWriteMask);
         }
         private void restore() {
             glUseProgram(program); glBindVertexArray(vertexArray);
@@ -1210,6 +1429,8 @@ public final class GpuParticleEngine {
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, storageBuffer);
             setEnabled(GL_BLEND, blend); setEnabled(GL_DEPTH_TEST, depthTest);
             setEnabled(GL_CULL_FACE, cull); glDepthMask(depthWrite); glDepthFunc(depthFunction);
+            glColorMask(colourWriteMask[0], colourWriteMask[1],
+                colourWriteMask[2], colourWriteMask[3]);
             glBlendFuncSeparate(blendSourceRgb, blendDestinationRgb,
                 blendSourceAlpha, blendDestinationAlpha);
         }

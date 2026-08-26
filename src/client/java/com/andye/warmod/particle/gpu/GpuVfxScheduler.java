@@ -80,11 +80,10 @@ final class GpuVfxScheduler {
             }
         }
 
-        double quality = Mth.clamp(adaptiveQuality, 0.22, 1.35);
-        double scale = Math.max(0.001, budgetScale);
+        BudgetLimits limits = budgetLimits(adaptiveQuality, budgetScale);
         BudgetState budget = new BudgetState(
-            BASE_SPAWN_RATE_BUDGET * quality * scale,
-            BASE_FRAGMENT_COST_BUDGET * quality * scale,
+            limits.spawnRatePerSecond(),
+            limits.fragmentCostPerSecond(),
             Math.max(0.0, deadSlots) / Math.max(0.001, deltaSeconds));
         allocatePhase(demands, budget, AllocationPhase.CRITICAL);
         allocatePhase(demands, budget, AllocationPhase.QUALITY);
@@ -94,11 +93,20 @@ final class GpuVfxScheduler {
 
         ArrayList<EmitterCommand> scheduled = new ArrayList<>(MAX_SCHEDULED_EMITTERS);
         EnumMap<VisualLayer, Integer> scheduledByLayer = new EnumMap<>(VisualLayer.class);
+        EnumMap<VisualLayer, MutableLayerSchedule> layerSchedules =
+            new EnumMap<>(VisualLayer.class);
         for (LayerDemand demand : demands) {
+            MutableLayerSchedule layerSchedule = layerSchedules.computeIfAbsent(
+                demand.layer, ignored -> new MutableLayerSchedule());
+            layerSchedule.commandsSubmitted += demand.commands.size();
+            layerSchedule.emittersRequested += demand.commands.size();
+            layerSchedule.particlesRequested += Math.round(demand.requestedRate);
+            layerSchedule.particlesAccepted += Math.round(demand.allocatedRate);
             if (demand.allocatedRate <= 0.0 || demand.allocatedSlots <= 0) continue;
             List<EmitterCommand> represented = represent(demand);
             scheduled.addAll(represented);
             scheduledByLayer.merge(demand.layer, represented.size(), Integer::sum);
+            layerSchedule.emittersScheduled += represented.size();
         }
         if (scheduled.size() > MAX_SCHEDULED_EMITTERS) {
             throw new IllegalStateException("VFX scheduler exceeded emitter capacity: "
@@ -106,11 +114,25 @@ final class GpuVfxScheduler {
         }
         LOD_STATES.entrySet().removeIf(entry ->
             frameSequence - entry.getValue().lastSeenFrame > STALE_LOD_FRAMES);
+        EnumMap<VisualLayer, LayerSchedule> immutableLayerSchedules =
+            new EnumMap<>(VisualLayer.class);
+        layerSchedules.forEach((layer, values) -> immutableLayerSchedules.put(layer,
+            values.snapshot()));
         return new ScheduledFrame(List.copyOf(scheduled), Map.copyOf(scheduledByLayer),
-            demands.size(), budget.allocatedFragmentCost);
+            Map.copyOf(immutableLayerSchedules), demands.size(),
+            budget.allocatedFragmentCost);
     }
 
     static synchronized void clear() { LOD_STATES.clear(); }
+
+    static BudgetLimits budgetLimits(final double adaptiveQuality,
+        final double budgetScale) {
+        double quality = Mth.clamp(adaptiveQuality, 0.22, 1.35);
+        double scale = Math.max(0.001, budgetScale);
+        return new BudgetLimits(BASE_SPAWN_RATE_BUDGET * quality * scale,
+            BASE_FRAGMENT_COST_BUDGET * quality * scale,
+            MAX_SCHEDULED_EMITTERS);
+    }
 
     private static EffectSubmission expandFireField(final FireFieldSubmission field,
         final CameraInfo camera, final long frameSequence) {
@@ -626,8 +648,16 @@ final class GpuVfxScheduler {
     }
 
     record ScheduledFrame(List<EmitterCommand> emitters,
-        Map<VisualLayer, Integer> emittersByLayer, int visibleLayerCount,
-        double allocatedCost) { }
+        Map<VisualLayer, Integer> emittersByLayer,
+        Map<VisualLayer, LayerSchedule> layerSchedules,
+        int visibleLayerCount, double allocatedCost) { }
+
+    record LayerSchedule(int commandsSubmitted, int emittersRequested,
+        int emittersScheduled, long particlesRequested,
+        long particlesAccepted, long particlesRejected) { }
+
+    record BudgetLimits(double spawnRatePerSecond,
+        double fragmentCostPerSecond, int emitterCapacity) { }
 
     private enum AllocationPhase {
         CRITICAL, QUALITY, TARGET, MAXIMUM;
@@ -729,6 +759,20 @@ final class GpuVfxScheduler {
         private boolean exhausted() {
             return remainingSpawnRate <= 0.01 || remainingLiveSlotRate <= 0.01
                 || remainingFragmentCost <= 0.01;
+        }
+    }
+
+    private static final class MutableLayerSchedule {
+        private int commandsSubmitted;
+        private int emittersRequested;
+        private int emittersScheduled;
+        private long particlesRequested;
+        private long particlesAccepted;
+
+        private LayerSchedule snapshot() {
+            return new LayerSchedule(commandsSubmitted, emittersRequested,
+                emittersScheduled, particlesRequested, particlesAccepted,
+                Math.max(0L, particlesRequested - particlesAccepted));
         }
     }
 

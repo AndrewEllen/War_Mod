@@ -1,10 +1,30 @@
 package com.andye.warmod.warhead.client;
 
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.warhead.WarheadPayloadType;import com.andye.warmod.warhead.WarheadEffectProfile;import com.andye.warmod.warhead.client.render.BlastCloudFlowRole;import com.andye.warmod.warhead.client.render.BlastCloudLobe;import com.andye.warmod.warhead.client.render.FireballLobe;import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;import java.util.ArrayList;import java.util.List;import java.util.SplittableRandom;import java.util.UUID;import net.minecraft.util.Mth;import net.minecraft.world.phys.Vec3;
 public final class ImpactVisualState {
 	private final UUID warheadId;private final Vec3 impactPosition,ambientWind;private final long impactGameTime,visualSeed;private final float visualScale;private final WarheadPayloadType payloadType;private WarheadEffectProfile effectProfile;private final WarheadClientVisualProfile profile;private final TerrainRingSampler terrainSampler;private final TerrainShockfrontField terrainShockfrontField;private final List<FireballLobe> fireballLobes;private final List<BlastCloudLobe> blastCloudLobes;private boolean initialBurstEmitted,secondaryBurstEmitted;private long lastContinuousParticleTick=Long.MIN_VALUE;private int emittedParticleCount;
 	public ImpactVisualState(final UUID id,final Vec3 position,final long time,final long seed,final WarheadPayloadType payloadType,final float scale){this(id,position,time,seed,payloadType,scale,Vec3.ZERO,null);}
-	private ImpactVisualState(final UUID id,final Vec3 position,final long time,final long seed,final WarheadPayloadType payloadType,final float scale,final Vec3 ambientWind,final TerrainShockfrontField preparedField){this.warheadId=id;this.impactPosition=position;this.ambientWind=ambientWind==null||!ambientWind.isFinite()?Vec3.ZERO:ambientWind;this.impactGameTime=time;this.visualSeed=seed;this.payloadType=payloadType;this.effectProfile=WarheadEffectProfile.CONVENTIONAL;this.visualScale=scale;this.profile=WarheadClientVisualProfiles.get(payloadType,seed);this.terrainSampler=new TerrainRingSampler(position,seed);this.terrainShockfrontField=preparedField==null?new TerrainShockfrontField(position,seed):preparedField;this.fireballLobes=createFireballLobes(seed,profile);this.blastCloudLobes=createSmokeLobes(seed,profile);}
+	private ImpactVisualState(final UUID id,final Vec3 position,final long time,
+		final long seed,final WarheadPayloadType payloadType,final float scale,
+		final Vec3 ambientWind,final TerrainShockfrontField preparedField){
+		this.warheadId=id;this.impactPosition=position;
+		this.ambientWind=ambientWind==null||!ambientWind.isFinite()?Vec3.ZERO:ambientWind;
+		this.impactGameTime=time;this.visualSeed=seed;this.payloadType=payloadType;
+		this.effectProfile=WarheadEffectProfile.CONVENTIONAL;this.visualScale=scale;
+		this.profile=WarheadClientVisualProfiles.get(payloadType,seed);
+		this.terrainSampler=new TerrainRingSampler(position,seed);
+		this.terrainShockfrontField=preparedField==null
+			?new TerrainShockfrontField(position,seed):preparedField;
+		long fireballStarted=System.nanoTime();
+		this.fireballLobes=createFireballLobes(seed,profile);
+		ClientPerformanceTelemetry.recordFireballLobePreparationNanos(
+			Math.max(0L,System.nanoTime()-fireballStarted));
+		long cloudStarted=System.nanoTime();
+		this.blastCloudLobes=createSmokeLobes(seed,profile);
+		ClientPerformanceTelemetry.recordCloudLobePreparationNanos(
+			Math.max(0L,System.nanoTime()-cloudStarted));
+	}
 	public static ImpactVisualState fromPayload(final ClientboundWarheadImpactPayload p){return fromPayload(p,null);}
 	public static ImpactVisualState fromPayload(final ClientboundWarheadImpactPayload p,final TerrainShockfrontField preparedField){ImpactVisualState state=new ImpactVisualState(p.warheadId(),new Vec3(p.impactX(),p.impactY(),p.impactZ()),p.impactGameTime(),p.visualSeed(),p.payloadType(),p.impactVisualScale(),new Vec3(p.windX(),0.0,p.windZ()),preparedField);state.effectProfile=p.effectProfile();return state;}
 	public WarheadEffectProfile effectProfile(){return effectProfile;}public UUID warheadId(){return warheadId;}public Vec3 impactPosition(){return impactPosition;}public Vec3 ambientWind(){return ambientWind;}public long impactGameTime(){return impactGameTime;}public long visualSeed(){return visualSeed;}public float visualScale(){return visualScale;}public WarheadPayloadType payloadType(){return payloadType;}public WarheadClientVisualProfile profile(){return profile;}public TerrainRingSampler terrainSampler(){return terrainSampler;}public TerrainShockfrontField terrainShockfrontField(){return terrainShockfrontField;}public List<FireballLobe> fireballLobes(){return fireballLobes;}public List<BlastCloudLobe> blastCloudLobes(){return blastCloudLobes;}
