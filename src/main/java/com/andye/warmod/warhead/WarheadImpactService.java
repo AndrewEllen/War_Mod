@@ -3,6 +3,7 @@ package com.andye.warmod.warhead;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticEngine;
 import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.testtool.TestExplosionService;
@@ -61,6 +62,8 @@ public final class WarheadImpactService {
 	public static void detonateAt(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
 		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType,
 		final boolean registerRadarImpact) {
+		long impactStarted = WarModPerformanceDiagnostics.begin();
+		try {
 		Objects.requireNonNull(level);
 		Objects.requireNonNull(id);
 		Objects.requireNonNull(pos);
@@ -92,7 +95,12 @@ public final class WarheadImpactService {
 			);
 		}
 
-		WarheadVisualNetworking.sendImpact(level, event.visualPayload(ambientWind),
+		long visualPacketStarted = WarModPerformanceDiagnostics.begin();
+		ClientboundWarheadImpactPayload visualPayload = event.visualPayload(ambientWind);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.VISUAL_PACKET_PREPARATION,
+			visualPacketStarted);
+		WarheadVisualNetworking.sendImpact(level, visualPayload,
 			event.impactPosition(), customFire);
 
 		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks = TestExplosionService.createExplosion(
@@ -133,6 +141,11 @@ public final class WarheadImpactService {
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
 			WarMod.LOGGER.info("Warhead {} impacted: sequence={}, yield={}, position={}",
 				id, event.impactSequence(), yield.getSerializedName(), event.impactPosition());
+		}
+		} finally {
+			WarModPerformanceDiagnostics.record(
+				WarModPerformanceDiagnostics.Subsystem.IMPACT_SERVICE_TOTAL,
+				impactStarted);
 		}
 	}
 
@@ -266,6 +279,12 @@ public final class WarheadImpactService {
 				1.0F, lifetime, List.copyOf(parts)
 			));
 		}
+		long debrisPartCount = 0L;
+		for (ClientboundWarheadDebrisPayload.Entry entry : entries)
+			debrisPartCount += entry.parts().size();
+		WarModPerformanceDiagnostics.add(
+			WarModPerformanceDiagnostics.Gauge.DEBRIS_PARTS_GENERATED,
+			debrisPartCount);
 		WarheadVisualNetworking.sendDebris(level, new ClientboundWarheadDebrisPayload(
 			impactId, center.x, center.y, center.z, event.impactServerTick(), entries
 		), center);

@@ -29,6 +29,14 @@ import net.minecraft.world.level.storage.LevelResource;
  */
 public final class WarModPerformanceDiagnostics {
     public enum Subsystem {
+        IMPACT_SERVICE_TOTAL("impact service total"),
+        VISUAL_PACKET_PREPARATION("impact visual packet preparation"),
+        DEBRIS_SOURCE_CONSUME("prepared debris source consume"),
+        FALLBACK_DEBRIS_SAMPLING("fallback debris sampling"),
+        CRATER_WORK_CREATION("crater work creation"),
+        ENTITY_BLAST_APPLICATION("entity blast application"),
+        CRATER_BLOCK_APPLICATION("crater block application"),
+        AFTERMATH_APPLICATION("aftermath application"),
         WAR_MOD_SCHEDULED_WORK("War Mod scheduled work total"),
         NUCLEAR_CRATER("nuclear crater mutation"),
         NUCLEAR_WAVE("nuclear aftermath wave"),
@@ -63,6 +71,8 @@ public final class WarModPerformanceDiagnostics {
         FIRE_SNAPSHOT_ENTRIES_BUILT("fire snapshot entries built"),
         FIRE_COMPLETE_SNAPSHOTS("fire complete snapshots"),
         FIRE_NETWORK_SENT_PATCH_ENTRIES("fire network sent patch entries"),
+        DEBRIS_PARTS_GENERATED("debris parts generated"),
+        CRATER_BLOCKS_CHANGED("crater blocks changed"),
         SCHEDULER_OVERRUNS("shared scheduler deadline overruns");
 
         private final String label;

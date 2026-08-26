@@ -350,27 +350,39 @@ public final class WarheadExplosionWorkManager {
 			WarModPerformanceDiagnostics.Gauge.PENDING_CRATER_BLOCK_MUTATIONS,
 			pendingCraterMutations);
 		long now = level.getGameTime();
+		long entityBlastStarted = WarModPerformanceDiagnostics.begin();
 		try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
 			WorkClass.ENTITY_BLAST, 2_000_000L)) {
 			if (permit.available()) levelWork.advanceEntityBlasts(level, permit.deadlineNanos());
 		}
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.ENTITY_BLAST_APPLICATION,
+			entityBlastStarted);
 		/*
 		 * Nuclear catch-up is intentionally isolated from ordinary explosion work.
 		 * A front-gated crater is skipped for the rest of this tick instead of
 		 * spinning until the deadline while waiting for the visual shockwave.
 		 */
+		long craterApplicationStarted = WarModPerformanceDiagnostics.begin();
+		int blocksChanged = 0;
 		try (WorkPermit permit = WarModServerWorkScheduler.acquire(level,
 			WorkClass.CRATER_COMMIT,
 			Math.max(NUCLEAR_APPLICATION_BUDGET_NANOS, BLOCK_APPLICATION_BUDGET_NANOS))) {
 			if (permit.available()) {
-				applyWorkClass(level, levelWork, true,
+				blocksChanged += applyWorkClass(level, levelWork, true,
 					NUCLEAR_MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
 					NUCLEAR_APPLICATION_SLICE, permit.deadlineNanos());
-				applyWorkClass(level, levelWork, false,
+				blocksChanged += applyWorkClass(level, levelWork, false,
 					MAX_BLOCK_CHANGES_PER_LEVEL_TICK,
 					APPLICATION_SLICE, permit.deadlineNanos());
 			}
 		}
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.CRATER_BLOCK_APPLICATION,
+			craterApplicationStarted);
+		WarModPerformanceDiagnostics.add(
+			WarModPerformanceDiagnostics.Gauge.CRATER_BLOCKS_CHANGED,
+			blocksChanged);
 
 		Iterator<ExplosionWork> iterator = levelWork.works.iterator();
 		while (iterator.hasNext()) {
@@ -386,7 +398,7 @@ public final class WarheadExplosionWorkManager {
 			WarModPerformanceDiagnostics.Subsystem.NUCLEAR_CRATER, diagnosticsStarted);
 	}
 
-	private static void applyWorkClass(
+	private static int applyWorkClass(
 		final ServerLevel level,
 		final LevelWork levelWork,
 		final boolean nuclear,
@@ -394,19 +406,22 @@ public final class WarheadExplosionWorkManager {
 		final int applicationSlice,
 		final long deadline
 	) {
-		if (!levelWork.hasActiveWork(nuclear)) return;
+		if (!levelWork.hasActiveWork(nuclear)) return 0;
 		int remaining = changeBudget;
+		int totalChanged = 0;
 		Set<UUID> unavailableThisTick = new HashSet<>();
 		while (remaining > 0 && System.nanoTime() < deadline) {
 			ExplosionWork work = levelWork.nextApplicationWork(level, nuclear,
 				unavailableThisTick, applicationSlice);
 			if (work == null) break;
 			int changed = work.apply(level, levelWork, Math.min(applicationSlice, remaining), deadline);
+			totalChanged += Math.max(0, changed);
 			remaining -= Math.max(1, changed);
 			if (work.frontBlockedThisApply || (!work.finished && !work.templateReady())) {
 				unavailableThisTick.add(work.warheadId);
 			}
 		}
+		return totalChanged;
 	}
 
 	private static synchronized void clear() {

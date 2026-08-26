@@ -233,6 +233,9 @@ public final class WarheadGlassShockwaveManager {
                 WarModPerformanceDiagnostics.Gauge.ACTIVE_NUCLEAR_WAVES, 0L);
             WarModPerformanceDiagnostics.record(
                 WarModPerformanceDiagnostics.Subsystem.NUCLEAR_WAVE, diagnosticsStarted);
+            WarModPerformanceDiagnostics.record(
+                WarModPerformanceDiagnostics.Subsystem.AFTERMATH_APPLICATION,
+                diagnosticsStarted);
             return;
         }
         long gameTime = level.getGameTime();
@@ -268,6 +271,9 @@ public final class WarheadGlassShockwaveManager {
         if (waves.isEmpty()) WAVES.remove(level);
         WarModPerformanceDiagnostics.record(
             WarModPerformanceDiagnostics.Subsystem.NUCLEAR_WAVE, diagnosticsStarted);
+        WarModPerformanceDiagnostics.record(
+            WarModPerformanceDiagnostics.Subsystem.AFTERMATH_APPLICATION,
+            diagnosticsStarted);
     }
 
     private static double nuclearAftermathRadius(final double craterRadius,

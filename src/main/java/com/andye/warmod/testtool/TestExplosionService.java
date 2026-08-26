@@ -1,6 +1,7 @@
 package com.andye.warmod.testtool;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
+import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.warhead.StrategicExplosionProfile;
 import com.andye.warmod.warhead.StrategicExplosionProfiles;
@@ -11,6 +12,7 @@ import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
 import com.andye.warmod.warhead.WarheadYield;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.particles.ExplosionParticleInfo;
 import net.minecraft.core.particles.ParticleTypes;
@@ -69,10 +71,23 @@ public final class TestExplosionService {
 		 * otherwise take only a bounded synchronous prefix so debris cosmetics
 		 * cannot stall the authoritative detonation.
 		 */
-		List<WarheadExplosionDropContext.DestroyedBlock> debris =
-			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed)
-				.orElseGet(() -> WarheadDebrisSourceSampler.sampleBounded(
-					level, position, yield, seed, UNPREPARED_DEBRIS_CHECK_BUDGET));
+		long debrisConsumeStarted = WarModPerformanceDiagnostics.begin();
+		Optional<List<WarheadExplosionDropContext.DestroyedBlock>> preparedDebris =
+			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.DEBRIS_SOURCE_CONSUME,
+			debrisConsumeStarted);
+		List<WarheadExplosionDropContext.DestroyedBlock> debris;
+		if (preparedDebris.isPresent()) {
+			debris = preparedDebris.get();
+		} else {
+			long fallbackSamplingStarted = WarModPerformanceDiagnostics.begin();
+			debris = WarheadDebrisSourceSampler.sampleBounded(
+				level, position, yield, seed, UNPREPARED_DEBRIS_CHECK_BUDGET);
+			WarModPerformanceDiagnostics.record(
+				WarModPerformanceDiagnostics.Subsystem.FALLBACK_DEBRIS_SAMPLING,
+				fallbackSamplingStarted);
+		}
 
 		/*
 		 * This explosion is about to mutate terrain observed by other in-flight
@@ -81,8 +96,12 @@ public final class TestExplosionService {
 		 */
 		WarheadPreImpactPreparationManager.invalidateAround(
 			level, warheadId, position, yield, preparationInvalidationRadius(yield));
+		long craterWorkStarted = WarModPerformanceDiagnostics.begin();
 		WarheadExplosionWorkManager.detonateWithoutDebrisSample(level, source, warheadId,
 			position, yield, seed, customFire);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.CRATER_WORK_CREATION,
+			craterWorkStarted);
 		return debris;
 	}
 
