@@ -5,6 +5,7 @@ struct Particle {
     vec4 position_age;
     vec4 velocity_lifetime;
     vec4 colour_size;
+    vec4 orientation_mode;
     uvec4 metadata;
 };
 struct Emitter {
@@ -12,6 +13,7 @@ struct Emitter {
     vec4 velocity_lifetime;
     vec4 colour;
     vec4 parameters;
+    vec4 orientation_mode;
     uvec4 metadata;
 };
 
@@ -25,6 +27,7 @@ layout(std430, binding = 6) buffer AliveOutput {
 layout(std430, binding = 7) buffer StatsBuffer { uint stats[]; };
 uniform uint particleCapacity;
 uniform uint particleTypeCount;
+uniform uint visualLayerCount;
 uniform uint emitterCount;
 uniform uint spawnEpoch;
 
@@ -58,9 +61,12 @@ void main() {
     uint spawnCount = min(emitter.metadata.x, 64u);
     if (lane >= spawnCount) return;
     uint type = min(emitter.metadata.z, particleTypeCount - 1u);
+    uint layer = min(emitter.metadata.w >> 16u, visualLayerCount - 1u);
+    uint layerStatsBase = particleTypeCount * 4u + 4u;
     uint slot;
     if (!popDead(slot)) {
         atomicAdd(stats[particleTypeCount * 2u + type], 1u);
+        atomicAdd(stats[layerStatsBase + visualLayerCount * 2u + layer], 1u);
         return;
     }
     uint seed = emitter.metadata.y ^ hash32(lane + emitterId * 131u)
@@ -77,10 +83,13 @@ void main() {
         * mix(0.75, 1.25, unit(seed ^ 0xd3a2646cu))));
     particles[slot].colour_size = vec4(emitter.colour.rgb,
         emitter.parameters.x * mix(0.72, 1.28, unit(seed ^ 0xfd7046c5u)));
+    particles[slot].orientation_mode = emitter.orientation_mode;
     particles[slot].metadata = uvec4(type, seed,
         emitter.metadata.w, floatBitsToUint(emitter.colour.a));
     uint outputIndex = atomicAdd(outputAliveCount, 1u);
     if (outputIndex < particleCapacity) outputAliveIds[outputIndex] = slot;
     atomicAdd(stats[type], 1u);
     atomicAdd(stats[particleTypeCount + type], 1u);
+    atomicAdd(stats[layerStatsBase + layer], 1u);
+    atomicAdd(stats[layerStatsBase + visualLayerCount + layer], 1u);
 }

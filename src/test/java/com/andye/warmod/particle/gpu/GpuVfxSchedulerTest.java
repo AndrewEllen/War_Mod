@@ -1,6 +1,7 @@
 package com.andye.warmod.particle.gpu;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectClass;
@@ -95,6 +96,26 @@ final class GpuVfxSchedulerTest {
 
         assertTrue(scheduled.emitters().isEmpty());
         assertEquals(0, scheduled.visibleLayerCount());
+    }
+
+    @Test
+    void cameraInsideLargeEffectSphereIsAlwaysVisible() {
+        assertTrue(CAMERA.visible(new Vec3(8.0, 0.0, 0.0), 9.0F));
+    }
+
+    @Test
+    void sphereIntersectingFrustumRemainsVisibleWhenItsCenterIsBehindCamera() {
+        assertTrue(CAMERA.visible(new Vec3(0.0, 0.0, 1.10), 0.20F));
+    }
+
+    @Test
+    void sphereFullyBehindFrustumIsRejected() {
+        assertFalse(CAMERA.visible(new Vec3(0.0, 0.0, 1.40), 0.20F));
+    }
+
+    @Test
+    void sphereIntersectingSidePlaneRemainsVisible() {
+        assertTrue(CAMERA.visible(new Vec3(1.10, 0.0, 0.0), 0.20F));
     }
 
     @Test

@@ -44,7 +44,7 @@ public final class WarModPerformanceDiagnostics {
         FIRE_SIMULATION("fire simulation"),
         FIRE_SNAPSHOT_PREPARATION("fire snapshot preparation"),
         FIRE_NETWORK("fire visual networking"),
-        CURTAIN_SEND("nuclear curtain networking");
+        TERRAIN_OBSCURATION_SEND("nuclear terrain-obscuration networking");
 
         private final String label;
         Subsystem(final String label) { this.label = label; }
@@ -58,13 +58,20 @@ public final class WarModPerformanceDiagnostics {
         ACTIVE_NUCLEAR_WAVES("active nuclear waves"),
         ACTIVE_NUCLEAR_PREPARATIONS("active terrain preparations"),
         PENDING_NUCLEAR_MUTATIONS("pending prepared terrain mutations"),
+        AFTERMATH_REQUIRED_CHUNKS("aftermath required chunks"),
+        AFTERMATH_LEASED_CHUNKS("aftermath leased chunks"),
+        AFTERMATH_AVAILABLE_CHUNKS("aftermath available chunks"),
+        AFTERMATH_DEFERRED_COLUMNS("aftermath deferred columns"),
+        AFTERMATH_COMPLETED_COLUMNS("aftermath completed columns"),
+        AFTERMATH_MINIMUM_COMPLETED_RADIUS("aftermath minimum completed radius by sector"),
+        AFTERMATH_MAXIMUM_COMPLETED_RADIUS("aftermath maximum completed radius by sector"),
         ACTIVE_FIRE_PATCHES("active fire patches"),
         DORMANT_FIRE_PATCHES("dormant fire patches"),
         ACTIVE_FIRE_EMBERS("active fire embers"),
         FIRE_SNAPSHOT_IN_PROGRESS("fire snapshot in progress"),
         FIRE_SNAPSHOT_PENDING_PATCHES("fire snapshot patches remaining"),
-        CURTAIN_EMISSIONS("curtain emissions"),
-        CURTAIN_RECIPIENTS("curtain packet recipients"),
+        TERRAIN_OBSCURATION_EMISSIONS("terrain-obscuration emissions"),
+        TERRAIN_OBSCURATION_RECIPIENTS("terrain-obscuration packet recipients"),
         FIRE_SNAPSHOT_PACKETS_SENT("fire snapshot packets sent"),
         FIRE_VIEWER_NEARBY_CANDIDATES("fire viewer nearby candidates"),
         FIRE_VIEWER_SELECTED_PATCHES("fire viewer selected patches"),
@@ -171,7 +178,7 @@ public final class WarModPerformanceDiagnostics {
         double averageMspt = recentAverageMspt();
         double tps = averageMspt <= 0.0 ? 20.0 : Math.min(20.0, 1_000.0 / averageMspt);
         return String.format(Locale.ROOT,
-            "War Mod TPS %.1f | MSPT %.2f | crater %.2f | wave %.2f | fire %.2f",
+            "War Mod TPS %.1f | MSPT %.2f | crater %.2f | wave %.2f | fireSim %.2f ms",
             tps, averageMspt, TIMINGS.get(Subsystem.NUCLEAR_CRATER).recentAverageMillis(),
             TIMINGS.get(Subsystem.NUCLEAR_WAVE).recentAverageMillis(),
             TIMINGS.get(Subsystem.FIRE_SIMULATION).recentAverageMillis());
@@ -240,7 +247,7 @@ public final class WarModPerformanceDiagnostics {
             .append("- NUCLEAR_CRATER is the authoritative excavation writer; NUCLEAR_WAVE is prepared surface, vegetation, glass, fire and biome aftermath.\n")
             .append("- NUCLEAR_PREPARATION is loaded-chunk terrain discovery.\n")
             .append("- FIRE_SIMULATION includes the authoritative fire tick; FIRE_SNAPSHOT_PREPARATION and FIRE_NETWORK isolate visual state work.\n")
-            .append("- CURTAIN_SEND measures server emission/packet dispatch only. Client receipt and GPU rendering are intentionally not sampled by the server.\n");
+            .append("- TERRAIN_OBSCURATION_SEND measures server emission/packet dispatch only. Client receipt and GPU rendering are intentionally not sampled by the server.\n");
         report.append("- FIRE_SIMULATION is an inclusive parent timing; snapshot and network timings are nested diagnostics and must not be added to it.\n");
         return report.toString();
     }

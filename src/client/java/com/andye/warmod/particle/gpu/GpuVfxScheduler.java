@@ -1,13 +1,12 @@
 package com.andye.warmod.particle.gpu;
 
-import com.andye.warmod.fire.FireVisualLodPolicy;
+import com.andye.warmod.fire.FireRepresentationPlan.Card;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectClass;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectDescriptor;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectSubmission;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EmitterCommand;
-import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldCluster;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldCell;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldEmber;
-import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldPatch;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldSubmission;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.FrameSubmissions;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
@@ -17,14 +16,13 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
-import org.joml.Vector4f;
 
 /**
  * CPU-side admission and representation planner for the GPU VFX backend.
@@ -45,8 +43,7 @@ final class GpuVfxScheduler {
         final float deltaSeconds, final long deadSlots, final double budgetScale) {
         ArrayList<EffectSubmission> effects = new ArrayList<>(submissions.effects());
         for (FireFieldSubmission field : submissions.fireFields()) {
-            EffectSubmission expanded = expandFireField(field, camera, frameSequence);
-            if (expanded != null) effects.add(expanded);
+            effects.addAll(expandFireField(field, camera));
         }
 
         ArrayList<LayerDemand> demands = new ArrayList<>();
@@ -56,19 +53,18 @@ final class GpuVfxScheduler {
                 || !camera.visible(descriptor.position(), descriptor.boundsRadius())) continue;
             double projectedDiameter = camera.projectedDiameter(
                 descriptor.position(), descriptor.boundsRadius());
-            double lodDiameter = descriptor.effectClass() == EffectClass.FIRE_FIELD
-                ? camera.projectedDiameter(descriptor.position(), 0.75F)
-                : projectedDiameter;
             double screenImportance = screenImportance(projectedDiameter, camera.viewportHeight());
             for (Map.Entry<VisualLayer, List<EmitterCommand>> entry
                 : effect.layers().entrySet()) {
-                List<EmitterCommand> commands = entry.getValue();
-                if (commands == null || commands.isEmpty()) continue;
                 VisualLayer layer = entry.getKey();
+                List<EmitterCommand> submitted = entry.getValue();
+                if (submitted == null || submitted.isEmpty()) continue;
+                List<EmitterCommand> commands = submitted.stream()
+                    .map(command -> command.withSemanticLayer(layer)).toList();
                 LayerKey layerKey = new LayerKey(descriptor.effectClass(), descriptor.id(), layer);
                 LodState lod = descriptor.effectClass() == EffectClass.FIRE_FIELD
-                    ? fireLodState(layerKey, lodDiameter, frameSequence)
-                    : lodState(layerKey, lodDiameter, frameSequence);
+                    ? LodState.full(frameSequence)
+                    : lodState(layerKey, projectedDiameter, frameSequence);
                 double requested = commands.stream().mapToDouble(EmitterCommand::spawnCount).sum()
                     * lod.density;
                 if (requested <= 0.0) continue;
@@ -134,113 +130,58 @@ final class GpuVfxScheduler {
             MAX_SCHEDULED_EMITTERS);
     }
 
-    private static EffectSubmission expandFireField(final FireFieldSubmission field,
-        final CameraInfo camera, final long frameSequence) {
+    private static List<EffectSubmission> expandFireField(final FireFieldSubmission field,
+        final CameraInfo camera) {
         if (field == null || !field.valid() || !camera.visible(field.center(), field.radius()))
-            return null;
-        double projectedDiameter = camera.projectedDiameter(field.center(), 0.75F);
-        LayerKey flameKey = new LayerKey(EffectClass.FIRE_FIELD, field.regionId(),
-            VisualLayer.FLAMES);
-        LodState lod = fireLodState(flameKey, projectedDiameter, frameSequence);
-        int cellSize = fireCellSize(lod.level);
-        ArrayList<EmitterCommand> flames = new ArrayList<>();
-        ArrayList<EmitterCommand> smoke = new ArrayList<>(field.clusters().size());
-        float currentWeight = (float) lod.transition;
-        appendAggregatedFire(field, cellSize, lod.level,
-            Math.max(0.01F, currentWeight), flames, smoke);
-        if (lod.previousLevel != lod.level && lod.transition < 0.999) {
-            appendAggregatedFire(field, fireCellSize(lod.previousLevel), lod.previousLevel,
-                Math.max(0.01F, 1.0F - currentWeight), flames, smoke);
-        }
-        for (FireFieldCluster cluster : field.clusters()) {
-            int rate = Math.max(3, Math.round(8.0F
-                + (float) Math.sqrt(cluster.memberCount()) * 5.5F));
-            float clusterSize = Math.min(1.60F, 0.42F
-                + (float) Math.sqrt(cluster.memberCount()) * 0.065F)
-                * FireVisualLodPolicy.particleScale(projectedDiameter);
-            float clusterSpread = Math.min(6.0F,
-                Math.max(0.8F, cluster.radius() * 0.24F));
-            smoke.add(new EmitterCommand(cluster.position(),
-                cluster.wind().scale(0.18).add(0.0, 0.82, 0.0),
-                1.0F, 5.4F,
-                0.14F, 0.15F, 0.14F, 0.44F,
-                clusterSize, clusterSpread, 0.28F,
-                rate, mix32(cluster.seed()), ParticleType.SMOKE, 0,
-                0.9F + cluster.smoke()));
+            return List.of();
+        ArrayList<EffectSubmission> effects = new ArrayList<>(field.cells().size() + 1);
+        for (FireFieldCell cell : field.cells()) {
+            if (!cell.valid() || !camera.visible(cell.position(), cell.boundsRadius())) continue;
+            ArrayList<EmitterCommand> flames = new ArrayList<>(cell.plan().flames().size());
+            int flameRate = Math.max(4, Math.round(8.0F + cell.intensity() * 12.0F));
+            for (Card card : cell.plan().flames()) flames.add(new EmitterCommand(
+                card.position(), cell.wind().scale(0.11).add(0.0,
+                    0.90 + cell.heat() * 0.72, 0.0),
+                1.0F, 0.90F + cell.heat() * 0.48F,
+                1.0F, 0.20F + cell.heat() * 0.38F, 0.025F, card.opacity(),
+                card.radius(), Math.max(0.04F, card.radius() * 0.24F), 0.42F,
+                flameRate, mix32(card.seed()), ParticleType.FIRE, 0,
+                1.0F + cell.heat()));
+            ArrayList<EmitterCommand> smoke = new ArrayList<>(cell.plan().smoke().size());
+            int smokeRate = Math.max(3, Math.round(5.0F + cell.plan()
+                .representedSmokeOpticalDepth() * 4.0F));
+            for (Card card : cell.plan().smoke()) smoke.add(new EmitterCommand(
+                card.position(), cell.wind().scale(0.18).add(0.0, 0.68, 0.0),
+                1.0F, 4.2F + cell.plan().representedSmokeOpticalDepth() * 0.65F,
+                0.15F, 0.16F, 0.15F, card.opacity(), card.radius(),
+                Math.max(0.08F, card.radius() * 0.34F), 0.26F,
+                smokeRate, mix32(card.seed()), ParticleType.SMOKE, 0,
+                0.74F + cell.plan().representedSmokeOpticalDepth()));
+            EnumMap<VisualLayer, List<EmitterCommand>> layers =
+                new EnumMap<>(VisualLayer.class);
+            if (!flames.isEmpty()) layers.put(VisualLayer.FLAMES, List.copyOf(flames));
+            if (!smoke.isEmpty()) layers.put(VisualLayer.SMOKE, List.copyOf(smoke));
+            if (!layers.isEmpty()) effects.add(new EffectSubmission(new EffectDescriptor(
+                EffectClass.FIRE_FIELD, mix64(field.regionId() ^ cell.id()),
+                cell.position(), cell.boundsRadius(), 1.0F), Map.copyOf(layers)));
         }
 
         ArrayList<FireFieldEmber> rankedEmbers = new ArrayList<>(field.embers());
         rankedEmbers.sort(Comparator.comparingDouble(FireFieldEmber::importance).reversed()
             .thenComparingLong(FireFieldEmber::id));
-        double emberDensity = Math.min(1.0, 0.55 + Math.sqrt(lod.density) * 0.45);
         ArrayList<EmitterCommand> embers = new ArrayList<>();
         for (FireFieldEmber ember : rankedEmbers) {
-            double stable = unit(mix64(ember.id() ^ field.regionId()));
-            double biasedDensity = Math.min(1.0, emberDensity
-                * (0.55 + Math.min(2.4, ember.importance()) * 0.45));
-            if (stable > biasedDensity) continue;
             embers.add(new EmitterCommand(ember.position(), ember.velocity(), 1.0F,
                 0.62F, 1.0F, 0.46F, 0.07F, 0.98F,
                 Math.max(0.075F, ember.size()), 0.06F, 0.24F,
                 Math.max(3, Math.round(18.0F * ember.intensity())), mix32(ember.seed()),
                 ParticleType.EMBER, 0, Math.max(0.1F, ember.importance())));
         }
-
-        EffectDescriptor descriptor = new EffectDescriptor(EffectClass.FIRE_FIELD,
-            field.regionId(), field.center(), field.radius(), 1.0F);
-        EnumMap<VisualLayer, List<EmitterCommand>> layers = new EnumMap<>(VisualLayer.class);
-        if (!flames.isEmpty()) layers.put(VisualLayer.FLAMES, List.copyOf(flames));
-        if (!smoke.isEmpty()) layers.put(VisualLayer.SMOKE, List.copyOf(smoke));
-        if (!embers.isEmpty()) layers.put(VisualLayer.EMBERS, List.copyOf(embers));
-        return layers.isEmpty() ? null : new EffectSubmission(descriptor, Map.copyOf(layers));
-    }
-
-    private static int fireCellSize(final int lod) {
-        return switch (lod) {
-            case 0 -> 1;
-            case 1, 2 -> 1;
-            default -> 2;
-        };
-    }
-
-    private static void appendAggregatedFire(final FireFieldSubmission field,
-        final int cellSize, final int lodLevel, final float representationWeight,
-        final List<EmitterCommand> flames, final List<EmitterCommand> smoke) {
-        Map<Long, FireAccumulator> cells = new LinkedHashMap<>();
-        for (FireFieldPatch patch : field.patches()) {
-            int cellX = Math.floorDiv(Mth.floor(patch.position().x), cellSize);
-            int cellY = Math.floorDiv(Mth.floor(patch.position().y),
-                Math.max(1, cellSize / 2));
-            int cellZ = Math.floorDiv(Mth.floor(patch.position().z), cellSize);
-            cells.computeIfAbsent(cellKey(cellX, cellY, cellZ), ignored ->
-                new FireAccumulator()).add(patch);
-        }
-        for (Map.Entry<Long, FireAccumulator> entry : cells.entrySet()) {
-            FireAggregate aggregate = entry.getValue().finish(cellSize);
-            int flameRate = Math.max(1, (int) Math.round(
-                aggregate.flameRate() * representationWeight));
-            float sizeScale = FireVisualLodPolicy.particleScaleForLevel(lodLevel);
-            flames.add(new EmitterCommand(aggregate.position(), aggregate.velocity(),
-                aggregate.scale(), 0.90F + aggregate.heat() * 0.48F,
-                1.0F, 0.20F + aggregate.heat() * 0.38F, 0.025F,
-                0.96F * representationWeight, aggregate.flameSize() * sizeScale,
-                aggregate.spread(), 0.52F, flameRate,
-                mix32(entry.getKey() ^ field.regionId() ^ cellSize),
-                ParticleType.FIRE, 0, 1.0F + aggregate.heat()));
-            if (aggregate.smoke() <= 0.018F) continue;
-            int smokeRate = Math.max(1, (int) Math.round(
-                aggregate.smokeRate() * representationWeight));
-            smoke.add(new EmitterCommand(aggregate.position().add(0.0,
-                Math.max(0.25, aggregate.flameSize() * 0.45), 0.0),
-                aggregate.velocity().scale(0.58).add(0.0, 0.62, 0.0),
-                aggregate.scale(), 3.6F + aggregate.smoke() * 2.8F,
-                0.15F, 0.16F, 0.15F, 0.48F * representationWeight,
-                aggregate.smokeSize() * sizeScale,
-                aggregate.spread() * 1.25F, 0.30F,
-                smokeRate, mix32(entry.getKey() ^ field.regionId()
-                    ^ 0x534D4F4BL ^ cellSize), ParticleType.SMOKE, 0,
-                0.72F + aggregate.smoke()));
-        }
+        if (!embers.isEmpty()) effects.add(new EffectSubmission(new EffectDescriptor(
+            EffectClass.FIRE_FIELD, mix64(field.regionId() ^ 0x454D4245525F4644L),
+            field.center(), field.radius(), 0.72F),
+            Map.of(VisualLayer.EMBERS, List.copyOf(embers))));
+        return List.copyOf(effects);
     }
 
     private static void allocatePhase(final List<LayerDemand> demands,
@@ -410,21 +351,21 @@ final class GpuVfxScheduler {
         double radius = Math.sqrt(relative.x * relative.x + relative.z * relative.z);
         double bounds = Math.max(1.0, demand.descriptor.boundsRadius());
         int angularBins = switch (demand.layer) {
-            case SHOCKWAVE, GROUND_CURTAIN, GROUND_DUST -> 24;
-            case MUSHROOM_CLOUD, FIREBALL -> 16;
+            case SHOCKWAVE, TERRAIN_OBSCURATION, GROUND_DUST -> 24;
+            case MUSHROOM_CLOUD, SMOKE_SHROUD, FIREBALL -> 16;
             case STEM -> 8;
             default -> 12;
         };
         int angleBin = Math.min(angularBins - 1,
             (int) Math.floor(angle / (Math.PI * 2.0) * angularBins));
         int radialBin = switch (demand.layer) {
-            case MUSHROOM_CLOUD, FIREBALL -> Math.min(2,
+            case MUSHROOM_CLOUD, SMOKE_SHROUD, FIREBALL -> Math.min(2,
                 (int) Math.floor(radius / bounds * 3.0));
             case FLAMES, SMOKE -> Math.min(3, (int) Math.floor(radius / bounds * 4.0));
             default -> 0;
         };
         int heightBin = switch (demand.layer) {
-            case MUSHROOM_CLOUD, STEM -> Math.min(5, Math.max(0,
+            case MUSHROOM_CLOUD, SMOKE_SHROUD, STEM -> Math.min(5, Math.max(0,
                 (int) Math.floor((relative.y / bounds + 0.25) * 4.0)));
             case FIREBALL, FLAMES, SMOKE -> Math.min(3, Math.max(0,
                 (int) Math.floor((relative.y / bounds + 0.25) * 3.0)));
@@ -436,7 +377,7 @@ final class GpuVfxScheduler {
     private static int topologyMinimum(final VisualLayer layer) {
         return switch (layer) {
             case FIREBALL -> 18;
-            case MUSHROOM_CLOUD, SHOCKWAVE, GROUND_CURTAIN -> 24;
+            case MUSHROOM_CLOUD, SMOKE_SHROUD, SHOCKWAVE, TERRAIN_OBSCURATION -> 24;
             case STEM -> 16;
             case FLAMES, SMOKE -> 8;
             case GROUND_DUST -> 12;
@@ -500,7 +441,7 @@ final class GpuVfxScheduler {
             (float) (red / safe), (float) (green / safe), (float) (blue / safe),
             combinedOpacity, Math.max(0.02F, combinedSize), spread,
             (float) (jitter / safe), rate, seed, first.type(), first.flags(),
-            (float) importance);
+            (float) importance, layer, first.orientation(), first.orientationMode());
     }
 
     private static float maximumSize(final List<EmitterCommand> commands) {
@@ -533,39 +474,24 @@ final class GpuVfxScheduler {
 
     private static LodState lodState(final LayerKey key, final double projectedDiameter,
         final long frameSequence) {
-        return lodState(key, projectedDiameter, frameSequence, false);
-    }
-
-    private static LodState fireLodState(final LayerKey key, final double projectedDiameter,
-        final long frameSequence) {
-        return lodState(key, projectedDiameter, frameSequence, true);
-    }
-
-    private static LodState lodState(final LayerKey key, final double projectedDiameter,
-        final long frameSequence, final boolean fireField) {
         LodState state = LOD_STATES.computeIfAbsent(key, ignored -> new LodState());
-        int desired = fireField ? FireVisualLodPolicy.level(projectedDiameter)
-            : desiredLod(projectedDiameter);
+        int desired = desiredLod(projectedDiameter);
         if (!state.initialized) {
             state.level = desired;
             state.previousLevel = desired;
-            state.density = fireField ? FireVisualLodPolicy.density(desired)
-                : densityFor(desired);
+            state.density = densityFor(desired);
             state.transition = 1.0;
             state.initialized = true;
         } else if (desired > state.level) {
-            double threshold = (fireField ? fireThresholdFor(desired)
-                : thresholdFor(desired)) * 0.84;
+            double threshold = thresholdFor(desired) * 0.84;
             if (projectedDiameter < threshold) state.changeLevel(desired);
         } else if (desired < state.level) {
-            double threshold = (fireField ? fireThresholdFor(state.level)
-                : thresholdFor(state.level)) * 1.18;
+            double threshold = thresholdFor(state.level) * 1.18;
             if (projectedDiameter > threshold) state.changeLevel(desired);
         }
         if (state.lastSeenFrame != frameSequence && state.transition < 1.0)
             state.transition = Math.min(1.0, state.transition + 0.12);
-        double targetDensity = fireField ? FireVisualLodPolicy.density(state.level)
-            : densityFor(state.level);
+        double targetDensity = densityFor(state.level);
         state.density += (targetDensity - state.density) * 0.14;
         state.lastSeenFrame = frameSequence;
         return state;
@@ -596,21 +522,6 @@ final class GpuVfxScheduler {
         };
     }
 
-    private static double fireThresholdFor(final int level) {
-        return switch (level) {
-            case 0 -> Double.POSITIVE_INFINITY;
-            case 1 -> FireVisualLodPolicy.FULL_DETAIL_PIXELS;
-            case 2 -> FireVisualLodPolicy.MEDIUM_DETAIL_PIXELS;
-            default -> FireVisualLodPolicy.FAR_DETAIL_PIXELS;
-        };
-    }
-
-    private static long cellKey(final int x, final int y, final int z) {
-        return mix64(((long) x * 0x9E3779B97F4A7C15L)
-            ^ ((long) y * 0xC2B2AE3D27D4EB4FL)
-            ^ ((long) z * 0x165667B19E3779F9L));
-    }
-
     private static long mix64(long value) {
         value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L;
         value ^= value >>> 27; value *= 0x94D049BB133111EBL;
@@ -622,22 +533,14 @@ final class GpuVfxScheduler {
         return (int) (mixed ^ mixed >>> 32);
     }
 
-    private static double unit(final long value) {
-        return (value >>> 11) * 0x1.0p-53;
-    }
-
     record CameraInfo(Vec3 position, Matrix4f viewProjection, float projectionScale,
         int viewportWidth, int viewportHeight) {
         boolean visible(final Vec3 center, final float radius) {
+            double radiusSquared = (double) radius * radius;
+            if (center.distanceToSqr(position) <= radiusSquared) return true;
             Vec3 relative = center.subtract(position);
-            Vector4f clip = new Vector4f((float) relative.x, (float) relative.y,
-                (float) relative.z, 1.0F).mul(viewProjection);
-            if (clip.w <= 0.0F) return false;
-            float allowance = Math.max(0.012F,
-                radius * projectionScale / Math.max(0.01F, clip.w));
-            return Math.abs(clip.x) <= clip.w * (1.0F + allowance)
-                && Math.abs(clip.y) <= clip.w * (1.0F + allowance)
-                && clip.z >= -clip.w && clip.z <= clip.w;
+            return new FrustumIntersection(viewProjection).testSphere(
+                (float) relative.x, (float) relative.y, (float) relative.z, radius);
         }
 
         double projectedDiameter(final Vec3 center, final float radius) {
@@ -680,6 +583,17 @@ final class GpuVfxScheduler {
         private double density = 1.0;
         private double transition = 1.0;
         private long lastSeenFrame;
+
+        private static LodState full(final long frameSequence) {
+            LodState state = new LodState();
+            state.initialized = true;
+            state.level = 0;
+            state.previousLevel = 0;
+            state.density = 1.0;
+            state.transition = 1.0;
+            state.lastSeenFrame = frameSequence;
+            return state;
+        }
 
         private void changeLevel(final int replacement) {
             if (replacement == level) return;
@@ -776,63 +690,4 @@ final class GpuVfxScheduler {
         }
     }
 
-    private static final class FireAccumulator {
-        private double weight, x, y, z, vx, vy, vz;
-        private double heat, smoke, coverage, intensity;
-        private double varianceX, varianceY, varianceZ;
-        private int members;
-
-        private void add(final FireFieldPatch patch) {
-            double sampleWeight = Math.max(0.04,
-                patch.coverage() * (0.35 + patch.heat() * 0.65));
-            weight += sampleWeight;
-            x += patch.position().x * sampleWeight;
-            y += patch.position().y * sampleWeight;
-            z += patch.position().z * sampleWeight;
-            vx += patch.wind().x * sampleWeight;
-            vy += patch.wind().y * sampleWeight;
-            vz += patch.wind().z * sampleWeight;
-            heat += patch.heat() * sampleWeight;
-            smoke += patch.smoke() * sampleWeight;
-            coverage += patch.coverage();
-            intensity += patch.intensity() * sampleWeight;
-            varianceX += patch.position().x * patch.position().x * sampleWeight;
-            varianceY += patch.position().y * patch.position().y * sampleWeight;
-            varianceZ += patch.position().z * patch.position().z * sampleWeight;
-            members++;
-        }
-
-        private FireAggregate finish(final int cellSize) {
-            double safe = Math.max(0.01, weight);
-            Vec3 position = new Vec3(x / safe, y / safe, z / safe);
-            double variance = Math.max(0.0,
-                varianceX / safe - position.x * position.x
-                + varianceY / safe - position.y * position.y
-                + varianceZ / safe - position.z * position.z);
-            float aggregateHeat = (float) (heat / safe);
-            float aggregateSmoke = (float) (smoke / safe);
-            float aggregateIntensity = (float) (intensity / safe);
-            float averageCoverage = (float) (coverage / Math.max(1, members));
-            float volumeRadius = (float) Math.min(cellSize == 1 ? 0.48 : 0.72,
-                Math.max(0.16, 0.16 + Math.sqrt(Math.max(0.0, averageCoverage)) * 0.30));
-            float spread = (float) Math.min(cellSize * 0.68,
-                Math.max(0.08, Math.sqrt(variance) + volumeRadius * 0.38));
-            float scale = Math.max(0.18F, volumeRadius);
-            float flameSize = Math.min(0.58F,
-                Math.max(0.18F, volumeRadius * (0.82F + aggregateIntensity * 0.32F)));
-            float smokeSize = Math.min(0.86F,
-                Math.max(0.42F, volumeRadius * (1.28F + aggregateSmoke * 0.48F)));
-            float memberScale = (float) Math.sqrt(Math.max(1, members));
-            float flameRate = 8.0F + memberScale * (6.0F + aggregateIntensity * 8.0F);
-            float smokeRate = 4.0F + memberScale * (3.0F + aggregateSmoke * 5.0F);
-            Vec3 velocity = new Vec3(vx / safe, vy / safe, vz / safe)
-                .scale(0.11).add(0.0, 1.12 + aggregateHeat * 0.86, 0.0);
-            return new FireAggregate(position, velocity, scale, aggregateHeat,
-                aggregateSmoke, flameSize, smokeSize, spread, flameRate, smokeRate);
-        }
-    }
-
-    private record FireAggregate(Vec3 position, Vec3 velocity, float scale,
-        float heat, float smoke, float flameSize, float smokeSize, float spread,
-        float flameRate, float smokeRate) { }
 }

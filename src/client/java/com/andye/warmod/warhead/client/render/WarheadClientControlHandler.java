@@ -1,7 +1,9 @@
 package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
-import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
+import com.andye.warmod.fire.client.ClientFireVisualManager;
+import com.andye.warmod.fire.client.render.FireWorldRenderer;
+import com.andye.warmod.fire.network.FireVisualBand;
 import com.andye.warmod.warhead.client.WarheadDebrisTuning;
 import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload;
 import net.minecraft.client.Minecraft;
@@ -25,13 +27,13 @@ public final class WarheadClientControlHandler {
                     WarheadRenderSettings.ParticleRenderer.LEGACY);
                 cpuModeStatus();
             }
-            case SET_RENDER_BUDGET -> {
-                WarheadRenderSettings.setParticleBudgetMultiplier(payload.value());
-                budgetStatus();
+            case SET_RENDER_QUALITY -> {
+                WarheadRenderSettings.setQualityScale(payload.value());
+                qualityStatus();
             }
-            case RESET_RENDER_BUDGET -> {
-                WarheadRenderSettings.resetParticleBudget();
-                budgetStatus();
+            case RESET_RENDER_QUALITY -> {
+                WarheadRenderSettings.resetQualityScale();
+                qualityStatus();
             }
             case SET_DEBRIS_HORIZONTAL -> {
                 WarheadDebrisTuning.setHorizontalVelocityMultiplier(payload.value());
@@ -65,19 +67,14 @@ public final class WarheadClientControlHandler {
         feedback("War Mod CPU particle mode: " + WarheadRenderSettings.displayName());
     }
 
-    private static void budgetStatus() {
+    private static void qualityStatus() {
         GpuParticleEngine.GpuBudgetSnapshot gpu = GpuParticleEngine.budgetSnapshot();
-        feedback("War Mod particle budget request="
-            + WarheadRenderSettings.particleBudgetMultiplier()
-            + "x; CPU conventionalCapacity="
-            + WarheadRenderSettings.conventionalParticleBudget()
-            + ", CPU nuclearSupplementCapacity="
-            + WarheadRenderSettings.nuclearSupplementBudget()
-            + "; GPU configuredScale=" + format(gpu.configuredScale())
-            + "x, effectiveSpawnRate=" + Math.round(gpu.spawnRatePerSecond()) + "/s"
-            + ", effectiveFragmentCost=" + Math.round(gpu.fragmentCostPerSecond()) + "/s"
-            + ", hardEmitterCap=" + gpu.emitterCapacity()
-            + ", hardParticleCap=" + gpu.particleCapacity());
+        feedback("War Mod render quality requested="
+            + format(WarheadRenderSettings.qualityScale())
+            + ", effectiveAdaptive=" + format(gpu.adaptiveQuality())
+            + ", hardParticles=" + gpu.particleCapacity()
+            + ", hardEmitters=" + gpu.emitterCapacity()
+            + ", liveSlots=" + (gpu.particleCapacity() - gpu.availableDeadSlots()));
     }
 
     private static void debrisStatus() {
@@ -100,129 +97,61 @@ public final class WarheadClientControlHandler {
     }
 
     private static void status() {
-        WarheadWorldRenderer.DebugSnapshot debug = WarheadWorldRenderer.debugSnapshot();
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
-        GpuParticleEngine.GpuBudgetSnapshot gpuBudget =
-            GpuParticleEngine.budgetSnapshot();
-        GpuParticleEngine.GpuProbeSnapshot gpuProbe =
-            GpuParticleEngine.probeSnapshot();
-        GpuParticleEngine.FireDebugCounters fire = gpu.fire();
-        ClientPerformanceTelemetry.DebugSnapshot cpu = ClientPerformanceTelemetry.debugSnapshot();
-        feedback("War Mod backendPreference="
-            + gpu.preference().name().toLowerCase(java.util.Locale.ROOT)
-            + ", effectiveBackend="
-            + gpu.effectiveBackend().name().toLowerCase(java.util.Locale.ROOT)
-            + ", gpuResources=" + gpu.backend().name().toLowerCase(java.util.Locale.ROOT)
-            + ", gpuReadiness=" + gpu.readiness().name().toLowerCase(java.util.Locale.ROOT)
-            + ", cpuMode=" + WarheadRenderSettings.displayName()
-            + ", budgetRequest=" + WarheadRenderSettings.particleBudgetMultiplier() + "x"
-            + ", irisSafePipeline=" + WarheadRenderPipelines.compatibilityRendererActive()
-            + ", activeParticles=" + debug.activeParticles()
-            + ", visibleInstances=" + gpu.visibleParticles()
-            + ", spawned/tick=" + debug.spawnedParticlesPerTick()
-            + ", gpuAlive=" + gpu.activeParticles()
-            + ", deadSlots=" + gpu.deadSlots()
-            + ", rejectedSpawns=" + gpu.rejectedSpawns()
-            + ", debris=" + debug.activeDebrisFragments()
-            + ", activePipeline=" + debug.activeRenderBackend()
-            + ", vfxQuality=" + String.format(java.util.Locale.ROOT, "%.2f", gpu.adaptiveQuality())
-            + ", vfxLayers=" + gpu.scheduledLayers()
-            + ", vfxEmitters=" + gpu.scheduledEmitters());
-        feedback("War Mod GPU truth: distanceCulled=" + gpu.distanceCulled()
-            + ", sizeCulled=" + gpu.sizeCulled()
-            + ", frustumCulled=" + gpu.frustumCulled()
-            + ", statsReadbackSkipped=" + gpu.statsReadbackSkipped()
-            + ", requestedSpawns=" + gpu.requestedParticles()
-            + ", acceptedSpawns=" + gpu.submittedParticles()
-            + ", debug=" + gpu.diagnosticMode().name().toLowerCase(java.util.Locale.ROOT)
-            + ", anySamplesPassed=" + gpu.diagnosticSamplesPassed());
-        feedback("War Mod GPU readiness proof: stage=" + gpuProbe.stage()
-            + ", depthOff=" + gpuProbe.depthDisabledPassed()
-            + ", depthOn=" + gpuProbe.depthEnabledPassed()
-            + ", worldOcclusion=" + gpuProbe.worldOcclusionPassed()
-            + ", directEmitterTypes=" + gpuProbe.directEmitterTypesPassed()
-            + "/" + gpuProbe.directEmitterTypesRequired());
-        feedback("War Mod effective budgets: CPU conventionalCapacity="
-            + WarheadRenderSettings.conventionalParticleBudget()
-            + ", CPU nuclearSupplementCapacity="
-            + WarheadRenderSettings.nuclearSupplementBudget()
-            + "; GPU scale=" + format(gpuBudget.configuredScale())
-            + "x, adaptiveQuality=" + format(gpuBudget.adaptiveQuality())
-            + ", spawnRate=" + Math.round(gpuBudget.spawnRatePerSecond()) + "/s"
-            + ", fragmentCost=" + Math.round(gpuBudget.fragmentCostPerSecond()) + "/s"
-            + ", emitterCap=" + gpuBudget.emitterCapacity()
-            + ", particleCap=" + gpuBudget.particleCapacity()
-            + ", availableSlots=" + gpuBudget.availableDeadSlots());
+        GpuParticleEngine.GpuBudgetSnapshot budget = GpuParticleEngine.budgetSnapshot();
+        FireWorldRenderer.FireRenderStats fire = FireWorldRenderer.debugStats();
+        java.util.Map<FireVisualBand, Integer> bands =
+            ClientFireVisualManager.INSTANCE.cellCounts(Minecraft.getInstance().level);
         java.util.Map<GpuParticleEngine.VisualLayer,
-            GpuParticleEngine.GpuLayerScheduleSnapshot> layerSchedules =
+            GpuParticleEngine.GpuLayerScheduleSnapshot> schedules =
                 GpuParticleEngine.layerScheduleSnapshot();
-        if (layerSchedules.isEmpty()) {
-            feedback("War Mod semantic layer routing: GPU scheduler inactive; "
-                + "established CPU layers remain the fallback.");
-        } else {
-            layerSchedules.entrySet().stream()
-                .sorted(java.util.Map.Entry.comparingByKey())
-                .forEach(entry -> {
-                    GpuParticleEngine.GpuLayerScheduleSnapshot layer = entry.getValue();
-                    feedback("War Mod layer "
-                        + entry.getKey().name().toLowerCase(java.util.Locale.ROOT)
-                        + ": commandsSubmitted=" + layer.commandsSubmitted()
-                        + ", emitters=" + layer.emittersRequested() + "/"
-                        + layer.emittersScheduled()
-                        + ", schedulerParticles=" + layer.particlesRequested() + "/"
-                        + layer.particlesAccepted() + "/"
-                        + layer.particlesRejectedByScheduler()
-                        + ", deadListRejected=" + layer.particlesRejectedByDeadList()
-                        + ", alive=" + layer.aliveParticles()
-                        + ", visible=" + layer.visibleInstances()
-                        + ", sharedType=" + layer.sharedParticleType()
-                        + ", backendUsed=gpu, fallbackUsed=false");
-                });
-        }
-        feedback("War Mod GPU ms p50/p95/p99/max: update=" + timing(gpu.gpuTime().update())
-            + ", spawn=" + timing(gpu.gpuTime().spawn())
-            + ", cull=" + timing(gpu.gpuTime().cull())
-            + ", raster=" + timing(gpu.gpuTime().raster()));
-        feedback("War Mod impact CPU ms p50/p95/p99/max: payloadAccept="
-            + timing(cpu.impactPayloadAccept())
-            + ", visualState=" + timing(cpu.impactVisualStateConstruction())
-            + ", fireballLobes=" + timing(cpu.fireballLobePreparation())
-            + ", cloudLobes=" + timing(cpu.cloudLobePreparation())
-            + ", dustNodes=" + timing(cpu.dustNodeSelection())
-            + ", debrisSnapshot=" + timing(cpu.debrisSnapshot())
-            + ", movingBlockState=" + timing(cpu.movingBlockStateConstruction()));
-        feedback("War Mod frame CPU ms p50/p95/p99/max: effectExtract="
-            + timing(cpu.explosionExtraction())
-            + ", fireExtract=" + timing(cpu.fireExtraction())
-            + ", gpuDrain=" + timing(cpu.gpuExtractionCpu())
-            + ", vfxSchedule=" + timing(cpu.gpuSchedulerCpu())
-            + ", emitterUpload=" + timing(cpu.gpuEmitterUploadCpu())
-            + ", statsReadback=" + timing(cpu.gpuStatsReadbackCpu())
-            + ", terrain=" + timing(cpu.terrainShockfrontCpu())
-            + ", vanillaExtract=" + timing(cpu.vanillaParticleExtractionCpu())
-            + ", vanillaRender=" + timing(cpu.vanillaParticleRenderCpu())
-            + ", vanillaCount=" + cpu.vanillaParticleCount());
-        feedback("War Mod fire VFX: clientPatches=" + fire.clientPatches()
-            + ", fieldSubmissions=" + fire.fieldSubmissions()
-            + ", fireSpawned=" + fire.fireSpawned()
-            + ", fireVisible=" + fire.fireVisible()
-            + ", smokeSpawned=" + fire.smokeSpawned()
-            + ", smokeVisible=" + fire.smokeVisible()
-            + ", packetsAccepted=" + fire.acceptedPackets()
-            + ", packetsRejected=" + fire.rejectedPackets()
-            + ", stalePackets=" + fire.stalePackets()
-            + ", receivedPatchEntries=" + fire.receivedPatchEntries()
-            + ", storedPatches=" + fire.storedPatches());
+        feedback("War Mod backend requested="
+            + gpu.preference().name().toLowerCase(java.util.Locale.ROOT)
+            + " effective=" + gpu.effectiveBackend().name().toLowerCase(java.util.Locale.ROOT)
+            + " cpuMode=" + WarheadRenderSettings.displayName()
+            + " GPU base=" + gpu.readiness().name().toLowerCase(java.util.Locale.ROOT));
+        feedback("War Mod layers flames=" + layerRoute(gpu, GpuParticleEngine.VisualLayer.FLAMES)
+            + " smoke=" + layerRoute(gpu, GpuParticleEngine.VisualLayer.SMOKE)
+            + " embers=" + layerRoute(gpu, GpuParticleEngine.VisualLayer.EMBERS)
+            + " shroud=" + layerRoute(gpu, GpuParticleEngine.VisualLayer.SMOKE_SHROUD)
+            + " terrainDust=" + layerRoute(gpu,
+                GpuParticleEngine.VisualLayer.TERRAIN_OBSCURATION));
+        feedback("War Mod fire cells near/mid/far/horizon="
+            + bandCount(bands, FireVisualBand.NEAR) + "/"
+            + bandCount(bands, FireVisualBand.MID) + "/"
+            + bandCount(bands, FireVisualBand.FAR) + "/"
+            + bandCount(bands, FireVisualBand.HORIZON)
+            + " sourceHosts/aggregated/visible=" + fire.sourceHosts() + "/"
+            + fire.aggregatedCells() + "/" + fire.visibleCells());
+        feedback("War Mod fire cards CPU flame/smoke=" + fire.cpuFlameCards() + "/"
+            + fire.cpuSmokeCards() + " GPU emitters flame/smoke="
+            + scheduledEmitters(schedules, GpuParticleEngine.VisualLayer.FLAMES) + "/"
+            + scheduledEmitters(schedules, GpuParticleEngine.VisualLayer.SMOKE));
+        feedback("War Mod quality requested=" + format(WarheadRenderSettings.qualityScale())
+            + " effectiveAdaptive=" + format(gpu.adaptiveQuality())
+            + " hardParticles=" + gpu.capacity()
+            + " hardEmitters=" + budget.emitterCapacity()
+            + " liveSlots=" + gpu.activeParticles());
     }
 
-    private static String timing(final GpuParticleEngine.GpuTiming timing) {
-        return format(timing.p50Millis()) + "/" + format(timing.p95Millis())
-            + "/" + format(timing.p99Millis()) + "/" + format(timing.maximumMillis());
+    private static String layerRoute(final GpuParticleEngine.DebugSnapshot gpu,
+        final GpuParticleEngine.VisualLayer layer) {
+        GpuParticleEngine.LayerHealth health = gpu.layerHealth().getOrDefault(layer,
+            GpuParticleEngine.LayerHealth.FAILED);
+        return health.name().toLowerCase(java.util.Locale.ROOT) + "->"
+            + (GpuParticleEngine.canRender(layer) ? "GPU" : "CPU");
     }
 
-    private static String timing(final ClientPerformanceTelemetry.Percentiles timing) {
-        return format(timing.p50Millis()) + "/" + format(timing.p95Millis())
-            + "/" + format(timing.p99Millis()) + "/" + format(timing.maximumMillis());
+    private static int bandCount(final java.util.Map<FireVisualBand, Integer> bands,
+        final FireVisualBand band) {
+        return bands.getOrDefault(band, 0);
+    }
+
+    private static int scheduledEmitters(final java.util.Map<GpuParticleEngine.VisualLayer,
+        GpuParticleEngine.GpuLayerScheduleSnapshot> schedules,
+        final GpuParticleEngine.VisualLayer layer) {
+        GpuParticleEngine.GpuLayerScheduleSnapshot schedule = schedules.get(layer);
+        return schedule == null ? 0 : schedule.emittersScheduled();
     }
 
     private static String format(final double value) {

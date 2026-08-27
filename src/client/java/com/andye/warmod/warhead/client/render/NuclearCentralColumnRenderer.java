@@ -368,8 +368,7 @@ public final class NuclearCentralColumnRenderer {
 
     private static float densityMultiplier() {
         return Mth.clamp((float) Math.sqrt(
-            WarheadRenderSettings.particleBudgetMultiplier() / 6.0F),
-            0.35F, 8.0F);
+            WarheadRenderSettings.qualityScale()), 0.50F, 2.0F);
     }
 
     private static int smokeTone(final long random, final boolean baseCloud,

@@ -47,8 +47,8 @@ import com.andye.warmod.radar.client.RadarKeyBindings;
 import com.andye.warmod.warhead.client.ClientWarheadNetworking;
 import com.andye.warmod.warhead.client.render.WarheadWorldRenderer;
 import com.andye.warmod.warhead.client.render.NuclearFlashOverlay;
-import com.andye.warmod.warhead.client.curtain.ClientNuclearCurtainNetworking;
-import com.andye.warmod.warhead.client.curtain.NuclearDestructionCurtainRenderer;
+import com.andye.warmod.warhead.client.obscuration.ClientNuclearTerrainObscurationNetworking;
+import com.andye.warmod.warhead.client.obscuration.NuclearTerrainObscurationRenderer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 
@@ -57,7 +57,7 @@ public final class WarModClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ClientAcousticNetworking.register();
 		ClientWarheadNetworking.register();
-		ClientNuclearCurtainNetworking.register();
+		ClientNuclearTerrainObscurationNetworking.register();
 		ClientFireNetworking.register();
 		ClientFirearmNetworking.register();
 		ClientFireDebugNetworking.register();
@@ -90,7 +90,7 @@ public final class WarModClient implements ClientModInitializer {
 		GpuParticleEngine.register();
 		ClientPerformanceTelemetry.register();
 		WarheadWorldRenderer.register();
-		NuclearDestructionCurtainRenderer.register();
+		NuclearTerrainObscurationRenderer.register();
 		FireWorldRenderer.register();
 		FirearmTracerRenderer.register();
 		SniperGlintRenderer.register();

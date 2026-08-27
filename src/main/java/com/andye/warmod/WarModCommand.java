@@ -8,6 +8,7 @@ import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload.A
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.SharedConstants;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.commands.CommandSourceStack;
@@ -49,22 +50,23 @@ public final class WarModCommand {
     private static int help(final CommandContext<CommandSourceStack> context) {
         context.getSource().sendSuccess(() -> Component.literal(
             "War Mod: /warmod icbm <yield> [cluster] <target> [launch], "
-                + "/warmod performance, /warmod render <status|backend|cpu-mode|budget|diagnose>, "
+                + "/warmod performance, /warmod render <status|backend|cpu-mode|quality>, "
                 + "/warmod debris, "
                 + "/warmod fire mode <custom|vanilla>"), false);
         return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> renderCommand() {
-        return Commands.literal("render")
+        LiteralArgumentBuilder<CommandSourceStack> command = Commands.literal("render")
             .executes(context -> sendClientControl(context,
                 Action.STATUS, 0.0F))
             .then(Commands.literal("status").executes(context -> sendClientControl(context,
                 Action.STATUS, 0.0F)))
             .then(backendCommand())
             .then(cpuModeCommand())
-            .then(budgetCommand())
-            .then(diagnoseCommand());
+            .then(qualityCommand());
+        if (SharedConstants.IS_RUNNING_IN_IDE) command.then(diagnoseCommand());
+        return command;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> backendCommand() {
@@ -96,16 +98,16 @@ public final class WarModCommand {
                     Action.SET_GPU_DIAGNOSTIC_DEPTH_ON, 0.0F))));
     }
 
-    private static LiteralArgumentBuilder<CommandSourceStack> budgetCommand() {
-        return Commands.literal("budget")
+    private static LiteralArgumentBuilder<CommandSourceStack> qualityCommand() {
+        return Commands.literal("quality")
             .then(Commands.literal("reset").executes(context -> sendClientControl(context,
-                Action.RESET_RENDER_BUDGET, 0.0F)))
-            .then(Commands.argument("multiplier",
-                com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0.01F))
+                Action.RESET_RENDER_QUALITY, 0.0F)))
+            .then(Commands.argument("scale",
+                com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0.25F, 4.0F))
                 .executes(context -> sendClientControl(context,
-                    Action.SET_RENDER_BUDGET,
+                    Action.SET_RENDER_QUALITY,
                     com.mojang.brigadier.arguments.FloatArgumentType.getFloat(
-                        context, "multiplier"))));
+                        context, "scale"))));
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> debrisCommand() {

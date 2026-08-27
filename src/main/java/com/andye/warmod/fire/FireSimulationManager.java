@@ -3,6 +3,7 @@ package com.andye.warmod.fire;
 import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.fire.FireSurfaceAnchor.SurfaceKey;
 import com.andye.warmod.fire.network.FireNetworking;
+import com.andye.warmod.fire.network.FireVisualRepresentationBuilder;
 import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.item.component.FireDebugConfig;
 import com.andye.warmod.scheduler.WarModServerWorkScheduler;
@@ -75,6 +76,7 @@ public final class FireSimulationManager {
         SMOKE_CLUSTER_RADIUS * SMOKE_CLUSTER_RADIUS;
     private static final int SMOKE_CLUSTER_CELL_SIZE = 32;
 	private static final int MAX_DECAY_ENTRIES_PER_TICK = 256;
+    private static final int MAX_SURFACE_COOLDOWNS = 16_384;
     private static final int FIRE_DAMAGE_INTERVAL_TICKS = 6;
     private static final int VENTILATION_CACHE_TICKS = 120;
     private static final int MAX_PLACEMENT_PROBES = 8_192;
@@ -135,9 +137,10 @@ public final class FireSimulationManager {
         LevelState state = LEVELS.computeIfAbsent(level, ignored -> new LevelState());
         if (!validSurface(level, primary, true)) return 0;
         if (state.wetness.getOrDefault(primary.host().asLong(), 0.0F) > 0.40F) return 0;
+        long now = level.getGameTime();
+        if (surfaceCoolingDown(state, primary.key(), now)) return 0;
         if (!state.surfaceIndex.containsKey(primary.key())
             && state.activePatchCount >= MAX_ACTIVE_PATCHES) {
-            long now = level.getGameTime();
             if (!prioritizeAtCapacity) return 0;
             if (unrestrictedEvictions) {
                 if (!evictNuclearBatch(state, now)) return 0;
@@ -345,6 +348,7 @@ public final class FireSimulationManager {
                 long simulationDeadline = permit.deadlineNanos();
                 expireDormantPatches(state, now, simulationDeadline);
                 reactivateRelevantPatches(level, state, now, simulationDeadline);
+                pruneSurfaceCooldowns(state, now);
                 decayWetness(state, now, simulationDeadline);
                 decayPreheat(state, now, simulationDeadline);
                 tickEmbers(level, state, now, simulationDeadline);
@@ -388,7 +392,8 @@ public final class FireSimulationManager {
         }
         if (now % 10L == 0L && !state.patches.isEmpty()) playCrackle(level, state, now);
         if (state.patches.isEmpty() && state.wetness.isEmpty()
-            && state.preheat.isEmpty() && state.embers.isEmpty()) {
+            && state.preheat.isEmpty() && state.embers.isEmpty()
+            && state.surfaceCooldowns.isEmpty()) {
             checkpoint(level, null);
             LEVELS.remove(level);
         }
@@ -434,7 +439,10 @@ public final class FireSimulationManager {
             patch.heat -= (0.006F + wetness * 0.025F) * elapsed;
         }
 
-        if (profile.flammable() && !water && wetness < 0.45F
+        if (patch.surfaceFlame && now >= patch.hardBurnEndTick)
+            lockSurfaceBurn(state, patch, now);
+
+        if (!patch.surfaceBurnLocked && profile.flammable() && !water && wetness < 0.45F
             && patch.phase != FirePhase.DECAYING
             && patch.phase != FirePhase.SMOLDERING) {
             float fuelPotential = Mth.clamp(0.18F + profile.heatRelease() * 0.45F
@@ -449,18 +457,6 @@ public final class FireSimulationManager {
         }
 
         long age = now - patch.ignitionGameTime;
-        if (patch.surfaceFlame) {
-            /* Surface-only fire has no consumable block to justify an
-               indefinite fuel loop. Age-cap both non-fuel flames and the LOW
-               non-consumable fuels (grass, moss, podzol), then give the smoke
-               phase a short natural decay. */
-            long maximumSurfaceAge = 140L + Math.round(patch.targetIntensity * 180.0F);
-            if (age >= maximumSurfaceAge) {
-                patch.phase = FirePhase.SMOLDERING;
-                patch.fuel = Math.min(patch.fuel, 0.04F);
-                patch.heat = Math.min(patch.heat, 0.16F);
-            }
-        }
         long kindlingCheckTick = 60L + Math.floorMod(mix(patch.seed), 36L);
         if (patch.phase == FirePhase.GROWING && patch.targetIntensity <= 0.28F
             && age - elapsed < kindlingCheckTick && age >= kindlingCheckTick
@@ -526,13 +522,21 @@ public final class FireSimulationManager {
             removeHostPatches(state, host);
             return;
         }
-        if (patch.heat <= 0.018F || (patch.fuel <= 0.0F && patch.phase == FirePhase.SMOLDERING)) {
+        if (patch.surfaceBurnLocked) {
+            if (SurfaceBurnPolicy.tailExpired(patch.hardBurnEndTick, now)
+                || patch.heat <= 0.018F) {
+                removePatch(state, patch);
+                return;
+            }
+        } else if (patch.heat <= 0.018F
+            || (patch.fuel <= 0.0F && patch.phase == FirePhase.SMOLDERING)) {
             removePatch(state, patch);
             return;
         }
 
         long hostKey = patch.anchor.host().asLong();
-        if ((patch.phase == FirePhase.GROWING || patch.phase == FirePhase.FLAMING)
+        if (!patch.surfaceBurnLocked
+            && (patch.phase == FirePhase.GROWING || patch.phase == FirePhase.FLAMING)
             && patch.heat > 0.075F && now >= patch.nextTransferTick
             && now >= state.nextHostTransferTick.getOrDefault(hostKey, 0L)
             && state.newIgnitionsThisTick < MAX_NEW_IGNITIONS_PER_TICK) {
@@ -554,7 +558,8 @@ public final class FireSimulationManager {
             state.nextHostDamageTick.put(hostKey, now + FIRE_DAMAGE_INTERVAL_TICKS);
             damageEntities(level, patch);
         }
-        if ((patch.phase == FirePhase.FLAMING || patch.phase == FirePhase.GROWING)
+        if (!patch.surfaceBurnLocked
+            && (patch.phase == FirePhase.FLAMING || patch.phase == FirePhase.GROWING)
             && patch.heat > 0.22F && patch.coverage > 0.28F
             && state.embers.size() < MAX_EMBERS
             && now >= state.nextHostEmberAttemptTick.getOrDefault(hostKey, 0L)) {
@@ -673,6 +678,10 @@ public final class FireSimulationManager {
     private static void addPreheat(final ServerLevel level, final LevelState state,
         final FireSurfaceAnchor target, final float amount, final float sourceIntensity,
         final long sourceSeed, final long now, final FireFuelProfile profile) {
+        if (surfaceCoolingDown(state, target.key(), now)) {
+            state.preheat.remove(target.key());
+            return;
+        }
         Long existingId = state.surfaceIndex.get(target.key());
         if (existingId != null) {
             Patch existingPatch = state.patches.get(existingId);
@@ -683,6 +692,11 @@ public final class FireSimulationManager {
                 }
             }
             if (existingPatch != null) {
+                if (existingPatch.surfaceFlame && now >= existingPatch.hardBurnEndTick) {
+                    lockSurfaceBurn(state, existingPatch, now);
+                    return;
+                }
+                if (existingPatch.surfaceBurnLocked) return;
                 existingPatch.heat = Mth.clamp(existingPatch.heat
                     + amount * (0.18F + sourceIntensity * 0.16F), 0.0F, 1.2F);
                 existingPatch.coverage = Mth.clamp(existingPatch.coverage
@@ -690,6 +704,7 @@ public final class FireSimulationManager {
                 existingPatch.targetIntensity = Mth.clamp(existingPatch.targetIntensity
                     + amount * (0.045F + sourceIntensity * 0.035F)
                         * (1.0F - existingPatch.targetIntensity), 0.10F, 1.0F);
+                extendSurfaceBurn(existingPatch, amount, now);
                 if (existingPatch.phase == FirePhase.SMOLDERING
                     && existingPatch.heat > 0.20F) existingPatch.phase = FirePhase.GROWING;
                 return;
@@ -720,18 +735,33 @@ public final class FireSimulationManager {
         final boolean direct, final boolean allowSurfaceFlame) {
         if (!validSurface(level, anchor, allowSurfaceFlame)
             || state.wetness.getOrDefault(anchor.host().asLong(), 0.0F) > 0.40F) return false;
+        long now = level.getGameTime();
+        if (surfaceCoolingDown(state, anchor.key(), now)) return false;
         Long existingId = state.surfaceIndex.get(anchor.key());
         if (existingId != null) {
             Patch existing = state.patches.get(existingId);
             if (existing != null) {
                 if (existing.simulationState == FireSimulationState.DORMANT
-                    && !activateDormantPatch(state, existing, level.getGameTime())) {
+                    && !activateDormantPatch(state, existing, now)) {
                     existing = null;
                 }
             }
             if (existing != null) {
+                if (existing.surfaceFlame && now >= existing.hardBurnEndTick) {
+                    lockSurfaceBurn(state, existing, now);
+                    return false;
+                }
+                if (existing.surfaceBurnLocked) return false;
                 existing.targetIntensity = Math.max(existing.targetIntensity, intensity);
-                existing.fuel = Math.max(existing.fuel, 0.35F);
+                if (existing.surfaceFlame) {
+                    existing.heat = Math.max(existing.heat,
+                        direct ? 0.30F : 0.12F + intensity * 0.16F);
+                    existing.coverage = Math.max(existing.coverage,
+                        direct ? 0.14F : 0.055F + intensity * 0.04F);
+                    extendSurfaceBurn(existing, 0.20F + intensity * 0.25F, now);
+                } else {
+                    existing.fuel = Math.max(existing.fuel, 0.35F);
+                }
                 return true;
             }
         }
@@ -742,7 +772,6 @@ public final class FireSimulationManager {
         boolean surfaceFlame = nonFuelSurface || !profile.consumable();
         int burnTicks = nonFuelSurface
             ? 120 + Math.round(intensity * 260.0F) : profile.burnTicks();
-        long now = level.getGameTime();
         long id = state.nextId++;
         Patch patch = new Patch(id, anchor, Mth.clamp(intensity, 0.10F, 1.0F),
             direct ? FirePhase.GROWING : FirePhase.IGNITION,
@@ -757,6 +786,59 @@ public final class FireSimulationManager {
         indexActivePatch(state, patch);
         state.workQueue.addLast(id);
         return true;
+    }
+
+    private static void extendSurfaceBurn(final Patch patch, final float heatAmount,
+        final long now) {
+        if (!patch.surfaceFlame || patch.surfaceBurnLocked) return;
+        SurfaceBurnPolicy.Extension extension = SurfaceBurnPolicy.extend(
+            patch.hardBurnEndTick, patch.remainingExternalHeatBudget,
+            patch.lastExternalHeatTick, heatAmount, now);
+        patch.hardBurnEndTick = extension.hardBurnEndTick();
+        patch.remainingExternalHeatBudget = extension.remainingBudgetTicks();
+        patch.lastExternalHeatTick = extension.lastExternalHeatTick();
+    }
+
+    private static void lockSurfaceBurn(final LevelState state, final Patch patch,
+        final long now) {
+        if (!patch.surfaceFlame || patch.surfaceBurnLocked) return;
+        patch.phase = FirePhase.DECAYING;
+        patch.targetIntensity = 0.0F;
+        patch.fuel = 0.0F;
+        patch.heat = Math.min(patch.heat, 0.18F);
+        patch.surfaceBurnLocked = true;
+        patch.remainingExternalHeatBudget = 0.0F;
+        if (state != null) addSurfaceCooldown(state, patch.anchor.key(),
+            SurfaceBurnPolicy.cooldownExpiry(Math.max(now, patch.hardBurnEndTick)));
+    }
+
+    private static boolean surfaceCoolingDown(final LevelState state,
+        final SurfaceKey key, final long now) {
+        Long expiry = state.surfaceCooldowns.get(key);
+        if (expiry == null) return false;
+        if (expiry > now) return true;
+        state.surfaceCooldowns.remove(key);
+        return false;
+    }
+
+    private static void addSurfaceCooldown(final LevelState state, final SurfaceKey key,
+        final long expiryTick) {
+        state.surfaceCooldowns.merge(key, expiryTick, Math::max);
+        while (state.surfaceCooldowns.size() > MAX_SURFACE_COOLDOWNS) {
+            Iterator<SurfaceKey> iterator = state.surfaceCooldowns.keySet().iterator();
+            if (!iterator.hasNext()) break;
+            iterator.next();
+            iterator.remove();
+        }
+    }
+
+    private static void pruneSurfaceCooldowns(final LevelState state, final long now) {
+        int checked = 0;
+        Iterator<Map.Entry<SurfaceKey, Long>> iterator =
+            state.surfaceCooldowns.entrySet().iterator();
+        while (iterator.hasNext() && checked++ < MAX_DECAY_ENTRIES_PER_TICK) {
+            if (iterator.next().getValue() <= now) iterator.remove();
+        }
     }
 
     private static boolean validSurface(final ServerLevel level,
@@ -1063,8 +1145,8 @@ public final class FireSimulationManager {
     private static void makeDormant(final LevelState state, final Patch patch,
         final long now) {
         if (patch.simulationState != FireSimulationState.ACTIVE) return;
-        analyticallyAdvance(patch, now);
-        if (analyticallyExpired(patch)) {
+        analyticallyAdvance(state, patch, now);
+        if (analyticallyExpired(patch, now)) {
             removePatch(state, patch);
             return;
         }
@@ -1112,8 +1194,13 @@ public final class FireSimulationManager {
     private static boolean activateDormantPatch(final LevelState state, final Patch patch,
         final long now) {
         if (patch.simulationState != FireSimulationState.DORMANT) return true;
-        analyticallyAdvance(patch, now);
-        if (analyticallyExpired(patch)) {
+        analyticallyAdvance(state, patch, now);
+        if (patch.surfaceBurnLocked) {
+            if (analyticallyExpired(patch, now)) removePatch(state, patch);
+            else scheduleDormantExpiry(state, patch, now);
+            return false;
+        }
+        if (analyticallyExpired(patch, now)) {
             removePatch(state, patch);
             return false;
         }
@@ -1139,8 +1226,8 @@ public final class FireSimulationManager {
             Patch patch = state.patches.get(expiry.patchId());
             if (patch == null || patch.simulationState != FireSimulationState.DORMANT
                 || patch.dormantExpiryTick != expiry.expiryTick()) continue;
-            analyticallyAdvance(patch, now);
-            if (analyticallyExpired(patch)) removePatch(state, patch);
+            analyticallyAdvance(state, patch, now);
+            if (analyticallyExpired(patch, now)) removePatch(state, patch);
             else scheduleDormantExpiry(state, patch, now);
         }
     }
@@ -1155,12 +1242,21 @@ public final class FireSimulationManager {
             Math.log(0.018F / patch.heat) / -Math.max(1.0E-6, heatRate));
         long remaining = Mth.clamp(Math.max(200L, Math.min(fuelTicks, heatTicks)),
             200L, 12_000L);
+        if (patch.surfaceFlame) {
+            long surfaceEventTick = patch.surfaceBurnLocked
+                ? patch.hardBurnEndTick + SurfaceBurnPolicy.SMOULDER_TAIL_TICKS
+                : patch.hardBurnEndTick;
+            remaining = Math.min(remaining, Math.max(1L, surfaceEventTick - now));
+        }
         patch.dormantExpiryTick = now + remaining;
         state.dormantExpiryQueue.add(new DormantExpiry(patch.id, patch.dormantExpiryTick));
     }
 
-    private static void analyticallyAdvance(final Patch patch, final long now) {
+    private static void analyticallyAdvance(final LevelState state, final Patch patch,
+        final long now) {
         long elapsed = Math.max(0L, now - patch.lastUpdateTick);
+        if (patch.surfaceFlame && now >= patch.hardBurnEndTick)
+            lockSurfaceBurn(state, patch, now);
         if (elapsed == 0L) return;
         patch.fuel = Math.max(0.0F, patch.fuel - analyticalBurnRate(patch) * elapsed);
         patch.heat = Mth.clamp((float) (patch.heat
@@ -1194,9 +1290,12 @@ public final class FireSimulationManager {
         };
     }
 
-    private static boolean analyticallyExpired(final Patch patch) {
-        return patch.heat <= 0.018F
-            || (patch.fuel <= 0.0F && patch.phase == FirePhase.SMOLDERING);
+    private static boolean analyticallyExpired(final Patch patch, final long now) {
+        return (patch.surfaceBurnLocked
+                && SurfaceBurnPolicy.tailExpired(patch.hardBurnEndTick, now))
+            || patch.heat <= 0.018F
+            || (!patch.surfaceBurnLocked && patch.fuel <= 0.0F
+                && patch.phase == FirePhase.SMOLDERING);
     }
 
 	private static long chunkKey(final BlockPos position) {
@@ -1254,85 +1353,44 @@ public final class FireSimulationManager {
         final ServerLevel level, final LevelState state, final ServerPlayer player,
         final long now, final long generation) {
         Vec3 viewer = player.position();
-        NearbyPatches nearby = nearbyPatches(state, viewer);
+        List<FireCellSnapshot> sources = visualSources(level, state, viewer, now);
+        FireVisualRepresentationBuilder.Representation representation =
+            FireVisualRepresentationBuilder.build(sources, viewer);
         WarModPerformanceDiagnostics.add(
             WarModPerformanceDiagnostics.Gauge.FIRE_VIEWER_NEARBY_CANDIDATES,
-            nearby.candidateCount());
-        List<RankedPatch> selected = nearby.nearest().stream()
-            .sorted((left, right) -> Double.compare(left.distanceSquared(),
-                right.distanceSquared())).toList();
-        HashMap<Long, FireCellSnapshot> snapshotCache = new HashMap<>(selected.size());
-        ArrayList<FireCellSnapshot> patches = new ArrayList<>(selected.size());
-        for (RankedPatch ranked : selected) {
-            FireCellSnapshot snapshot = snapshotPatch(level, state, ranked.patch(), now);
-            if (snapshot != null) {
-                patches.add(snapshot);
-                snapshotCache.put(snapshot.id(), snapshot);
-            }
-        }
+            representation.uniqueHostCount());
         WarModPerformanceDiagnostics.add(
             WarModPerformanceDiagnostics.Gauge.FIRE_VIEWER_SELECTED_PATCHES,
-            selected.size());
+            representation.cells().size());
         WarModPerformanceDiagnostics.add(
             WarModPerformanceDiagnostics.Gauge.FIRE_SNAPSHOT_ENTRIES_BUILT,
-            patches.size());
+            representation.cells().size());
         WarModPerformanceDiagnostics.add(
             WarModPerformanceDiagnostics.Gauge.FIRE_COMPLETE_SNAPSHOTS, 1L);
-        List<FireCellSnapshot> clusterSources = smokeClusterSources(
-            level, state, viewer, now, snapshotCache);
         return new FireNetworking.ViewerSnapshot(player.getUUID(), viewer, now, generation,
-            List.copyOf(patches), nearbyEmbers(level, state, viewer), clusterSources);
+            representation, nearbyEmbers(level, state, viewer));
     }
 
-    private static NearbyPatches nearbyPatches(final LevelState state,
-        final Vec3 viewer) {
-        int maximum = com.andye.warmod.fire.network.ClientboundFireStatePayload.MAX_ENTRIES;
-        PriorityQueue<RankedPatch> nearest = new PriorityQueue<>(maximum + 1,
-            (left, right) -> Double.compare(right.distanceSquared(), left.distanceSquared()));
-        int chunkRadius = Mth.ceil(FIRE_VISUAL_RADIUS / 16.0);
-        int playerChunkX = Mth.floor(viewer.x) >> 4;
-        int playerChunkZ = Mth.floor(viewer.z) >> 4;
-        int candidateCount = 0;
-        for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
-            for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
-                Set<Long> ids = state.patchChunkIndex.get(
-                    chunkKey(playerChunkX + dx, playerChunkZ + dz));
-                if (ids == null) continue;
-                for (long id : ids) {
-                    Patch patch = state.patches.get(id);
-                    if (patch == null || patch.simulationState != FireSimulationState.ACTIVE)
-                        continue;
-                    double distanceSquared = viewer.distanceToSqr(patch.anchor.position());
-                    if (distanceSquared > FIRE_VISUAL_RADIUS_SQUARED) continue;
-                    candidateCount++;
-                    nearest.add(new RankedPatch(patch, distanceSquared));
-                    if (nearest.size() > maximum) nearest.poll();
-                }
-            }
-        }
-        return new NearbyPatches(nearest, candidateCount);
-    }
-
-    private static List<FireCellSnapshot> smokeClusterSources(final ServerLevel level,
-        final LevelState state, final Vec3 viewer, final long now,
-        final Map<Long, FireCellSnapshot> snapshotCache) {
+    private static List<FireCellSnapshot> visualSources(final ServerLevel level,
+        final LevelState state, final Vec3 viewer, final long now) {
         int cellRadius = Mth.ceil(SMOKE_CLUSTER_RADIUS / SMOKE_CLUSTER_CELL_SIZE);
         int viewerCellX = Math.floorDiv(Mth.floor(viewer.x), SMOKE_CLUSTER_CELL_SIZE);
         int viewerCellZ = Math.floorDiv(Mth.floor(viewer.z), SMOKE_CLUSTER_CELL_SIZE);
         ArrayList<FireCellSnapshot> result = new ArrayList<>();
+        HashSet<Long> visited = new HashSet<>();
         for (int dx = -cellRadius; dx <= cellRadius; dx++) {
             for (int dz = -cellRadius; dz <= cellRadius; dz++) {
                 Set<Long> ids = state.smokeCellIndex.get(
                     chunkKey(viewerCellX + dx, viewerCellZ + dz));
                 if (ids == null) continue;
                 for (long id : ids) {
+                    if (!visited.add(id)) continue;
                     Patch patch = state.patches.get(id);
                     if (patch == null || patch.simulationState == FireSimulationState.EXPIRED
                         || viewer.distanceToSqr(patch.anchor.position())
                             > SMOKE_CLUSTER_RADIUS_SQUARED) continue;
-                    FireCellSnapshot snapshot = snapshotCache.computeIfAbsent(id,
-                        ignored -> snapshotPatchForSmoke(level, state, patch, now));
-                    if (snapshot != null && snapshot.smoke() >= 0.018F) result.add(snapshot);
+                    FireCellSnapshot snapshot = snapshotPatchForSmoke(level, state, patch, now);
+                    if (snapshot != null) result.add(snapshot);
                 }
             }
         }
@@ -1373,8 +1431,8 @@ public final class FireSimulationManager {
         if (patch.simulationState == FireSimulationState.ACTIVE)
             return snapshotPatch(level, state, patch, now);
         if (patch.simulationState != FireSimulationState.DORMANT) return null;
-        analyticallyAdvance(patch, now);
-        if (analyticallyExpired(patch)) return null;
+        analyticallyAdvance(state, patch, now);
+        if (analyticallyExpired(patch, now)) return null;
         float stage = switch (patch.phase) {
             case IGNITION -> 0.08F;
             case GROWING -> 0.20F + patch.coverage * 0.22F;
@@ -1417,7 +1475,9 @@ public final class FireSimulationManager {
             patch.simulationState == FireSimulationState.DORMANT
                 ? -Math.max(1L, now - patch.lastUpdateTick)
                 : Math.max(0L, patch.nextTransferTick - now),
-            patch.surfaceFlame, patch.consumed));
+            patch.surfaceFlame, patch.consumed, patch.hardBurnEndTick,
+            patch.lastExternalHeatTick, patch.remainingExternalHeatBudget,
+            patch.surfaceBurnLocked));
 		patchData.replace(entries);
 		List<FireEmberSavedData.Entry> savedEmbers = new ArrayList<>(state.embers.size());
 		for (Ember ember : state.embers) {
@@ -1448,10 +1508,30 @@ public final class FireSimulationManager {
             Patch patch = new Patch(id, anchor, Mth.clamp(entry.intensity(), 0.10F, 1.0F),
                 FirePhase.values()[entry.phase()], Mth.clamp(entry.heat(), 0.0F, 1.2F),
                 Mth.clamp(entry.coverage(), 0.0F, 1.0F),
-                Mth.clamp(entry.burnTicks(), 240, 12_000), entry.seed(), now,
+                Mth.clamp(entry.burnTicks(), entry.surfaceFlame() ? 120 : 240, 12_000),
+                entry.seed(), now,
                 entry.surfaceFlame());
             patch.fuel = Mth.clamp(entry.fuel(), 0.0F, 1.0F);
             patch.ignitionGameTime = Math.min(entry.ignitionGameTime(), now);
+            if (patch.surfaceFlame) {
+                int lifetime = SurfaceBurnPolicy.initialLifetimeTicks(patch.burnTicks);
+                long restoredDeadline = entry.hardBurnEndTick() == Long.MAX_VALUE
+                    ? patch.ignitionGameTime + lifetime : entry.hardBurnEndTick();
+                patch.hardBurnEndTick = Mth.clamp(restoredDeadline,
+                    patch.ignitionGameTime, now + 12_000L);
+                patch.lastExternalHeatTick = Math.min(entry.lastExternalHeatTick(), now);
+                patch.remainingExternalHeatBudget = Mth.clamp(
+                    entry.remainingExternalHeatBudget(), 0.0F,
+                    SurfaceBurnPolicy.initialExternalHeatBudget(lifetime));
+                patch.surfaceBurnLocked = entry.surfaceBurnLocked();
+                if (patch.surfaceBurnLocked) {
+                    patch.targetIntensity = 0.0F;
+                    patch.fuel = 0.0F;
+                    addSurfaceCooldown(state, anchor.key(),
+                        SurfaceBurnPolicy.cooldownExpiry(
+                            Math.max(now, patch.hardBurnEndTick)));
+                }
+            }
             boolean dormant = entry.nextTransferDelay() < 0L;
             patch.lastUpdateTick = dormant
                 ? now - Mth.clamp(-entry.nextTransferDelay(), 1L, 12_000L) : now;
@@ -1688,6 +1768,8 @@ public final class FireSimulationManager {
     private static final class LevelState {
         private final LinkedHashMap<Long, Patch> patches = new LinkedHashMap<>();
         private final HashMap<SurfaceKey, Long> surfaceIndex = new HashMap<>();
+        private final LinkedHashMap<SurfaceKey, Long> surfaceCooldowns =
+            new LinkedHashMap<>();
 		private final HashMap<Long, Integer> hostPatchCounts = new HashMap<>();
 		private final HashMap<Long, Long> nextHostEmberAttemptTick = new HashMap<>();
 		private final HashMap<Long, Long> nextHostTransferTick = new HashMap<>();
@@ -1733,6 +1815,10 @@ public final class FireSimulationManager {
         private long lastUpdateTick;
         private long nextTransferTick;
         private final boolean surfaceFlame;
+        private long hardBurnEndTick;
+        private long lastExternalHeatTick = Long.MIN_VALUE;
+        private float remainingExternalHeatBudget;
+        private boolean surfaceBurnLocked;
         private boolean consumed;
         private FireSimulationState simulationState = FireSimulationState.ACTIVE;
         private long dormantExpiryTick = Long.MAX_VALUE;
@@ -1746,6 +1832,14 @@ public final class FireSimulationManager {
             this.burnTicks = burnTicks; this.seed = seed; this.ignitionGameTime = now;
             this.lastUpdateTick = now; this.nextTransferTick = now + 12L;
             this.surfaceFlame = surfaceFlame;
+            if (surfaceFlame) {
+                int lifetime = SurfaceBurnPolicy.initialLifetimeTicks(burnTicks);
+                this.hardBurnEndTick = now + lifetime;
+                this.remainingExternalHeatBudget =
+                    SurfaceBurnPolicy.initialExternalHeatBudget(lifetime);
+            } else {
+                this.hardBurnEndTick = Long.MAX_VALUE;
+            }
         }
     }
 
@@ -1767,8 +1861,6 @@ public final class FireSimulationManager {
     private record Exposure(float dose, long lastTouched) { }
     private record CachedVentilation(float factor, long expiresAt) { }
     private record DormantExpiry(long patchId, long expiryTick) { }
-    private record RankedPatch(Patch patch, double distanceSquared) { }
-    private record NearbyPatches(PriorityQueue<RankedPatch> nearest, int candidateCount) { }
     private record RankedEmberSnapshot(FireEmberSnapshot snapshot, double distanceSquared) { }
     private record RankedSurface(FireSurfaceAnchor anchor, double distance, long rank,
         boolean flammable) { }

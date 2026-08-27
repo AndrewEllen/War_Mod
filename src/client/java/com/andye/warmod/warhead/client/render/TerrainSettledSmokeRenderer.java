@@ -27,12 +27,14 @@ public final class TerrainSettledSmokeRenderer {
         if (nuclear) renderImmediateGroundShroud(pose, buffer, spokes, impactPosition,
             age, visualScale, visualSeed, lod, basis);
         if (spokes == null || spokes.isEmpty()) return;
-        double lifetime = nuclear ? 3_400.0 : 190.0 + visualScale * 36.0;
+        /* Conventional settled smoke is a late, sparse aftermath layer. The
+           airborne shroud owns the first several seconds around the hot body. */
+        if (!nuclear && age < 160.0) return;
+        double lifetime = nuclear ? 3_400.0 : 900.0 + visualScale * 80.0;
         if (age >= lifetime) return;
 
         float budgetScale = Mth.clamp(
-            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
-            0.40F, 8.0F);
+            (float) Math.sqrt(WarheadRenderSettings.qualityScale()), 0.50F, 2.0F);
         if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
         int spokeStride = lod == WarheadMesh.Lod.NEAR ? 1
             : lod == WarheadMesh.Lod.MEDIUM ? 2 : 4;
@@ -43,8 +45,8 @@ public final class TerrainSettledSmokeRenderer {
         double outerRadius = nuclear
             ? craterRadius * 1.22 + Math.min(34.0, age * 0.038)
             : craterRadius + 11.0;
-        float settleProgress = smoothstep(Mth.clamp((float) (age
-            / (nuclear ? 155.0 : 115.0)), 0.0F, 1.0F));
+        float settleProgress = smoothstep(Mth.clamp((float) ((age
+            - (nuclear ? 0.0 : 120.0)) / (nuclear ? 155.0 : 180.0)), 0.0F, 1.0F));
         renderSettledBase(pose, buffer, spokes, impactPosition,
             age, lifetime, visualScale, visualSeed, lod, nuclear, budgetScale,
             spokeStride, innerRadius, outerRadius, settleProgress, basis);
@@ -189,8 +191,12 @@ public final class TerrainSettledSmokeRenderer {
         final double innerRadius, final double outerRadius,
         final float settleProgress, final Basis basis) {
         int rendered = 0;
-        int limit = Math.max(96, Math.round((lod == WarheadMesh.Lod.NEAR ? 2_400
-            : lod == WarheadMesh.Lod.MEDIUM ? 1_100 : 400) * budgetScale));
+        int limit = nuclear
+            ? Math.max(96, Math.round((lod == WarheadMesh.Lod.NEAR ? 2_400
+                : lod == WarheadMesh.Lod.MEDIUM ? 1_100 : 400) * budgetScale))
+            : Math.round((lod == WarheadMesh.Lod.NEAR ? 192
+                : lod == WarheadMesh.Lod.MEDIUM ? 96 : 48)
+                * Math.min(1.0F, budgetScale));
 
         int selectedSpokes = Math.max(1,
             (spokes.size() + spokeStride - 1) / spokeStride);
@@ -220,8 +226,7 @@ public final class TerrainSettledSmokeRenderer {
                     node.surfaceBlock().asLong())) continue;
                 long seed = mix(visualSeed ^ node.surfaceBlock().asLong()
                     ^ (nuclear ? 0x4E554B455F424153L : 0x434F4E565F424153L));
-                int stacks = nuclear ? 3 + Math.floorMod((int) seed, 6)
-                    : 1 + Math.floorMod((int) seed, 2);
+                int stacks = nuclear ? 3 + Math.floorMod((int) seed, 6) : 1;
                 stacks = Math.max(1,
                     Math.round(stacks * Math.min(2.8F, budgetScale)));
                 Vec3 base = node.position().subtract(impactPosition);
@@ -270,7 +275,7 @@ public final class TerrainSettledSmokeRenderer {
                     float systemFade = !nuclear || age < 2_300.0 ? 1.0F
                         : smoothstep(Mth.clamp((float) ((3_400.0 - age) / 1_100.0),
                             0.0F, 1.0F));
-                    float alpha = (nuclear ? 0.90F : 0.68F)
+                    float alpha = (nuclear ? 0.90F : 0.42F)
                         * individualFade
                         * systemFade
                         * (0.78F + unit(particleSeed, 5) * 0.20F);

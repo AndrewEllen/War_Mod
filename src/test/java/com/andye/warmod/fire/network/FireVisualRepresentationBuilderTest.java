@@ -1,0 +1,94 @@
+package com.andye.warmod.fire.network;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.andye.warmod.fire.FireCellSnapshot;
+import com.andye.warmod.fire.FirePhase;
+import com.andye.warmod.fire.FireSurfaceAnchor;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.phys.Vec3;
+import org.junit.jupiter.api.Test;
+
+final class FireVisualRepresentationBuilderTest {
+    @Test
+    void tenThousandHostsRetainEveryOccupiedAngularSectorWithinPacketCapacity() {
+        ArrayList<FireCellSnapshot> patches = new ArrayList<>(10_000);
+        for (int sector = 0; sector < 100; sector++) {
+            double angle = sector / 100.0 * Math.PI * 2.0;
+            for (int radial = 0; radial < 100; radial++) {
+                double radius = 100.0 + radial * 12.0;
+                patches.add(patch(sector * 100L + radial + 1L,
+                    MthRound(Math.cos(angle) * radius),
+                    MthRound(Math.sin(angle) * radius)));
+            }
+        }
+
+        FireVisualRepresentationBuilder.Representation result =
+            FireVisualRepresentationBuilder.build(patches, new Vec3(0.0, 64.0, 0.0));
+
+        assertEquals(10_000, result.uniqueHostCount());
+        assertTrue(result.cells().size() <= ClientboundFireStatePayload.MAX_CELLS);
+        assertEquals(FireVisualBand.COMPLETE_MASK, result.completeBandMask());
+        Set<Integer> representedSectors = new HashSet<>();
+        for (FireVisualCell cell : result.cells()) {
+            double angle = Math.atan2(cell.centroid().z, cell.centroid().x);
+            if (angle < 0.0) angle += Math.PI * 2.0;
+            representedSectors.add(Math.min(31,
+                (int) Math.floor(angle / (Math.PI * 2.0) * 32.0)));
+        }
+        assertEquals(32, representedSectors.size());
+        for (FireVisualBand band : FireVisualBand.values())
+            assertTrue(result.cellsByBand().get(band) <= band.cellBudget());
+    }
+
+    @Test
+    void cellIdsStayStableForMovementInsideTheSameBand() {
+        List<FireCellSnapshot> patches = new ArrayList<>();
+        for (int x = -24; x <= 24; x += 4)
+            for (int z = 124; z <= 164; z += 4)
+                patches.add(patch(((long) x << 32) ^ z, x, z));
+        Set<Long> first = ids(FireVisualRepresentationBuilder.build(patches,
+            new Vec3(0.0, 64.0, 0.0)).cells());
+        Set<Long> moved = ids(FireVisualRepresentationBuilder.build(patches,
+            new Vec3(1.0, 64.0, 1.0)).cells());
+        assertEquals(first, moved);
+    }
+
+    @Test
+    void aggregationPreservesFlameEnergyAndSmokeMass() {
+        ArrayList<FireCellSnapshot> patches = new ArrayList<>();
+        for (int index = 0; index < 400; index++)
+            patches.add(patch(index + 1L, index % 20 - 10, 130 + index / 20));
+        FireVisualRepresentationBuilder.Representation result =
+            FireVisualRepresentationBuilder.build(patches, new Vec3(0.0, 64.0, 0.0));
+        List<FireVisualCell> mid = result.cells().stream()
+            .filter(cell -> cell.band() == FireVisualBand.MID).toList();
+        assertFalse(mid.isEmpty());
+        assertEquals(400 * 0.74, mid.stream().mapToDouble(FireVisualCell::flameEnergy).sum(),
+            0.01);
+        assertEquals(400 * 0.60, mid.stream().mapToDouble(FireVisualCell::smokeMass).sum(),
+            0.01);
+    }
+
+    private static FireCellSnapshot patch(final long id, final int x, final int z) {
+        BlockPos host = new BlockPos(x, 63, z);
+        return new FireCellSnapshot(id, FireSurfaceAnchor.center(host, Direction.UP),
+            0.8F, 0.9F, 1.0F, 0.6F, FirePhase.FLAMING, id * 31L,
+            10L, Vec3.ZERO);
+    }
+
+    private static int MthRound(final double value) { return (int) Math.round(value); }
+
+    private static Set<Long> ids(final List<FireVisualCell> cells) {
+        HashSet<Long> result = new HashSet<>();
+        for (FireVisualCell cell : cells) result.add(cell.id());
+        return result;
+    }
+}

@@ -26,14 +26,23 @@ final class NuclearWastelandBiomeResourceTest {
         JsonObject biome = readResource(BIOME_RESOURCE);
         JsonObject attributes = biome.getAsJsonObject("attributes");
 
-        assertEquals("#484b55",
+        assertEquals("#51515a",
             attributes.get("minecraft:visual/sky_color").getAsString());
+        assertEquals("#565044",
+            attributes.get("minecraft:visual/fog_color").getAsString());
+        assertEquals("#302a18",
+            attributes.get("minecraft:visual/water_fog_color").getAsString());
+        assertEquals("#6a5b2b",
+            biome.getAsJsonObject("effects").get("water_color").getAsString());
         assertEquals("minecraft:white_ash",
             attributes.getAsJsonArray("minecraft:visual/ambient_particles")
                 .get(0).getAsJsonObject()
                 .getAsJsonObject("particle")
                 .get("type").getAsString());
         assertTrue(attributes.has("minecraft:audio/ambient_sounds"));
+        assertTrue(attributes.getAsJsonArray("minecraft:visual/ambient_particles")
+            .get(0).getAsJsonObject().get("probability").getAsDouble() <= 0.02,
+            "Vanilla ash is only a low-rate fallback for the wasteland atmosphere");
 
         JsonObject spawners = biome.getAsJsonObject("spawners");
         Set<String> mobTypes = new HashSet<>();

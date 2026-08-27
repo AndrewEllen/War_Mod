@@ -21,7 +21,12 @@ final class WarModCommandTest {
 
         CommandNode<CommandSourceStack> warmod = dispatcher.getRoot().getChild("warmod");
         assertNotNull(warmod);
-        assertNotNull(warmod.getChild("render"));
+        CommandNode<CommandSourceStack> render = warmod.getChild("render");
+        assertNotNull(render);
+        assertNotNull(render.getChild("quality"));
+        assertNull(render.getChild("budget"));
+        if (SharedConstants.IS_RUNNING_IN_IDE) assertNotNull(render.getChild("diagnose"));
+        else assertNull(render.getChild("diagnose"));
         assertNull(warmod.getChild("renderer"));
         assertNull(dispatcher.getRoot().getChild("war_mod"));
     }

@@ -1,6 +1,7 @@
 package com.andye.warmod.warhead.client.render;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -8,39 +9,35 @@ import org.junit.jupiter.api.Test;
 final class WarheadRenderSettingsTest {
     @AfterEach
     void restoreDefaults() {
-        WarheadRenderSettings.resetParticleBudget();
+        WarheadRenderSettings.resetQualityScale();
         WarheadRenderSettings.setParticleRenderer(
             WarheadRenderSettings.ParticleRenderer.PACKED);
     }
 
     @Test
-    void oneBudgetControlScalesCpuAndGpuPathsExplicitly() {
-        WarheadRenderSettings.setParticleBudgetMultiplier(20.0F);
+    void qualityScaleIsBoundedAndScalesDetailCapacity() {
+        WarheadRenderSettings.setQualityScale(4.0F);
 
-        assertEquals(20.0F,
-            WarheadRenderSettings.particleBudgetMultiplier());
-        assertEquals(1_310_720,
+        assertEquals(4.0F, WarheadRenderSettings.qualityScale());
+        assertEquals(262_144,
             WarheadRenderSettings.conventionalParticleBudget());
-        assertEquals(81_920,
-            WarheadRenderSettings.nuclearSupplementBudget());
-        assertEquals(2.0,
-            WarheadRenderSettings.gpuBudgetScale(), 0.000_001);
+        assertThrows(IllegalArgumentException.class,
+            () -> WarheadRenderSettings.setQualityScale(0.24F));
+        assertThrows(IllegalArgumentException.class,
+            () -> WarheadRenderSettings.setQualityScale(4.01F));
     }
 
     @Test
     void resetRestoresNeutralGpuScaleWithoutChangingCpuMode() {
         WarheadRenderSettings.setParticleRenderer(
             WarheadRenderSettings.ParticleRenderer.LEGACY);
-        WarheadRenderSettings.setParticleBudgetMultiplier(1.0F);
+        WarheadRenderSettings.setQualityScale(0.25F);
 
-        WarheadRenderSettings.resetParticleBudget();
+        WarheadRenderSettings.resetQualityScale();
 
-        assertEquals(10.0F,
-            WarheadRenderSettings.particleBudgetMultiplier());
-        assertEquals(1.0,
-            WarheadRenderSettings.gpuBudgetScale(), 0.000_001);
+        assertEquals(1.0F, WarheadRenderSettings.qualityScale());
         assertEquals(WarheadRenderSettings.ParticleRenderer.LEGACY,
             WarheadRenderSettings.particleRenderer(),
-            "Budget reset must not silently change the selected CPU renderer");
+            "Quality reset must not silently change the selected CPU renderer");
     }
 }

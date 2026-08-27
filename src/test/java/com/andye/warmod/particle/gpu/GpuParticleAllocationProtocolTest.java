@@ -200,6 +200,8 @@ final class GpuParticleAllocationProtocolTest {
             + "gpu_particles/update.comp");
         String cull = source("src/client/resources/assets/war_mod/shaders/"
             + "gpu_particles/cull.comp");
+        String vertex = source("src/client/resources/assets/war_mod/shaders/"
+            + "gpu_particles/particle.vert");
         String engine = source("src/client/java/com/andye/warmod/particle/gpu/"
             + "GpuParticleEngine.java");
 
@@ -218,6 +220,18 @@ final class GpuParticleAllocationProtocolTest {
         assertTrue(engine.contains("glClientWaitSync(statsFences[slot], 0, 0L)"));
         assertFalse(spawn.contains("particleId = gl_GlobalInvocationID.x"),
             "Spawning must allocate from the dead list, not overwrite an indexed slot");
+        assertTrue(engine.contains("private static final int PARTICLE_STRIDE = 80"));
+        assertTrue(engine.contains("private static final int EMITTER_STRIDE = 96"));
+        assertTrue(spawn.contains("vec4 orientation_mode"));
+        assertTrue(update.contains("vec4 orientation_mode"));
+        assertTrue(cull.contains("vec4 orientation_mode"));
+        assertTrue(vertex.contains("vec4 orientation_mode"));
+        assertTrue(vertex.contains("safeNormalize"));
+        assertTrue(spawn.contains("emitter.metadata.w >> 16u"));
+        assertTrue(update.contains("particle.metadata.z >> 16u"));
+        assertTrue(cull.contains("particle.metadata.z >> 16u"));
+        assertTrue(engine.contains("statsScratchBuffer = createBuffer"));
+        assertFalse(engine.contains("releaseScratchStatsBuffer"));
     }
 
     private static AllocationModel populatedModel(final int capacity, final int count) {

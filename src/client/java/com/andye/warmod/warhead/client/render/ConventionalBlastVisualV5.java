@@ -58,8 +58,17 @@ public final class ConventionalBlastVisualV5 {
         final WarheadClientVisualProfile profile, final long seed,
         final WarheadMesh.Lod lod, final Quaternionf camera) {
         renderSmoke(pose, buffer, age, visualScale, seed, lod, camera, false);
-        renderTurbulentShroud(pose, buffer, age, visualScale, seed, lod, camera);
         renderBallisticTrails(pose, buffer, age, visualScale, seed, lod, camera);
+    }
+
+    /**
+     * Proven CPU coverage around the cooling body. This remains active even
+     * when the GPU semantic shroud is healthy until runtime parity is measured.
+     */
+    public static void renderSmokeShroud(final PoseStack.Pose pose,
+        final VertexConsumer buffer, final double age, final float visualScale,
+        final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
+        renderTurbulentShroud(pose, buffer, age, visualScale, seed, lod, camera);
     }
 
     public static DebugSnapshot debugSnapshot() {
@@ -324,7 +333,7 @@ public final class ConventionalBlastVisualV5 {
     private static void renderTurbulentShroud(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double rawAge, final float rawScale,
         final long seed, final WarheadMesh.Lod lod, final Quaternionf camera) {
-        if (rawAge < 4.0 || rawAge >= 980.0) return;
+        if (!ConventionalSmokeShroudPolicy.active(rawAge)) return;
         float age = (float) rawAge;
         float scale = Mth.clamp(rawScale, 0.28F, 1.75F);
         float craterRadius = 2.0F + 13.5F * scale;
@@ -343,7 +352,7 @@ public final class ConventionalBlastVisualV5 {
             float onset = unit(random, 0) * 60.0F;
             float localAge = age - onset;
             if (localAge < 0.0F) continue;
-            float life = 430.0F + unit(random, 1) * 360.0F;
+            float life = ConventionalSmokeShroudPolicy.individualLifetime(unit(random, 1));
             if (localAge >= life) continue;
             float progress = localAge / life;
             float angle = unit(random, 2) * Mth.TWO_PI
@@ -354,8 +363,9 @@ public final class ConventionalBlastVisualV5 {
                 * (1.0F - progress * 0.22F);
             float heightBand = bodyRadius * (0.20F + sectorWave * 0.78F)
                 + signed(random, 6) * bodyRadius * 0.20F;
-            float settle = smoothstep(Mth.clamp((progress - 0.62F)
-                / (0.24F + unit(random, 7) * 0.10F), 0.0F, 1.0F));
+            float settleStart = ConventionalSmokeShroudPolicy.settlingStart(unit(random, 7));
+            float settle = smoothstep(Mth.clamp((age - settleStart)
+                / (80.0F + unit(random, 8) * 60.0F), 0.0F, 1.0F));
             float py = Mth.lerp(settle,
                 -Math.max(1.1F, craterRadius * 0.22F) + heightBand,
                 0.08F + unit(random, 8) * 0.42F);
@@ -382,7 +392,9 @@ public final class ConventionalBlastVisualV5 {
             float fade = progress < fadeStart ? 1.0F
                 : smoothstep(Mth.clamp((1.0F - progress)
                     / Math.max(0.025F, 1.0F - fadeStart), 0.0F, 1.0F));
-            float alpha = (0.72F + unit(random, 15) * 0.24F) * fade;
+            float alpha = (0.72F + unit(random, 15) * 0.24F) * fade
+                * ConventionalSmokeShroudPolicy.coverage(rawAge)
+                * ConventionalSmokeShroudPolicy.systemFade(rawAge);
             billboard(pose, buffer, px, py, pz, particleSize,
                 unit(random, 16) * Mth.TWO_PI
                     + localAge * signed(random, 17) * 0.004F,
@@ -567,8 +579,7 @@ public final class ConventionalBlastVisualV5 {
 
     private static float densityMultiplier() {
         return Mth.clamp((float) Math.sqrt(
-            WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
-            0.35F, 6.0F);
+            WarheadRenderSettings.qualityScale()), 0.50F, 2.0F);
     }
 
     public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick,

@@ -11,10 +11,9 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-/** Terrain-following dust and explosion flecks emitted from sampled surface blocks. */
+/** Compact terrain-node ground detail with a bounded CPU fallback. */
 public final class GroundDustFrontRenderer {
     private static final long DUST_CHANNEL = 0x445553545F4E4F44L;
-    private static final long FLECK_CHANNEL = 0x464C45434B5F4E4FL;
     private static final long SETTLED_SMOKE_CHANNEL = 0x534554544C45444CL;
     private static final Set<Long> CLAIMED_NODES = new HashSet<>();
 
@@ -22,7 +21,7 @@ public final class GroundDustFrontRenderer {
 
     /**
      * Keeps overlapping conventional shock fronts from submitting the same
-     * terrain-node puff stack more than once in a render frame.  The node
+     * terrain-node card more than once in a render frame. The node
      * position is shared by the existing terrain sampler, so this is both
      * deterministic and substantially cheaper than per-billboard collision.
      */
@@ -39,25 +38,28 @@ public final class GroundDustFrontRenderer {
         final WarheadMesh.Lod lod, final float densityScale, final boolean nuclear,
         final Quaternionf cameraOrientation) {
         if (nodes == null || nodes.isEmpty()) return;
-        float budgetScale = Mth.clamp(
-            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
-            0.45F, 4.0F);
-        if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
-        int limit = Math.round((nuclear
-            ? lod == WarheadMesh.Lod.NEAR ? 10_000
-                : lod == WarheadMesh.Lod.MEDIUM ? 6_000 : 3_200
-            : lod == WarheadMesh.Lod.NEAR ? 6_400
-                : lod == WarheadMesh.Lod.MEDIUM ? 3_600 : 1_700)
-            * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
+        int maximum = switch (lod) {
+            case NEAR -> 256;
+            case MEDIUM -> 128;
+            case FAR -> 64;
+        };
+        float detailScale = Mth.clamp((float) Math.sqrt(
+            WarheadRenderSettings.qualityScale()), 0.25F, 1.0F)
+            * Mth.clamp(densityScale, 0.25F, 1.0F);
+        int limit = Math.max(16, Math.min(maximum, Math.round(maximum * detailScale)));
         int count = Math.min(limit, nodes.size());
         Basis basis = Basis.from(cameraOrientation);
-        for (int index = 0; index < count; index++) {
-            TerrainShockfrontNode node = nodes.get(index);
+        for (int selected = 0; selected < count; selected++) {
+            TerrainShockfrontNode node = nodes.get(
+                (int) ((long) selected * nodes.size() / count));
             long seed = mix(node.surfaceBlock().asLong());
             long start = node.emittedGameTime() == Long.MIN_VALUE
                 ? node.readyGameTime() : node.emittedGameTime();
             double age = Math.max(0.0, gameTime - start);
-            double lifetime = 68.0 + ((seed >>> 8) & 51L);
+            boolean hotFleck = age <= 35.0 && unit(seed, 11) < 0.30F;
+            double lifetime = hotFleck
+                ? 18.0 + ((seed >>> 9) & 17L)
+                : 68.0 + ((seed >>> 8) & 51L);
             if (age > lifetime) continue;
             if (!CLAIMED_NODES.add(mix(node.surfaceBlock().asLong() ^ DUST_CHANNEL))) continue;
             double progress = age / lifetime;
@@ -71,104 +73,26 @@ public final class GroundDustFrontRenderer {
                 * Math.sin(progress * Math.PI * 0.88);
             Vec3 base = node.position().subtract(impactPosition)
                 .add(dx / length * outward, 0.06 + rise, dz / length * outward);
-            float fadeStart = 0.48F + unit(seed, 7) * 0.20F;
-            float fade = progress < fadeStart ? 1.0F
-                : smoothstep(Mth.clamp((float) ((1.0 - progress)
-                    / Math.max(0.03, 1.0 - fadeStart)), 0.0F, 1.0F));
-            float alpha = (0.58F + unit(seed, 8) * 0.24F) * fade;
+            float fade = (float) Math.pow(Math.max(0.0, 1.0 - progress),
+                hotFleck ? 0.58 : 0.82);
+            float alpha = (hotFleck ? 0.90F : 0.54F + unit(seed, 8) * 0.20F) * fade;
             float outwardFraction = Mth.clamp((float) (node.directDistance() / 72.0),
                 0.0F, 1.0F);
-            int puffs = lod == WarheadMesh.Lod.NEAR
-                ? (outwardFraction < 0.52F ? 3 : 2)
-                : lod == WarheadMesh.Lod.MEDIUM ? 2 : 1;
-            for (int puff = 0; puff < puffs; puff++) {
-                long puffSeed = mix(seed + puff * 0x9E3779B97F4A7C15L);
-                int selector = Math.floorMod((int) puffSeed, 100);
-                int red;
-                int green;
-                int blue;
-                if (selector < 28) {
-                    int pale = 206 + Math.floorMod((int) (puffSeed >>> 17), 43);
-                    red = pale;
-                    green = Math.min(252, pale + 2);
-                    blue = Math.min(255, pale + 7);
-                } else if (selector < 66) {
-                    int neutral = 158 + Math.floorMod((int) (puffSeed >>> 17), 45);
-                    red = neutral;
-                    green = Math.min(211, neutral + 3);
-                    blue = Math.min(219, neutral + 8);
-                } else {
-                    int earth = 128 + Math.floorMod((int) (puffSeed >>> 17), 48);
-                    red = earth;
-                    green = Mth.clamp(earth - 13, 105, 172);
-                    blue = Mth.clamp(earth - 28, 78, 154);
-                }
-                float radius = (0.26F + unit(puffSeed, 0) * 0.58F)
-                    * (0.96F + (float) progress * 0.48F)
-                    * (1.0F + outwardFraction * 0.30F);
-                float rotation = unit(puffSeed, 1) * Mth.TWO_PI;
-                Vec3 center = base.add(signed(puffSeed, 2) * radius * 1.7,
-                    unit(puffSeed, 3) * radius * 0.95,
-                    signed(puffSeed, 4) * radius * 1.7);
-                addBillboard(pose, buffer, center, radius, rotation, red, green, blue,
-                    alpha * (0.68F + unit(puffSeed, 5) * 0.30F), basis);
-            }
-        }
-    }
-
-    /** Minecraft explosion artwork emitted from the exact same terrain nodes. */
-    public static void renderExplosionFlecks(final PoseStack.Pose pose,
-        final VertexConsumer buffer, final List<TerrainShockfrontNode> nodes,
-        final Vec3 impactPosition, final long gameTime, final WarheadMesh.Lod lod,
-        final float densityScale, final boolean nuclear,
-        final Quaternionf cameraOrientation) {
-        if (nodes == null || nodes.isEmpty()) return;
-        float budgetScale = Mth.clamp(
-            (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 10.0F),
-            0.45F, 4.0F);
-        if (nuclear) budgetScale = Math.max(1.0F, budgetScale);
-        int limit = Math.round((nuclear
-            ? lod == WarheadMesh.Lod.NEAR ? 7_500
-                : lod == WarheadMesh.Lod.MEDIUM ? 4_400 : 2_400
-            : lod == WarheadMesh.Lod.NEAR ? 4_800
-                : lod == WarheadMesh.Lod.MEDIUM ? 2_600 : 1_200)
-            * Mth.clamp(densityScale, 0.25F, 3.2F) * budgetScale);
-        int count = Math.min(limit, nodes.size());
-        Basis basis = Basis.from(cameraOrientation);
-        int divisor = lod == WarheadMesh.Lod.FAR ? 2 : 1;
-        for (int index = 0; index < count; index++) {
-            TerrainShockfrontNode node = nodes.get(index);
-            long seed = mix(node.surfaceBlock().asLong() ^ 0x4558504C4F444537L);
-            if (Math.floorMod((int) seed, divisor) != 0) continue;
-            long start = node.emittedGameTime() == Long.MIN_VALUE
-                ? node.readyGameTime() : node.emittedGameTime();
-            double age = Math.max(0.0, gameTime - start);
-            double lifetime = 18.0 + ((seed >>> 9) & 17L);
-            if (age > lifetime) continue;
-            if (!CLAIMED_NODES.add(mix(node.surfaceBlock().asLong() ^ FLECK_CHANNEL))) continue;
-            double progress = age / lifetime;
-            double dx = node.position().x - impactPosition.x;
-            double dz = node.position().z - impactPosition.z;
-            double length = Math.sqrt(dx * dx + dz * dz);
-            if (length < 1.0E-4) continue;
-            int puffs = 1;
-            for (int puff = 0; puff < puffs; puff++) {
-                long puffSeed = mix(seed + puff * 0xD1B54A32D192ED03L);
-                double outward = (0.10 + unit(puffSeed, 1) * 0.58) * progress;
-                Vec3 center = node.position().subtract(impactPosition).add(
-                    dx / length * outward + signed(puffSeed, 2) * 0.28,
-                    0.10 + Math.sin(progress * Math.PI)
-                        * (0.18 + unit(puffSeed, 3) * 0.62),
-                    dz / length * outward + signed(puffSeed, 4) * 0.28);
-                float radius = (0.28F + unit(puffSeed, 5) * 0.58F)
-                    * (0.94F + (float) progress * 0.28F);
-                float alpha = (float) (0.96 * Math.pow(1.0 - progress, 0.58));
-                int green = 205 + Math.floorMod((int) (puffSeed >>> 21), 44);
-                int blue = 128 + Math.floorMod((int) (puffSeed >>> 34), 80);
-                addBillboard(pose, buffer, center, radius,
-                    unit(puffSeed, 6) * Mth.TWO_PI,
-                    255, Math.min(255, green), Math.min(235, blue), alpha, basis);
-            }
+            int tint = node.tintColor();
+            int red = hotFleck ? 255 : (tint >> 16) & 255;
+            int green = hotFleck ? 205 + Math.floorMod((int) (seed >>> 21), 44)
+                : (tint >> 8) & 255;
+            int blue = hotFleck ? 128 + Math.floorMod((int) (seed >>> 34), 80)
+                : tint & 255;
+            float radius = (hotFleck ? 0.28F + unit(seed, 5) * 0.58F
+                : 0.42F + unit(seed, 0) * 0.72F)
+                * (0.96F + (float) progress * 0.38F)
+                * (1.0F + outwardFraction * 0.22F);
+            Vec3 center = base.add(signed(seed, 2) * radius * 0.65,
+                unit(seed, 3) * radius * 0.42,
+                signed(seed, 4) * radius * 0.65);
+            addBillboard(pose, buffer, center, radius, unit(seed, 1) * Mth.TWO_PI,
+                red, Math.min(255, green), Math.min(235, blue), alpha, basis);
         }
     }
 

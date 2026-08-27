@@ -18,12 +18,12 @@
         "particle": {
           "type": "minecraft:white_ash"
         },
-        "probability": 0.118093334
+        "probability": 0.012
       }
     ],
-    "minecraft:visual/fog_color": "#514e58",
-    "minecraft:visual/sky_color": "#484b55",
-    "minecraft:visual/water_fog_color": "#252a32"
+    "minecraft:visual/fog_color": "#565044",
+    "minecraft:visual/sky_color": "#51515a",
+    "minecraft:visual/water_fog_color": "#302a18"
   },
   "carvers": [],
   "downfall": 0.0,
@@ -31,7 +31,7 @@
     "dry_foliage_color": "#746959",
     "foliage_color": "#66685e",
     "grass_color": "#69665b",
-    "water_color": "#3f6575"
+    "water_color": "#6a5b2b"
   },
   "features": [
     [],

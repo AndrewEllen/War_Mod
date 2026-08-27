@@ -1,7 +1,7 @@
-package com.andye.warmod.warhead.curtain;
+package com.andye.warmod.warhead.obscuration;
 
 import com.andye.warmod.warhead.WarheadConstants;
-import com.andye.warmod.warhead.curtain.network.ClientboundNuclearCurtainPayload;
+import com.andye.warmod.warhead.obscuration.network.ClientboundNuclearTerrainObscurationPayload;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -9,20 +9,22 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
-/** Networking boundary for the standalone packed destruction-curtain renderer. */
-public final class NuclearDestructionCurtainNetworking {
+/** Networking boundary for authoritative terrain-obscuration progress. */
+public final class NuclearTerrainObscurationNetworking {
     private static boolean registered;
 
-    private NuclearDestructionCurtainNetworking() { }
+    private NuclearTerrainObscurationNetworking() { }
 
     public static void registerPayloadTypes() {
         if (registered) return;
-        PayloadTypeRegistry.clientboundPlay().register(ClientboundNuclearCurtainPayload.TYPE,
-            ClientboundNuclearCurtainPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(
+            ClientboundNuclearTerrainObscurationPayload.TYPE,
+            ClientboundNuclearTerrainObscurationPayload.STREAM_CODEC);
         registered = true;
     }
 
-    static int send(final ServerLevel level, final ClientboundNuclearCurtainPayload payload,
+    static int send(final ServerLevel level,
+        final ClientboundNuclearTerrainObscurationPayload payload,
         final Vec3 center) {
         if (level == null || center == null || !center.isFinite() || !payload.isWellFormed()) return 0;
         double rangeSquared = WarheadConstants.VISUAL_RANGE_BLOCKS

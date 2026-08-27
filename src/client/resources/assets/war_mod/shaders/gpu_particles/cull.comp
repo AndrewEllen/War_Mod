@@ -5,6 +5,7 @@ struct Particle {
     vec4 position_age;
     vec4 velocity_lifetime;
     vec4 colour_size;
+    vec4 orientation_mode;
     uvec4 metadata;
 };
 layout(std430, binding = 0) readonly buffer ParticleBuffer { Particle particles[]; };
@@ -23,6 +24,7 @@ layout(std430, binding = 6) readonly buffer AliveInput {
 layout(std430, binding = 7) buffer StatsBuffer { uint stats[]; };
 uniform uint particleCapacity;
 uniform uint particleTypeCount;
+uniform uint visualLayerCount;
 uniform mat4 viewProjection;
 uniform vec3 cameraPosition;
 uniform float viewportHeight;
@@ -43,6 +45,7 @@ void main() {
     if (id >= particleCapacity) return;
     Particle particle = particles[id];
     uint type = min(particle.metadata.x, particleTypeCount - 1u);
+    uint layer = min(particle.metadata.z >> 16u, visualLayerCount - 1u);
     vec3 relative = particle.position_age.xyz - cameraPosition;
     float distanceSquared = dot(relative, relative);
     if (distanceSquared > 2359296.0) {
@@ -73,5 +76,7 @@ void main() {
     if (outputIndex < particleCapacity) {
         visibleIds[type * particleCapacity + outputIndex] = id;
         atomicAdd(stats[particleTypeCount * 3u + type], 1u);
+        atomicAdd(stats[particleTypeCount * 4u + 4u
+            + visualLayerCount * 3u + layer], 1u);
     }
 }

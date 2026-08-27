@@ -47,8 +47,8 @@ import com.andye.warmod.warhead.WarheadExplosionWorkManager;
 import com.andye.warmod.warhead.WarheadGlassShockwaveManager;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
-import com.andye.warmod.warhead.curtain.NuclearDestructionCurtainEmitter;
-import com.andye.warmod.warhead.curtain.NuclearDestructionCurtainNetworking;
+import com.andye.warmod.warhead.obscuration.NuclearTerrainObscurationEmitter;
+import com.andye.warmod.warhead.obscuration.NuclearTerrainObscurationNetworking;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -67,7 +67,7 @@ public final class WarMod implements ModInitializer {
         AntiAirNetworking.register();
         PhalanxNetworking.register();
         WarheadVisualNetworking.registerPayloadTypes();
-        NuclearDestructionCurtainNetworking.registerPayloadTypes();
+        NuclearTerrainObscurationNetworking.registerPayloadTypes();
         FireNetworking.registerPayloadTypes();
         FirearmNetworking.register();
         FireDebugNetworking.register();
@@ -92,7 +92,7 @@ public final class WarMod implements ModInitializer {
         com.andye.warmod.warhead.WarheadImpactChunkLeaseManager.registerLifecycle();
         WarheadExplosionWorkManager.registerLifecycle();
         WarheadGlassShockwaveManager.registerLifecycle();
-        NuclearDestructionCurtainEmitter.registerLifecycle();
+        NuclearTerrainObscurationEmitter.registerLifecycle();
         FireWindEngine.registerLifecycle();
         FireSimulationManager.registerLifecycle();
         FirearmBulletManager.register();
