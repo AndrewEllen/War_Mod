@@ -1,0 +1,443 @@
+[
+  {
+    "id": "pistol",
+    "category": "firearms",
+    "kind": "gun",
+    "cubes": 16,
+    "meshes": 0,
+    "model": "firearms/pistol.bbmodel",
+    "preview": "previews/firearms/pistol.png"
+  },
+  {
+    "id": "assault_rifle",
+    "category": "firearms",
+    "kind": "gun",
+    "cubes": 20,
+    "meshes": 0,
+    "model": "firearms/assault_rifle.bbmodel",
+    "preview": "previews/firearms/assault_rifle.png"
+  },
+  {
+    "id": "sniper_rifle",
+    "category": "firearms",
+    "kind": "gun",
+    "cubes": 23,
+    "meshes": 0,
+    "model": "firearms/sniper_rifle.bbmodel",
+    "preview": "previews/firearms/sniper_rifle.png"
+  },
+  {
+    "id": "pistol_bullet",
+    "category": "projectiles",
+    "kind": "bullet",
+    "cubes": 23,
+    "meshes": 0,
+    "model": "projectiles/pistol_bullet.bbmodel",
+    "preview": "previews/projectiles/pistol_bullet.png"
+  },
+  {
+    "id": "rifle_bullet",
+    "category": "projectiles",
+    "kind": "bullet",
+    "cubes": 24,
+    "meshes": 0,
+    "model": "projectiles/rifle_bullet.bbmodel",
+    "preview": "previews/projectiles/rifle_bullet.png"
+  },
+  {
+    "id": "sniper_bullet",
+    "category": "projectiles",
+    "kind": "bullet",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "projectiles/sniper_bullet.bbmodel",
+    "preview": "previews/projectiles/sniper_bullet.png"
+  },
+  {
+    "id": "falling_warhead",
+    "category": "projectiles",
+    "kind": "shell",
+    "cubes": 36,
+    "meshes": 0,
+    "model": "projectiles/falling_warhead.bbmodel",
+    "preview": "previews/projectiles/falling_warhead.png"
+  },
+  {
+    "id": "artillery_shell",
+    "category": "projectiles",
+    "kind": "shell",
+    "cubes": 24,
+    "meshes": 0,
+    "model": "projectiles/artillery_shell.bbmodel",
+    "preview": "previews/projectiles/artillery_shell.png"
+  },
+  {
+    "id": "anti_air_missile_mk1",
+    "category": "missiles/anti_air",
+    "kind": "missile",
+    "cubes": 50,
+    "meshes": 0,
+    "model": "missiles/anti_air/anti_air_missile_mk1.bbmodel",
+    "preview": "previews/missiles/anti_air/anti_air_missile_mk1.png"
+  },
+  {
+    "id": "anti_air_missile_mk2",
+    "category": "missiles/anti_air",
+    "kind": "missile",
+    "cubes": 56,
+    "meshes": 0,
+    "model": "missiles/anti_air/anti_air_missile_mk2.bbmodel",
+    "preview": "previews/missiles/anti_air/anti_air_missile_mk2.png"
+  },
+  {
+    "id": "artillery_cannon",
+    "category": "machines",
+    "kind": "artillery",
+    "cubes": 42,
+    "meshes": 0,
+    "model": "machines/artillery_cannon.bbmodel",
+    "preview": "previews/machines/artillery_cannon.png"
+  },
+  {
+    "id": "radar_station",
+    "category": "machines",
+    "kind": "radar",
+    "cubes": 32,
+    "meshes": 0,
+    "model": "machines/radar_station.bbmodel",
+    "preview": "previews/machines/radar_station.png"
+  },
+  {
+    "id": "missile_silo",
+    "category": "machines",
+    "kind": "silo",
+    "cubes": 38,
+    "meshes": 0,
+    "model": "machines/missile_silo.bbmodel",
+    "preview": "previews/machines/missile_silo.png"
+  },
+  {
+    "id": "missile_silo_guidance_support_tier_1",
+    "category": "machines/supports",
+    "kind": "support",
+    "cubes": 11,
+    "meshes": 0,
+    "model": "machines/supports/missile_silo_guidance_support_tier_1.bbmodel",
+    "preview": "previews/machines/supports/missile_silo_guidance_support_tier_1.png"
+  },
+  {
+    "id": "missile_silo_guidance_support_tier_2",
+    "category": "machines/supports",
+    "kind": "support",
+    "cubes": 18,
+    "meshes": 0,
+    "model": "machines/supports/missile_silo_guidance_support_tier_2.bbmodel",
+    "preview": "previews/machines/supports/missile_silo_guidance_support_tier_2.png"
+  },
+  {
+    "id": "missile_silo_guidance_support_tier_3",
+    "category": "machines/supports",
+    "kind": "support",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "machines/supports/missile_silo_guidance_support_tier_3.bbmodel",
+    "preview": "previews/machines/supports/missile_silo_guidance_support_tier_3.png"
+  },
+  {
+    "id": "rocket_launcher",
+    "category": "firearms",
+    "kind": "launcher",
+    "cubes": 20,
+    "meshes": 0,
+    "model": "firearms/rocket_launcher.bbmodel",
+    "preview": "previews/firearms/rocket_launcher.png"
+  },
+  {
+    "id": "he_rocket",
+    "category": "projectiles",
+    "kind": "missile",
+    "cubes": 51,
+    "meshes": 0,
+    "model": "projectiles/he_rocket.bbmodel",
+    "preview": "previews/projectiles/he_rocket.png"
+  },
+  {
+    "id": "radar",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 8,
+    "meshes": 0,
+    "model": "equipment/radar.bbmodel",
+    "preview": "previews/equipment/radar.png"
+  },
+  {
+    "id": "target_designator",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 9,
+    "meshes": 0,
+    "model": "equipment/target_designator.bbmodel",
+    "preview": "previews/equipment/target_designator.png"
+  },
+  {
+    "id": "remote_launch_designator",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 8,
+    "meshes": 0,
+    "model": "equipment/remote_launch_designator.bbmodel",
+    "preview": "previews/equipment/remote_launch_designator.png"
+  },
+  {
+    "id": "radar_linking_tool",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 7,
+    "meshes": 0,
+    "model": "equipment/radar_linking_tool.bbmodel",
+    "preview": "previews/equipment/radar_linking_tool.png"
+  },
+  {
+    "id": "pistol_ammo",
+    "category": "ammunition",
+    "kind": "utility",
+    "cubes": 4,
+    "meshes": 0,
+    "model": "ammunition/pistol_ammo.bbmodel",
+    "preview": "previews/ammunition/pistol_ammo.png"
+  },
+  {
+    "id": "rifle_ammo",
+    "category": "ammunition",
+    "kind": "utility",
+    "cubes": 5,
+    "meshes": 0,
+    "model": "ammunition/rifle_ammo.bbmodel",
+    "preview": "previews/ammunition/rifle_ammo.png"
+  },
+  {
+    "id": "sniper_ammo",
+    "category": "ammunition",
+    "kind": "utility",
+    "cubes": 5,
+    "meshes": 0,
+    "model": "ammunition/sniper_ammo.bbmodel",
+    "preview": "previews/ammunition/sniper_ammo.png"
+  },
+  {
+    "id": "anti_air_gun_ammo",
+    "category": "ammunition",
+    "kind": "utility",
+    "cubes": 4,
+    "meshes": 0,
+    "model": "ammunition/anti_air_gun_ammo.bbmodel",
+    "preview": "previews/ammunition/anti_air_gun_ammo.png"
+  },
+  {
+    "id": "phalanx_turret",
+    "category": "machines",
+    "kind": "utility",
+    "cubes": 10,
+    "meshes": 0,
+    "model": "machines/phalanx_turret.bbmodel",
+    "preview": "previews/machines/phalanx_turret.png"
+  },
+  {
+    "id": "radar_display_panel",
+    "category": "machines",
+    "kind": "utility",
+    "cubes": 4,
+    "meshes": 0,
+    "model": "machines/radar_display_panel.bbmodel",
+    "preview": "previews/machines/radar_display_panel.png"
+  },
+  {
+    "id": "item_pipe",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 4,
+    "meshes": 0,
+    "model": "equipment/item_pipe.bbmodel",
+    "preview": "previews/equipment/item_pipe.png"
+  },
+  {
+    "id": "pipe_wrench",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 4,
+    "meshes": 0,
+    "model": "equipment/pipe_wrench.bbmodel",
+    "preview": "previews/equipment/pipe_wrench.png"
+  },
+  {
+    "id": "fire_hose",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 4,
+    "meshes": 0,
+    "model": "equipment/fire_hose.bbmodel",
+    "preview": "previews/equipment/fire_hose.png"
+  },
+  {
+    "id": "fire_extinguisher",
+    "category": "equipment",
+    "kind": "utility",
+    "cubes": 5,
+    "meshes": 0,
+    "model": "equipment/fire_extinguisher.bbmodel",
+    "preview": "previews/equipment/fire_extinguisher.png"
+  },
+  {
+    "id": "master_explosive_test_stick",
+    "category": "debug",
+    "kind": "utility",
+    "cubes": 3,
+    "meshes": 0,
+    "model": "debug/master_explosive_test_stick.bbmodel",
+    "preview": "previews/debug/master_explosive_test_stick.png"
+  },
+  {
+    "id": "anti_air_test_stick",
+    "category": "debug",
+    "kind": "utility",
+    "cubes": 3,
+    "meshes": 0,
+    "model": "debug/anti_air_test_stick.bbmodel",
+    "preview": "previews/debug/anti_air_test_stick.png"
+  },
+  {
+    "id": "fire_debug_stick",
+    "category": "debug",
+    "kind": "utility",
+    "cubes": 3,
+    "meshes": 0,
+    "model": "debug/fire_debug_stick.bbmodel",
+    "preview": "previews/debug/fire_debug_stick.png"
+  },
+  {
+    "id": "high_explosive_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/high_explosive_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/high_explosive_tnt.png"
+  },
+  {
+    "id": "high_explosive_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/high_explosive_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/high_explosive_cluster_tnt.png"
+  },
+  {
+    "id": "high_capacity_he_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/high_capacity_he_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/high_capacity_he_tnt.png"
+  },
+  {
+    "id": "high_capacity_he_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/high_capacity_he_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/high_capacity_he_cluster_tnt.png"
+  },
+  {
+    "id": "conventional_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/conventional_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/conventional_tnt.png"
+  },
+  {
+    "id": "conventional_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/conventional_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/conventional_cluster_tnt.png"
+  },
+  {
+    "id": "heavy_conventional_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/heavy_conventional_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/heavy_conventional_tnt.png"
+  },
+  {
+    "id": "heavy_conventional_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/heavy_conventional_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/heavy_conventional_cluster_tnt.png"
+  },
+  {
+    "id": "tactical_nuclear_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/tactical_nuclear_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/tactical_nuclear_tnt.png"
+  },
+  {
+    "id": "tactical_nuclear_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/tactical_nuclear_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/tactical_nuclear_cluster_tnt.png"
+  },
+  {
+    "id": "strategic_nuclear_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/strategic_nuclear_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/strategic_nuclear_tnt.png"
+  },
+  {
+    "id": "strategic_nuclear_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/strategic_nuclear_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/strategic_nuclear_cluster_tnt.png"
+  },
+  {
+    "id": "heavy_nuclear_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 19,
+    "meshes": 0,
+    "model": "explosives/tnt/heavy_nuclear_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/heavy_nuclear_tnt.png"
+  },
+  {
+    "id": "heavy_nuclear_cluster_tnt",
+    "category": "explosives/tnt",
+    "kind": "tnt",
+    "cubes": 25,
+    "meshes": 0,
+    "model": "explosives/tnt/heavy_nuclear_cluster_tnt.bbmodel",
+    "preview": "previews/explosives/tnt/heavy_nuclear_cluster_tnt.png"
+  }
+]
