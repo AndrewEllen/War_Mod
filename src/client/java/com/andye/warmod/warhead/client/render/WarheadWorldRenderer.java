@@ -1,6 +1,9 @@
 package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadEffectProfile;
 import com.andye.warmod.warhead.WarheadPayloadType;
@@ -243,9 +246,12 @@ public final class WarheadWorldRenderer {
         poseStack.translate(relative.x, relative.y, relative.z);
         poseStack.mulPose(rotationToVelocity(warhead.velocity()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
-            WarheadRenderPipelines.PROJECTILE,
-            (pose, buffer) -> WarheadMesh.render(pose, buffer, warhead.lod(),
-                warhead.packedLight()));
+            BlockbenchModelRenderType.SOLID,
+            (pose, buffer) -> BlockbenchGameplayMeshes.render(pose, buffer,
+                Model.FALLING_WARHEAD,
+                warhead.lod() == WarheadMesh.Lod.FAR ? 0.095F
+                    : warhead.lod() == WarheadMesh.Lod.MEDIUM ? 0.072F : 0.060F,
+                0.0F, 0.0F, 0.0F, warhead.packedLight()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.CONE,
             (pose, buffer) -> ShockConeMesh.render(pose, buffer, warhead.lod(),

@@ -1,1 +1,1 @@
-{ "textures":{"mast":"war_mod:block/radar_station_mast","motor":"war_mod:block/radar_station_motor","particle":"#mast"},"elements":[{"from":[5,0,5],"to":[11,16,11],"faces":{"north":{"texture":"#mast"},"south":{"texture":"#mast"},"east":{"texture":"#mast"},"west":{"texture":"#mast"},"up":{"texture":"#motor"}}}]}
+{"ambientocclusion":false,"textures":{"particle":"war_mod:blockbench_palette/20292bff"},"elements":[]}

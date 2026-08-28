@@ -1,5 +1,7 @@
 package com.andye.warmod.rocket.client;
 
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
 import com.andye.warmod.icbm.client.render.IcbmLongRangeRenderContext;
 import com.andye.warmod.icbm.client.render.IcbmMissileMesh;
 import com.andye.warmod.icbm.client.render.IcbmPayloadAppearance;
@@ -24,15 +26,13 @@ public final class RocketProjectileMesh {
             IcbmMissileMesh.render(pose, buffer, appearance, detail, state.lightCoords);
             return;
         }
-        float half = state.lod == RocketProjectileRenderState.RocketLod.FAR ? 0.42F : 0.46F;
-        float radius = state.lod == RocketProjectileRenderState.RocketLod.NEAR ? 0.12F : 0.09F;
-        int brightness = state.lod == RocketProjectileRenderState.RocketLod.FAR ? 160 : 82;
-        box(pose, buffer, -radius, -half, -radius, radius, half * 0.58F, radius,
-            brightness, brightness + 10, 70, state.lightCoords);
-        pyramid(pose, buffer, radius, half * 0.58F, half, 112, 122, 81, state.lightCoords);
-        box(pose, buffer, -radius * 1.02F, 0.08F, -radius * 1.02F,
-            radius * 1.02F, 0.18F, radius * 1.02F, 196, 156, 39, state.lightCoords);
-        if (state.lod == RocketProjectileRenderState.RocketLod.NEAR) renderFins(pose, buffer, radius, half, state.lightCoords);
+        float scale = switch (state.lod) {
+            case NEAR -> 0.050F;
+            case MEDIUM -> 0.057F;
+            case FAR -> 0.070F;
+        };
+        BlockbenchGameplayMeshes.render(pose, buffer, Model.HE_ROCKET, scale,
+            0.0F, 0.0F, 0.0F, state.lightCoords);
     }
 
     private static void renderFins(final PoseStack.Pose pose, final VertexConsumer buffer,

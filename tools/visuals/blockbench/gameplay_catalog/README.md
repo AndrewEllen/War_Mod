@@ -45,8 +45,10 @@ The launch-silo foundation is exactly 48 by 48 model units, matching a 3x3 block
 
 Tier 1 through Tier 3 guidance supports deliberately share the same braced-mast base. Each tier adds processors and then sensor/crown hardware, producing a verified 11 -> 18 -> 25 cube progression.
 
-## Integration boundary
+## Runtime integration
 
-These files are editable design sources for the next integration pass. They do not yet replace baked item/block JSON or the current custom Java render geometry. Display transforms, UV atlas consolidation, renderer loading, collision/voxel shapes, and in-game scale must be handled during integration and visually tested in Minecraft.
+These files are the editable source of truth for the replacement runtime assets. `../export_gameplay_runtime_assets.ps1` exports the embedded palette textures, baked item/block JSON, exact 3x3 silo parts, and the generated client cube data used by articulated/projectile renderers. The MCP catalogue generator runs that exporter automatically after rebuilding the `.bbmodel` files and previews.
 
-The catalogue can be regenerated through `../generate_gameplay_model_catalog_via_mcp.ps1` while the Blockbench MCP plugin is running.
+Artillery and radar group pivots are consumed by their existing block-entity renderers. Falling warheads, artillery shells, HE rockets, anti-air missiles, and the three fired bullet heads use the generated client mesh data while retaining their existing movement, trails, and effects. Collision and voxel shapes are intentionally unchanged. Final scale, hand transforms, and animation appearance still require visual acceptance in Minecraft.
+
+Regenerate the complete catalogue through `../generate_gameplay_model_catalog_via_mcp.ps1` while the Blockbench MCP plugin is running, or rerun only the runtime export with `../export_gameplay_runtime_assets.ps1` after editing saved models.

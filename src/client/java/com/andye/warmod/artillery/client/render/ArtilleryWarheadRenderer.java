@@ -1,6 +1,9 @@
 package com.andye.warmod.artillery.client.render;
 
 import com.andye.warmod.entity.ArtilleryWarheadEntity;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.client.render.ReentryHeatingRenderer;
@@ -67,8 +70,10 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
             poses.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F),
                 direction.normalize()));
         }
-        collector.submitCustomGeometry(poses, WarheadRenderPipelines.PROJECTILE,
-            (pose, buffer) -> WarheadMesh.render(pose, buffer, state.lod, 0x00F000F0));
+        collector.submitCustomGeometry(poses, BlockbenchModelRenderType.SOLID,
+            (pose, buffer) -> BlockbenchGameplayMeshes.render(pose, buffer,
+                Model.ARTILLERY_SHELL, 0.055F, 0.0F, 0.0F, 0.0F,
+                state.lightCoords));
         collector.submitCustomGeometry(poses, WarheadRenderPipelines.CONE,
             (pose, buffer) -> ShockConeMesh.render(pose, buffer, state.lod, state.progress,
                 state.elapsedTicks, state.remainingTicks, state.velocity, state.visualSeed,

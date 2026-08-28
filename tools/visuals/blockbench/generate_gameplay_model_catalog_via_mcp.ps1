@@ -838,3 +838,9 @@ foreach($spec in $specs){
 
 $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $OutputRoot 'gameplay_model_manifest.json') -Encoding utf8
 Write-Host "Wrote $($manifest.Count) model entries."
+
+$runtimeExporter = Join-Path $PSScriptRoot 'export_gameplay_runtime_assets.ps1'
+if(-not (Test-Path -LiteralPath $runtimeExporter)){
+    throw "Runtime Blockbench exporter is missing: $runtimeExporter"
+}
+& $runtimeExporter -CatalogRoot $OutputRoot

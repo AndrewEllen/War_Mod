@@ -1,5 +1,8 @@
 package com.andye.warmod.firearm.client;
 
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.firearm.FirearmType;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -12,6 +15,8 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 /** Full-bright analytical tracers retained briefly even for same-tick hits. */
 public final class FirearmTracerRenderer {
@@ -65,8 +70,25 @@ public final class FirearmTracerRenderer {
             context.submitNodeCollector().submitCustomGeometry(stack,
                 WarheadRenderPipelines.NUCLEAR_FLASH,
                 (pose, buffer) -> ribbons(pose, buffer, direction, streak.type, streak.alpha));
+            if (direction.lengthSqr() > 1.0E-8) {
+                stack.translate(direction.x, direction.y, direction.z);
+                Vector3f heading = new Vector3f((float)direction.x,
+                    (float)direction.y, (float)direction.z).normalize();
+                stack.mulPose(new Quaternionf().rotationTo(new Vector3f(0, 1, 0), heading));
+                context.submitNodeCollector().submitCustomGeometry(stack,
+                    BlockbenchModelRenderType.SOLID,
+                    (pose, buffer) -> BlockbenchGameplayMeshes.render(pose, buffer,
+                        bulletModel(streak.type), 0.075F, 0.0F, 0.0F, 0.0F, 0xF000F0));
+            }
             stack.popPose();
         }
+    }
+    private static Model bulletModel(final FirearmType type) {
+        return switch (type) {
+            case PISTOL -> Model.PISTOL_BULLET;
+            case ASSAULT_RIFLE -> Model.RIFLE_BULLET;
+            case SNIPER_RIFLE -> Model.SNIPER_BULLET;
+        };
     }
     private static void ribbons(final PoseStack.Pose pose, final VertexConsumer buffer,
         final Vec3 direction, final FirearmType type, final float alpha) {
