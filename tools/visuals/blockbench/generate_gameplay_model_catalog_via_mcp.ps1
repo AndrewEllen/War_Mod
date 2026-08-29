@@ -1,6 +1,7 @@
 param(
     [string]$Endpoint = 'http://127.0.0.1:3000/bb-mcp',
-    [string]$OutputRoot = (Join-Path $PSScriptRoot 'gameplay_catalog')
+    [string]$OutputRoot = (Join-Path $PSScriptRoot 'gameplay_catalog'),
+    [string[]]$OnlyIds = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -458,44 +459,45 @@ function Build-Radar([hashtable]$T) {
 function Build-Silo([hashtable]$T) {
     Add-BbGroup silo_root
     Add-BbGroup foundation silo_root
-    Add-BbGroup hatch silo_root
-    Add-BbGroup controls silo_root
+    Add-BbGroup left_door silo_root @(-12,5,0)
+    Add-BbGroup right_door silo_root @(12,5,0)
 
+    # A clean three-block-square military emplacement with a recessed launch
+    # throat. The doors are separate groups so the block entity renderer can
+    # hinge them open while a missile rises from below ground.
     Cubes @(
-        (Box slab_outer -24 0 -24 24 3 24), (Box slab_inner -22 3 -22 22 5 22),
-        (Box shaft_n -12 -26 -12 12 3 -8), (Box shaft_s -12 -26 8 12 3 12),
-        (Box shaft_w -12 -26 -8 -8 3 8), (Box shaft_e 8 -26 -8 12 3 8),
-        (Box blast_wall_n -22 5 -22 22 9 -18), (Box blast_wall_s -22 5 18 22 9 22),
-        (Box blast_wall_w -22 5 -18 -18 9 18), (Box blast_wall_e 18 5 -18 22 9 18)
+        (Box lower_slab -24 0 -24 24 2 24),
+        (Box upper_slab -23 2 -23 23 4 23),
+        (Box shaft_n -12 -26 -12 12 4 -9), (Box shaft_s -12 -26 9 12 4 12),
+        (Box shaft_w -12 -26 -9 -9 4 9), (Box shaft_e 9 -26 -9 12 4 9),
+        (Box curb_n -23 4 -23 23 7 -20), (Box curb_s -23 4 20 23 7 23),
+        (Box curb_w -23 4 -20 -20 7 20), (Box curb_e 20 4 -20 23 7 20)
     ) $T.dark foundation
 
     Cubes @(
-        (Box ring_n -14 -2 -14 14 2 -10), (Box ring_s -14 -2 10 14 2 14),
-        (Box ring_w -14 -2 -10 -10 2 10), (Box ring_e 10 -2 -10 14 2 10),
-        (Box ring_diag_nw -11 -2 -13 -8 2 -10), (Box ring_diag_ne 8 -2 -13 11 2 -10),
-        (Box ring_diag_sw -11 -2 10 -8 2 13), (Box ring_diag_se 8 -2 10 11 2 13)
+        (Box throat_n -14 3 -14 14 6 -11), (Box throat_s -14 3 11 14 6 14),
+        (Box throat_w -14 3 -11 -11 6 11), (Box throat_e 11 3 -11 14 6 11),
+        (Box service_strip_n -19 4 -18 19 4.8 -16),
+        (Box service_strip_s -19 4 16 19 4.8 18)
     ) $T.body foundation
 
     Cubes @(
-        (Box door_l -11 5 -12 -.6 8 12), (Box door_r .6 5 -12 11 8 12),
-        (Box door_rib_l -10.5 8 -11.5 -.8 9.2 11.5), (Box door_rib_r .8 8 -11.5 10.5 9.2 11.5),
-        (Box rail_l -15 4 -13 -12 7 13), (Box rail_r 12 4 -13 15 7 13),
-        (Box hinge_l -13 5 -11 -10 10 11), (Box hinge_r 10 5 -11 13 10 11)
-    ) $T.body hatch
+        (Box left_leaf -11.5 5 -11 -.5 7.4 11),
+        (Box left_rib_a -10.8 7.35 -10.2 -1.2 8.15 -8.8),
+        (Box left_rib_b -10.8 7.35 8.8 -1.2 8.15 10.2),
+        (Box left_hinge -12.7 4.8 -9.5 -10.9 8.5 9.5)
+    ) $T.body left_door
 
     Cubes @(
-        (Box door_stripe_l -10.2 9.1 -1.1 -1.0 9.5 1.1),
-        (Box door_stripe_r 1.0 9.1 -1.1 10.2 9.5 1.1),
-        (Box bay_light_n -8 5 -17.8 8 7 -17.4), (Box bay_light_s -8 5 17.4 8 7 17.8)
-    ) $T.warning hatch
-
-    Cubes @(
-        (Box console 14 5 8 21 14 18), (Box console_top 13.5 13 -1 21.5 16 18),
-        (Box panel 13.3 9 10 13.6 14 17), (Box keypad 13.2 6 11 13.6 8.5 16),
-        (Box vent -21.5 6 8 -21.2 12 17), (Box emergency_box -21.8 7 -15 -18.5 13 -9)
-    ) $T.accent controls
-    Add-Block screen 13.0 10 11 13.25 13.5 16 $T.glow controls
-    Add-Block emergency_lamp -22.0 13 -14 -18.3 15 -10 $T.warning controls
+        (Box right_leaf .5 5 -11 11.5 7.4 11),
+        (Box right_rib_a 1.2 7.35 -10.2 10.8 8.15 -8.8),
+        (Box right_rib_b 1.2 7.35 8.8 10.8 8.15 10.2),
+        (Box right_hinge 10.9 4.8 -9.5 12.7 8.5 9.5)
+    ) $T.body right_door
+    Add-Block left_warning -9.2 8.1 -1.0 -2.0 8.5 1.0 $T.warning left_door
+    Add-Block right_warning 2.0 8.1 -1.0 9.2 8.5 1.0 $T.warning right_door
+    Add-Block bay_light_n -7.0 4.85 -19.9 7.0 5.55 -19.5 $T.glow foundation
+    Add-Block bay_light_s -7.0 4.85 19.5 7.0 5.55 19.9 $T.glow foundation
 }
 
 function Build-Support([int]$Tier,[hashtable]$T) {
@@ -504,40 +506,44 @@ function Build-Support([int]$Tier,[hashtable]$T) {
     Add-BbGroup electronics support_root
     Add-BbGroup antenna support_root
 
-    $h = 8 + ($Tier * 3.2)
+    # Lower support blocks sit one block above the silo foundation. Extending
+    # down by exactly one block removes the previous floating gap. The slim
+    # mast stays at the inward corner of each diagonal support cell rather than
+    # occupying the missile's centre line.
+    $h = 15 + ($Tier * 5.0)
     Cubes @(
-        (Box plinth -6 0 -6 6 2.2 6), (Box plinth_top -5.2 2.2 -5.2 5.2 3.2 5.2),
-        (Box mast -2.4 3.2 -2.4 2.4 $h 2.4),
-        (RotBox brace_nw -5.0 2.6 -.6 -3.8 ($h-.8) .6 @(-4.4,2.6,0) @(0,0,-10)),
-        (RotBox brace_ne 3.8 2.6 -.6 5.0 ($h-.8) .6 @(4.4,2.6,0) @(0,0,10)),
-        (RotBox brace_sw -.6 2.6 -5.0 .6 ($h-.8) -3.8 @(0,2.6,-4.4) @(10,0,0)),
-        (RotBox brace_se -.6 2.6 3.8 .6 ($h-.8) 5.0 @(0,2.6,4.4) @(-10,0,0))
+        (Box anchor_foot -3.4 -16 -3.4 3.4 -13.2 3.4),
+        (Box anchor_neck -2.8 -13.2 -2.8 2.8 -10.5 2.8),
+        (Box mast -1.65 -10.5 -1.65 1.65 $h 1.65),
+        (RotBox brace_x -3.0 -11.0 -.45 -1.8 ($h-1.0) .45 @(-2.4,-10.5,0) @(0,0,-5)),
+        (RotBox brace_z -.45 -11.0 -3.0 .45 ($h-1.0) -1.8 @(0,-10.5,-2.4) @(5,0,0)),
+        (Box clamp_low -2.4 -1.0 -2.4 2.4 .6 2.4),
+        (Box clamp_high -2.4 ($h-2.2) -2.4 2.4 ($h-.6) 2.4)
     ) $T.dark frame
 
     for($i = 0; $i -lt $Tier; $i++){
-        $baseY = 4.0 + ($i * 3.1)
-        Add-Block "processor_$i" 2.35 $baseY -1.8 5.8 ($baseY + 2.0) 1.8 $T.body electronics
-        Add-Block "processor_$i`_screen" 5.7 ($baseY+.35) -1.2 6.0 ($baseY + 1.65) 1.2 $T.glow electronics
-        Add-Block "power_$i" -5.8 $baseY -1.6 -2.35 ($baseY + 1.8) 1.6 $T.accent electronics
+        $baseY = 1.5 + ($i * 4.4)
+        Add-Block "processor_$i" 1.6 $baseY -1.45 3.4 ($baseY + 2.5) 1.45 $T.body electronics
+        Add-Block "processor_$i`_screen" 3.35 ($baseY+.45) -.9 3.6 ($baseY + 2.05) .9 $T.glow electronics
     }
 
     if($Tier -ge 1){
-        Add-Block ring_low -3.0 ($h - 2.5) -3.0 3.0 ($h - 1.5) 3.0 $T.stock frame
+        Add-Block ring_low -2.3 ($h - 4.8) -2.3 2.3 ($h - 3.5) 2.3 $T.stock frame
     }
     if($Tier -ge 2){
         Cubes @(
-            (Box antenna_l -4.8 $h  -.5 -3.4 ($h + 4.2) .5),
-            (Box antenna_r 3.4 $h -.5 4.8 ($h + 4.2) .5),
-            (Box crossbar -5.2 ($h+3.6) -.7 5.2 ($h+4.4) .7),
-            (RotBox sensor_panel -5.8 ($h+1.8) -4.3 -2.4 ($h+4.8) 4.3 @(-3.4,($h+3.3),0) @(0,0,-12))
+            (Box antenna_l -2.8 $h -.35 -2.0 ($h + 4.2) .35),
+            (Box antenna_r 2.0 $h -.35 2.8 ($h + 4.2) .35),
+            (Box crossbar -3.2 ($h+3.5) -.5 3.2 ($h+4.3) .5),
+            (Box inward_clamp -4.0 ($h-1.0) -1.0 -1.4 ($h+1.6) 1.0)
         ) $T.body antenna
     }
     if($Tier -ge 3){
         Cubes @(
-            (Box crown_left -6.0 ($h + 4.8) -2.6 -1.0 ($h + 6.7) 2.6),
-            (Box crown_right 1.0 ($h + 4.8) -2.6 6.0 ($h + 6.7) 2.6),
-            (Box radar_focus -1.3 ($h + 6.4) -1.1 1.3 ($h + 8.2) 1.1),
-            (Box beacon -.55 ($h+8.2) -.55 .55 ($h+10.0) .55)
+            (Box crown_left -3.7 ($h + 4.2) -1.5 -.5 ($h + 5.8) 1.5),
+            (Box crown_right .5 ($h + 4.2) -1.5 3.7 ($h + 5.8) 1.5),
+            (Box radar_focus -.9 ($h + 5.6) -.8 .9 ($h + 7.2) .8),
+            (Box beacon -.4 ($h+7.2) -.4 .4 ($h+8.8) .4)
         ) $T.glow electronics
     }
 }
@@ -635,10 +641,16 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block reinforcement -5.4 -2 4.2 5.4 -0.3 4.7 $T.accent item_root
         }
         'wrench' {
-            Add-Block handle -0.85 -8.1 -0.85 0.85 4.9 0.85 $T.body item_root
-            Add-Block jaw -4.4 2.5 -1.1 -1.2 6.4 1.1 $T.dark item_root
-            Add-Block jaw2 1.2 2.5 -1.1 4.4 6.4 1.1 $T.dark item_root
-            Add-Block ring -2 3.0 -0.9 2 5.8 0.9 $T.accent item_root
+            Add-Block handle -1.15 -9.2 -.75 1.15 3.8 .75 $T.warning item_root
+            Add-Block handle_cap -1.55 -9.8 -1.0 1.55 -8.3 1.0 $T.dark item_root
+            Add-Block slide_bar -1.7 .8 -.9 1.7 6.2 .9 $T.body item_root
+            Add-Block fixed_jaw -1.7 3.2 -1.25 4.2 5.05 1.25 $T.dark item_root
+            Add-Block fixed_tooth 3.4 4.65 -1.35 5.1 6.1 1.35 $T.stock item_root
+            Add-Block hook_spine -4.9 2.2 -1.2 -2.2 9.0 1.2 $T.dark item_root
+            Add-Block hook_top -4.9 8.0 -1.25 5.1 9.7 1.25 $T.dark item_root
+            Add-Block hook_tooth 3.5 6.75 -1.35 5.1 9.2 1.35 $T.stock item_root
+            Add-Block adjust_nut -2.35 1.3 -1.35 2.35 3.1 1.35 $T.brass item_root
+            Add-Block adjust_notch -2.5 2.0 -1.5 2.5 2.4 1.5 $T.accent item_root
         }
         'hose' {
             Add-Block nozzle -8.4 -0.8 -0.85 5.4 0.8 0.85 $T.body item_root
@@ -654,10 +666,13 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block decal -2.0 0.5 -2.9 2.0 3.8 -2.5 $T.glow item_root
         }
         'panel' {
-            Add-Block casing -7.2 -6.1 -1.6 7.2 6.2 1.6 $T.dark item_root
-            Add-Block screen -5.4 -4.4 -1.95 5.4 4.4 -1.75 $T.body item_root
-            Add-Block screen_light -5.4 -3.8 -1.98 5.4 3.8 -1.84 $T.glow item_root
-            Add-Block button_row -5.2 -5.2 -1.6 5.2 -4.8 -1.6 $T.warning item_root
+            Add-Block full_cabinet -8 -8 -8 8 8 8 $T.dark item_root
+            Add-Block front_recess -6.7 -5.8 -8.25 6.7 5.8 -7.85 $T.body item_root
+            Add-Block status_glass -5.8 -4.8 -8.42 5.8 3.9 -8.20 $T.glow item_root
+            Add-Block lower_console -6.2 -6.8 -8.35 6.2 -5.1 -7.8 $T.stock item_root
+            Add-Block warning_strip -5.6 -6.35 -8.48 1.8 -5.75 -8.30 $T.warning item_root
+            Add-Block side_vent_l -8.25 -3.8 -5.5 -7.85 4.2 5.5 $T.accent item_root
+            Add-Block side_vent_r 7.85 -3.8 -5.5 8.25 4.2 5.5 $T.accent item_root
         }
         'pipe' {
             Add-Block pipe -2.2 -8.2 -2.2 2.2 8.2 2.2 $T.body item_root
@@ -792,6 +807,14 @@ foreach($yield in $yieldSpecs){
     }
 }
 
+$allSpecs = @($specs)
+if($OnlyIds.Count -gt 0){
+    $knownIds = @($allSpecs | ForEach-Object { [string]$_.id })
+    $unknown = @($OnlyIds | Where-Object { $_ -notin $knownIds })
+    if($unknown.Count -gt 0){ throw "Unknown model id(s): $($unknown -join ', ')" }
+    $specs = @($allSpecs | Where-Object { [string]$_.id -in $OnlyIds })
+}
+
 New-McpSession
 $manifest = @()
 
@@ -869,7 +892,20 @@ foreach($spec in $specs){
     Write-Host "Exported $($spec.id) ($($data.counts.cubes) cubes)"
 }
 
-$manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $OutputRoot 'gameplay_model_manifest.json') -Encoding utf8
+$manifestPath = Join-Path $OutputRoot 'gameplay_model_manifest.json'
+if($OnlyIds.Count -gt 0 -and (Test-Path -LiteralPath $manifestPath)){
+    $existing = @(Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json)
+    $existingById = @{}; foreach($entry in $existing){ $existingById[[string]$entry.id] = $entry }
+    $updatesById = @{}; foreach($entry in $manifest){ $updatesById[[string]$entry.id] = $entry }
+    $merged = [Collections.Generic.List[object]]::new()
+    foreach($spec in $allSpecs){
+        $id = [string]$spec.id
+        if($updatesById.ContainsKey($id)){ $merged.Add($updatesById[$id]) }
+        elseif($existingById.ContainsKey($id)){ $merged.Add($existingById[$id]) }
+    }
+    $manifest = @($merged)
+}
+$manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding utf8
 Write-Host "Wrote $($manifest.Count) model entries."
 
 $runtimeExporter = Join-Path $PSScriptRoot 'export_gameplay_runtime_assets.ps1'

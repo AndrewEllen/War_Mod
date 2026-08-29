@@ -295,6 +295,11 @@ public final class WarheadLaunchService {
             ticks + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS
         );
 
+        WarheadYield exactYield = WarheadYieldRegistry.resolve(level, id,
+            radarRootTrackId, payloadType);
+        WarheadDeliveryMode exactDelivery = context == SpawnContext.CARRIER
+            ? StrategicMissilePayloadRegistry.get(radarRootTrackId, payloadType).deliveryMode()
+            : WarheadDeliveryMode.SINGLE;
         WarheadVisualNetworking.sendLaunch(
             level,
             new ClientboundWarheadLaunchPayload(
@@ -308,7 +313,9 @@ public final class WarheadLaunchService {
                 gameTime,
                 ticks,
                 seed,
-                payloadType
+                payloadType,
+                exactYield,
+                exactDelivery
             ),
             target
         );

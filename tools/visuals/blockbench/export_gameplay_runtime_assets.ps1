@@ -103,7 +103,13 @@ function Get-TexturePalette {
         }
         $key = '{0:x2}{1:x2}{2:x2}{3:x2}' -f $colour.R, $colour.G, $colour.B, $colour.A
         foreach ($directory in @($blockPaletteDirectory, $itemPaletteDirectory)) {
-            [IO.File]::WriteAllBytes((Join-Path $directory ($key + '.png')), $bytes)
+            $palettePath = Join-Path $directory ($key + '.png')
+            # Palette filenames are content-addressed by their RGBA value. An
+            # existing file is therefore already the exact runtime colour, and
+            # may be memory-mapped by a running Minecraft client on Windows.
+            if (-not (Test-Path -LiteralPath $palettePath)) {
+                [IO.File]::WriteAllBytes($palettePath, $bytes)
+            }
         }
         $palette[[string]$texture.id] = [pscustomobject]@{
             blockResource = "war_mod:block/blockbench_palette/$key"
@@ -262,10 +268,10 @@ function New-WeaponItemDisplay {
         gui = [ordered]@{ rotation = @(18, 138, 0); translation = @(0, 0, 0); scale = @($GuiScale, $GuiScale, $GuiScale) }
         ground = [ordered]@{ rotation = @(0, -90, 0); translation = @(0, 2, 0); scale = @(0.55, 0.55, 0.55) }
         fixed = [ordered]@{ rotation = @(0, -90, 0); translation = @(0, 0, 0); scale = @(0.86, 0.86, 0.86) }
-        firstperson_righthand = [ordered]@{ rotation = @(0, -90, 5); translation = @(1.2, 1.7, 1.0); scale = @($FirstPersonScale, $FirstPersonScale, $FirstPersonScale) }
-        firstperson_lefthand = [ordered]@{ rotation = @(0, 90, -5); translation = @(-1.2, 1.7, 1.0); scale = @($FirstPersonScale, $FirstPersonScale, $FirstPersonScale) }
-        thirdperson_righthand = [ordered]@{ rotation = @(0, -90, 12); translation = @(0, 2.8, 1.0); scale = @($ThirdPersonScale, $ThirdPersonScale, $ThirdPersonScale) }
-        thirdperson_lefthand = [ordered]@{ rotation = @(0, 90, -12); translation = @(0, 2.8, 1.0); scale = @($ThirdPersonScale, $ThirdPersonScale, $ThirdPersonScale) }
+        firstperson_righthand = [ordered]@{ rotation = @(0, 90, -5); translation = @(1.2, 1.7, 1.0); scale = @($FirstPersonScale, $FirstPersonScale, $FirstPersonScale) }
+        firstperson_lefthand = [ordered]@{ rotation = @(0, -90, 5); translation = @(-1.2, 1.7, 1.0); scale = @($FirstPersonScale, $FirstPersonScale, $FirstPersonScale) }
+        thirdperson_righthand = [ordered]@{ rotation = @(0, 90, -12); translation = @(0, 2.8, 1.0); scale = @($ThirdPersonScale, $ThirdPersonScale, $ThirdPersonScale) }
+        thirdperson_lefthand = [ordered]@{ rotation = @(0, -90, 12); translation = @(0, 2.8, 1.0); scale = @($ThirdPersonScale, $ThirdPersonScale, $ThirdPersonScale) }
     }
 }
 
@@ -405,6 +411,8 @@ function Clip-SiloElements {
 
 function Export-SiloBlocks {
     $model = Read-BlockbenchModel -Id 'missile_silo'
+    $staticModel = Copy-JsonValue $model
+    $staticModel.elements = @(Get-GroupElements -Model $model -GroupName 'foundation')
     $parts = [ordered]@{
         north_west = @(-1, -1); north = @(0, -1); north_east = @(1, -1)
         west = @(-1, 0); center = @(0, 0); east = @(1, 0)
@@ -413,7 +421,7 @@ function Export-SiloBlocks {
     foreach ($entry in $parts.GetEnumerator()) {
         $cellX = [int]$entry.Value[0]
         $cellZ = [int]$entry.Value[1]
-        $elements = @(Clip-SiloElements -Model $model -CellX $cellX -CellZ $cellZ)
+        $elements = @(Clip-SiloElements -Model $staticModel -CellX $cellX -CellZ $cellZ)
         $offset = @((8.0 - ($cellX * 16.0)), 0.0, (8.0 - ($cellZ * 16.0)))
         $output = New-ModelObject -Model $model -Elements $elements -Scale 1.0 -Offset $offset
         Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\missile_silo_$($entry.Key).json") -Value $output
@@ -473,6 +481,10 @@ function Export-JavaMeshes {
     $definitions.RADAR_YAW = [pscustomobject]@{ model = $radar; elements = @(Get-GroupElements -Model $radar -GroupName 'yaw_head' -DirectOnly) }
     $definitions.RADAR_PITCH = [pscustomobject]@{ model = $radar; elements = @(Get-GroupElements -Model $radar -GroupName 'pitch_dish') }
 
+    $silo = Read-BlockbenchModel -Id 'missile_silo'
+    $definitions.SILO_DOOR_LEFT = [pscustomobject]@{ model = $silo; elements = @(Get-GroupElements -Model $silo -GroupName 'left_door') }
+    $definitions.SILO_DOOR_RIGHT = [pscustomobject]@{ model = $silo; elements = @(Get-GroupElements -Model $silo -GroupName 'right_door') }
+
     $builder = [Text.StringBuilder]::new()
     [void]$builder.AppendLine('package com.andye.warmod.client.model;')
     [void]$builder.AppendLine()
@@ -498,7 +510,25 @@ function Export-JavaMeshes {
     [void]$builder.AppendLine('    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,')
     [void]$builder.AppendLine('        final Model model, final float scale, final float originX, final float originY,')
     [void]$builder.AppendLine('        final float originZ, final int light) {')
-    [void]$builder.AppendLine('        for (Cube cube : cubes(model)) cube.render(pose, buffer, scale, originX, originY, originZ, light);')
+    [void]$builder.AppendLine('        render(pose, buffer, model, scale, originX, originY, originZ, light, 255);')
+    [void]$builder.AppendLine('    }')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine('    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,')
+    [void]$builder.AppendLine('        final Model model, final float scale, final float originX, final float originY,')
+    [void]$builder.AppendLine('        final float originZ, final int light, final int alpha) {')
+    [void]$builder.AppendLine('        render(pose, buffer, model, scale, originX, originY, originZ, light, alpha,')
+    [void]$builder.AppendLine('            Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY);')
+    [void]$builder.AppendLine('    }')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine('    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,')
+    [void]$builder.AppendLine('        final Model model, final float scale, final float originX, final float originY,')
+    [void]$builder.AppendLine('        final float originZ, final int light, final int alpha,')
+    [void]$builder.AppendLine('        final float minimumCenterY, final float maximumCenterY) {')
+    [void]$builder.AppendLine('        for (Cube cube : cubes(model)) {')
+    [void]$builder.AppendLine('            float centerY = (cube.y0 + cube.y1) * 0.5F;')
+    [void]$builder.AppendLine('            if (centerY >= minimumCenterY && centerY <= maximumCenterY)')
+    [void]$builder.AppendLine('                cube.render(pose, buffer, scale, originX, originY, originZ, light, alpha);')
+    [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine('    }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('    private static Cube[] cubes(final Model model) {')
@@ -528,26 +558,26 @@ function Export-JavaMeshes {
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private void render(PoseStack.Pose pose, VertexConsumer buffer, float scale,')
-    [void]$builder.AppendLine('            float originX, float originY, float originZ, int light) {')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z0,x1,y0,z0,x1,y1,z0,x0,y1,z0,0,0,-1,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x1,y0,z1,x0,y0,z1,x0,y1,z1,x1,y1,z1,0,0,1,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z1,x0,y0,z0,x0,y1,z0,x0,y1,z1,-1,0,0,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x1,y0,z0,x1,y0,z1,x1,y1,z1,x1,y1,z0,1,0,0,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y1,z0,x1,y1,z0,x1,y1,z1,x0,y1,z1,0,1,0,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z1,x1,y0,z1,x1,y0,z0,x0,y0,z0,0,-1,0,scale,originX,originY,originZ,light);')
+    [void]$builder.AppendLine('            float originX, float originY, float originZ, int light, int alpha) {')
+    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z0,x1,y0,z0,x1,y1,z0,x0,y1,z0,0,0,-1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,x1,y0,z1,x0,y0,z1,x0,y1,z1,x1,y1,z1,0,0,1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z1,x0,y0,z0,x0,y1,z0,x0,y1,z1,-1,0,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,x1,y0,z0,x1,y0,z1,x1,y1,z1,x1,y1,z0,1,0,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,x0,y1,z0,x1,y1,z0,x1,y1,z1,x0,y1,z1,0,1,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z1,x1,y0,z1,x1,y0,z0,x0,y0,z0,0,-1,0,scale,originX,originY,originZ,light,alpha);')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private void quad(PoseStack.Pose pose, VertexConsumer buffer,')
     [void]$builder.AppendLine('            float ax,float ay,float az,float bx,float by,float bz,float cx,float cy,float cz,float dx,float dy,float dz,')
-    [void]$builder.AppendLine('            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light) {')
-    [void]$builder.AppendLine('            vertex(pose,buffer,ax,ay,az,nx,ny,nz,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            vertex(pose,buffer,bx,by,bz,nx,ny,nz,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            vertex(pose,buffer,cx,cy,cz,nx,ny,nz,scale,originX,originY,originZ,light);')
-    [void]$builder.AppendLine('            vertex(pose,buffer,dx,dy,dz,nx,ny,nz,scale,originX,originY,originZ,light);')
+    [void]$builder.AppendLine('            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light,int alpha) {')
+    [void]$builder.AppendLine('            vertex(pose,buffer,ax,ay,az,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            vertex(pose,buffer,bx,by,bz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            vertex(pose,buffer,cx,cy,cz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            vertex(pose,buffer,dx,dy,dz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private void vertex(PoseStack.Pose pose, VertexConsumer buffer, float x,float y,float z,')
-    [void]$builder.AppendLine('            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light) {')
+    [void]$builder.AppendLine('            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light,int alpha) {')
     [void]$builder.AppendLine('            float px=x-ox, py=y-oy, pz=z-oz;')
     [void]$builder.AppendLine('            float py1=py*cosX-pz*sinX, pz1=py*sinX+pz*cosX;')
     [void]$builder.AppendLine('            float px2=px*cosY+pz1*sinY, pz2=-px*sinY+pz1*cosY;')
@@ -556,7 +586,7 @@ function Export-JavaMeshes {
     [void]$builder.AppendLine('            float nnx2=nx*cosY+nnz*sinY, nnz2=-nx*sinY+nnz*cosY;')
     [void]$builder.AppendLine('            float nnx=nnx2*cosZ-nny*sinZ, nny2=nnx2*sinZ+nny*cosZ;')
     [void]$builder.AppendLine('            buffer.addVertex(pose,(px3+ox-originX)*scale,(py3+oy-originY)*scale,(pz2+oz-originZ)*scale)')
-    [void]$builder.AppendLine('                .setColor(red,green,blue,255).setUv(0,0).setOverlay(OverlayTexture.NO_OVERLAY)')
+    [void]$builder.AppendLine('                .setColor(red,green,blue,alpha).setUv(0,0).setOverlay(OverlayTexture.NO_OVERLAY)')
     [void]$builder.AppendLine('                .setLight(emissive?0xF000F0:light).setNormal(pose,nnx,nny2,nnz2);')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine('    }')
@@ -608,7 +638,7 @@ foreach ($tier in 1..3) {
     # The physical support blocks occupy the four diagonal cells around the
     # silo. Render the towers at each cell's inward corner so the four masts
     # converge around the missile inside the centre block.
-    $lower = New-ModelObject -Model $model -Elements @($model.elements) -Scale 1.0 -Offset @(20.0, 0.0, 20.0)
+    $lower = New-ModelObject -Model $model -Elements @($model.elements) -Scale 1.0 -Offset @(16.0, 0.0, 16.0)
     foreach ($part in @('front_lower', 'rear_lower')) {
         Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\guidance_tier_${tier}_$part.json") -Value $lower
     }
@@ -667,7 +697,7 @@ Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\radar_station.json') 
     })
 })
 
-Export-BlockModel -SourceId 'radar_display_panel' -Offset @(8.0, 0.0, 8.0)
+Export-BlockModel -SourceId 'radar_display_panel' -Offset @(8.0, 8.0, 8.0)
 Export-EmptyBlockModel -TargetId 'artillery_cannon'
 Export-SiloBlocks
 Export-JavaMeshes

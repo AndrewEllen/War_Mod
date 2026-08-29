@@ -68,7 +68,7 @@ public final class IcbmWorldRenderer {
 			if (!position.isFinite()) continue;
 			IcbmLongRangeRenderContext renderContext = IcbmLongRangeRenderContext.create(cameraPos, position, camera.depthFar);
 			stages.add(new StageFrame(position, state.age(time, partial), state.orientationVelocity(), state.rollDrift(),
-				state.alpha(time, partial), renderContext, light(level, position)));
+				state.alpha(time, partial), state.yield(), state.deliveryMode(), renderContext, light(level, position)));
 		}
 		frame = new Frame(cameraPos, orientation, List.copyOf(missiles), List.copyOf(stages));
 	}
@@ -116,9 +116,9 @@ public final class IcbmWorldRenderer {
 			stack.mulPose(new Quaternionf().rotateY((float) (stage.age() * stage.rollDrift())));
 			float compression = (float) transform.compression();
 			stack.scale(compression, compression, compression);
-			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.SPENT_STAGE,
-				(pose, buffer) -> SpentIcbmStageRenderer.render(pose, buffer, stage.renderContext().lod(),
-					stage.light(), stage.alpha()));
+			context.submitNodeCollector().submitCustomGeometry(stack, BlockbenchModelRenderType.TRANSLUCENT,
+				(pose, buffer) -> SpentIcbmStageRenderer.render(pose, buffer,
+					stage.yield(), stage.deliveryMode(), stage.light(), stage.alpha()));
 			stack.popPose();
 		}
 	}
@@ -149,7 +149,8 @@ public final class IcbmWorldRenderer {
 		WarheadYield yield, WarheadDeliveryMode deliveryMode,
 		IcbmLongRangeRenderContext renderContext, int light,
 		List<IcbmTrailSample> trail) { }
-	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity, float rollDrift, float alpha,
+	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity,
+		float rollDrift, float alpha, WarheadYield yield, WarheadDeliveryMode deliveryMode,
 		IcbmLongRangeRenderContext renderContext, int light) { }
 	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles, List<StageFrame> stages) {
 		private static final Frame EMPTY = new Frame(Vec3.ZERO, new Quaternionf(), List.of(), List.of());

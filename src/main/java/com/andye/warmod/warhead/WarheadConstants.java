@@ -2,7 +2,7 @@ package com.andye.warmod.warhead;
 
 public final class WarheadConstants {
 	public static final double TARGET_RANGE_BLOCKS = 1000.0;
-	public static final double VISUAL_RANGE_BLOCKS = 3072.0;
+	public static final double VISUAL_RANGE_BLOCKS = 5000.0;
 
 	public static final double MINIMUM_SPAWN_HEIGHT_ABOVE_TARGET = 160.0;
 	public static final double PREFERRED_SPAWN_HEIGHT_ABOVE_TARGET = 190.0;

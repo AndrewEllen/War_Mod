@@ -6,7 +6,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 
 /** Generated from tools/visuals/blockbench/gameplay_catalog. Do not hand-edit. */
 public final class BlockbenchGameplayMeshes {
-    public enum Model { PISTOL_BULLET, RIFLE_BULLET, SNIPER_BULLET, FALLING_WARHEAD, ARTILLERY_SHELL, HE_ROCKET, ANTI_AIR_MISSILE_MK1, ANTI_AIR_MISSILE_MK2, HIGH_EXPLOSIVE_MISSILE, HIGH_EXPLOSIVE_CLUSTER_MISSILE, HIGH_CAPACITY_HE_MISSILE, HIGH_CAPACITY_HE_CLUSTER_MISSILE, CONVENTIONAL_MISSILE, CONVENTIONAL_CLUSTER_MISSILE, HEAVY_CONVENTIONAL_MISSILE, HEAVY_CONVENTIONAL_CLUSTER_MISSILE, TACTICAL_NUCLEAR_MISSILE, TACTICAL_NUCLEAR_CLUSTER_MISSILE, STRATEGIC_NUCLEAR_MISSILE, STRATEGIC_NUCLEAR_CLUSTER_MISSILE, HEAVY_NUCLEAR_MISSILE, HEAVY_NUCLEAR_CLUSTER_MISSILE, ARTILLERY_FIXED, ARTILLERY_YAW, ARTILLERY_PITCH, RADAR_YAW, RADAR_PITCH }
+    public enum Model { PISTOL_BULLET, RIFLE_BULLET, SNIPER_BULLET, FALLING_WARHEAD, ARTILLERY_SHELL, HE_ROCKET, ANTI_AIR_MISSILE_MK1, ANTI_AIR_MISSILE_MK2, HIGH_EXPLOSIVE_MISSILE, HIGH_EXPLOSIVE_CLUSTER_MISSILE, HIGH_CAPACITY_HE_MISSILE, HIGH_CAPACITY_HE_CLUSTER_MISSILE, CONVENTIONAL_MISSILE, CONVENTIONAL_CLUSTER_MISSILE, HEAVY_CONVENTIONAL_MISSILE, HEAVY_CONVENTIONAL_CLUSTER_MISSILE, TACTICAL_NUCLEAR_MISSILE, TACTICAL_NUCLEAR_CLUSTER_MISSILE, STRATEGIC_NUCLEAR_MISSILE, STRATEGIC_NUCLEAR_CLUSTER_MISSILE, HEAVY_NUCLEAR_MISSILE, HEAVY_NUCLEAR_CLUSTER_MISSILE, ARTILLERY_FIXED, ARTILLERY_YAW, ARTILLERY_PITCH, RADAR_YAW, RADAR_PITCH, SILO_DOOR_LEFT, SILO_DOOR_RIGHT }
     private BlockbenchGameplayMeshes() { }
 
     private static final Cube[] PISTOL_BULLET = {
@@ -1148,10 +1148,44 @@ public final class BlockbenchGameplayMeshes {
         new Cube(-0.45F, 24.55F, -10.25F, 0.45F, 25.45F, -10.06F, 0F, 0F, 0F, 0F, 0F, 0F, 69, 199, 196, true)
     };
 
+    private static final Cube[] SILO_DOOR_LEFT = {
+        new Cube(-11.5F, 5F, -11F, -0.5F, 7.4F, 11F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(-10.8F, 7.35F, -10.2F, -1.2F, 8.15F, -8.8F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(-10.8F, 7.35F, 8.8F, -1.2F, 8.15F, 10.2F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(-12.7F, 4.8F, -9.5F, -10.9F, 8.5F, 9.5F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(-9.2F, 8.1F, -1F, -2F, 8.5F, 1F, 0F, 0F, 0F, 0F, 0F, 0F, 214, 82, 60, false)
+    };
+
+    private static final Cube[] SILO_DOOR_RIGHT = {
+        new Cube(0.5F, 5F, -11F, 11.5F, 7.4F, 11F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(1.2F, 7.35F, -10.2F, 10.8F, 8.15F, -8.8F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(1.2F, 7.35F, 8.8F, 10.8F, 8.15F, 10.2F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(10.9F, 4.8F, -9.5F, 12.7F, 8.5F, 9.5F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(2F, 8.1F, -1F, 9.2F, 8.5F, 1F, 0F, 0F, 0F, 0F, 0F, 0F, 214, 82, 60, false)
+    };
+
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
         final Model model, final float scale, final float originX, final float originY,
         final float originZ, final int light) {
-        for (Cube cube : cubes(model)) cube.render(pose, buffer, scale, originX, originY, originZ, light);
+        render(pose, buffer, model, scale, originX, originY, originZ, light, 255);
+    }
+
+    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final Model model, final float scale, final float originX, final float originY,
+        final float originZ, final int light, final int alpha) {
+        render(pose, buffer, model, scale, originX, originY, originZ, light, alpha,
+            Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY);
+    }
+
+    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final Model model, final float scale, final float originX, final float originY,
+        final float originZ, final int light, final int alpha,
+        final float minimumCenterY, final float maximumCenterY) {
+        for (Cube cube : cubes(model)) {
+            float centerY = (cube.y0 + cube.y1) * 0.5F;
+            if (centerY >= minimumCenterY && centerY <= maximumCenterY)
+                cube.render(pose, buffer, scale, originX, originY, originZ, light, alpha);
+        }
     }
 
     private static Cube[] cubes(final Model model) {
@@ -1183,6 +1217,8 @@ public final class BlockbenchGameplayMeshes {
             case ARTILLERY_PITCH -> ARTILLERY_PITCH;
             case RADAR_YAW -> RADAR_YAW;
             case RADAR_PITCH -> RADAR_PITCH;
+            case SILO_DOOR_LEFT -> SILO_DOOR_LEFT;
+            case SILO_DOOR_RIGHT -> SILO_DOOR_RIGHT;
         };
     }
 
@@ -1205,26 +1241,26 @@ public final class BlockbenchGameplayMeshes {
         }
 
         private void render(PoseStack.Pose pose, VertexConsumer buffer, float scale,
-            float originX, float originY, float originZ, int light) {
-            quad(pose,buffer,x0,y0,z0,x1,y0,z0,x1,y1,z0,x0,y1,z0,0,0,-1,scale,originX,originY,originZ,light);
-            quad(pose,buffer,x1,y0,z1,x0,y0,z1,x0,y1,z1,x1,y1,z1,0,0,1,scale,originX,originY,originZ,light);
-            quad(pose,buffer,x0,y0,z1,x0,y0,z0,x0,y1,z0,x0,y1,z1,-1,0,0,scale,originX,originY,originZ,light);
-            quad(pose,buffer,x1,y0,z0,x1,y0,z1,x1,y1,z1,x1,y1,z0,1,0,0,scale,originX,originY,originZ,light);
-            quad(pose,buffer,x0,y1,z0,x1,y1,z0,x1,y1,z1,x0,y1,z1,0,1,0,scale,originX,originY,originZ,light);
-            quad(pose,buffer,x0,y0,z1,x1,y0,z1,x1,y0,z0,x0,y0,z0,0,-1,0,scale,originX,originY,originZ,light);
+            float originX, float originY, float originZ, int light, int alpha) {
+            quad(pose,buffer,x0,y0,z0,x1,y0,z0,x1,y1,z0,x0,y1,z0,0,0,-1,scale,originX,originY,originZ,light,alpha);
+            quad(pose,buffer,x1,y0,z1,x0,y0,z1,x0,y1,z1,x1,y1,z1,0,0,1,scale,originX,originY,originZ,light,alpha);
+            quad(pose,buffer,x0,y0,z1,x0,y0,z0,x0,y1,z0,x0,y1,z1,-1,0,0,scale,originX,originY,originZ,light,alpha);
+            quad(pose,buffer,x1,y0,z0,x1,y0,z1,x1,y1,z1,x1,y1,z0,1,0,0,scale,originX,originY,originZ,light,alpha);
+            quad(pose,buffer,x0,y1,z0,x1,y1,z0,x1,y1,z1,x0,y1,z1,0,1,0,scale,originX,originY,originZ,light,alpha);
+            quad(pose,buffer,x0,y0,z1,x1,y0,z1,x1,y0,z0,x0,y0,z0,0,-1,0,scale,originX,originY,originZ,light,alpha);
         }
 
         private void quad(PoseStack.Pose pose, VertexConsumer buffer,
             float ax,float ay,float az,float bx,float by,float bz,float cx,float cy,float cz,float dx,float dy,float dz,
-            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light) {
-            vertex(pose,buffer,ax,ay,az,nx,ny,nz,scale,originX,originY,originZ,light);
-            vertex(pose,buffer,bx,by,bz,nx,ny,nz,scale,originX,originY,originZ,light);
-            vertex(pose,buffer,cx,cy,cz,nx,ny,nz,scale,originX,originY,originZ,light);
-            vertex(pose,buffer,dx,dy,dz,nx,ny,nz,scale,originX,originY,originZ,light);
+            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light,int alpha) {
+            vertex(pose,buffer,ax,ay,az,nx,ny,nz,scale,originX,originY,originZ,light,alpha);
+            vertex(pose,buffer,bx,by,bz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);
+            vertex(pose,buffer,cx,cy,cz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);
+            vertex(pose,buffer,dx,dy,dz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);
         }
 
         private void vertex(PoseStack.Pose pose, VertexConsumer buffer, float x,float y,float z,
-            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light) {
+            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light,int alpha) {
             float px=x-ox, py=y-oy, pz=z-oz;
             float py1=py*cosX-pz*sinX, pz1=py*sinX+pz*cosX;
             float px2=px*cosY+pz1*sinY, pz2=-px*sinY+pz1*cosY;
@@ -1233,7 +1269,7 @@ public final class BlockbenchGameplayMeshes {
             float nnx2=nx*cosY+nnz*sinY, nnz2=-nx*sinY+nnz*cosY;
             float nnx=nnx2*cosZ-nny*sinZ, nny2=nnx2*sinZ+nny*cosZ;
             buffer.addVertex(pose,(px3+ox-originX)*scale,(py3+oy-originY)*scale,(pz2+oz-originZ)*scale)
-                .setColor(red,green,blue,255).setUv(0,0).setOverlay(OverlayTexture.NO_OVERLAY)
+                .setColor(red,green,blue,alpha).setUv(0,0).setOverlay(OverlayTexture.NO_OVERLAY)
                 .setLight(emissive?0xF000F0:light).setNormal(pose,nnx,nny2,nnz2);
         }
     }

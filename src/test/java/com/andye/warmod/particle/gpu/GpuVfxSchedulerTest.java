@@ -12,6 +12,7 @@ import com.andye.warmod.particle.gpu.GpuParticleEngine.FrameSubmissions;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.VisualLayer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.world.phys.Vec3;
@@ -39,6 +40,24 @@ final class GpuVfxSchedulerTest {
         GpuVfxScheduler.ScheduledFrame second = schedule(input, 1.0, 41L);
 
         assertEquals(first, second);
+    }
+
+    @Test
+    void closeFireFieldRetainsEveryHighDetailCardWhenCapacityAllows() {
+        List<EmitterCommand> cards = ringCommands(0.0, 24, 18, 0.34F,
+            ParticleType.FIRE);
+        EffectDescriptor descriptor = new EffectDescriptor(EffectClass.FIRE_FIELD,
+            77L, new Vec3(0.0, 0.0, 0.5), 0.5F, 1.0F);
+        EffectSubmission fire = new EffectSubmission(descriptor,
+            Map.of(VisualLayer.FLAMES, cards));
+
+        GpuVfxScheduler.ScheduledFrame scheduled = GpuVfxScheduler.schedule(
+            frame(fire), CAMERA, 1.0, 9L, 0.05F, 262_144L, 100.0);
+
+        assertEquals(cards.size(), scheduled.emitters().size());
+        assertEquals(new HashSet<>(cards.stream().map(EmitterCommand::position).toList()),
+            new HashSet<>(scheduled.emitters().stream()
+                .map(EmitterCommand::position).toList()));
     }
 
     @Test

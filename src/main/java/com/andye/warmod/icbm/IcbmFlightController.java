@@ -12,6 +12,10 @@ import com.andye.warmod.silo.MissileSiloCollisionContext;
 import com.andye.warmod.silo.MissileSiloCollisionDetector;
 import com.andye.warmod.silo.MissileSiloDetonationService;
 import com.andye.warmod.warhead.WarheadLaunchService;
+import com.andye.warmod.warhead.StrategicMissilePayloadRegistry;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
+import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.Optional;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.level.ServerLevel;
@@ -35,6 +39,57 @@ public final class IcbmFlightController {
     private void resolveGuidance(ServerLevel level){guidanceResolved=true;var resolution=IcbmGuidanceResolver.resolve(guidanceProfile,activeFlightPlan.missileId(),candidate->IcbmLaunchService.retargetFromBurnout(level,activeFlightPlan,candidate).isPresent());IcbmFlightPlan revised=IcbmLaunchService.retargetFromBurnout(level,activeFlightPlan,resolution.resolvedTarget()).orElse(activeFlightPlan);if(!IcbmLaunchService.validBoostGeometry(revised)){if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.warn("ICBM {} invalid boost geometry: launch={}, burnout={}",revised.missileId(),revised.launchPosition(),revised.burnoutPosition());revised=activeFlightPlan;}activeFlightPlan=revised;chunkTickets.updatePlan(revised);RadarTrackingService.updateIcbmPlan(level,revised);IcbmVisualNetworking.sendGuidanceUpdate(level,new ClientboundIcbmGuidanceUpdatePayload(revised.missileId(),revised.separationPosition(),revised.intendedTarget(),revised.coastTicks(),resolution.guidanceTier(),resolution.errorX(),resolution.errorZ(),level.getGameTime()),revised.ownerPlayerId(),revised.launchPosition());if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("ICBM {} guidance resolved: tier={}, requested={}, offset=<{},{}>, resolved={}",revised.missileId(),resolution.guidanceTier(),resolution.requestedTarget(),resolution.errorX(),resolution.errorZ(),resolution.resolvedTarget());}
     private void collide(ServerLevel level,MissileSiloCollisionDetector.Collision hit){IcbmVisualNetworking.sendRemove(level,activeFlightPlan.missileId(),activeFlightPlan.ownerPlayerId(),activeFlightPlan.launchPosition(),hit.impactPosition());chunkTickets.releaseAll(level);MissileSiloDetonationService.detonateAt(level,activeFlightPlan.ownerPlayerId(),activeFlightPlan.missileId(),activeFlightPlan.missileId(),hit.impactPosition(),activeFlightPlan.visualSeed(),activeFlightPlan.payloadType());if(SharedConstants.IS_RUNNING_IN_IDE)WarMod.LOGGER.info("Silo missile {} struck block {} at {}",activeFlightPlan.missileId(),hit.blockPosition(),hit.impactPosition());completed=true;}
     public void cancel(ServerLevel level){if(completed)return;IcbmVisualNetworking.sendRemove(level,activeFlightPlan.missileId(),activeFlightPlan.ownerPlayerId(),activeFlightPlan.launchPosition(),activeFlightPlan.intendedTarget());complete(level);}
-    private void separate(ServerLevel level,long elapsed){separated=true;ServerPlayer owner=level.getServer().getPlayerList().getPlayer(activeFlightPlan.ownerPlayerId());if(owner!=null&&owner.level()!=level)owner=null;Vec3 velocity=IcbmTrajectory.velocity(activeFlightPlan,activeFlightPlan.separationTick());var strategic=com.andye.warmod.warhead.StrategicMissilePayloadRegistry.get(activeFlightPlan.missileId(),activeFlightPlan.payloadType());java.util.List<WarheadLaunchService.LaunchResult> terminals=strategic.deliveryMode()==com.andye.warmod.warhead.WarheadDeliveryMode.CLUSTER_FOUR?WarheadLaunchService.launchClusterFromCarrier(level,owner,activeFlightPlan.separationPosition(),activeFlightPlan.intendedTarget(),activeFlightPlan.visualSeed(),activeFlightPlan.payloadType(),activeFlightPlan.missileId()):WarheadLaunchService.launchFromCarrier(level,owner,activeFlightPlan.separationPosition(),activeFlightPlan.intendedTarget(),activeFlightPlan.visualSeed(),activeFlightPlan.payloadType(),activeFlightPlan.missileId()).map(java.util.List::of).orElseGet(java.util.List::of);if(terminals.isEmpty()){IcbmVisualNetworking.sendRemove(level,activeFlightPlan.missileId(),activeFlightPlan.ownerPlayerId(),activeFlightPlan.launchPosition(),activeFlightPlan.intendedTarget());RadarTrackingService.removeTrack(level,activeFlightPlan.missileId(),RadarRemovalReason.TERMINAL_LAUNCH_FAILED);complete(level);return;}int longest=0;for(var terminal:terminals){RadarTrackingService.registerTerminalSeparation(level,activeFlightPlan.missileId(),terminal);longest=Math.max(longest,terminal.flightTicks());}var primary=terminals.getFirst();chunkTickets.markSeparated(elapsed);cleanupElapsed=(long)activeFlightPlan.separationTick()+longest+IcbmConstants.IMPACT_CHUNK_TAIL_TICKS;IcbmVisualNetworking.sendSeparation(level,new ClientboundIcbmSeparationPayload(activeFlightPlan.missileId(),primary.warheadId(),activeFlightPlan.separationPosition(),velocity,level.getGameTime(),activeFlightPlan.visualSeed(),activeFlightPlan.payloadType()),activeFlightPlan.ownerPlayerId(),activeFlightPlan.launchPosition(),activeFlightPlan.intendedTarget());if(SharedConstants.IS_RUNNING_IN_IDE&&terminals.size()==4)WarMod.LOGGER.info("ICBM {} separated cluster: payload={}, children={}",activeFlightPlan.missileId(),activeFlightPlan.payloadType(),terminals.size());}
+    private void separate(final ServerLevel level, final long elapsed) {
+        separated = true;
+        ServerPlayer owner = level.getServer().getPlayerList()
+            .getPlayer(activeFlightPlan.ownerPlayerId());
+        if (owner != null && owner.level() != level) owner = null;
+        Vec3 velocity = IcbmTrajectory.velocity(activeFlightPlan,
+            activeFlightPlan.separationTick());
+        var strategic = StrategicMissilePayloadRegistry.get(activeFlightPlan.missileId(),
+            activeFlightPlan.payloadType());
+        java.util.List<WarheadLaunchService.LaunchResult> terminals =
+            strategic.deliveryMode() == WarheadDeliveryMode.CLUSTER_FOUR
+                ? WarheadLaunchService.launchClusterFromCarrier(level, owner,
+                    activeFlightPlan.separationPosition(), activeFlightPlan.intendedTarget(),
+                    activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(),
+                    activeFlightPlan.missileId())
+                : WarheadLaunchService.launchFromCarrier(level, owner,
+                    activeFlightPlan.separationPosition(), activeFlightPlan.intendedTarget(),
+                    activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(),
+                    activeFlightPlan.missileId()).map(java.util.List::of)
+                    .orElseGet(java.util.List::of);
+        if (terminals.isEmpty()) {
+            IcbmVisualNetworking.sendRemove(level, activeFlightPlan.missileId(),
+                activeFlightPlan.ownerPlayerId(), activeFlightPlan.launchPosition(),
+                activeFlightPlan.intendedTarget());
+            RadarTrackingService.removeTrack(level, activeFlightPlan.missileId(),
+                RadarRemovalReason.TERMINAL_LAUNCH_FAILED);
+            complete(level);
+            return;
+        }
+        int longest = 0;
+        for (var terminal : terminals) {
+            RadarTrackingService.registerTerminalSeparation(level,
+                activeFlightPlan.missileId(), terminal);
+            longest = Math.max(longest, terminal.flightTicks());
+        }
+        var primary = terminals.getFirst();
+        WarheadYield exactYield = WarheadYieldRegistry.resolve(level,
+            activeFlightPlan.missileId(), activeFlightPlan.missileId(),
+            activeFlightPlan.payloadType());
+        chunkTickets.markSeparated(elapsed);
+        cleanupElapsed = (long) activeFlightPlan.separationTick() + longest
+            + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS;
+        IcbmVisualNetworking.sendSeparation(level, new ClientboundIcbmSeparationPayload(
+            activeFlightPlan.missileId(), primary.warheadId(),
+            activeFlightPlan.separationPosition(), velocity, level.getGameTime(),
+            activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(), exactYield,
+            strategic.deliveryMode()), activeFlightPlan.ownerPlayerId(),
+            activeFlightPlan.launchPosition(), activeFlightPlan.intendedTarget());
+        if (SharedConstants.IS_RUNNING_IN_IDE && terminals.size() == 4)
+            WarMod.LOGGER.info("ICBM {} separated cluster: payload={}, children={}",
+                activeFlightPlan.missileId(), activeFlightPlan.payloadType(), terminals.size());
+    }
     private void complete(ServerLevel level){chunkTickets.releaseAll(level);com.andye.warmod.warhead.StrategicMissilePayloadRegistry.remove(activeFlightPlan.missileId());completed=true;}
 }

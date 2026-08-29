@@ -13,6 +13,12 @@ public final class BlockbenchModelRenderType {
             .withTexture("Sampler0", Identifier.fromNamespaceAndPath(WarMod.MOD_ID,
                 "textures/blockbench_palette/ffffffff.png"))
             .useLightmap().useOverlay().createRenderSetup());
+    public static final RenderType TRANSLUCENT = RenderType.create(
+        "war_mod_blockbench_models_translucent",
+        RenderSetup.builder(RenderPipelines.ENTITY_TRANSLUCENT)
+            .withTexture("Sampler0", Identifier.fromNamespaceAndPath(WarMod.MOD_ID,
+                "textures/blockbench_palette/ffffffff.png"))
+            .useLightmap().useOverlay().sortOnUpload().createRenderSetup());
 
     private BlockbenchModelRenderType() { }
 }

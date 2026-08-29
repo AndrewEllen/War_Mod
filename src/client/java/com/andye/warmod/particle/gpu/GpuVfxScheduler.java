@@ -283,6 +283,10 @@ final class GpuVfxScheduler {
             ordered = new ArrayList<>(ordered.subList(0, slots));
             return scaleCommands(ordered, demand.allocatedRate);
         }
+        if (demand.descriptor.effectClass() == EffectClass.FIRE_FIELD
+            && (demand.layer == VisualLayer.FLAMES || demand.layer == VisualLayer.SMOKE)) {
+            return stableFireRepresentatives(demand, slots);
+        }
         List<List<EmitterCommand>> buckets = topologyBuckets(demand);
         if (buckets.isEmpty()) return List.of();
         if (buckets.size() > slots) {
@@ -323,6 +327,43 @@ final class GpuVfxScheduler {
             }
         }
         return result;
+    }
+
+    /**
+     * Fire cards are persistent world features, not interchangeable particles.
+     * Select stable source cards instead of recomputing aggregate centroids when
+     * the GPU budget changes; surviving flames therefore stay in place.
+     */
+    private static List<EmitterCommand> stableFireRepresentatives(
+        final LayerDemand demand, final int slots) {
+        List<List<EmitterCommand>> buckets = topologyBuckets(demand);
+        if (buckets.isEmpty()) return List.of();
+        if (buckets.size() > slots) {
+            ArrayList<List<EmitterCommand>> selected = new ArrayList<>(slots);
+            for (int slot = 0; slot < slots; slot++) {
+                int index = (int) ((long) slot * buckets.size() / slots);
+                selected.add(buckets.get(index));
+            }
+            buckets = selected;
+        }
+        ArrayList<List<EmitterCommand>> orderedBuckets = new ArrayList<>(buckets.size());
+        for (List<EmitterCommand> source : buckets) {
+            ArrayList<EmitterCommand> ordered = new ArrayList<>(source);
+            ordered.sort(Comparator.comparingLong(command -> mix64(
+                Integer.toUnsignedLong(command.seed()) ^ demand.descriptor.id())));
+            orderedBuckets.add(ordered);
+        }
+        ArrayList<EmitterCommand> selected = new ArrayList<>(slots);
+        for (int depth = 0; selected.size() < slots; depth++) {
+            boolean added = false;
+            for (List<EmitterCommand> bucket : orderedBuckets) {
+                if (depth >= bucket.size() || selected.size() >= slots) continue;
+                selected.add(bucket.get(depth));
+                added = true;
+            }
+            if (!added) break;
+        }
+        return scaleCommands(selected, demand.allocatedRate);
     }
 
     private static List<EmitterCommand> scaleCommands(final List<EmitterCommand> commands,
@@ -633,6 +674,8 @@ final class GpuVfxScheduler {
         }
 
         private int desiredSlots() {
+            if (descriptor.effectClass() == EffectClass.FIRE_FIELD)
+                return commands.size();
             int rateSlots = Math.max(1, (int) Math.ceil(allocatedRate / 64.0));
             return Math.min(commands.size(), Math.max(rateSlots, topologyFloor()));
         }

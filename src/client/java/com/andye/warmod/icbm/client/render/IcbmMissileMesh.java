@@ -10,6 +10,8 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 
 public final class IcbmMissileMesh {
+    private enum Section { FULL, STAGE, WARHEAD }
+
     private IcbmMissileMesh() { }
 
     /** Renders the exact saved Blockbench missile for this yield and delivery mode. */
@@ -33,7 +35,68 @@ public final class IcbmMissileMesh {
             case HEAVY_NUCLEAR -> cluster
                 ? Model.HEAVY_NUCLEAR_CLUSTER_MISSILE : Model.HEAVY_NUCLEAR_MISSILE;
         };
-        float sourceHeight = switch (yield) {
+        BlockbenchGameplayMeshes.render(pose, buffer, model,
+            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight(yield),
+            0.0F, originY(yield, Section.FULL), 0.0F, light);
+    }
+
+    public static void renderStage(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
+        final int light, final int alpha) {
+        renderSection(pose, buffer, yield, deliveryMode, Section.STAGE, light, alpha);
+    }
+
+    public static void renderWarhead(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
+        final int light) {
+        renderSection(pose, buffer, yield, deliveryMode, Section.WARHEAD, light, 255);
+    }
+
+    private static void renderSection(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
+        final Section section, final int light, final int alpha) {
+        boolean cluster = deliveryMode == WarheadDeliveryMode.CLUSTER_FOUR;
+        Model full = switch (yield) {
+            case HIGH_EXPLOSIVE -> cluster
+                ? Model.HIGH_EXPLOSIVE_CLUSTER_MISSILE : Model.HIGH_EXPLOSIVE_MISSILE;
+            case HIGH_CAPACITY_HE -> cluster
+                ? Model.HIGH_CAPACITY_HE_CLUSTER_MISSILE : Model.HIGH_CAPACITY_HE_MISSILE;
+            case CONVENTIONAL -> cluster
+                ? Model.CONVENTIONAL_CLUSTER_MISSILE : Model.CONVENTIONAL_MISSILE;
+            case HEAVY_CONVENTIONAL -> cluster
+                ? Model.HEAVY_CONVENTIONAL_CLUSTER_MISSILE : Model.HEAVY_CONVENTIONAL_MISSILE;
+            case TACTICAL_NUCLEAR -> cluster
+                ? Model.TACTICAL_NUCLEAR_CLUSTER_MISSILE : Model.TACTICAL_NUCLEAR_MISSILE;
+            case STRATEGIC_NUCLEAR -> cluster
+                ? Model.STRATEGIC_NUCLEAR_CLUSTER_MISSILE : Model.STRATEGIC_NUCLEAR_MISSILE;
+            case HEAVY_NUCLEAR -> cluster
+                ? Model.HEAVY_NUCLEAR_CLUSTER_MISSILE : Model.HEAVY_NUCLEAR_MISSILE;
+        };
+        float separationY = separationY(yield);
+        float minimumY = section == Section.WARHEAD
+            ? separationY : Float.NEGATIVE_INFINITY;
+        float maximumY = section == Section.STAGE
+            ? separationY : Float.POSITIVE_INFINITY;
+        BlockbenchGameplayMeshes.render(pose, buffer, full,
+            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight(yield),
+            0.0F, originY(yield, section), 0.0F, light, alpha,
+            minimumY, maximumY);
+    }
+
+    private static float separationY(final WarheadYield yield) {
+        return switch (yield) {
+            case HIGH_EXPLOSIVE -> 8.0F;
+            case HIGH_CAPACITY_HE -> 8.5F;
+            case CONVENTIONAL -> 9.0F;
+            case HEAVY_CONVENTIONAL -> 9.5F;
+            case TACTICAL_NUCLEAR -> 10.0F;
+            case STRATEGIC_NUCLEAR -> 10.5F;
+            case HEAVY_NUCLEAR -> 11.0F;
+        };
+    }
+
+    private static float sourceHeight(final WarheadYield yield) {
+        return switch (yield) {
             case HIGH_EXPLOSIVE -> 34.15F;
             case HIGH_CAPACITY_HE -> 35.65F;
             case CONVENTIONAL -> 37.15F;
@@ -41,16 +104,33 @@ public final class IcbmMissileMesh {
             case STRATEGIC_NUCLEAR -> 40.65F;
             case HEAVY_NUCLEAR -> 42.15F;
         };
-        float originY = switch (yield) {
+    }
+
+    private static float originY(final WarheadYield yield, final Section section) {
+        if (section == Section.STAGE) return switch (yield) {
+            case HIGH_EXPLOSIVE -> -3.575F;
+            case HIGH_CAPACITY_HE -> -4.425F;
+            case CONVENTIONAL -> -4.675F;
+            case HEAVY_CONVENTIONAL, STRATEGIC_NUCLEAR -> -4.925F;
+            case TACTICAL_NUCLEAR -> -3.925F;
+            case HEAVY_NUCLEAR -> -3.45F;
+        };
+        if (section == Section.WARHEAD) return switch (yield) {
+            case HIGH_EXPLOSIVE -> 12.9F;
+            case HIGH_CAPACITY_HE -> 13.4F;
+            case CONVENTIONAL -> 13.9F;
+            case HEAVY_CONVENTIONAL -> 14.4F;
+            case TACTICAL_NUCLEAR -> 14.9F;
+            case STRATEGIC_NUCLEAR -> 15.4F;
+            case HEAVY_NUCLEAR -> 15.9F;
+        };
+        return switch (yield) {
             case HIGH_EXPLOSIVE -> 0.725F;
             case HIGH_CAPACITY_HE, TACTICAL_NUCLEAR -> 0.475F;
             case CONVENTIONAL -> 0.225F;
             case HEAVY_CONVENTIONAL, STRATEGIC_NUCLEAR -> -0.025F;
             case HEAVY_NUCLEAR -> -0.275F;
         };
-        BlockbenchGameplayMeshes.render(pose, buffer, model,
-            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight,
-            0.0F, originY, 0.0F, light);
     }
 
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,

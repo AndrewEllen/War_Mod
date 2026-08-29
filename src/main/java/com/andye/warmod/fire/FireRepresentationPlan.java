@@ -41,12 +41,23 @@ public final class FireRepresentationPlan {
             projectedCellDiameter * projectedCellDiameter);
         double flameTarget = Mth.clamp(TARGET_FLAME_PIXELS / Math.sqrt(quality), 18.0, 32.0);
         double smokeTarget = Mth.clamp(TARGET_SMOKE_PIXELS / Math.sqrt(quality), 36.0, 72.0);
-        int minimum = Math.max(1, (int) Math.ceil(occupied / 16.0));
-        int flameCount = desiredCount(projectedArea, flameTarget, minimum,
+        int baseMinimum = Math.max(1, (int) Math.ceil(occupied / 16.0));
+        int detailLevel = FireVisualLodPolicy.level(projectedCellDiameter);
+        int flameMinimum = Math.max(baseMinimum, switch (detailLevel) {
+            case 0 -> Math.min(8, Math.max(4, (int) Math.ceil(occupied / 4.0)));
+            case 1 -> Math.min(4, Math.max(2, (int) Math.ceil(occupied / 8.0)));
+            default -> 1;
+        });
+        int smokeMinimum = Math.max(baseMinimum, switch (detailLevel) {
+            case 0 -> Math.min(6, Math.max(3, (int) Math.ceil(occupied / 5.0)));
+            case 1 -> Math.min(3, Math.max(2, (int) Math.ceil(occupied / 10.0)));
+            default -> 1;
+        });
+        int flameCount = desiredCount(projectedArea, flameTarget, flameMinimum,
             MAX_FLAME_CARDS_PER_CELL, flameArea, flameDepth, maximumFlameRadius(cell),
             0.96);
         int smokeCount = cell.smokeMass() <= 0.012F ? 0
-            : desiredCount(projectedArea, smokeTarget, minimum,
+            : desiredCount(projectedArea, smokeTarget, smokeMinimum,
                 MAX_SMOKE_CARDS_PER_CELL, smokeArea, smokeDepth,
                 maximumSmokeRadius(cell), 0.72);
 

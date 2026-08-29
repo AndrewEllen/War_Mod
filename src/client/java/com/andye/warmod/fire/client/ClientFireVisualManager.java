@@ -262,7 +262,7 @@ public final class ClientFireVisualManager {
                 lerp(cell.averageIntensity(), incoming.averageIntensity(), 0.44F),
                 lerp(cell.coveredArea(), incoming.coveredArea(), 0.40F),
                 cell.wind().lerp(incoming.wind(), 0.34), incoming.hostCount(),
-                incoming.seed(), incoming.dominantFace(), incoming.phase(),
+                cell.seed(), incoming.dominantFace(), incoming.phase(),
                 incoming.ignitionGameTime());
             return new CellVisual(smoothed, now, currentWeight, 1.0F, now);
         }

@@ -1,14 +1,15 @@
 package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
-import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
-import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
 import com.andye.warmod.client.model.BlockbenchModelRenderType;
+import com.andye.warmod.icbm.client.render.IcbmMissileMesh;
 import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
 import com.andye.warmod.warhead.WarheadEffectProfile;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.WarheadYieldScaling;
+import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.client.ClientDebrisBatchManager;
 import com.andye.warmod.warhead.client.ClientWarheadVisualManager;
 import com.andye.warmod.warhead.client.ImpactVisualState;
@@ -108,7 +109,8 @@ public final class WarheadWorldRenderer {
             warheads.add(new WarheadFrame(position, velocity,
                 (float) state.progressAt(gameTime, partialTick), (float) elapsed,
                 (float) Math.max(0.0, state.flightTicks() - elapsed), state.flightTicks(),
-                state.visualSeed(), lod(distance), sampledLight(level, position)));
+                state.visualSeed(), state.yield(), state.deliveryMode(), lod(distance),
+                sampledLight(level, position)));
         }
 
         List<ImpactFrame> impacts = new ArrayList<>();
@@ -247,11 +249,8 @@ public final class WarheadWorldRenderer {
         poseStack.mulPose(rotationToVelocity(warhead.velocity()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             BlockbenchModelRenderType.SOLID,
-            (pose, buffer) -> BlockbenchGameplayMeshes.render(pose, buffer,
-                Model.FALLING_WARHEAD,
-                warhead.lod() == WarheadMesh.Lod.FAR ? 0.095F
-                    : warhead.lod() == WarheadMesh.Lod.MEDIUM ? 0.072F : 0.060F,
-                0.0F, 0.0F, 0.0F, warhead.packedLight()));
+            (pose, buffer) -> IcbmMissileMesh.renderWarhead(pose, buffer,
+                warhead.yield(), warhead.deliveryMode(), warhead.packedLight()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.CONE,
             (pose, buffer) -> ShockConeMesh.render(pose, buffer, warhead.lod(),
@@ -915,6 +914,7 @@ public final class WarheadWorldRenderer {
 
     private record WarheadFrame(Vec3 position, Vec3 velocity, float progress,
         float elapsedTicks, float remainingTicks, int flightTicks, long visualSeed,
+        WarheadYield yield, WarheadDeliveryMode deliveryMode,
         WarheadMesh.Lod lod, int packedLight) { }
 
     private record ImpactFrame(UUID id, Vec3 position, double ageTicks,

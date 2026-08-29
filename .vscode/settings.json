@@ -20,5 +20,5 @@
     "JAVA_HOME": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7",
     "PATH": "C:\\Users\\porta\\.jdks\\jdk-25.0.4+7\\bin;${env:PATH}"
   },
-  "java.debug.settings.onBuildFailureProceed": false
+  "java.debug.settings.onBuildFailureProceed": true
 }

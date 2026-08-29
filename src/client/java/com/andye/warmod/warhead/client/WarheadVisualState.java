@@ -1,7 +1,9 @@
 package com.andye.warmod.warhead.client;
 
 import com.andye.warmod.warhead.WarheadConstants;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.WarheadTrajectory;
 import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
@@ -20,6 +22,8 @@ public final class WarheadVisualState {
     private final long visualSeed;
     private final int flightTicks;
     private final WarheadPayloadType payloadType;
+    private final WarheadYield yield;
+    private final WarheadDeliveryMode deliveryMode;
     private int pausedSimulationTicks;
     private boolean waiting;
     private Vec3 safePosition;
@@ -28,6 +32,13 @@ public final class WarheadVisualState {
 
     public WarheadVisualState(final UUID id, final Vec3 start, final Vec3 target,
         final long time, final int ticks, final long seed, final WarheadPayloadType payload) {
+        this(id, start, target, time, ticks, seed, payload,
+            WarheadYield.defaultFor(payload), WarheadDeliveryMode.SINGLE);
+    }
+
+    public WarheadVisualState(final UUID id, final Vec3 start, final Vec3 target,
+        final long time, final int ticks, final long seed, final WarheadPayloadType payload,
+        final WarheadYield exactYield, final WarheadDeliveryMode exactDeliveryMode) {
         warheadId = id;
         startPosition = start;
         intendedTarget = target;
@@ -35,6 +46,8 @@ public final class WarheadVisualState {
         flightTicks = ticks;
         visualSeed = seed;
         payloadType = payload;
+        yield = exactYield;
+        deliveryMode = exactDeliveryMode;
         safePosition = start;
     }
 
@@ -43,7 +56,7 @@ public final class WarheadVisualState {
             new Vec3(payload.startX(), payload.startY(), payload.startZ()),
             new Vec3(payload.targetX(), payload.targetY(), payload.targetZ()),
             payload.launchGameTime(), payload.flightTicks(), payload.visualSeed(),
-            payload.payloadType());
+            payload.payloadType(), payload.yield(), payload.deliveryMode());
     }
 
     public void applyTimingCorrection(final ClientboundWarheadTimingCorrectionPayload payload) {
@@ -65,6 +78,8 @@ public final class WarheadVisualState {
     public int flightTicks() { return flightTicks; }
     public long visualSeed() { return visualSeed; }
     public WarheadPayloadType payloadType() { return payloadType; }
+    public WarheadYield yield() { return yield; }
+    public WarheadDeliveryMode deliveryMode() { return deliveryMode; }
 
     public double elapsedTicks(final long time, final double partial) {
         return Math.max(0.0, time - launchGameTime - pausedSimulationTicks)

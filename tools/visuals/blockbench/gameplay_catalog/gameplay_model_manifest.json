@@ -111,7 +111,7 @@
     "id": "missile_silo",
     "category": "machines",
     "kind": "silo",
-    "cubes": 38,
+    "cubes": 28,
     "meshes": 0,
     "model": "machines/missile_silo.bbmodel",
     "preview": "previews/machines/missile_silo.png"
@@ -120,7 +120,7 @@
     "id": "missile_silo_guidance_support_tier_1",
     "category": "machines/supports",
     "kind": "support",
-    "cubes": 11,
+    "cubes": 10,
     "meshes": 0,
     "model": "machines/supports/missile_silo_guidance_support_tier_1.bbmodel",
     "preview": "previews/machines/supports/missile_silo_guidance_support_tier_1.png"
@@ -129,7 +129,7 @@
     "id": "missile_silo_guidance_support_tier_2",
     "category": "machines/supports",
     "kind": "support",
-    "cubes": 18,
+    "cubes": 16,
     "meshes": 0,
     "model": "machines/supports/missile_silo_guidance_support_tier_2.bbmodel",
     "preview": "previews/machines/supports/missile_silo_guidance_support_tier_2.png"
@@ -138,7 +138,7 @@
     "id": "missile_silo_guidance_support_tier_3",
     "category": "machines/supports",
     "kind": "support",
-    "cubes": 25,
+    "cubes": 22,
     "meshes": 0,
     "model": "machines/supports/missile_silo_guidance_support_tier_3.bbmodel",
     "preview": "previews/machines/supports/missile_silo_guidance_support_tier_3.png"
@@ -246,7 +246,7 @@
     "id": "radar_display_panel",
     "category": "machines",
     "kind": "utility",
-    "cubes": 4,
+    "cubes": 7,
     "meshes": 0,
     "model": "machines/radar_display_panel.bbmodel",
     "preview": "previews/machines/radar_display_panel.png"
@@ -264,7 +264,7 @@
     "id": "pipe_wrench",
     "category": "equipment",
     "kind": "utility",
-    "cubes": 4,
+    "cubes": 10,
     "meshes": 0,
     "model": "equipment/pipe_wrench.bbmodel",
     "preview": "previews/equipment/pipe_wrench.png"
