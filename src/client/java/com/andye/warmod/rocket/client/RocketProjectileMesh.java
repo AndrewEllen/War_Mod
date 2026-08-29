@@ -4,8 +4,9 @@ import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
 import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
 import com.andye.warmod.icbm.client.render.IcbmLongRangeRenderContext;
 import com.andye.warmod.icbm.client.render.IcbmMissileMesh;
-import com.andye.warmod.icbm.client.render.IcbmPayloadAppearance;
 import com.andye.warmod.rocket.RocketPayloadType;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -21,9 +22,10 @@ public final class RocketProjectileMesh {
                 case MEDIUM -> IcbmLongRangeRenderContext.Lod.MEDIUM;
                 case FAR -> IcbmLongRangeRenderContext.Lod.EXTREME;
             };
-            IcbmPayloadAppearance appearance = state.payloadType == RocketPayloadType.NUCLEAR_ICBM
-                ? IcbmPayloadAppearance.NUCLEAR : IcbmPayloadAppearance.CONVENTIONAL;
-            IcbmMissileMesh.render(pose, buffer, appearance, detail, state.lightCoords);
+            WarheadYield yield = state.payloadType == RocketPayloadType.NUCLEAR_ICBM
+                ? WarheadYield.STRATEGIC_NUCLEAR : WarheadYield.CONVENTIONAL;
+            IcbmMissileMesh.render(pose, buffer, yield, WarheadDeliveryMode.SINGLE,
+                detail, state.lightCoords);
             return;
         }
         float scale = switch (state.lod) {

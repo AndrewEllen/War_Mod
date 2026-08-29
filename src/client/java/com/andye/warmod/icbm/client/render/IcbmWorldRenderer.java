@@ -1,11 +1,14 @@
 package com.andye.warmod.icbm.client.render;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.icbm.IcbmTrajectory;
 import com.andye.warmod.icbm.client.ClientIcbmVisualManager;
 import com.andye.warmod.icbm.client.IcbmTrailSample;
 import com.andye.warmod.icbm.client.IcbmVisualState;
 import com.andye.warmod.icbm.client.SpentIcbmStageState;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -56,8 +59,7 @@ public final class IcbmWorldRenderer {
 			logLongRangeOnce(state.flightPlan().missileId(), renderContext.transform());
 			double elapsed = state.elapsed(time, partial);
 			missiles.add(new MissileFrame(position, velocity, IcbmTrajectory.thrustActive(state.flightPlan(), elapsed),
-				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(
-					state.yield(), state.deliveryMode()),
+				elapsed, state.flightPlan().visualSeed(), state.yield(), state.deliveryMode(),
 				renderContext, light(level, position), state.trail(time, partial)));
 		}
 		List<StageFrame> stages = new ArrayList<>();
@@ -84,8 +86,8 @@ public final class IcbmWorldRenderer {
 			stack.mulPose(rotation(missile.velocity()));
 			float compression = (float) transform.compression();
 			stack.scale(compression, compression, compression);
-			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.MISSILE,
-				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.appearance(),
+			context.submitNodeCollector().submitCustomGeometry(stack, BlockbenchModelRenderType.SOLID,
+				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.yield(), missile.deliveryMode(),
 					missile.renderContext().lod(), missile.light()));
 			if (missile.thrust()) {
 				context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST_CORE,
@@ -144,7 +146,8 @@ public final class IcbmWorldRenderer {
 	}
 
 	private record MissileFrame(Vec3 position, Vec3 velocity, boolean thrust, double elapsed, long seed,
-		IcbmPayloadAppearance appearance, IcbmLongRangeRenderContext renderContext, int light,
+		WarheadYield yield, WarheadDeliveryMode deliveryMode,
+		IcbmLongRangeRenderContext renderContext, int light,
 		List<IcbmTrailSample> trail) { }
 	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity, float rollDrift, float alpha,
 		IcbmLongRangeRenderContext renderContext, int light) { }

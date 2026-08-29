@@ -384,42 +384,75 @@ function Build-Radar([hashtable]$T) {
     Add-BbGroup pitch_dish yaw_head @(0,25,0) @(18,0,0)
 
     Cubes @(
-        (Box foundation -14 0 -14 14 3 14), (Box footing -11 3 -11 11 5 11),
-        (Box mast_core -3 5 -3 3 18 3),
+        (Box foundation -14 0 -14 14 3 14), (Box mast_core -3 5 -3 3 18 3),
         (RotBox brace_nw -10 4 -1 -8 17 1 @(-8,4,0) @(0,0,-18)),
         (RotBox brace_ne 8 4 -1 10 17 1 @(8,4,0) @(0,0,18)),
         (RotBox brace_sw -1 4 -10 1 17 -8 @(0,4,-8) @(18,0,0)),
-        (RotBox brace_se -1 4 8 1 17 10 @(0,4,8) @(-18,0,0))
+        (RotBox brace_se -1 4 8 1 17 10 @(0,4,8) @(-18,0,0)),
+        (Box cabinet_vent_l -9.3 6.0 -9.35 -7.6 10.3 -9.0),
+        (Box cabinet_vent_r 6.3 6.0 -9.35 8.0 10.3 -9.0)
     ) $T.dark fixed_foundation
     Cubes @(
+        (Box footing -11 3 -11 11 5 11),
         (Box cabinet_l -10 4 -9 -4 12 -3), (Box cabinet_r 4 4 -9 10 12 -3),
-        (Box cabinet_rear -7 4 4 7 10 10)
+        (Box cabinet_rear -7 4 4 7 10 10),
+        (Box cabinet_top_l -10.4 12 -9.4 -3.6 12.8 -2.6),
+        (Box cabinet_top_r 3.6 12 -9.4 10.4 12.8 -2.6)
     ) $T.body fixed_foundation
-    Add-Block status_lamp -7 8 -9.3 -5 10 -9.0 $T.glow fixed_foundation
+    Add-Block status_lamp -7 8 -9.38 -5 10 -9.02 $T.glow fixed_foundation
 
     Cubes @(
-        (Box yaw_ring -7 16 -7 7 19 7), (Box yaw_housing -5 18 -5 5 23 5),
-        (Box pitch_bearing_l -8 21 -2 -4 27 2), (Box pitch_bearing_r 4 21 -2 8 27 2),
-        (Box equipment_box -5 18 4 5 22 9), (Box service_hatch -3 19 8.9 3 21.5 9.2)
+        (Box yaw_ring -7 16 -7 7 19 7), (Box yaw_housing -5 18 -5 5 22 5),
+        (Box elevation_cradle_l -8 20 .6 -5.5 28 4.6),
+        (Box elevation_cradle_r 5.5 20 .6 8 28 4.6)
     ) $T.body yaw_head
-    Add-Block bearing_band -8.3 23 -2.3 8.3 25.3 2.3 $T.accent yaw_head
+    Cubes @(
+        (Box pitch_bearing_l -8.7 22.3 .4 -6.3 27.7 5.0),
+        (Box pitch_bearing_r 6.3 22.3 .4 8.7 27.7 5.0),
+        (Box dish_axle -9 24.25 .35 9 25.75 2.15),
+        (Box elevation_motor 7.2 19 2.0 10.2 23.5 6.0),
+        (Box cable_trunk -.9 18 3.8 .9 23 5.6)
+    ) $T.dark yaw_head
 
-    # Faceted parabolic dish: a shallow stepped bowl with a defined rim and feed horn.
+    # Seven broad, shallow-curved panels read as one military reflector from every angle.
+    $segments = @(
+        @{n='center';x0=-3.0;x1=3.0;y0=19.0;y1=31.0;o=@(0,25,0);r=@(0,0,0)},
+        @{n='inner_l';x0=-7.0;x1=-3.0;y0=19.0;y1=31.0;o=@(-3,25,0);r=@(0,-6,0)},
+        @{n='inner_r';x0=3.0;x1=7.0;y0=19.0;y1=31.0;o=@(3,25,0);r=@(0,6,0)},
+        @{n='mid_l';x0=-11.0;x1=-7.0;y0=19.5;y1=30.5;o=@(-7,25,0);r=@(0,-12,0)},
+        @{n='mid_r';x0=7.0;x1=11.0;y0=19.5;y1=30.5;o=@(7,25,0);r=@(0,12,0)},
+        @{n='outer_l';x0=-15.0;x1=-11.0;y0=20.5;y1=29.5;o=@(-11,25,0);r=@(0,-18,0)},
+        @{n='outer_r';x0=11.0;x1=15.0;y0=20.5;y1=29.5;o=@(11,25,0);r=@(0,18,0)}
+    )
+    foreach($segment in $segments){
+        $midX = ($segment.x0 + $segment.x1) / 2
+        Cubes @(
+            (Add-Cube "reflector_$($segment.n)" @($segment.x0,$segment.y0,-.45) @($segment.x1,$segment.y1,.35) $segment.o $segment.r)
+        ) $T.body pitch_dish
+        Cubes @(
+            (Add-Cube "rim_$($segment.n)_top" @(($segment.x0-.12),($segment.y1-.15),-.70) @(($segment.x1+.12),($segment.y1+.55),.65) $segment.o $segment.r),
+            (Add-Cube "rim_$($segment.n)_bottom" @(($segment.x0-.12),($segment.y0-.55),-.70) @(($segment.x1+.12),($segment.y0+.15),.65) $segment.o $segment.r),
+            (Add-Cube "rib_$($segment.n)_vertical" @(($midX-.18),$segment.y0,-.68) @(($midX+.18),$segment.y1,-.43) $segment.o $segment.r),
+            (Add-Cube "grid_$($segment.n)_lower" @($segment.x0,21.85,-.68) @($segment.x1,22.15,-.43) $segment.o $segment.r),
+            (Add-Cube "grid_$($segment.n)_middle" @($segment.x0,24.82,-.68) @($segment.x1,25.18,-.43) $segment.o $segment.r),
+            (Add-Cube "grid_$($segment.n)_upper" @($segment.x0,27.85,-.68) @($segment.x1,28.15,-.43) $segment.o $segment.r)
+        ) $T.dark pitch_dish
+    }
     Cubes @(
-        (Box dish_center -5 20 -.7 5 30 .7),
-        (RotBox dish_mid_l -9 21 -.5 -5 29 .5 @(-5,25,0) @(0,-10,0)),
-        (RotBox dish_mid_r 5 21 -.5 9 29 .5 @(5,25,0) @(0,10,0)),
-        (RotBox dish_outer_l -12 22 -.35 -9 28 .35 @(-9,25,0) @(0,-20,0)),
-        (RotBox dish_outer_r 9 22 -.35 12 28 .35 @(9,25,0) @(0,20,0)),
-        (Box rim_top -12 29.7 -.9 12 30.5 .9), (Box rim_bottom -12 19.5 -.9 12 20.3 .9),
-        (Box rim_l -12.5 20 -.9 -11.7 30 .9), (Box rim_r 11.7 20 -.9 12.5 30 .9)
-    ) $T.accent pitch_dish
-    Cubes @(
-        (RotBox feed_arm_l -7 24 -7 -6 25 0 @(-6.5,24.5,0) @(0,8,0)),
-        (RotBox feed_arm_r 6 24 -7 7 25 0 @(6.5,24.5,0) @(0,-8,0)),
-        (Box feed_horn -2 23 -10 2 27 -7), (Box feed_face -2.6 22.4 -11 2.6 27.6 -9.8)
+        (Add-Cube outer_rim_l @(-15.35,20.35,-.75) @(-14.75,29.65,.75) @(-11,25,0) @(0,-18,0)),
+        (Add-Cube outer_rim_r @(14.75,20.35,-.75) @(15.35,29.65,.75) @(11,25,0) @(0,18,0))
     ) $T.dark pitch_dish
-    Add-Block feed_glass -1.6 23.4 -11.2 1.6 26.6 -10.9 $T.glow pitch_dish
+
+    Cubes @(
+        (Box feed_horn_body -1.0 24.0 -8.8 1.0 26.0 -7.1),
+        (Box feed_horn_flare -1.4 23.6 -9.9 1.4 26.4 -8.6)
+    ) $T.body pitch_dish
+    Cubes @(
+        (Box rear_hub -2.2 22.8 .35 2.2 27.2 2.0),
+        (Box feed_spine -.45 24.5 -7.6 .45 25.5 -.1),
+        (Box feed_face -1.5 23.7 -10.05 1.5 26.3 -9.82)
+    ) $T.dark pitch_dish
+    Add-Block feed_glass -.45 24.55 -10.25 .45 25.45 -10.06 $T.glow pitch_dish
 }
 
 function Build-Silo([hashtable]$T) {

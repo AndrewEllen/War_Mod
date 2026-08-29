@@ -39,16 +39,16 @@ radar_root
    `- pitch_dish (pivot 0, 25, 0; authored pitch 18 degrees)
 ```
 
-Rotate `yaw_head` around Y for sweep. `pitch_dish` contains the faceted reflector, rim, support arms, and feed horn, with a separate elevation pivot if the renderer later needs adjustable tilt.
+Rotate `yaw_head` around Y for sweep. `pitch_dish` contains a seven-panel shallow-curved military grid reflector, its outer frame, and a compact centre feed horn. The elevation cradle and motor sit behind the reflector so the dish remains the dominant silhouette from the front.
 
 The launch-silo foundation is exactly 48 by 48 model units, matching a 3x3 block footprint at 16 model units per block. The shaft, blast walls, split doors, rails, controls, and bay lights remain separately named for integration.
 
-Tier 1 through Tier 3 guidance supports deliberately share the same braced-mast base. Each tier adds processors and then sensor/crown hardware, producing a verified 11 -> 18 -> 25 cube progression.
+Tier 1 through Tier 3 guidance supports deliberately share the same braced-mast base. Each tier adds processors and then sensor/crown hardware, producing a verified 11 -> 18 -> 25 cube progression. At runtime the four lower support blocks rotate and project their mast geometry inward into the silo's centre block so the missile is visibly supported rather than surrounded by four disconnected towers.
 
 ## Runtime integration
 
-These files are the editable source of truth for the replacement runtime assets. `../export_gameplay_runtime_assets.ps1` exports the embedded palette textures, baked item/block JSON, exact 3x3 silo parts, and the generated client cube data used by articulated/projectile renderers. The MCP catalogue generator runs that exporter automatically after rebuilding the `.bbmodel` files and previews.
+These files are the editable source of truth for the replacement runtime assets. `../export_gameplay_runtime_assets.ps1` exports the embedded palette into Minecraft's stitched `textures/block/blockbench_palette/` and `textures/item/blockbench_palette/` atlas domains, writes baked item/block JSON, exact 3x3 silo parts, and the generated client cube data used by articulated/projectile renderers. The MCP catalogue generator runs that exporter automatically after rebuilding the `.bbmodel` files and previews.
 
-Artillery and radar group pivots are consumed by their existing block-entity renderers. Falling warheads, artillery shells, HE rockets, anti-air missiles, and the three fired bullet heads use the generated client mesh data while retaining their existing movement, trails, and effects. Collision and voxel shapes are intentionally unchanged. Final scale, hand transforms, and animation appearance still require visual acceptance in Minecraft.
+Artillery and radar group pivots are consumed by their existing block-entity renderers. Falling warheads, artillery shells, HE rockets, anti-air missiles, and the three fired bullet heads use the generated client mesh data while retaining their existing movement, trails, and effects. All fourteen yield/delivery missile sources are also exported as held items and selected by the silo and launched-missile renderers from the same exact model table. Firearm, launcher, and missile display transforms are intentionally larger and aligned for first- and third-person use. Collision and voxel shapes are intentionally unchanged. Final scale, hand transforms, and animation appearance still require visual acceptance in Minecraft.
 
 Regenerate the complete catalogue through `../generate_gameplay_model_catalog_via_mcp.ps1` while the Blockbench MCP plugin is running, or rerun only the runtime export with `../export_gameplay_runtime_assets.ps1` after editing saved models.

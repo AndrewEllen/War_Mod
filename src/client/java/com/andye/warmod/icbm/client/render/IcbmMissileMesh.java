@@ -1,5 +1,9 @@
 package com.andye.warmod.icbm.client.render;
 
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -7,6 +11,47 @@ import net.minecraft.util.Mth;
 
 public final class IcbmMissileMesh {
     private IcbmMissileMesh() { }
+
+    /** Renders the exact saved Blockbench missile for this yield and delivery mode. */
+    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
+        final IcbmLongRangeRenderContext.Lod detail, final int light) {
+        boolean cluster = deliveryMode == WarheadDeliveryMode.CLUSTER_FOUR;
+        Model model = switch (yield) {
+            case HIGH_EXPLOSIVE -> cluster
+                ? Model.HIGH_EXPLOSIVE_CLUSTER_MISSILE : Model.HIGH_EXPLOSIVE_MISSILE;
+            case HIGH_CAPACITY_HE -> cluster
+                ? Model.HIGH_CAPACITY_HE_CLUSTER_MISSILE : Model.HIGH_CAPACITY_HE_MISSILE;
+            case CONVENTIONAL -> cluster
+                ? Model.CONVENTIONAL_CLUSTER_MISSILE : Model.CONVENTIONAL_MISSILE;
+            case HEAVY_CONVENTIONAL -> cluster
+                ? Model.HEAVY_CONVENTIONAL_CLUSTER_MISSILE : Model.HEAVY_CONVENTIONAL_MISSILE;
+            case TACTICAL_NUCLEAR -> cluster
+                ? Model.TACTICAL_NUCLEAR_CLUSTER_MISSILE : Model.TACTICAL_NUCLEAR_MISSILE;
+            case STRATEGIC_NUCLEAR -> cluster
+                ? Model.STRATEGIC_NUCLEAR_CLUSTER_MISSILE : Model.STRATEGIC_NUCLEAR_MISSILE;
+            case HEAVY_NUCLEAR -> cluster
+                ? Model.HEAVY_NUCLEAR_CLUSTER_MISSILE : Model.HEAVY_NUCLEAR_MISSILE;
+        };
+        float sourceHeight = switch (yield) {
+            case HIGH_EXPLOSIVE -> 34.15F;
+            case HIGH_CAPACITY_HE -> 35.65F;
+            case CONVENTIONAL -> 37.15F;
+            case HEAVY_CONVENTIONAL, TACTICAL_NUCLEAR -> 38.65F;
+            case STRATEGIC_NUCLEAR -> 40.65F;
+            case HEAVY_NUCLEAR -> 42.15F;
+        };
+        float originY = switch (yield) {
+            case HIGH_EXPLOSIVE -> 0.725F;
+            case HIGH_CAPACITY_HE, TACTICAL_NUCLEAR -> 0.475F;
+            case CONVENTIONAL -> 0.225F;
+            case HEAVY_CONVENTIONAL, STRATEGIC_NUCLEAR -> -0.025F;
+            case HEAVY_NUCLEAR -> -0.275F;
+        };
+        BlockbenchGameplayMeshes.render(pose, buffer, model,
+            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight,
+            0.0F, originY, 0.0F, light);
+    }
 
     public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,
         final IcbmPayloadAppearance appearance, final IcbmLongRangeRenderContext.Lod detail,

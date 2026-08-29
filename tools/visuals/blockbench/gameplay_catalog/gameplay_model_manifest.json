@@ -102,7 +102,7 @@
     "id": "radar_station",
     "category": "machines",
     "kind": "radar",
-    "cubes": 32,
+    "cubes": 81,
     "meshes": 0,
     "model": "machines/radar_station.bbmodel",
     "preview": "previews/machines/radar_station.png"

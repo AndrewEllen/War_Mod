@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$CatalogRoot = (Join-Path $PSScriptRoot 'gameplay_catalog'),
+    [string]$MissileCatalogRoot = (Join-Path $PSScriptRoot 'missiles'),
     [string]$ResourceRoot = (Join-Path $PSScriptRoot '..\..\..\src\main\resources\assets\war_mod'),
     [string]$ClientSourceRoot = (Join-Path $PSScriptRoot '..\..\..\src\client\java')
 )
@@ -15,9 +16,11 @@ try {
 }
 
 $CatalogRoot = [IO.Path]::GetFullPath($CatalogRoot)
+$MissileCatalogRoot = [IO.Path]::GetFullPath($MissileCatalogRoot)
 $ResourceRoot = [IO.Path]::GetFullPath($ResourceRoot)
 $ClientSourceRoot = [IO.Path]::GetFullPath($ClientSourceRoot)
 $ManifestPath = Join-Path $CatalogRoot 'gameplay_model_manifest.json'
+$MissileManifestPath = Join-Path $MissileCatalogRoot 'missile_model_manifest.json'
 $Utf8NoBom = [Text.UTF8Encoding]::new($false)
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
@@ -55,12 +58,24 @@ function Read-BlockbenchModel {
     return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
 }
 
+function Read-MissileBlockbenchModel {
+    param([string]$Id)
+    $entry = $script:MissileManifest | Where-Object id -eq $Id | Select-Object -First 1
+    if ($null -eq $entry) { throw "No missile Blockbench model is registered for '$Id'." }
+    $path = Join-Path $MissileCatalogRoot ([string]$entry.model)
+    return Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+}
+
 function Get-TexturePalette {
     param([object]$Model)
     $palette = @{}
-    $paletteDirectory = Join-Path $ResourceRoot 'textures\blockbench_palette'
-    [IO.Directory]::CreateDirectory($paletteDirectory) | Out-Null
-    $whitePath = Join-Path $paletteDirectory 'ffffffff.png'
+    $directPaletteDirectory = Join-Path $ResourceRoot 'textures\blockbench_palette'
+    $blockPaletteDirectory = Join-Path $ResourceRoot 'textures\block\blockbench_palette'
+    $itemPaletteDirectory = Join-Path $ResourceRoot 'textures\item\blockbench_palette'
+    foreach ($directory in @($directPaletteDirectory, $blockPaletteDirectory, $itemPaletteDirectory)) {
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+    $whitePath = Join-Path $directPaletteDirectory 'ffffffff.png'
     if (-not (Test-Path -LiteralPath $whitePath)) {
         $white = [Drawing.Bitmap]::new(16, 16)
         try {
@@ -87,10 +102,12 @@ function Get-TexturePalette {
             $stream.Dispose()
         }
         $key = '{0:x2}{1:x2}{2:x2}{3:x2}' -f $colour.R, $colour.G, $colour.B, $colour.A
-        $pngPath = Join-Path $paletteDirectory ($key + '.png')
-        [IO.File]::WriteAllBytes($pngPath, $bytes)
+        foreach ($directory in @($blockPaletteDirectory, $itemPaletteDirectory)) {
+            [IO.File]::WriteAllBytes((Join-Path $directory ($key + '.png')), $bytes)
+        }
         $palette[[string]$texture.id] = [pscustomobject]@{
-            resource = "war_mod:blockbench_palette/$key"
+            blockResource = "war_mod:block/blockbench_palette/$key"
+            itemResource = "war_mod:item/blockbench_palette/$key"
             red = [int]$colour.R
             green = [int]$colour.G
             blue = [int]$colour.B
@@ -146,7 +163,8 @@ function New-ModelObject {
         [object[]]$Elements,
         [double]$Scale,
         [double[]]$Offset,
-        [object]$Display = $null
+        [object]$Display = $null,
+        [ValidateSet('block', 'item')][string]$TextureDomain = 'block'
     )
     $palette = Get-TexturePalette -Model $Model
     $usedIds = [Collections.Generic.List[string]]::new()
@@ -161,7 +179,13 @@ function New-ModelObject {
     }
 
     $textures = [ordered]@{}
-    foreach ($id in $usedIds) { $textures["t$id"] = $palette[$id].resource }
+    foreach ($id in $usedIds) {
+        $textures["t$id"] = if ($TextureDomain -eq 'item') {
+            $palette[$id].itemResource
+        } else {
+            $palette[$id].blockResource
+        }
+    }
     if ($usedIds.Count -gt 0) { $textures.particle = "#t$($usedIds[0])" }
 
     $jsonElements = [Collections.Generic.List[object]]::new()
@@ -232,13 +256,65 @@ function Get-DefaultItemDisplay {
     }
 }
 
+function New-WeaponItemDisplay {
+    param([double]$FirstPersonScale, [double]$ThirdPersonScale, [double]$GuiScale = 0.92)
+    return [ordered]@{
+        gui = [ordered]@{ rotation = @(18, 138, 0); translation = @(0, 0, 0); scale = @($GuiScale, $GuiScale, $GuiScale) }
+        ground = [ordered]@{ rotation = @(0, -90, 0); translation = @(0, 2, 0); scale = @(0.55, 0.55, 0.55) }
+        fixed = [ordered]@{ rotation = @(0, -90, 0); translation = @(0, 0, 0); scale = @(0.86, 0.86, 0.86) }
+        firstperson_righthand = [ordered]@{ rotation = @(0, -90, 5); translation = @(1.2, 1.7, 1.0); scale = @($FirstPersonScale, $FirstPersonScale, $FirstPersonScale) }
+        firstperson_lefthand = [ordered]@{ rotation = @(0, 90, -5); translation = @(-1.2, 1.7, 1.0); scale = @($FirstPersonScale, $FirstPersonScale, $FirstPersonScale) }
+        thirdperson_righthand = [ordered]@{ rotation = @(0, -90, 12); translation = @(0, 2.8, 1.0); scale = @($ThirdPersonScale, $ThirdPersonScale, $ThirdPersonScale) }
+        thirdperson_lefthand = [ordered]@{ rotation = @(0, 90, -12); translation = @(0, 2.8, 1.0); scale = @($ThirdPersonScale, $ThirdPersonScale, $ThirdPersonScale) }
+    }
+}
+
+function Get-MissileItemDisplay {
+    return [ordered]@{
+        gui = [ordered]@{ rotation = @(18, 35, -15); translation = @(0, 0, 0); scale = @(0.94, 0.94, 0.94) }
+        ground = [ordered]@{ rotation = @(0, 0, 90); translation = @(0, 2, 0); scale = @(0.52, 0.52, 0.52) }
+        fixed = [ordered]@{ rotation = @(0, 0, 0); translation = @(0, 0, 0); scale = @(0.82, 0.82, 0.82) }
+        firstperson_righthand = [ordered]@{ rotation = @(0, 0, -25); translation = @(1.0, 1.2, 0); scale = @(1.0, 1.0, 1.0) }
+        firstperson_lefthand = [ordered]@{ rotation = @(0, 0, 25); translation = @(-1.0, 1.2, 0); scale = @(1.0, 1.0, 1.0) }
+        thirdperson_righthand = [ordered]@{ rotation = @(0, 0, -18); translation = @(0, 2.0, 0); scale = @(1.10, 1.10, 1.10) }
+        thirdperson_lefthand = [ordered]@{ rotation = @(0, 0, 18); translation = @(0, 2.0, 0); scale = @(1.10, 1.10, 1.10) }
+    }
+}
+
+function Get-GameplayItemDisplay {
+    param([string]$ItemModelName)
+    if ($ItemModelName -eq 'pistol') {
+        return (New-WeaponItemDisplay -FirstPersonScale 1.12 -ThirdPersonScale 1.16 -GuiScale 1.0)
+    }
+    if ($ItemModelName -eq 'assault_rifle') {
+        return (New-WeaponItemDisplay -FirstPersonScale 1.28 -ThirdPersonScale 1.46)
+    }
+    if ($ItemModelName -eq 'sniper_rifle') {
+        return (New-WeaponItemDisplay -FirstPersonScale 1.30 -ThirdPersonScale 1.52)
+    }
+    if ($ItemModelName -eq 'rocket_launcher') {
+        return (New-WeaponItemDisplay -FirstPersonScale 1.34 -ThirdPersonScale 1.50)
+    }
+    if ($ItemModelName -like '*_missile' -or $ItemModelName -like '*_icbm' -or $ItemModelName -eq 'he_rocket') {
+        return (Get-MissileItemDisplay)
+    }
+    return $null
+}
+
 function Export-ItemModel {
     param([string]$SourceId, [string]$TargetId = $SourceId)
     $model = Read-BlockbenchModel -Id $SourceId
+    Export-ItemModelObject -Model $model -TargetId $TargetId
+}
+
+function Export-ItemModelObject {
+    param([object]$Model, [string]$TargetId)
+    $model = $Model
     $fit = Get-AutoFitTransform -Elements @($model.elements)
-    $display = Get-ExistingDisplay $TargetId
+    $display = Get-GameplayItemDisplay $TargetId
+    if ($null -eq $display) { $display = Get-ExistingDisplay $TargetId }
     if ($null -eq $display) { $display = Get-DefaultItemDisplay }
-    $output = New-ModelObject -Model $model -Elements @($model.elements) -Scale $fit.scale -Offset $fit.offset -Display $display
+    $output = New-ModelObject -Model $model -Elements @($model.elements) -Scale $fit.scale -Offset $fit.offset -Display $display -TextureDomain item
     Write-JsonFile -Path (Join-Path $ResourceRoot "models\item\$TargetId.json") -Value $output
 }
 
@@ -291,7 +367,7 @@ function Export-BlockModel {
 }
 
 function Export-EmptyBlockModel {
-    param([string]$TargetId, [string]$Particle = 'war_mod:blockbench_palette/20292bff')
+    param([string]$TargetId, [string]$Particle = 'war_mod:block/blockbench_palette/20292bff')
     $output = [ordered]@{
         ambientocclusion = $false
         textures = [ordered]@{ particle = $Particle }
@@ -380,6 +456,12 @@ function Export-JavaMeshes {
     foreach ($id in @('pistol_bullet', 'rifle_bullet', 'sniper_bullet', 'falling_warhead', 'artillery_shell', 'he_rocket', 'anti_air_missile_mk1', 'anti_air_missile_mk2')) {
         $definitions[$id.ToUpperInvariant()] = [pscustomobject]@{ model = (Read-BlockbenchModel -Id $id); elements = $null }
         $definitions[$id.ToUpperInvariant()].elements = @($definitions[$id.ToUpperInvariant()].model.elements)
+    }
+
+    foreach ($entry in @($script:MissileManifest)) {
+        $id = [string]$entry.id
+        $model = Read-MissileBlockbenchModel -Id $id
+        $definitions[$id.ToUpperInvariant()] = [pscustomobject]@{ model = $model; elements = @($model.elements) }
     }
 
     $artillery = Read-BlockbenchModel -Id 'artillery_cannon'
@@ -485,6 +567,7 @@ function Export-JavaMeshes {
 }
 
 $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+$MissileManifest = Get-Content -Raw -LiteralPath $MissileManifestPath | ConvertFrom-Json
 
 $dynamicOnly = @('pistol_bullet', 'rifle_bullet', 'sniper_bullet', 'falling_warhead', 'artillery_shell')
 foreach ($entry in @($Manifest)) {
@@ -493,6 +576,21 @@ foreach ($entry in @($Manifest)) {
     if ($id -like '*_tnt') { continue }
     if ($id -eq 'artillery_cannon') { Export-ItemModel -SourceId $id -TargetId 'artillery_cannon_inventory' }
     else { Export-ItemModel -SourceId $id }
+}
+
+foreach ($entry in @($MissileManifest)) {
+    $id = [string]$entry.id
+    Export-ItemModelObject -Model (Read-MissileBlockbenchModel -Id $id) -TargetId $id
+}
+
+$legacyMissileAliases = [ordered]@{
+    conventional_icbm = 'conventional_missile'
+    conventional_cluster_icbm = 'conventional_cluster_missile'
+    nuclear_icbm = 'strategic_nuclear_missile'
+    nuclear_cluster_icbm = 'strategic_nuclear_cluster_missile'
+}
+foreach ($alias in $legacyMissileAliases.GetEnumerator()) {
+    Export-ItemModelObject -Model (Read-MissileBlockbenchModel -Id ([string]$alias.Value)) -TargetId ([string]$alias.Key)
 }
 
 foreach ($entry in @($Manifest | Where-Object { ([string]$_.id) -like '*_tnt' })) {
@@ -507,7 +605,10 @@ foreach ($entry in @($Manifest | Where-Object { ([string]$_.id) -like '*_tnt' })
 foreach ($tier in 1..3) {
     $id = "missile_silo_guidance_support_tier_$tier"
     $model = Read-BlockbenchModel -Id $id
-    $lower = New-ModelObject -Model $model -Elements @($model.elements) -Scale 1.0 -Offset @(8.0, 0.0, 8.0)
+    # The physical support blocks occupy the four diagonal cells around the
+    # silo. Render the towers at each cell's inward corner so the four masts
+    # converge around the missile inside the centre block.
+    $lower = New-ModelObject -Model $model -Elements @($model.elements) -Scale 1.0 -Offset @(20.0, 0.0, 20.0)
     foreach ($part in @('front_lower', 'rear_lower')) {
         Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\guidance_tier_${tier}_$part.json") -Value $lower
     }
@@ -515,6 +616,43 @@ foreach ($tier in 1..3) {
         Export-EmptyBlockModel -TargetId "guidance_tier_${tier}_$part"
     }
 }
+
+$supportRotations = [ordered]@{
+    front = [ordered]@{
+        north = [ordered]@{ left = 0; right = 90 }
+        east = [ordered]@{ left = 90; right = 180 }
+        south = [ordered]@{ left = 180; right = 270 }
+        west = [ordered]@{ left = 270; right = 0 }
+    }
+    rear = [ordered]@{
+        north = [ordered]@{ left = 270; right = 180 }
+        east = [ordered]@{ left = 0; right = 270 }
+        south = [ordered]@{ left = 90; right = 0 }
+        west = [ordered]@{ left = 180; right = 90 }
+    }
+}
+$supportMultipart = [Collections.Generic.List[object]]::new()
+foreach ($tier in 1..3) {
+    foreach ($longitudinal in @('front', 'rear')) {
+        foreach ($height in @('lower', 'upper')) {
+            $part = "${longitudinal}_${height}"
+            foreach ($facing in @('north', 'east', 'south', 'west')) {
+                foreach ($side in @('left', 'right')) {
+                    $apply = [ordered]@{ model = "war_mod:block/guidance_tier_${tier}_$part" }
+                    $rotation = [int]$supportRotations[$longitudinal][$facing][$side]
+                    if ($rotation -ne 0) { $apply.y = $rotation }
+                    $supportMultipart.Add([pscustomobject][ordered]@{
+                        when = [ordered]@{ tier = [string]$tier; part = $part; facing = $facing; side = $side }
+                        apply = $apply
+                    })
+                }
+            }
+        }
+    }
+}
+Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\missile_silo_guidance_support.json') -Value ([ordered]@{
+    multipart = @($supportMultipart)
+})
 
 $radarModel = Read-BlockbenchModel -Id 'radar_station'
 $radarFixed = @(Get-GroupElements -Model $radarModel -GroupName 'fixed_foundation')
@@ -534,4 +672,4 @@ Export-EmptyBlockModel -TargetId 'artillery_cannon'
 Export-SiloBlocks
 Export-JavaMeshes
 
-Write-Output "Exported $(@($Manifest).Count) saved Blockbench catalogue entries into runtime models, textures, and generated client meshes."
+Write-Output "Exported $(@($Manifest).Count) gameplay catalogue entries and $(@($MissileManifest).Count) strategic missile entries into runtime models, textures, and generated client meshes."

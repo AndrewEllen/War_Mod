@@ -3,7 +3,6 @@ package com.andye.warmod.rocket.client;
 import com.andye.warmod.entity.RocketProjectileEntity;
 import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.rocket.RocketConstants;
-import com.andye.warmod.rocket.RocketPayloadType;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -51,9 +50,7 @@ public final class RocketProjectileRenderer
             poseStack.mulPose(new Quaternionf().rotationTo(
                 new Vector3f(0, 1, 0), direction.normalize()));
         }
-        collector.submitCustomGeometry(poseStack,
-            state.payloadType == RocketPayloadType.HE
-                ? BlockbenchModelRenderType.SOLID : WarheadRenderPipelines.PROJECTILE,
+        collector.submitCustomGeometry(poseStack, BlockbenchModelRenderType.SOLID,
             (pose, buffer) -> RocketProjectileMesh.render(pose, buffer, state));
         collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
             (pose, buffer) -> RocketTrailRenderer.renderFlame(pose, buffer, state));

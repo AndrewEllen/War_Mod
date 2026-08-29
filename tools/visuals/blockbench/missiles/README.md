@@ -1,8 +1,8 @@
 # War Mod Blockbench Missile Family
 
 Editable Blockbench source models for every registered War Mod missile item.
-These files are design sources for a follow-up integration pass; they do not
-replace the current generated item models or Java in-flight renderer yet.
+These files are now the shared source geometry for inventory/hand models,
+missiles installed in a silo, and launched strategic missiles.
 
 ## Design contract
 
@@ -47,15 +47,12 @@ replace the current generated item models or Java in-flight renderer yet.
 - `../generate_missile_family_via_mcp.ps1` reproduces the complete family by
   driving the Blockbench MCP server at `http://127.0.0.1:3000/bb-mcp`.
 
-## Follow-up integration boundary
+## Runtime integration
 
-The next pass must decide how the source geometry maps into both existing
-consumers:
-
-1. generated inventory item models under
-   `src/main/resources/assets/war_mod/models/item/`; and
-2. the procedural in-flight missile renderer used by the silo and rocket
-   systems.
-
-Keep the registered IDs, yield semantics and single/cluster delivery modes
-unchanged while integrating the visual geometry.
+`../export_gameplay_runtime_assets.ps1` reads this manifest alongside the main
+gameplay catalogue. It exports every source to its matching inventory item ID
+and generates one Java mesh entry per yield/delivery combination. The silo and
+launched-missile renderers select those entries directly, so the missile held
+by the player, installed in the silo, and seen in flight uses the same saved
+Blockbench geometry. The four legacy ICBM item aliases map to the corresponding
+conventional or strategic-nuclear source without changing registered IDs.
