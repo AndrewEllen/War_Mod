@@ -74,7 +74,8 @@ public final class WarheadClientControlHandler {
             + ", effectiveAdaptive=" + format(gpu.adaptiveQuality())
             + ", hardParticles=" + gpu.particleCapacity()
             + ", hardEmitters=" + gpu.emitterCapacity()
-            + ", liveSlots=" + (gpu.particleCapacity() - gpu.availableDeadSlots()));
+            + ", liveSlots=" + (gpu.particleCapacity() - gpu.availableDeadSlots())
+            + ", transientReserve=" + gpu.protectedTransientSlots());
     }
 
     private static void debrisStatus() {
@@ -116,9 +117,10 @@ public final class WarheadClientControlHandler {
             + " shroud=" + layerRoute(gpu, GpuParticleEngine.VisualLayer.SMOKE_SHROUD)
             + " terrainDust=" + layerRoute(gpu,
                 GpuParticleEngine.VisualLayer.TERRAIN_OBSCURATION));
-        feedback("War Mod fire cells near/mid/far/horizon="
-            + bandCount(bands, FireVisualBand.NEAR) + "/"
-            + bandCount(bands, FireVisualBand.MID) + "/"
+        feedback("War Mod fire cells patch/host/local/far/horizon="
+            + bandCount(bands, FireVisualBand.PATCH) + "/"
+            + bandCount(bands, FireVisualBand.HOST) + "/"
+            + bandCount(bands, FireVisualBand.LOCAL) + "/"
             + bandCount(bands, FireVisualBand.FAR) + "/"
             + bandCount(bands, FireVisualBand.HORIZON)
             + " sourceHosts/aggregated/visible=" + fire.sourceHosts() + "/"
@@ -131,7 +133,9 @@ public final class WarheadClientControlHandler {
             + " effectiveAdaptive=" + format(gpu.adaptiveQuality())
             + " hardParticles=" + gpu.capacity()
             + " hardEmitters=" + budget.emitterCapacity()
-            + " liveSlots=" + gpu.activeParticles());
+            + " liveSlots=" + gpu.activeParticles()
+            + " transientReserve=" + budget.protectedTransientSlots()
+            + " persistentFree=" + budget.persistentAvailableSlots());
     }
 
     private static String layerRoute(final GpuParticleEngine.DebugSnapshot gpu,

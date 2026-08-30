@@ -31,8 +31,10 @@ import org.joml.Matrix4f;
  */
 final class GpuVfxScheduler {
     static final int MAX_SCHEDULED_EMITTERS = 4_096;
+    static final int PROTECTED_TRANSIENT_PARTICLE_SLOTS = 32_768;
     private static final double BASE_SPAWN_RATE_BUDGET = 155_250.0;
     private static final double BASE_FRAGMENT_COST_BUDGET = 115_000.0;
+    private static final int FIRE_SURFACE_DISTRIBUTION_FLAG = 1;
     private static final int STALE_LOD_FRAMES = 600;
     private static final Map<LayerKey, LodState> LOD_STATES = new HashMap<>();
 
@@ -77,14 +79,21 @@ final class GpuVfxScheduler {
         }
 
         BudgetLimits limits = budgetLimits(adaptiveQuality, budgetScale);
+        double liveSlotRate = Math.max(0.0, deadSlots) / Math.max(0.001, deltaSeconds);
+        double persistentLiveSlotRate = Math.max(0.0,
+            deadSlots - PROTECTED_TRANSIENT_PARTICLE_SLOTS)
+            / Math.max(0.001, deltaSeconds);
         BudgetState budget = new BudgetState(
             limits.spawnRatePerSecond(),
             limits.fragmentCostPerSecond(),
-            Math.max(0.0, deadSlots) / Math.max(0.001, deltaSeconds));
-        allocatePhase(demands, budget, AllocationPhase.CRITICAL);
-        allocatePhase(demands, budget, AllocationPhase.QUALITY);
-        allocatePhase(demands, budget, AllocationPhase.TARGET);
-        allocatePhase(demands, budget, AllocationPhase.MAXIMUM);
+            liveSlotRate, persistentLiveSlotRate);
+        for (AdmissionClass admission : AdmissionClass.values())
+            allocatePhase(demands, budget, AllocationPhase.CRITICAL, admission);
+        for (AllocationPhase phase : List.of(AllocationPhase.QUALITY,
+            AllocationPhase.TARGET, AllocationPhase.MAXIMUM)) {
+            for (AdmissionClass admission : AdmissionClass.values())
+                allocatePhase(demands, budget, phase, admission);
+        }
         allocateEmitterSlots(demands);
 
         ArrayList<EmitterCommand> scheduled = new ArrayList<>(MAX_SCHEDULED_EMITTERS);
@@ -127,43 +136,56 @@ final class GpuVfxScheduler {
         double scale = Math.max(0.001, budgetScale);
         return new BudgetLimits(BASE_SPAWN_RATE_BUDGET * quality * scale,
             BASE_FRAGMENT_COST_BUDGET * quality * scale,
-            MAX_SCHEDULED_EMITTERS);
+            MAX_SCHEDULED_EMITTERS, PROTECTED_TRANSIENT_PARTICLE_SLOTS);
     }
 
     private static List<EffectSubmission> expandFireField(final FireFieldSubmission field,
         final CameraInfo camera) {
         if (field == null || !field.valid() || !camera.visible(field.center(), field.radius()))
             return List.of();
-        ArrayList<EffectSubmission> effects = new ArrayList<>(field.cells().size() + 1);
+        ArrayList<EmitterCommand> flames = new ArrayList<>(field.cells().size());
+        ArrayList<EmitterCommand> smoke = new ArrayList<>(field.cells().size());
         for (FireFieldCell cell : field.cells()) {
             if (!cell.valid() || !camera.visible(cell.position(), cell.boundsRadius())) continue;
-            ArrayList<EmitterCommand> flames = new ArrayList<>(cell.plan().flames().size());
-            int flameRate = Math.max(4, Math.round(8.0F + cell.intensity() * 12.0F));
-            for (Card card : cell.plan().flames()) flames.add(new EmitterCommand(
-                card.position(), cell.wind().scale(0.11).add(0.0,
-                    0.90 + cell.heat() * 0.72, 0.0),
-                1.0F, 0.90F + cell.heat() * 0.48F,
-                1.0F, 0.20F + cell.heat() * 0.38F, 0.025F, card.opacity(),
-                card.radius(), Math.max(0.04F, card.radius() * 0.24F), 0.42F,
-                flameRate, mix32(card.seed()), ParticleType.FIRE, 0,
-                1.0F + cell.heat()));
-            ArrayList<EmitterCommand> smoke = new ArrayList<>(cell.plan().smoke().size());
-            int smokeRate = Math.max(3, Math.round(5.0F + cell.plan()
-                .representedSmokeOpticalDepth() * 4.0F));
-            for (Card card : cell.plan().smoke()) smoke.add(new EmitterCommand(
-                card.position(), cell.wind().scale(0.18).add(0.0, 0.68, 0.0),
-                1.0F, 4.2F + cell.plan().representedSmokeOpticalDepth() * 0.65F,
-                0.15F, 0.16F, 0.15F, card.opacity(), card.radius(),
-                Math.max(0.08F, card.radius() * 0.34F), 0.26F,
-                smokeRate, mix32(card.seed()), ParticleType.SMOKE, 0,
-                0.74F + cell.plan().representedSmokeOpticalDepth()));
-            EnumMap<VisualLayer, List<EmitterCommand>> layers =
-                new EnumMap<>(VisualLayer.class);
-            if (!flames.isEmpty()) layers.put(VisualLayer.FLAMES, List.copyOf(flames));
-            if (!smoke.isEmpty()) layers.put(VisualLayer.SMOKE, List.copyOf(smoke));
-            if (!layers.isEmpty()) effects.add(new EffectSubmission(new EffectDescriptor(
-                EffectClass.FIRE_FIELD, mix64(field.regionId() ^ cell.id()),
-                cell.position(), cell.boundsRadius(), 1.0F), Map.copyOf(layers)));
+            Vec3 normal = cell.surfaceNormal().normalize();
+            boolean exactPatch = cell.representation().exactPatch();
+            if (!cell.plan().flames().isEmpty()) {
+                int sourceCards = cell.plan().flames().size();
+                int rate = compactRate(sourceCards,
+                    Math.max(4, Math.round(8.0F + cell.intensity() * 12.0F)));
+                float radius = representativeRadius(cell.plan().flames(), 0.08F);
+                float opacity = representativeOpacity(cell.plan().flames(), 0.96F);
+                Vec3 position = cell.position().add(normal.scale(exactPatch ? 0.045 : 0.0))
+                    .add(0.0, exactPatch ? 0.02 : 0.05 + radius * 0.12, 0.0);
+                Vec3 velocity = cell.wind().scale(0.11)
+                    .add(normal.scale(exactPatch ? 0.26 + cell.heat() * 0.20 : 0.0))
+                    .add(0.0, 0.72 + cell.heat() * 0.62, 0.0);
+                flames.add(new EmitterCommand(position, velocity, 1.0F,
+                    0.90F + cell.heat() * 0.48F, 1.0F,
+                    0.20F + cell.heat() * 0.38F, 0.025F, opacity, radius,
+                    compactSpread(cell, radius, false), 0.42F, rate,
+                    mix32(cell.seed() ^ 0x464C414D455F5041L), ParticleType.FIRE,
+                    exactPatch ? FIRE_SURFACE_DISTRIBUTION_FLAG : 0,
+                    1.0F + cell.heat(), VisualLayer.FLAMES, normal,
+                    exactPatch ? 2 : 0));
+            }
+            if (!cell.plan().smoke().isEmpty()) {
+                int sourceCards = cell.plan().smoke().size();
+                int rate = compactRate(sourceCards, Math.max(3, Math.round(5.0F
+                    + cell.plan().representedSmokeOpticalDepth() * 4.0F)));
+                float radius = representativeRadius(cell.plan().smoke(), 0.12F);
+                float opacity = representativeOpacity(cell.plan().smoke(), 0.72F);
+                smoke.add(new EmitterCommand(cell.position().add(0.0,
+                    0.30 + radius * 0.34, 0.0),
+                    cell.wind().scale(0.18).add(0.0, 0.68, 0.0), 1.0F,
+                    4.2F + cell.plan().representedSmokeOpticalDepth() * 0.65F,
+                    0.15F, 0.16F, 0.15F, opacity, radius,
+                    compactSpread(cell, radius, true), 0.26F, rate,
+                    mix32(cell.seed() ^ 0x534D4F4B455F5041L), ParticleType.SMOKE,
+                    exactPatch ? FIRE_SURFACE_DISTRIBUTION_FLAG : 0,
+                    0.74F + cell.plan().representedSmokeOpticalDepth(),
+                    VisualLayer.SMOKE, normal, 0));
+            }
         }
 
         ArrayList<FireFieldEmber> rankedEmbers = new ArrayList<>(field.embers());
@@ -177,56 +199,130 @@ final class GpuVfxScheduler {
                 Math.max(3, Math.round(18.0F * ember.intensity())), mix32(ember.seed()),
                 ParticleType.EMBER, 0, Math.max(0.1F, ember.importance())));
         }
-        if (!embers.isEmpty()) effects.add(new EffectSubmission(new EffectDescriptor(
-            EffectClass.FIRE_FIELD, mix64(field.regionId() ^ 0x454D4245525F4644L),
-            field.center(), field.radius(), 0.72F),
-            Map.of(VisualLayer.EMBERS, List.copyOf(embers))));
-        return List.copyOf(effects);
+        EnumMap<VisualLayer, List<EmitterCommand>> layers =
+            new EnumMap<>(VisualLayer.class);
+        if (!flames.isEmpty()) layers.put(VisualLayer.FLAMES, List.copyOf(flames));
+        if (!smoke.isEmpty()) layers.put(VisualLayer.SMOKE, List.copyOf(smoke));
+        if (!embers.isEmpty()) layers.put(VisualLayer.EMBERS, List.copyOf(embers));
+        if (layers.isEmpty()) return List.of();
+        return List.of(new EffectSubmission(new EffectDescriptor(EffectClass.FIRE_FIELD,
+            mix64(field.regionId() ^ 0x464952455F464945L), field.center(),
+            field.radius(), 1.0F), Map.copyOf(layers)));
     }
 
+    private static int compactRate(final int representatives, final int perRepresentative) {
+        return Math.max(1, Math.min(4_096,
+            Math.max(1, representatives) * Math.max(1, perRepresentative)));
+    }
+
+    private static float representativeRadius(final List<Card> cards,
+        final float fallback) {
+        if (cards == null || cards.isEmpty()) return fallback;
+        double area = 0.0;
+        for (Card card : cards) area += card.radius() * card.radius();
+        return (float)Math.max(fallback, Math.sqrt(area / cards.size()));
+    }
+
+    private static float representativeOpacity(final List<Card> cards,
+        final float maximum) {
+        if (cards == null || cards.isEmpty()) return 0.0F;
+        double transmittance = 1.0;
+        for (Card card : cards) transmittance *= 1.0 - Mth.clamp(card.opacity(), 0.0F, 0.98F);
+        double combined = 1.0 - transmittance;
+        return (float)Math.min(maximum, Math.max(0.02, combined));
+    }
+
+    private static float compactSpread(final FireFieldCell cell, final float radius,
+        final boolean smoke) {
+        float scale = cell.representation().exactPatch() ? 0.42F
+            : switch (cell.representation()) {
+                case PATCH -> 0.42F;
+                case HOST -> 0.48F;
+                case LOCAL -> 0.58F;
+                case FAR -> 0.72F;
+                case HORIZON -> 0.82F;
+            };
+        return Math.max(smoke ? 0.08F : 0.04F,
+            Math.min(cell.boundsRadius() * scale, radius * (smoke ? 2.4F : 1.9F)));
+    }
+
+    /**
+     * Allocates one global budget per admission class and semantic layer, then
+     * distributes that budget among effects. Hundreds of fire cells therefore
+     * cannot each claim an independent FLAMES or SMOKE minimum.
+     */
     private static void allocatePhase(final List<LayerDemand> demands,
-        final BudgetState budget, final AllocationPhase phase) {
-        if (budget.exhausted()) return;
-        if (phase == AllocationPhase.CRITICAL) {
-            ArrayList<LayerDemand> critical = new ArrayList<>();
-            double requestedRate = 0.0;
-            double requestedCost = 0.0;
-            for (LayerDemand demand : demands) {
-                if (demand.layer.canDisappear()) continue;
-                double goal = Math.min(demand.requestedRate, Math.max(1.0,
-                    phase.goal(demand.layer)));
-                double initial = Math.min(goal, 12.0);
-                if (initial <= 0.0) continue;
-                critical.add(demand);
-                requestedRate += initial;
-                requestedCost += initial * demand.particleCost;
-            }
-            double fairScale = Math.min(1.0, Math.min(
-                budget.remainingSpawnRate / Math.max(0.01, requestedRate),
-                Math.min(budget.remainingLiveSlotRate / Math.max(0.01, requestedRate),
-                    budget.remainingFragmentCost / Math.max(0.01, requestedCost))));
-            for (LayerDemand demand : critical) {
-                double goal = Math.min(demand.requestedRate, Math.max(1.0,
-                    phase.goal(demand.layer)));
-                demand.allocatedRate += budget.grant(
-                    Math.min(goal, 12.0) * fairScale, demand.particleCost);
-            }
+        final BudgetState budget, final AllocationPhase phase,
+        final AdmissionClass admission) {
+        if (budget.exhausted(admission)) return;
+        EnumMap<VisualLayer, ArrayList<LayerDemand>> groups =
+            new EnumMap<>(VisualLayer.class);
+        for (LayerDemand demand : demands) {
+            if (demand.admission != admission) continue;
+            groups.computeIfAbsent(demand.layer, ignored -> new ArrayList<>()).add(demand);
         }
-        for (int pass = 0; pass < 5 && !budget.exhausted(); pass++) {
-            double totalWeight = 0.0;
-            for (LayerDemand demand : demands) {
-                if (demand.remaining(phase) > 0.01) totalWeight += demand.weight;
+        ArrayList<Map.Entry<VisualLayer, ArrayList<LayerDemand>>> ordered =
+            new ArrayList<>(groups.entrySet());
+        ordered.sort(Comparator.comparingDouble(
+            (Map.Entry<VisualLayer, ArrayList<LayerDemand>> entry) ->
+                entry.getKey().priority()).reversed()
+            .thenComparingInt(entry -> entry.getKey().ordinal()));
+
+        for (Map.Entry<VisualLayer, ArrayList<LayerDemand>> entry : ordered) {
+            if (budget.exhausted(admission)) break;
+            VisualLayer layer = entry.getKey();
+            ArrayList<LayerDemand> group = entry.getValue();
+            double requested = group.stream().mapToDouble(demand -> demand.requestedRate).sum();
+            double allocated = group.stream().mapToDouble(demand -> demand.allocatedRate).sum();
+            double groupGoal = Math.min(requested, Math.max(0.0, phase.goal(layer)));
+            if (groupGoal - allocated <= 0.01) continue;
+
+            /* Give simultaneous critical effects a small fair foothold before
+               screen importance distributes the rest of the layer minimum. */
+            if (phase == AllocationPhase.CRITICAL
+                && admission == AdmissionClass.CRITICAL_TRANSIENT) {
+                double foothold = Math.min(12.0,
+                    Math.max(0.0, groupGoal - allocated) / Math.max(1, group.size()));
+                double footholdRate = 0.0;
+                double footholdCost = 0.0;
+                for (LayerDemand demand : group) {
+                    double need = Math.min(foothold,
+                        Math.max(0.0, demand.requestedRate - demand.allocatedRate));
+                    footholdRate += need;
+                    footholdCost += need * demand.particleCost;
+                }
+                double fairScale = budget.fairScale(footholdRate, footholdCost, admission);
+                for (LayerDemand demand : group) {
+                    if (budget.exhausted(admission)) break;
+                    double need = Math.min(foothold,
+                        Math.max(0.0, demand.requestedRate - demand.allocatedRate));
+                    demand.allocatedRate += budget.grant(need * fairScale, demand.particleCost,
+                        admission);
+                }
             }
-            if (totalWeight <= 0.0) break;
-            double before = budget.remainingFragmentCost;
-            for (LayerDemand demand : demands) {
-                double need = demand.remaining(phase);
-                if (need <= 0.01) continue;
-                double share = before * demand.weight / totalWeight;
-                double desired = Math.min(need, share / demand.particleCost);
-                demand.allocatedRate += budget.grant(desired, demand.particleCost);
+
+            for (int pass = 0; pass < 5 && !budget.exhausted(admission); pass++) {
+                allocated = group.stream().mapToDouble(demand -> demand.allocatedRate).sum();
+                double remainingGoal = groupGoal - allocated;
+                if (remainingGoal <= 0.01) break;
+                double totalWeight = 0.0;
+                for (LayerDemand demand : group) {
+                    if (demand.requestedRate - demand.allocatedRate > 0.01)
+                        totalWeight += demand.weight;
+                }
+                if (totalWeight <= 0.0) break;
+                double granted = 0.0;
+                for (LayerDemand demand : group) {
+                    double need = demand.requestedRate - demand.allocatedRate;
+                    if (need <= 0.01) continue;
+                    double share = remainingGoal * demand.weight / totalWeight;
+                    double amount = budget.grant(Math.min(need, share),
+                        demand.particleCost, admission);
+                    demand.allocatedRate += amount;
+                    granted += amount;
+                }
+                if (granted < 0.01) break;
             }
-            if (before - budget.remainingFragmentCost < 0.5) break;
         }
     }
 
@@ -235,41 +331,60 @@ final class GpuVfxScheduler {
         ArrayList<LayerDemand> active = new ArrayList<>();
         for (LayerDemand demand : demands)
             if (demand.allocatedRate > 0.0 && !demand.commands.isEmpty()) active.add(demand);
-        active.sort(Comparator.comparingDouble((LayerDemand demand) -> demand.weight).reversed()
+        active.sort(Comparator.comparingInt((LayerDemand demand) -> demand.admission.ordinal())
+            .thenComparing(Comparator.comparingDouble(
+                (LayerDemand demand) -> demand.weight).reversed())
             .thenComparingLong(demand -> demand.descriptor.id())
             .thenComparingInt(demand -> demand.layer.ordinal()));
-        for (LayerDemand demand : active) {
-            if (remaining <= 0) break;
-            demand.allocatedSlots = 1;
-            remaining--;
-        }
-        boolean topologyProgress = true;
-        while (remaining > 0 && topologyProgress) {
-            topologyProgress = false;
+        for (AdmissionClass admission : AdmissionClass.values()) {
+            ArrayList<LayerDemand> admitted = new ArrayList<>();
             for (LayerDemand demand : active) {
+                if (demand.admission == admission) admitted.add(demand);
+            }
+            /* One emitter per admitted effect first, then complete every
+               topology floor before moving to a lower-priority class. */
+            for (LayerDemand demand : admitted) {
                 if (remaining <= 0) break;
-                if (demand.allocatedSlots >= demand.topologyFloor()) continue;
-                demand.allocatedSlots++;
+                demand.allocatedSlots = 1;
                 remaining--;
-                topologyProgress = true;
+            }
+            boolean progress = true;
+            while (remaining > 0 && progress) {
+                progress = false;
+                for (LayerDemand demand : admitted) {
+                    if (remaining <= 0) break;
+                    if (demand.allocatedSlots >= demand.topologyFloor()) continue;
+                    demand.allocatedSlots++;
+                    remaining--;
+                    progress = true;
+                }
             }
         }
-        while (remaining > 0) {
-            double totalWeight = 0.0;
+        for (AdmissionClass admission : AdmissionClass.values()) {
+            if (remaining <= 0) break;
+            ArrayList<LayerDemand> admitted = new ArrayList<>();
             for (LayerDemand demand : active) {
-                if (demand.allocatedSlots < demand.desiredSlots()) totalWeight += demand.weight;
+                if (demand.admission == admission) admitted.add(demand);
             }
-            if (totalWeight <= 0.0) break;
-            int before = remaining;
-            for (LayerDemand demand : active) {
-                int need = demand.desiredSlots() - demand.allocatedSlots;
-                if (need <= 0 || remaining <= 0) continue;
-                int share = Math.max(1, (int) Math.floor(before * demand.weight / totalWeight));
-                int granted = Math.min(need, Math.min(share, remaining));
-                demand.allocatedSlots += granted;
-                remaining -= granted;
+            while (remaining > 0) {
+                double totalWeight = 0.0;
+                for (LayerDemand demand : admitted) {
+                    if (demand.allocatedSlots < demand.desiredSlots())
+                        totalWeight += demand.weight;
+                }
+                if (totalWeight <= 0.0) break;
+                int before = remaining;
+                for (LayerDemand demand : admitted) {
+                    int need = demand.desiredSlots() - demand.allocatedSlots;
+                    if (need <= 0 || remaining <= 0) continue;
+                    int share = Math.max(1,
+                        (int)Math.floor(before * demand.weight / totalWeight));
+                    int granted = Math.min(need, Math.min(share, remaining));
+                    demand.allocatedSlots += granted;
+                    remaining -= granted;
+                }
+                if (remaining == before) break;
             }
-            if (remaining == before) break;
         }
     }
 
@@ -601,7 +716,29 @@ final class GpuVfxScheduler {
         long particlesAccepted, long particlesRejected) { }
 
     record BudgetLimits(double spawnRatePerSecond,
-        double fragmentCostPerSecond, int emitterCapacity) { }
+        double fragmentCostPerSecond, int emitterCapacity,
+        int protectedTransientParticleSlots) { }
+
+    private enum AdmissionClass {
+        CRITICAL_TRANSIENT,
+        IMPORTANT_TRANSIENT,
+        PERSISTENT_WORLD,
+        AMBIENT_DETAIL;
+
+        private static AdmissionClass classify(final EffectDescriptor descriptor,
+            final VisualLayer layer) {
+            if (descriptor.effectClass() == EffectClass.FIRE_FIELD) {
+                return layer == VisualLayer.EMBERS
+                    ? AMBIENT_DETAIL : PERSISTENT_WORLD;
+            }
+            if (layer == VisualLayer.DETAIL) return AMBIENT_DETAIL;
+            if (layer == VisualLayer.FIREBALL || layer == VisualLayer.MUSHROOM_CLOUD
+                || layer == VisualLayer.STEM || layer == VisualLayer.SHOCKWAVE) {
+                return CRITICAL_TRANSIENT;
+            }
+            return IMPORTANT_TRANSIENT;
+        }
+    }
 
     private enum AllocationPhase {
         CRITICAL, QUALITY, TARGET, MAXIMUM;
@@ -652,6 +789,7 @@ final class GpuVfxScheduler {
         private final double requestedRate;
         private final double particleCost;
         private final double weight;
+        private final AdmissionClass admission;
         private double allocatedRate;
         private int allocatedSlots;
         private int cachedTopologyFloor = -1;
@@ -666,11 +804,7 @@ final class GpuVfxScheduler {
             this.requestedRate = requestedRate;
             this.particleCost = Math.max(0.25, particleCost);
             this.weight = weight;
-        }
-
-        private double remaining(final AllocationPhase phase) {
-            double goal = Math.min(requestedRate, phase.goal(layer));
-            return Math.max(0.0, goal - allocatedRate);
+            this.admission = AdmissionClass.classify(descriptor, layer);
         }
 
         private int desiredSlots() {
@@ -692,30 +826,56 @@ final class GpuVfxScheduler {
         private double remainingSpawnRate;
         private double remainingFragmentCost;
         private double remainingLiveSlotRate;
+        private double remainingPersistentLiveSlotRate;
         private double allocatedFragmentCost;
 
         private BudgetState(final double spawnRate, final double fragmentCost,
-            final double liveSlotRate) {
+            final double liveSlotRate, final double persistentLiveSlotRate) {
             remainingSpawnRate = Math.max(0.0, spawnRate);
             remainingFragmentCost = Math.max(0.0, fragmentCost);
             remainingLiveSlotRate = Math.max(0.0, liveSlotRate);
+            remainingPersistentLiveSlotRate = Math.max(0.0, persistentLiveSlotRate);
         }
 
-        private double grant(final double requestedRate, final double particleCost) {
-            if (requestedRate <= 0.0 || exhausted()) return 0.0;
+        private double grant(final double requestedRate, final double particleCost,
+            final AdmissionClass admission) {
+            if (requestedRate <= 0.0 || exhausted(admission)) return 0.0;
             double safeCost = Math.max(0.25, particleCost);
             double granted = Math.min(requestedRate, Math.min(remainingSpawnRate,
                 Math.min(remainingLiveSlotRate, remainingFragmentCost / safeCost)));
+            if (admission == AdmissionClass.PERSISTENT_WORLD
+                || admission == AdmissionClass.AMBIENT_DETAIL) {
+                granted = Math.min(granted, remainingPersistentLiveSlotRate);
+            }
             remainingSpawnRate -= granted;
             remainingLiveSlotRate -= granted;
+            remainingPersistentLiveSlotRate = Math.max(0.0,
+                remainingPersistentLiveSlotRate - granted);
             remainingFragmentCost -= granted * safeCost;
             allocatedFragmentCost += granted * safeCost;
             return Math.max(0.0, granted);
         }
 
-        private boolean exhausted() {
+        private double fairScale(final double requestedRate,
+            final double requestedFragmentCost, final AdmissionClass admission) {
+            if (requestedRate <= 0.0 || requestedFragmentCost <= 0.0) return 0.0;
+            double liveRate = remainingLiveSlotRate;
+            if (admission == AdmissionClass.PERSISTENT_WORLD
+                || admission == AdmissionClass.AMBIENT_DETAIL) {
+                liveRate = Math.min(liveRate, remainingPersistentLiveSlotRate);
+            }
+            return Math.min(1.0, Math.min(
+                remainingSpawnRate / requestedRate,
+                Math.min(liveRate / requestedRate,
+                    remainingFragmentCost / requestedFragmentCost)));
+        }
+
+        private boolean exhausted(final AdmissionClass admission) {
             return remainingSpawnRate <= 0.01 || remainingLiveSlotRate <= 0.01
-                || remainingFragmentCost <= 0.01;
+                || remainingFragmentCost <= 0.01
+                || (admission == AdmissionClass.PERSISTENT_WORLD
+                    || admission == AdmissionClass.AMBIENT_DETAIL)
+                    && remainingPersistentLiveSlotRate <= 0.01;
         }
     }
 

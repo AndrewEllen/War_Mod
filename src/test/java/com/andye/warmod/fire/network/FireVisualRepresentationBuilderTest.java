@@ -52,7 +52,7 @@ final class FireVisualRepresentationBuilderTest {
     void cellIdsStayStableForMovementInsideTheSameBand() {
         List<FireCellSnapshot> patches = new ArrayList<>();
         for (int x = -24; x <= 24; x += 4)
-            for (int z = 124; z <= 164; z += 4)
+            for (int z = 220; z <= 260; z += 4)
                 patches.add(patch(((long) x << 32) ^ z, x, z));
         Set<Long> first = ids(FireVisualRepresentationBuilder.build(patches,
             new Vec3(0.0, 64.0, 0.0)).cells());
@@ -65,11 +65,11 @@ final class FireVisualRepresentationBuilderTest {
     void aggregationPreservesFlameEnergyAndSmokeMass() {
         ArrayList<FireCellSnapshot> patches = new ArrayList<>();
         for (int index = 0; index < 400; index++)
-            patches.add(patch(index + 1L, index % 20 - 10, 130 + index / 20));
+            patches.add(patch(index + 1L, index % 20 - 10, 180 + index / 20));
         FireVisualRepresentationBuilder.Representation result =
             FireVisualRepresentationBuilder.build(patches, new Vec3(0.0, 64.0, 0.0));
         List<FireVisualCell> mid = result.cells().stream()
-            .filter(cell -> cell.band() == FireVisualBand.MID).toList();
+            .filter(cell -> cell.band() == FireVisualBand.LOCAL).toList();
         assertFalse(mid.isEmpty());
         assertEquals(400 * 0.74, mid.stream().mapToDouble(FireVisualCell::flameEnergy).sum(),
             0.01);
@@ -86,10 +86,10 @@ final class FireVisualRepresentationBuilderTest {
             0.7F, 0.6F, FirePhase.FLAMING, 123L, 10L, Vec3.ZERO);
         FireVisualCell first = FireVisualRepresentationBuilder.build(List.of(source),
             new Vec3(4.0, 64.0, 7.0)).cells().stream()
-            .filter(cell -> cell.band() == FireVisualBand.NEAR).findFirst().orElseThrow();
+            .filter(cell -> cell.band() == FireVisualBand.PATCH).findFirst().orElseThrow();
         FireVisualCell second = FireVisualRepresentationBuilder.build(List.of(source),
             new Vec3(5.0, 64.0, 7.0)).cells().stream()
-            .filter(cell -> cell.band() == FireVisualBand.NEAR).findFirst().orElseThrow();
+            .filter(cell -> cell.band() == FireVisualBand.PATCH).findFirst().orElseThrow();
         assertEquals(first.id(), second.id());
         assertEquals(anchor.position(), first.centroid());
         assertEquals(Direction.EAST, first.dominantFace());
@@ -101,26 +101,45 @@ final class FireVisualRepresentationBuilderTest {
         ArrayList<FireCellSnapshot> sparse = new ArrayList<>();
         ArrayList<FireCellSnapshot> dense = new ArrayList<>();
         for (int index = 0; index < 40; index++)
-            sparse.add(patch(index + 1L, index - 20, 150 + index % 4));
+            sparse.add(patch(index + 1L, index - 20, 220 + index % 4));
         dense.addAll(sparse);
         for (int index = 40; index < 400; index++)
-            dense.add(patch(index + 1L, index % 40 - 20, 130 + index / 40));
+            dense.add(patch(index + 1L, index % 40 - 20, 210 + index / 40));
         var sparseResult = FireVisualRepresentationBuilder.build(sparse,
             new Vec3(0.0, 64.0, 0.0));
         var denseResult = FireVisualRepresentationBuilder.build(dense,
             new Vec3(0.0, 64.0, 0.0));
-        for (FireVisualBand band : List.of(FireVisualBand.MID, FireVisualBand.FAR,
+        for (FireVisualBand band : List.of(FireVisualBand.LOCAL, FireVisualBand.FAR,
             FireVisualBand.HORIZON)) {
             assertEquals(band.preferredCellSize(), sparseResult.cellSizeByBand().get(band));
             assertEquals(band.preferredCellSize(), denseResult.cellSizeByBand().get(band));
         }
         Set<Long> sparseMid = new HashSet<>();
         for (FireVisualCell cell : sparseResult.cells())
-            if (cell.band() == FireVisualBand.MID) sparseMid.add(cell.id());
+            if (cell.band() == FireVisualBand.LOCAL) sparseMid.add(cell.id());
         Set<Long> denseMid = new HashSet<>();
         for (FireVisualCell cell : denseResult.cells())
-            if (cell.band() == FireVisualBand.MID) denseMid.add(cell.id());
+            if (cell.band() == FireVisualBand.LOCAL) denseMid.add(cell.id());
         assertTrue(denseMid.containsAll(sparseMid));
+    }
+
+    @Test
+    void hierarchyUsesKnownGoodFixedGridsAndExplicitParentIds() {
+        List<FireCellSnapshot> patches = List.of(patch(1L, 4, 60),
+            patch(2L, 170, 0), patch(3L, 340, 0), patch(4L, 720, 0));
+        var result = FireVisualRepresentationBuilder.build(patches,
+            new Vec3(0.0, 64.0, 0.0));
+
+        assertEquals(1, FireVisualBand.PATCH.preferredCellSize());
+        assertEquals(1, FireVisualBand.HOST.preferredCellSize());
+        assertEquals(2, FireVisualBand.LOCAL.preferredCellSize());
+        assertEquals(8, FireVisualBand.FAR.preferredCellSize());
+        assertEquals(32, FireVisualBand.HORIZON.preferredCellSize());
+        for (FireVisualCell cell : result.cells()) {
+            if (cell.band() == FireVisualBand.HORIZON) assertEquals(0L, cell.parentId());
+            else assertTrue(cell.parentId() > 0L, () -> "missing parent for " + cell.band());
+            assertTrue(cell.parentId() != cell.id());
+        }
     }
 
     private static FireCellSnapshot patch(final long id, final int x, final int z) {

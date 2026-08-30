@@ -37,7 +37,7 @@ public final class FireRepresentationPlan {
         double clump = Mth.clamp(cell.clumpStrength(), 0.0F, 1.5F);
         double footprintArea = Math.max(0.05,
             Math.min(cell.coveredArea(), cell.hostCount() * 1.5F));
-        if (exactNearPatch(cell)) footprintArea *= 1.0 + clump * 0.22;
+        if (exactPatch(cell)) footprintArea *= 1.0 + clump * 0.22;
         double flameArea = footprintArea
             * (0.30 + Mth.clamp(cell.averageIntensity(), 0.0F, 1.2F) * 0.70)
             * (0.32 + Mth.clamp(cell.maximumHeat(), 0.0F, 1.2F) * 0.68)
@@ -52,7 +52,7 @@ public final class FireRepresentationPlan {
         double flameTarget = Mth.clamp(TARGET_FLAME_PIXELS / Math.sqrt(quality), 18.0, 32.0);
         double smokeTarget = Mth.clamp(TARGET_SMOKE_PIXELS / Math.sqrt(quality), 36.0, 72.0);
         int baseMinimum = Math.max(1, (int) Math.ceil(occupied / 16.0));
-        int detailLevel = Math.max(0, Math.min(3, requestedDetailLevel));
+        int detailLevel = Math.max(0, Math.min(4, requestedDetailLevel));
         int flameMinimum = Math.max(baseMinimum, switch (detailLevel) {
             case 0 -> Math.min(8, Math.max(4, (int) Math.ceil(occupied / 4.0)));
             case 1 -> Math.min(4, Math.max(2, (int) Math.ceil(occupied / 8.0)));
@@ -74,7 +74,7 @@ public final class FireRepresentationPlan {
                 : desiredCount(projectedArea, smokeTarget, smokeMinimum,
                     MAX_SMOKE_CARDS_PER_CELL, smokeArea, smokeDepth,
                     maximumSmokeRadius(cell), 0.72);
-        } else if (exactNearPatch(cell)) {
+        } else if (exactPatch(cell)) {
             double density = FireVisualLodPolicy.density(detailLevel);
             int historicalFlames = Mth.ceil((2.0F + cell.averageIntensity() * 15.0F)
                 * (0.18F + cell.coveredArea() * 0.82F)
@@ -141,7 +141,7 @@ public final class FireRepresentationPlan {
             Vec3 position = occupiedPosition(cell, index, seed);
             if (smoke) {
                 position = position.add(0.0, 0.30 + maximumRadius * 0.34, 0.0);
-            } else if (exactNearPatch(cell)) {
+            } else if (exactPatch(cell)) {
                 position = position.add(Vec3.atLowerCornerOf(
                     cell.dominantFace().getUnitVec3i()).scale(0.045)).add(0.0, 0.02, 0.0);
             } else {
@@ -155,7 +155,7 @@ public final class FireRepresentationPlan {
     /** Stable low-discrepancy placement restricted to occupied 8x8 subcells. */
     public static Vec3 occupiedPosition(final FireVisualCell cell, final int index,
         final long seed) {
-        if (exactNearPatch(cell)) {
+        if (exactPatch(cell)) {
             double tangentA = (radicalInverse(index + 1, 2) - 0.5)
                 * Math.max(0.10, cell.extents().x * 1.55);
             double tangentB = (radicalInverse(index + 1, 3) - 0.5)
@@ -216,20 +216,19 @@ public final class FireRepresentationPlan {
     }
 
     private static double maximumFlameRadius(final FireVisualCell cell) {
-        if (exactNearPatch(cell)) return 0.30;
+        if (exactPatch(cell)) return 0.30;
         double extent = Math.max(cell.extents().x, cell.extents().z);
         return Math.max(0.48, Math.min(cell.cellSize() * 0.56, extent * 0.86 + 0.28));
     }
 
     private static double maximumSmokeRadius(final FireVisualCell cell) {
-        if (exactNearPatch(cell)) return 0.52;
+        if (exactPatch(cell)) return 0.52;
         double extent = Math.max(cell.extents().x, cell.extents().z);
         return Math.max(0.72, Math.min(cell.cellSize() * 0.78, extent * 1.12 + 0.52));
     }
 
-    private static boolean exactNearPatch(final FireVisualCell cell) {
-        return cell.band() == com.andye.warmod.fire.network.FireVisualBand.NEAR
-            && cell.cellSize() == 1 && cell.hostCount() == 1;
+    private static boolean exactPatch(final FireVisualCell cell) {
+        return cell.band().exactPatch();
     }
 
     private static long mix(long value) {

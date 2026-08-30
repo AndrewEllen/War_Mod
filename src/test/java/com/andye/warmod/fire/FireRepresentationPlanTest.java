@@ -88,7 +88,7 @@ final class FireRepresentationPlanTest {
     }
 
     private static FireVisualCell exactNearCell(final float clump) {
-        return new FireVisualCell(17L, FireVisualBand.NEAR, 1, 1, 64, 0,
+        return new FireVisualCell(17L, FireVisualBand.PATCH, 1, 1, 64, 0,
             new Vec3(1.0, 64.4, 0.5), new Vec3(0.45, 0.45, 0.45), 1L << 20,
             0.82F, 0.68F, 0.95F, 0.92F, 0.82F, clump, Vec3.ZERO,
             1, 998L, Direction.EAST, FirePhase.FLAMING, 2L);

@@ -1,17 +1,21 @@
 package com.andye.warmod.fire.network;
 
 /**
- * Stable, overlapping distance bands used by the authoritative fire visual
- * representation. Each aggregate band has one fixed world grid: population
- * changes can alter card counts, but can never resize the grid or churn IDs.
+ * Stable levels in the fire representation hierarchy.  PATCH and HOST keep
+ * the source topology; the three aggregate levels use the original known-good
+ * fixed grids.  Population and packet pressure may reduce representatives but
+ * can never resize a grid or change a surviving cell's identity.
  */
 public enum FireVisualBand {
-    NEAR(0, 0.0, 112.0, 1, 320),
-    /* The 8x8 occupancy mask makes this an effective four-block visual grid. */
-    MID(1, 80.0, 288.0, 32, 320),
-    /* Effective occupied subcells remain 16 and 64 blocks respectively. */
-    FAR(2, 240.0, 704.0, 128, 160),
-    HORIZON(3, 640.0, 1_536.0, 512, 64);
+    PATCH(0, 0.0, 80.0, 1, 192),
+    HOST(1, 48.0, 192.0, 1, 224),
+    LOCAL(2, 160.0, 384.0, 2, 256),
+    FAR(3, 320.0, 800.0, 8, 224),
+    HORIZON(4, 704.0, 1_536.0, 32, 128);
+
+    /** Source-compatibility aliases for diagnostics and the untouched simulator. */
+    public static final FireVisualBand NEAR = PATCH;
+    public static final FireVisualBand MID = LOCAL;
 
     public static final int COMPLETE_MASK = (1 << values().length) - 1;
 
@@ -43,17 +47,31 @@ public enum FireVisualBand {
             && distance <= maximumDistance;
     }
 
-    /** Complementary overlap weights prevent hard near/mid/far boundaries. */
+    /** Complementary overlap weights prevent hard hierarchy boundaries. */
     public float weight(final double distance) {
         if (!Double.isFinite(distance)) return 0.0F;
         return (float) switch (this) {
-            case NEAR -> 1.0 - smoothStep(80.0, 112.0, distance);
-            case MID -> smoothStep(80.0, 112.0, distance)
-                * (1.0 - smoothStep(240.0, 288.0, distance));
-            case FAR -> smoothStep(240.0, 288.0, distance)
-                * (1.0 - smoothStep(640.0, 704.0, distance));
-            case HORIZON -> smoothStep(640.0, 704.0, distance)
+            case PATCH -> 1.0 - smoothStep(48.0, 80.0, distance);
+            case HOST -> smoothStep(48.0, 80.0, distance)
+                * (1.0 - smoothStep(160.0, 192.0, distance));
+            case LOCAL -> smoothStep(160.0, 192.0, distance)
+                * (1.0 - smoothStep(320.0, 384.0, distance));
+            case FAR -> smoothStep(320.0, 384.0, distance)
+                * (1.0 - smoothStep(704.0, 800.0, distance));
+            case HORIZON -> smoothStep(704.0, 800.0, distance)
                 * (1.0 - smoothStep(1_472.0, 1_536.0, distance));
+        };
+    }
+
+    public boolean exactPatch() { return this == PATCH; }
+
+    public FireVisualBand parent() {
+        return switch (this) {
+            case PATCH -> HOST;
+            case HOST -> LOCAL;
+            case LOCAL -> FAR;
+            case FAR -> HORIZON;
+            case HORIZON -> null;
         };
     }
 

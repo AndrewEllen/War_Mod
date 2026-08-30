@@ -6,6 +6,7 @@ import com.andye.warmod.WarMod;
 import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.fire.FireRepresentationPlan.Card;
 import com.andye.warmod.fire.FireRepresentationPlan.CellPlan;
+import com.andye.warmod.fire.network.FireVisualBand;
 import com.andye.warmod.particle.gpu.GpuVfxScheduler.CameraInfo;
 import com.andye.warmod.particle.gpu.GpuVfxScheduler.ScheduledFrame;
 import com.andye.warmod.warhead.client.render.WarheadRenderSettings;
@@ -360,7 +361,9 @@ public final class GpuParticleEngine {
             adaptiveQuality, configuredScale);
         return new GpuBudgetSnapshot(configuredScale, adaptiveQuality,
             limits.spawnRatePerSecond(), limits.fragmentCostPerSecond(),
-            limits.emitterCapacity(), PARTICLE_CAPACITY, Math.max(0L, deadSlots));
+            limits.emitterCapacity(), PARTICLE_CAPACITY, Math.max(0L, deadSlots),
+            limits.protectedTransientParticleSlots(), Math.max(0L,
+                deadSlots - limits.protectedTransientParticleSlots()));
     }
 
     public static synchronized GpuProbeSnapshot probeSnapshot() {
@@ -1432,11 +1435,22 @@ public final class GpuParticleEngine {
         Map<VisualLayer, List<EmitterCommand>> layers) { }
     public record FrameSubmissions(List<EffectSubmission> effects,
         List<FireFieldSubmission> fireFields) { }
-    public record FireFieldCell(long id, Vec3 position, Vec3 wind, float intensity,
-        float heat, float boundsRadius, CellPlan plan, long seed) {
+    public record FireFieldCell(long id, FireVisualBand representation,
+        Vec3 position, Vec3 surfaceNormal, Vec3 wind, float intensity,
+        float heat, float smokeMass, float boundsRadius, CellPlan plan, long seed) {
+        public FireFieldCell(final long id, final Vec3 position, final Vec3 wind,
+            final float intensity, final float heat, final float boundsRadius,
+            final CellPlan plan, final long seed) {
+            this(id, FireVisualBand.HOST, position, new Vec3(0.0, 1.0, 0.0), wind,
+                intensity, heat, plan == null ? 0.0F
+                    : plan.representedSmokeOpticalDepth(), boundsRadius, plan, seed);
+        }
         public boolean valid() { return position != null && position.isFinite()
-            && wind != null && wind.isFinite() && Float.isFinite(intensity)
-            && Float.isFinite(heat) && Float.isFinite(boundsRadius) && boundsRadius > 0.0F
+            && representation != null && surfaceNormal != null && surfaceNormal.isFinite()
+            && surfaceNormal.lengthSqr() > 1.0E-8 && wind != null && wind.isFinite()
+            && Float.isFinite(intensity) && Float.isFinite(heat)
+            && Float.isFinite(smokeMass) && smokeMass >= 0.0F
+            && Float.isFinite(boundsRadius) && boundsRadius > 0.0F
             && plan != null && (!plan.flames().isEmpty() || !plan.smoke().isEmpty()); }
     }
     public record FireFieldEmber(long id, Vec3 position, Vec3 velocity,
@@ -1531,7 +1545,8 @@ public final class GpuParticleEngine {
         int receivedPatchEntries, int storedPatches) { }
     public record GpuBudgetSnapshot(double configuredScale, double adaptiveQuality,
         double spawnRatePerSecond, double fragmentCostPerSecond,
-        int emitterCapacity, int particleCapacity, long availableDeadSlots) { }
+        int emitterCapacity, int particleCapacity, long availableDeadSlots,
+        int protectedTransientSlots, long persistentAvailableSlots) { }
     public record GpuProbeSnapshot(String stage, boolean depthDisabledPassed,
         boolean depthEnabledPassed, boolean worldOcclusionPassed,
         int directEmitterTypesPassed, int directEmitterTypesRequired) { }

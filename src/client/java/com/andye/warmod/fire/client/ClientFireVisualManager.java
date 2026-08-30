@@ -103,7 +103,9 @@ public final class ClientFireVisualManager {
                     retiringCells.remove(key);
                     CellVisual previous = current.get(cell.id());
                     current.put(cell.id(), previous == null
-                        ? CellVisual.immediate(cell, receivedAt)
+                        ? relatedRepresentation(cell)
+                            ? CellVisual.fadeIn(cell, receivedAt)
+                            : CellVisual.immediate(cell, receivedAt)
                         : previous.accept(cell, receivedAt));
                 }
                 continue;
@@ -111,11 +113,9 @@ public final class ClientFireVisualManager {
 
             LinkedHashMap<Long, CellVisual> replacement = new LinkedHashMap<>();
             HashSet<Long> incomingIds = new HashSet<>(bandCells.size());
-            boolean hasOutgoing = false;
             for (FireVisualCell cell : bandCells) incomingIds.add(cell.id());
             for (CellVisual previous : current.values()) {
                 if (incomingIds.contains(previous.cell.id())) continue;
-                hasOutgoing = true;
                 BandCellKey key = new BandCellKey(band, previous.cell.id());
                 CellVisual smoke = previous.retireSmoke(receivedAt);
                 if (smoke == null) retiringCells.remove(key);
@@ -127,12 +127,29 @@ public final class ClientFireVisualManager {
                 CellVisual previous = current.get(cell.id());
                 replacement.put(cell.id(), previous != null
                     ? previous.accept(cell, receivedAt)
-                    : hasOutgoing ? CellVisual.fadeIn(cell, receivedAt)
+                    : relatedRepresentation(cell) ? CellVisual.fadeIn(cell, receivedAt)
                         : CellVisual.immediate(cell, receivedAt));
             }
             current.clear();
             current.putAll(replacement);
         }
+    }
+
+    private boolean relatedRepresentation(final FireVisualCell incoming) {
+        for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) {
+            for (CellVisual existing : bandCells.values()) {
+                if (related(incoming, existing.cell)) return true;
+            }
+        }
+        for (CellVisual existing : retiringCells.values()) {
+            if (related(incoming, existing.cell)) return true;
+        }
+        return false;
+    }
+
+    private static boolean related(final FireVisualCell left, final FireVisualCell right) {
+        return left.parentId() == right.id() || right.parentId() == left.id()
+            || left.parentId() > 0L && left.parentId() == right.parentId();
     }
 
     public synchronized void acceptImpulse(final ClientboundFireWindImpulsePayload payload) {
@@ -290,7 +307,8 @@ public final class ClientFireVisualManager {
 
         private CellVisual accept(final FireVisualCell incoming, final long now) {
             float currentWeight = transitionWeight(now);
-            FireVisualCell smoothed = new FireVisualCell(incoming.id(), incoming.band(),
+            FireVisualCell smoothed = new FireVisualCell(incoming.id(), incoming.parentId(),
+                incoming.band(),
                 incoming.cellSize(), incoming.cellX(), incoming.cellY(), incoming.cellZ(),
                 cell.centroid().lerp(incoming.centroid(), 0.44), incoming.extents(),
                 incoming.occupancyMask(), lerp(cell.flameEnergy(), incoming.flameEnergy(), 0.44F),
@@ -319,7 +337,7 @@ public final class ClientFireVisualManager {
             float flameProgress = Math.max(0.0F, Math.min(1.0F,
                 (now - transitionStartTick) / (float)REPRESENTATION_TRANSITION_TICKS));
             float flameWeight = 1.0F - flameProgress;
-            return new FireVisualCell(cell.id(), cell.band(), cell.cellSize(),
+            return new FireVisualCell(cell.id(), cell.parentId(), cell.band(), cell.cellSize(),
                 cell.cellX(), cell.cellY(), cell.cellZ(), cell.centroid(), cell.extents(),
                 cell.occupancyMask(), cell.flameEnergy() * flameWeight,
                 cell.smokeMass(), cell.maximumHeat() * flameWeight,

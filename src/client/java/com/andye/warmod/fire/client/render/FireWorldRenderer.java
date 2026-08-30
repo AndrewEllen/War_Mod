@@ -98,19 +98,21 @@ public final class FireWorldRenderer {
             sourceHosts += Math.max(1, cell.hostCount());
             Vec3 worldPosition = cell.centroid();
             double distance = worldPosition.distanceTo(cameraPosition);
-            float representationWeight = visual.transitionWeight()
-                * cell.band().weight(distance);
             float boundsRadius = cell.boundingRadius();
-            if (!Double.isFinite(distance) || representationWeight <= 0.001F
+            if (!Double.isFinite(distance)
                 || !projection.visible(worldPosition, boundsRadius)) continue;
-            BlockPos centerBlock = BlockPos.containing(worldPosition);
-            if (distance <= 320.0 && level.hasChunkAt(centerBlock)
-                && !OCCLUSION.visible(level, cameraPosition, worldPosition, distance)) continue;
             double projectedCellDiameter = projection.projectedDiameter(worldPosition,
                 Math.max(0.5F, Math.max((float) cell.extents().x,
                     Math.max((float) cell.extents().y, (float) cell.extents().z))));
+            double projectedHostDiameter = projection.projectedDiameter(worldPosition, 0.5F);
             int detailLevel = ClientFireVisualManager.INSTANCE.lodLevel(level,
-                cell.id(), projectedCellDiameter);
+                cell.id(), projectedHostDiameter);
+            float representationWeight = visual.transitionWeight()
+                * FireVisualLodPolicy.representationWeight(cell.band(), distance, detailLevel);
+            if (representationWeight <= 0.001F) continue;
+            BlockPos centerBlock = BlockPos.containing(worldPosition);
+            if (distance <= 320.0 && level.hasChunkAt(centerBlock)
+                && !OCCLUSION.visible(level, cameraPosition, worldPosition, distance)) continue;
             CellPlan plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,
                 WarheadRenderSettings.qualityScale(), representationWeight, detailLevel);
             if (plan.flames().isEmpty() && plan.smoke().isEmpty()) continue;
@@ -120,8 +122,9 @@ public final class FireWorldRenderer {
             Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
                 cell.wind(), gameTime);
             if (gpuFlames || gpuSmoke) field(gpuFields, worldPosition).cells.add(
-                new FireFieldCell(cell.id(), worldPosition, wind,
-                    cell.averageIntensity(), cell.maximumHeat(), boundsRadius,
+                new FireFieldCell(cell.id(), cell.band(), worldPosition,
+                    Vec3.atLowerCornerOf(cell.dominantFace().getUnitVec3i()), wind,
+                    cell.averageIntensity(), cell.maximumHeat(), cell.smokeMass(), boundsRadius,
                     filteredPlan(plan, gpuFlames, gpuSmoke), cell.seed()));
             if (cpuFlames || cpuSmoke || cpuEmbers) {
                 SmokeFlow smokeFlow = smokeFlow(level, cell, centerBlock);

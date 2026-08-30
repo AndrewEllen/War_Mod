@@ -9,8 +9,13 @@ import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectDescriptor;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectSubmission;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EmitterCommand;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.FrameSubmissions;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldCell;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldSubmission;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.VisualLayer;
+import com.andye.warmod.fire.FireRepresentationPlan.Card;
+import com.andye.warmod.fire.FireRepresentationPlan.CellPlan;
+import com.andye.warmod.fire.network.FireVisualBand;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -180,6 +185,82 @@ final class GpuVfxSchedulerTest {
         assertTrue(layer.particlesAccepted() <= layer.particlesRequested());
     }
 
+    @Test
+    void maximumWildfireCannotSuppressCriticalNuclearTopology() {
+        ArrayList<EffectSubmission> effects = new ArrayList<>();
+        for (int field = 0; field < 64; field++) {
+            EffectDescriptor descriptor = new EffectDescriptor(EffectClass.FIRE_FIELD,
+                10_000L + field, new Vec3((field % 8 - 4) * 0.03, 0.0, 0.5),
+                0.40F, 1.0F);
+            effects.add(new EffectSubmission(descriptor, Map.of(
+                VisualLayer.FLAMES, ringCommands(descriptor.position().x, 192,
+                    4_000, 0.30F, ParticleType.FIRE),
+                VisualLayer.SMOKE, ringCommands(descriptor.position().x, 192,
+                    4_000, 0.42F, ParticleType.SMOKE))));
+        }
+        EffectDescriptor nuclear = new EffectDescriptor(EffectClass.NUCLEAR, 99L,
+            new Vec3(0.0, 0.0, 0.5), 0.48F, 2.0F);
+        effects.add(new EffectSubmission(nuclear, Map.of(
+            VisualLayer.FIREBALL, ringCommands(0.0, 48, 800, 0.38F,
+                ParticleType.EXPLOSION_FIRE),
+            VisualLayer.MUSHROOM_CLOUD, ringCommands(0.0, 48, 700, 0.48F,
+                ParticleType.EXPLOSION_SMOKE),
+            VisualLayer.STEM, ringCommands(0.0, 32, 500, 0.34F,
+                ParticleType.EXPLOSION_SMOKE),
+            VisualLayer.SMOKE_SHROUD, ringCommands(0.0, 40, 500, 0.42F,
+                ParticleType.EXPLOSION_SMOKE))));
+
+        GpuVfxScheduler.ScheduledFrame scheduled = GpuVfxScheduler.schedule(
+            new FrameSubmissions(List.copyOf(effects), List.of()), CAMERA, 1.0,
+            70L, 0.05F, GpuVfxScheduler.PROTECTED_TRANSIENT_PARTICLE_SLOTS, 100.0);
+
+        for (VisualLayer layer : List.of(VisualLayer.FIREBALL,
+            VisualLayer.MUSHROOM_CLOUD, VisualLayer.STEM, VisualLayer.SMOKE_SHROUD)) {
+            GpuVfxScheduler.LayerSchedule layerSchedule = scheduled.layerSchedules().get(layer);
+            assertTrue(layerSchedule != null && layerSchedule.particlesAccepted() > 0,
+                () -> layer + " lost its transient particle admission");
+            assertTrue(layerSchedule.emittersScheduled() > 0,
+                () -> layer + " lost its required topology");
+        }
+        GpuVfxScheduler.LayerSchedule flames = scheduled.layerSchedules()
+            .get(VisualLayer.FLAMES);
+        assertTrue(flames == null || flames.particlesAccepted() == 0,
+            "persistent fire must yield when only the transient reserve is free");
+    }
+
+    @Test
+    void exactPatchCardsCollapseIntoOneGpuEmitterPerSemanticLayer() {
+        List<Card> flameCards = cards(48, 0.18F, 0.72F);
+        List<Card> smokeCards = cards(32, 0.28F, 0.48F);
+        CellPlan plan = new CellPlan(flameCards, smokeCards, 2,
+            0.9F, 0.7F, 1.0F);
+        ArrayList<FireFieldCell> cells = new ArrayList<>();
+        for (int index = 0; index < 50; index++) {
+            cells.add(new FireFieldCell(index + 1L, FireVisualBand.PATCH,
+                new Vec3((index % 10 - 5) * 0.04, 0.0,
+                    0.5 + (index / 10) * 0.03),
+                new Vec3(1.0, 0.0, 0.0), Vec3.ZERO, 0.9F, 0.95F,
+                0.7F, 0.45F, plan, index * 31L + 1L));
+        }
+        FireFieldSubmission field = new FireFieldSubmission(1L,
+            new Vec3(0.0, 0.0, 0.5), 1.0F, List.copyOf(cells), List.of());
+
+        GpuVfxScheduler.ScheduledFrame scheduled = GpuVfxScheduler.schedule(
+            new FrameSubmissions(List.of(), List.of(field)), CAMERA, 1.0,
+            80L, 0.05F, 262_144L, 100.0);
+
+        assertEquals(50, scheduled.layerSchedules().get(VisualLayer.FLAMES)
+            .commandsSubmitted());
+        assertEquals(50, scheduled.layerSchedules().get(VisualLayer.SMOKE)
+            .commandsSubmitted());
+    }
+
+    @Test
+    void schedulerPublishesTheProtectedTransientReserve() {
+        assertEquals(GpuVfxScheduler.PROTECTED_TRANSIENT_PARTICLE_SLOTS,
+            GpuVfxScheduler.budgetLimits(1.0, 1.0).protectedTransientParticleSlots());
+    }
+
     private static GpuVfxScheduler.ScheduledFrame schedule(
         final FrameSubmissions input, final double budget, final long frame) {
         return GpuVfxScheduler.schedule(input, CAMERA, 1.0, frame,
@@ -215,5 +296,15 @@ final class GpuVfxSchedulerTest {
                 type, 0, 1.0F));
         }
         return List.copyOf(commands);
+    }
+
+    private static List<Card> cards(final int count, final float radius,
+        final float opacity) {
+        ArrayList<Card> cards = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) {
+            cards.add(new Card(new Vec3(index * 0.001, 0.0, 0.5), radius,
+                opacity, index + 1L));
+        }
+        return List.copyOf(cards);
     }
 }

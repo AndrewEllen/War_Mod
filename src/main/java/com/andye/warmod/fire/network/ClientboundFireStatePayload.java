@@ -37,6 +37,7 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         for (int index = 0; index < count; index++) {
             CellEntry cell = payload.cells.get(index);
             buffer.writeLong(cell.id);
+            buffer.writeLong(cell.parentId);
             buffer.writeByte(cell.band);
             buffer.writeVarInt(cell.cellSize);
             buffer.writeInt(cell.cellX); buffer.writeInt(cell.cellY); buffer.writeInt(cell.cellZ);
@@ -86,7 +87,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
             throw new IllegalArgumentException("Invalid fire visual cell count");
         List<CellEntry> cells = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
-            cells.add(new CellEntry(buffer.readLong(), buffer.readByte(), buffer.readVarInt(),
+            cells.add(new CellEntry(buffer.readLong(), buffer.readLong(), buffer.readByte(),
+                buffer.readVarInt(),
                 buffer.readInt(), buffer.readInt(), buffer.readInt(),
                 buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
@@ -138,7 +140,7 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
 
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 
-    public record CellEntry(long id, byte band, int cellSize,
+    public record CellEntry(long id, long parentId, byte band, int cellSize,
         int cellX, int cellY, int cellZ,
         double centroidX, double centroidY, double centroidZ,
         float extentX, float extentY, float extentZ, long occupancyMask,
@@ -148,7 +150,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         byte dominantFace, byte phase, long ignitionGameTime) {
 
         public static CellEntry from(final FireVisualCell cell) {
-            return new CellEntry(cell.id(), (byte) cell.band().wireId(), cell.cellSize(),
+            return new CellEntry(cell.id(), cell.parentId(),
+                (byte) cell.band().wireId(), cell.cellSize(),
                 cell.cellX(), cell.cellY(), cell.cellZ(), cell.centroid().x,
                 cell.centroid().y, cell.centroid().z, (float) cell.extents().x,
                 (float) cell.extents().y, (float) cell.extents().z,
@@ -161,7 +164,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         }
 
         public FireVisualCell toCell() {
-            return new FireVisualCell(id, FireVisualBand.fromWireId(Byte.toUnsignedInt(band)),
+            return new FireVisualCell(id, parentId,
+                FireVisualBand.fromWireId(Byte.toUnsignedInt(band)),
                 cellSize, cellX, cellY, cellZ,
                 new Vec3(centroidX, centroidY, centroidZ),
                 new Vec3(extentX, extentY, extentZ), occupancyMask,
@@ -175,7 +179,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
             int bandIndex = Byte.toUnsignedInt(band);
             int faceIndex = Byte.toUnsignedInt(dominantFace);
             int phaseIndex = Byte.toUnsignedInt(phase);
-            return id > 0L && bandIndex < FireVisualBand.values().length
+            return id > 0L && parentId >= 0L && parentId != id
+                && bandIndex < FireVisualBand.values().length
                 && cellSize > 0 && cellSize <= 4_096
                 && Double.isFinite(centroidX) && Double.isFinite(centroidY)
                 && Double.isFinite(centroidZ) && finiteNonNegative(extentX)
