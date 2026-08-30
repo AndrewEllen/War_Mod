@@ -84,6 +84,13 @@ public final class WarheadPreparedCommitManager {
         final UUID preparationId, final PreparedImpactPlan plan,
         final @Nullable ServerPlayer source, final WarheadYield yield,
         final long visualSeed) {
+        return begin(level, preparationId, plan, source, yield, visualSeed, false);
+    }
+
+    public static synchronized boolean begin(final ServerLevel level,
+        final UUID preparationId, final PreparedImpactPlan plan,
+        final @Nullable ServerPlayer source, final WarheadYield yield,
+        final long visualSeed, final boolean customFire) {
         if (level == null || preparationId == null || plan == null || yield == null) return false;
         registerLifecycle();
         ArrayDeque<Commit> commits = COMMITS.computeIfAbsent(level,
@@ -93,7 +100,7 @@ public final class WarheadPreparedCommitManager {
         }
         Commit commit = new Commit(preparationId, plan,
             source == null ? null : source.getUUID(), yield, visualSeed,
-            level.getGameTime());
+            customFire, level.getGameTime());
         commit.addChunks(plan.chunks().values());
         commits.addLast(commit);
         WarheadLifecycleDiagnostics.commitStarted(level, plan.impactId());
@@ -127,7 +134,8 @@ public final class WarheadPreparedCommitManager {
                 if (commit.plan.impactId().equals(impactId)) return commit.snapshot(level);
             }
         }
-        return new CommitSnapshot(false, 0, 0, 0, 0, 0, 0, 0);
+        return new CommitSnapshot(false, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0);
     }
 
     private static synchronized void tick(final ServerLevel level) {
@@ -219,7 +227,8 @@ public final class WarheadPreparedCommitManager {
 
     public record CommitSnapshot(boolean active, int ageTicks, int plannedChunks,
         int appliedChunks, int pendingLightAndPackets, int pendingAcknowledgements,
-        int conflictedCells, int changedBlocks) { }
+        int plannedCells, int changedBlocks, int conflictedCells,
+        int survivalRejections, int semanticRejections, int alreadyEqualCells) { }
 
     private static final class Commit {
         private final UUID preparationId;
@@ -229,6 +238,7 @@ public final class WarheadPreparedCommitManager {
         private final UUID sourcePlayerId;
         private final WarheadYield yield;
         private final long visualSeed;
+        private final boolean customFire;
         private final long startedAt;
         private final Long2ByteOpenHashMap appliedPhases = new Long2ByteOpenHashMap();
         private final Set<UUID> recipients = new HashSet<>();
@@ -238,6 +248,14 @@ public final class WarheadPreparedCommitManager {
         private int pendingSync;
         private int chunkSyncs;
         private int conflictedCells;
+        private int plannedCells;
+        private int survivalRejections;
+        private int semanticRejections;
+        private int alreadyEqualCells;
+        private final long[] plannedByCategory =
+            new long[WarheadMutationCategory.values().length];
+        private final long[] appliedByCategory =
+            new long[WarheadMutationCategory.values().length];
         private int changedBlocks;
         private int changedSections;
         private int changedBiomeQuarts;
@@ -250,15 +268,17 @@ public final class WarheadPreparedCommitManager {
         private long markerSentAt = Long.MIN_VALUE;
         private boolean markerSent;
         private boolean deadlineWarning;
+        private boolean fallbackStarted;
 
         private Commit(final UUID preparationId, final PreparedImpactPlan plan,
             final UUID sourcePlayerId, final WarheadYield yield, final long visualSeed,
-            final long startedAt) {
+            final boolean customFire, final long startedAt) {
             this.preparationId = preparationId;
             this.plan = plan;
             this.sourcePlayerId = sourcePlayerId;
             this.yield = yield;
             this.visualSeed = visualSeed;
+            this.customFire = customFire;
             this.startedAt = startedAt;
         }
 
@@ -266,6 +286,13 @@ public final class WarheadPreparedCommitManager {
             for (PreparedChunkPlan chunkPlan : additions) {
                 long packed = chunkPlan.chunk().pack();
                 if (chunks.putIfAbsent(packed, chunkPlan) != null) continue;
+                PlanStatistics statistics = WarheadPlanCompiler.statistics(chunkPlan);
+                plannedCells += Math.toIntExact(Math.min(Integer.MAX_VALUE,
+                    statistics.changedBlocks()));
+                for (WarheadMutationCategory category : WarheadMutationCategory.values()) {
+                    plannedByCategory[category.ordinal()] +=
+                        statistics.categories().count(category);
+                }
                 byte initial = 0;
                 if (!hasImmediate(chunkPlan)) initial |= IMMEDIATE_APPLIED;
                 if (!hasRadial(chunkPlan)) initial |= RADIAL_APPLIED;
@@ -275,6 +302,11 @@ public final class WarheadPreparedCommitManager {
 
         private void advance(final ServerLevel level) {
             int age = (int)Math.max(0L, level.getGameTime() - startedAt);
+            if (WarheadPreparationCoordinator.impactStreamState(level,
+                preparationId, plan.impactId()) == ImpactStreamState.FAILED) {
+                startFallback(level);
+                return;
+            }
             addChunks(WarheadPreparationCoordinator.drainPreparedChunks(level,
                 preparationId, plan.impactId()));
             applyAvailable(level, age);
@@ -294,6 +326,17 @@ public final class WarheadPreparedCommitManager {
                     FINAL_APPLICATION_TICK + 1, appliedChunkCount(),
                     plan.footprint().requiredChunkCount(), chunks.size(), pendingSync);
             }
+        }
+
+        private void startFallback(final ServerLevel level) {
+            if (fallbackStarted) return;
+            fallbackStarted = true;
+            WarMod.LOGGER.error("Prepared terrain stream failed for {}; starting the "
+                + "bounded degraded terrain path", plan.impactId());
+            WarheadLifecycleDiagnostics.fallbackStarted(plan.impactId(),
+                "prepared_stream_failed");
+            WarheadExplosionWorkManager.detonateTerrainOnly(level, sourcePlayer(level),
+                plan.impactId(), plan.center(), yield, visualSeed, customFire);
         }
 
         private void applyAvailable(final ServerLevel level, final int age) {
@@ -333,6 +376,10 @@ public final class WarheadPreparedCommitManager {
             int bulkBefore = bulkSafeMutations;
             int specialBefore = specialPathMutations;
             int conflictsBefore = conflictedCells;
+            int survivalBefore = survivalRejections;
+            int semanticRejectedBefore = semanticRejections;
+            int equalBefore = alreadyEqualCells;
+            long[] categoriesBefore = appliedByCategory.clone();
             for (PreparedSectionPlan sectionPlan : chunkPlan.blockSections()) {
                 if ((sectionPlan.phase() == PreparedMutationPhase.IMMEDIATE_CRATER
                     && !applyImmediate) || (sectionPlan.phase()
@@ -369,7 +416,11 @@ public final class WarheadPreparedCommitManager {
                     changedSections - sectionsBefore, changedBlocks - blocksBefore,
                     changedBiomeQuarts - biomeQuartsBefore,
                     bulkSafeMutations - bulkBefore, specialPathMutations - specialBefore,
-                    conflictedCells - conflictsBefore, blockChanged, biomeChanged);
+                    conflictedCells - conflictsBefore,
+                    categoryDifference(categoriesBefore),
+                    survivalRejections - survivalBefore,
+                    semanticRejections - semanticRejectedBefore,
+                    alreadyEqualCells - equalBefore, blockChanged, biomeChanged);
             }
             WarModPerformanceDiagnostics.record(
                 WarModPerformanceDiagnostics.Subsystem.WARHEAD_BULK_COMMIT,
@@ -395,6 +446,8 @@ public final class WarheadPreparedCommitManager {
             int[] replacements = plan.finalStateIdsUnsafe();
             BitSet semantic = plan.semanticMaskUnsafe();
             BitSet survival = plan.survivalMaskUnsafe();
+            BitSet supportCheck = plan.supportCheckMaskUnsafe();
+            byte[] categories = plan.mutationCategoriesUnsafe();
             boolean directChanged = false;
             boolean changed = false;
             BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
@@ -404,7 +457,8 @@ public final class WarheadPreparedCommitManager {
                 int localZ = local >> 4 & 15;
                 int localY = local >> 8 & 15;
                 BlockState live = section.getBlockState(localX, localY, localZ);
-                if ((validate || semantic.get(index) || survival.get(index))
+                if ((validate || semantic.get(index) || survival.get(index)
+                    || supportCheck.get(index))
                     && Block.getId(live) != expected[index]) {
                     conflictedCells++;
                     continue;
@@ -414,15 +468,26 @@ public final class WarheadPreparedCommitManager {
                 int worldY = blockY + localY;
                 int worldZ = chunk.getPos().getMinBlockZ() + localZ;
                 position.set(worldX, worldY, worldZ);
+                if (supportCheck.get(index) && live.canSurvive(level, position)) {
+                    survivalRejections++;
+                    continue;
+                }
                 if (survival.get(index) && !replacement.isAir()
-                    && !replacement.canSurvive(level, position)) replacement = Blocks.AIR.defaultBlockState();
+                    && !replacement.canSurvive(level, position)) {
+                    survivalRejections++;
+                    replacement = Blocks.AIR.defaultBlockState();
+                }
                 boolean cellChanged;
                 if (semantic.get(index)) {
                     cellChanged = WarheadExplosionWorkManager.applyPreparedSemanticMutation(
                         level, source, position.immutable(), planCenter(),
-                        StrategicExplosionProfiles.get(yield).entityBlastRadius(), replacement);
+                        this.plan.footprint().terrainProfile().entityBlastRadius(),
+                        replacement);
                 } else {
-                    if (live.equals(replacement)) continue;
+                    if (live.equals(replacement)) {
+                        alreadyEqualCells++;
+                        continue;
+                    }
                     section.getStates().set(localX, localY, localZ, replacement);
                     directChanged = true;
                     cellChanged = true;
@@ -432,6 +497,7 @@ public final class WarheadPreparedCommitManager {
                     changedBlocks++;
                     if (semantic.get(index)) specialPathMutations++;
                     else bulkSafeMutations++;
+                    appliedByCategory[Byte.toUnsignedInt(categories[index])]++;
                     bounds.include(localX, worldY, localZ);
                     sectionChanges.computeIfAbsent(plan.sectionY(),
                         ignored -> new ShortOpenHashSet()).add((short)(localX << 8
@@ -441,6 +507,8 @@ public final class WarheadPreparedCommitManager {
                             ignored -> new ShortOpenHashSet()).add((short)(localX << 8
                                 | localZ << 4 | localY));
                     }
+                } else if (semantic.get(index)) {
+                    semanticRejections++;
                 }
             }
             if (directChanged) {
@@ -670,6 +738,7 @@ public final class WarheadPreparedCommitManager {
         }
 
         private boolean complete(final ServerLevel level) {
+            if (fallbackStarted) return true;
             if (!markerSent || pendingSync > 0 || !allPhasesApplied(level)) return false;
             if (pendingAcknowledgements.isEmpty()) return true;
             if (level.getGameTime() - markerSentAt < CLIENT_ACK_TIMEOUT_TICKS) return false;
@@ -681,6 +750,9 @@ public final class WarheadPreparedCommitManager {
         private boolean allPhasesApplied(final ServerLevel level) {
             if (!WarheadPreparationCoordinator.impactStreamClosed(level,
                 preparationId, plan.impactId())) return false;
+            for (long packed : plan.footprint().requiredChunks()) {
+                if (!appliedPhases.containsKey(packed)) return false;
+            }
             for (byte phases : appliedPhases.values()) {
                 if ((phases & (IMMEDIATE_APPLIED | RADIAL_APPLIED))
                     != (IMMEDIATE_APPLIED | RADIAL_APPLIED)) return false;
@@ -697,6 +769,27 @@ public final class WarheadPreparedCommitManager {
             return count;
         }
 
+        private MutationCategoryCounts categoryDifference(final long[] before) {
+            return new MutationCategoryCounts(
+                appliedByCategory[WarheadMutationCategory.CRATER_EXCAVATION.ordinal()]
+                    - before[WarheadMutationCategory.CRATER_EXCAVATION.ordinal()],
+                appliedByCategory[WarheadMutationCategory.CRATER_SHELL.ordinal()]
+                    - before[WarheadMutationCategory.CRATER_SHELL.ordinal()],
+                appliedByCategory[WarheadMutationCategory.CRATER_CLEANUP.ordinal()]
+                    - before[WarheadMutationCategory.CRATER_CLEANUP.ordinal()],
+                appliedByCategory[WarheadMutationCategory.SURFACE.ordinal()]
+                    - before[WarheadMutationCategory.SURFACE.ordinal()],
+                appliedByCategory[WarheadMutationCategory.VEGETATION.ordinal()]
+                    - before[WarheadMutationCategory.VEGETATION.ordinal()],
+                appliedByCategory[WarheadMutationCategory.STRUCTURE.ordinal()]
+                    - before[WarheadMutationCategory.STRUCTURE.ordinal()],
+                appliedByCategory[WarheadMutationCategory.DECORATION.ordinal()]
+                    - before[WarheadMutationCategory.DECORATION.ordinal()],
+                0L, 0L,
+                appliedByCategory[WarheadMutationCategory.OTHER.ordinal()]
+                    - before[WarheadMutationCategory.OTHER.ordinal()]);
+        }
+
         private ServerPlayer sourcePlayer(final ServerLevel level) {
             if (sourcePlayerId == null) return null;
             ServerPlayer player = level.getServer().getPlayerList().getPlayer(sourcePlayerId);
@@ -710,7 +803,8 @@ public final class WarheadPreparedCommitManager {
                 (int)Math.max(0L, level.getGameTime() - startedAt),
                 plan.footprint().requiredChunkCount(),
                 appliedChunkCount(), pendingSync, pendingAcknowledgements.size(),
-                conflictedCells, changedBlocks);
+                plannedCells, changedBlocks, conflictedCells, survivalRejections,
+                semanticRejections, alreadyEqualCells);
         }
     }
 

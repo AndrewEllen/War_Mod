@@ -11,7 +11,7 @@ final class WarheadStateMetadata {
     private final float[] explosionResistance;
     private final int airStateId;
 
-    private WarheadStateMetadata(final int[] flags,
+    WarheadStateMetadata(final int[] flags,
         final float[] explosionResistance, final int airStateId) {
         this.flags = flags;
         this.explosionResistance = explosionResistance;
@@ -22,6 +22,8 @@ final class WarheadStateMetadata {
         int size = Block.BLOCK_STATE_REGISTRY.size();
         int[] flags = new int[size];
         float[] resistance = new float[size];
+        BlockPos unsupportedProbe = new BlockPos(0,
+            level.dimensionType().minY() + level.dimensionType().height() + 16, 0);
         for (BlockState state : Block.BLOCK_STATE_REGISTRY) {
             int id = Block.getId(state);
             if (id < 0 || id >= size) continue;
@@ -32,6 +34,13 @@ final class WarheadStateMetadata {
                 indestructible = true;
             }
             flags[id] = WarheadSnapshotFlags.classify(state, indestructible, false);
+            try {
+                if (!state.isAir() && !state.canSurvive(level, unsupportedProbe)) {
+                    flags[id] |= WarheadSnapshotFlags.SURVIVAL_SENSITIVE;
+                }
+            } catch (RuntimeException failure) {
+                flags[id] |= WarheadSnapshotFlags.SURVIVAL_SENSITIVE;
+            }
             resistance[id] = Math.max(state.getBlock().getExplosionResistance(),
                 state.getFluidState().getExplosionResistance());
         }

@@ -14,7 +14,7 @@ final class WarheadChunkSnapshot {
     static final int ABOVE_LAYER = 0;
     static final int SURFACE_LAYER = 1;
     private static final int VERTICAL_SCAN_BELOW_SURFACE = 8;
-    private static final int VERTICAL_SCAN_ABOVE_SURFACE = 52;
+    private static final int VERTICAL_SCAN_ABOVE_SURFACE = 64;
     private static final int SURFACE_SUPPORT_DESCENT = 8;
 
     private final ChunkPos chunk;
@@ -30,6 +30,8 @@ final class WarheadChunkSnapshot {
     private final int[] oceanTopY;
     private final WarheadStateMetadata metadata;
     private final Int2ObjectOpenHashMap<WarheadPackedSection> packedSections;
+    private final byte[] sectionCoverage;
+    private final int[] requiredFeaturesBySection;
     private final Long2IntOpenHashMap haloStateIds;
 
     private volatile boolean derived;
@@ -79,6 +81,11 @@ final class WarheadChunkSnapshot {
         this.oceanTopY = terrainSurfaceY.clone();
         this.metadata = null;
         this.packedSections = new Int2ObjectOpenHashMap<>();
+        this.sectionCoverage = new byte[sectionRevisions.length];
+        java.util.Arrays.fill(this.sectionCoverage,
+            WarheadSectionCoverage.CAPTURED_PACKED.wireId());
+        this.requiredFeaturesBySection = new int[sectionRevisions.length];
+        java.util.Arrays.fill(this.requiredFeaturesBySection, WarheadSnapshotFeatures.ALL);
         this.haloStateIds = new Long2IntOpenHashMap();
         this.haloStateIds.defaultReturnValue(-1);
         this.terrainSurfaceY = terrainSurfaceY.clone();
@@ -101,9 +108,13 @@ final class WarheadChunkSnapshot {
         final int[] motionTopY, final int[] oceanTopY,
         final WarheadStateMetadata metadata,
         final List<WarheadPackedSection> packedSections,
+        final byte[] sectionCoverage, final int[] requiredFeaturesBySection,
         final long[] haloPositions, final int[] haloStateIds) {
         if (chunk == null || sectionRevisions == null || motionTopY.length != 256
             || oceanTopY.length != 256 || metadata == null || packedSections == null
+            || sectionCoverage == null || requiredFeaturesBySection == null
+            || sectionCoverage.length != sectionRevisions.length
+            || requiredFeaturesBySection.length != sectionRevisions.length
             || haloPositions == null || haloStateIds == null
             || haloPositions.length != haloStateIds.length) {
             throw new IllegalArgumentException("Malformed packed warhead chunk snapshot");
@@ -124,6 +135,8 @@ final class WarheadChunkSnapshot {
         for (WarheadPackedSection section : packedSections) {
             this.packedSections.put(section.sectionY(), section);
         }
+        this.sectionCoverage = sectionCoverage.clone();
+        this.requiredFeaturesBySection = requiredFeaturesBySection.clone();
         this.haloStateIds = new Long2IntOpenHashMap(haloPositions.length);
         this.haloStateIds.defaultReturnValue(-1);
         for (int index = 0; index < haloPositions.length; index++) {
@@ -140,9 +153,43 @@ final class WarheadChunkSnapshot {
     boolean hasFeature(final int feature) { return (features & feature) != 0; }
     boolean covers(final int requiredFeatures, final int craterMinimum,
         final int craterMaximum) {
-        return (features & requiredFeatures) == requiredFeatures
-            && (craterMaximum < craterMinimum
-                || craterMinimumY <= craterMinimum && craterMaximumY >= craterMaximum);
+        if ((features & requiredFeatures) != requiredFeatures
+            || !(craterMaximum < craterMinimum
+                || craterMinimumY <= craterMinimum && craterMaximumY >= craterMaximum)) {
+            return false;
+        }
+        for (int index = 0; index < sectionCoverage.length; index++) {
+            int required = requiredFeaturesBySection[index] & requiredFeatures;
+            if (required == 0) continue;
+            WarheadSectionCoverage coverage = WarheadSectionCoverage.fromWireId(
+                sectionCoverage[index]);
+            if (coverage == WarheadSectionCoverage.NOT_CAPTURED
+                || coverage == WarheadSectionCoverage.PROVEN_IRRELEVANT
+                    && (required & (WarheadSnapshotFeatures.CRATER_VOLUME
+                        | WarheadSnapshotFeatures.SURFACE)) != 0) return false;
+        }
+        return true;
+    }
+
+    void requireCoverage(final int feature) {
+        for (int index = 0; index < sectionCoverage.length; index++) {
+            if ((requiredFeaturesBySection[index] & feature) == 0) continue;
+            WarheadSectionCoverage coverage = WarheadSectionCoverage.fromWireId(
+                sectionCoverage[index]);
+            boolean allowed = coverage == WarheadSectionCoverage.CAPTURED_PACKED
+                || coverage == WarheadSectionCoverage.PROVEN_ALL_AIR
+                || feature == WarheadSnapshotFeatures.VERTICAL_FEATURES
+                    && coverage == WarheadSectionCoverage.PROVEN_IRRELEVANT;
+            if (!allowed) throw new WarheadSnapshotIncompleteException(chunk,
+                minimumSectionY + index, feature, coverage);
+        }
+    }
+
+    WarheadSectionCoverage sectionCoverage(final int sectionY) {
+        int index = sectionY - minimumSectionY;
+        return index < 0 || index >= sectionCoverage.length
+            ? WarheadSectionCoverage.NOT_CAPTURED
+            : WarheadSectionCoverage.fromWireId(sectionCoverage[index]);
     }
     int motionTopY(final int column) { return motionTopY[column]; }
     int terrainSurfaceY(final int column) { ensureDerived(); return terrainSurfaceY[column]; }
@@ -158,9 +205,23 @@ final class WarheadChunkSnapshot {
     int relevantStateId(final int index) { ensureDerived(); return relevantStateIds[index]; }
     int relevantFlags(final int index) { ensureDerived(); return relevantFlags[index]; }
 
+    boolean hasPackedBacking() { return metadata != null; }
+
+    int verticalStateIdAtWorld(final int worldX, final int y, final int worldZ) {
+        if (metadata == null) return -1;
+        return verticalStateIdAt(worldX - chunk.getMinBlockX(), y,
+            worldZ - chunk.getMinBlockZ());
+    }
+
+    int verticalFlagsAtWorld(final int worldX, final int y, final int worldZ) {
+        int stateId = verticalStateIdAtWorld(worldX, y, worldZ);
+        return stateId < 0 ? 0 : metadata.flags(stateId);
+    }
+
     long estimatedBytes() {
         long bytes = 192L + sectionRevisions.length * Long.BYTES
             + (long)(motionTopY.length + oceanTopY.length) * Integer.BYTES
+            + sectionCoverage.length + (long)requiredFeaturesBySection.length * Integer.BYTES
             + (long)haloStateIds.size() * (Long.BYTES + Integer.BYTES);
         for (WarheadPackedSection section : packedSections.values()) bytes += section.estimatedBytes();
         if (derived) {
@@ -187,30 +248,46 @@ final class WarheadChunkSnapshot {
     boolean containsCraterY(final int y) { return y >= craterMinimumY && y <= craterMaximumY; }
     int craterStateId(final int localX, final int y, final int localZ) {
         if (craterStateIds != null) return craterStateIds[craterIndex(localX, y, localZ)];
-        return stateIdAt(localX, y, localZ);
+        return requireStateIdAt(localX, y, localZ,
+            WarheadSnapshotFeatures.CRATER_VOLUME);
     }
     int craterFlags(final int localX, final int y, final int localZ) {
         if (craterFlags != null) return craterFlags[craterIndex(localX, y, localZ)];
-        return metadata.flags(stateIdAt(localX, y, localZ));
+        return metadata.flags(requireStateIdAt(localX, y, localZ,
+            WarheadSnapshotFeatures.CRATER_VOLUME));
     }
     float craterResistance(final int localX, final int y, final int localZ) {
         if (craterResistance != null) return craterResistance[craterIndex(localX, y, localZ)];
-        return metadata.explosionResistance(stateIdAt(localX, y, localZ));
+        return metadata.explosionResistance(requireStateIdAt(localX, y, localZ,
+            WarheadSnapshotFeatures.CRATER_VOLUME));
     }
 
     private int craterIndex(final int localX, final int y, final int localZ) {
         if (!containsCraterY(y)) throw new IndexOutOfBoundsException("Y outside crater snapshot");
         return (y - craterMinimumY) * 256 + localZ * 16 + localX;
     }
-    private int stateIdAt(final int localX, final int y, final int localZ) {
+    int requireStateIdAt(final int localX, final int y, final int localZ,
+        final int feature) {
         if (y < minimumBuildY || y > maximumBuildY) return metadata.airStateId();
         if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) {
             return haloStateIds.get(BlockPos.asLong(chunk.getMinBlockX() + localX,
                 y, chunk.getMinBlockZ() + localZ));
         }
-        WarheadPackedSection section = packedSections.get(Math.floorDiv(y, 16));
-        return section == null ? metadata.airStateId()
-            : section.stateId(localX, y & 15, localZ);
+        int sectionY = Math.floorDiv(y, 16);
+        WarheadPackedSection section = packedSections.get(sectionY);
+        if (section != null) return section.stateId(localX, y & 15, localZ);
+        WarheadSectionCoverage coverage = sectionCoverage(sectionY);
+        if (coverage == WarheadSectionCoverage.PROVEN_ALL_AIR) return metadata.airStateId();
+        throw new WarheadSnapshotIncompleteException(chunk, sectionY, feature, coverage);
+    }
+
+    private int verticalStateIdAt(final int localX, final int y, final int localZ) {
+        int sectionY = Math.floorDiv(y, 16);
+        if (sectionCoverage(sectionY) == WarheadSectionCoverage.PROVEN_IRRELEVANT) {
+            return metadata.airStateId();
+        }
+        return requireStateIdAt(localX, y, localZ,
+            WarheadSnapshotFeatures.VERTICAL_FEATURES);
     }
 
     private void ensureDerived() {
@@ -240,7 +317,8 @@ final class WarheadChunkSnapshot {
                     for (int layer = 0; layer < SURFACE_LAYERS; layer++) {
                         int y = terrainY + 1 - layer;
                         int destination = layer * 256 + column;
-                        int stateId = stateIdAt(localX, y, localZ);
+                        int stateId = requireStateIdAt(localX, y, localZ,
+                            surfaceFeature());
                         int stateFlags = metadata.flags(stateId);
                         if (exposedToAir(localX, y, localZ)) {
                             stateFlags |= WarheadSnapshotFlags.EXPOSED;
@@ -256,7 +334,7 @@ final class WarheadChunkSnapshot {
                     int scanMaximum = Math.min(maximumBuildY,
                         terrainY + VERTICAL_SCAN_ABOVE_SURFACE);
                     for (int y = scanMinimum; y <= scanMaximum; y++) {
-                        int stateId = stateIdAt(localX, y, localZ);
+                        int stateId = verticalStateIdAt(localX, y, localZ);
                         int stateFlags = metadata.flags(stateId);
                         if (!WarheadSnapshotFlags.relevantVertical(stateFlags)) continue;
                         naturalTree |= (stateFlags & WarheadSnapshotFlags.LEAVES) != 0;
@@ -284,7 +362,8 @@ final class WarheadChunkSnapshot {
     private int terrainSupportY(final int localX, final int localZ, int y) {
         for (int descent = 0; descent <= SURFACE_SUPPORT_DESCENT && y >= minimumBuildY;
             descent++, y--) {
-            int flags = metadata.flags(stateIdAt(localX, y, localZ));
+            int flags = metadata.flags(requireStateIdAt(localX, y, localZ,
+                surfaceFeature()));
             if ((flags & (WarheadSnapshotFlags.AIR | WarheadSnapshotFlags.FLUID
                 | WarheadSnapshotFlags.LEAVES | WarheadSnapshotFlags.LOG
                 | WarheadSnapshotFlags.PLANK | WarheadSnapshotFlags.GLASS
@@ -298,7 +377,7 @@ final class WarheadChunkSnapshot {
             || isAir(localX, y, localZ + 1) || isAir(localX, y, localZ - 1);
     }
     private boolean isAir(final int localX, final int y, final int localZ) {
-        int stateId = stateIdAt(localX, y, localZ);
+        int stateId = requireStateIdAt(localX, y, localZ, surfaceFeature());
         return stateId >= 0
             && (metadata.flags(stateId) & WarheadSnapshotFlags.AIR) != 0;
     }
@@ -317,8 +396,13 @@ final class WarheadChunkSnapshot {
         return false;
     }
     private boolean isWater(final int localX, final int y, final int localZ) {
-        int stateId = stateIdAt(localX, y, localZ);
+        int stateId = requireStateIdAt(localX, y, localZ, surfaceFeature());
         return stateId >= 0
             && (metadata.flags(stateId) & WarheadSnapshotFlags.WATER) != 0;
+    }
+
+    private int surfaceFeature() {
+        return hasFeature(WarheadSnapshotFeatures.SURFACE)
+            ? WarheadSnapshotFeatures.SURFACE : WarheadSnapshotFeatures.VERTICAL_FEATURES;
     }
 }

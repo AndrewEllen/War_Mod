@@ -1,6 +1,7 @@
 package com.andye.warmod.diagnostics;
 
 import com.andye.warmod.warhead.PlanStatistics;
+import com.andye.warmod.warhead.MutationCategoryCounts;
 import com.andye.warmod.warhead.PreparationProgress;
 import com.andye.warmod.warhead.PreparedImpactSpec;
 import com.andye.warmod.warhead.WarheadDeliveryMode;
@@ -115,6 +116,8 @@ public final class WarheadLifecycleDiagnostics {
         lifecycle.specialPathPlanned = statistics.semanticMutations();
         lifecycle.bulkSafePlanned = Math.max(0L,
             statistics.changedBlocks() - statistics.semanticMutations());
+        lifecycle.plannedCategories = statistics.categories();
+        lifecycle.replacementHistogram = statistics.replacementHistogram();
         lifecycle.peakPlanMemoryEstimate = Math.max(lifecycle.peakPlanMemoryEstimate,
             statistics.estimatedBytes());
         lifecycle.peakSnapshotMemoryEstimate = Math.max(
@@ -190,7 +193,10 @@ public final class WarheadLifecycleDiagnostics {
         final UUID impactId, final long packedChunk, final int changedSections,
         final int changedBlocks,
         final int changedBiomeQuarts, final int bulkSafe, final int specialPath,
-        final int conflicts, final boolean blocksApplied, final boolean biomesApplied) {
+        final int conflicts, final MutationCategoryCounts appliedCategories,
+        final int survivalRejections, final int semanticRejections,
+        final int alreadyEqualCells, final boolean blocksApplied,
+        final boolean biomesApplied) {
         Lifecycle lifecycle = IMPACTS.get(impactId);
         if (level == null || lifecycle == null) return;
         long now = level.getGameTime();
@@ -202,6 +208,12 @@ public final class WarheadLifecycleDiagnostics {
         lifecycle.bulkSafeMutations += Math.max(0, bulkSafe);
         lifecycle.specialPathMutations += Math.max(0, specialPath);
         lifecycle.revisionConflicts += Math.max(0, conflicts);
+        if (appliedCategories != null) {
+            lifecycle.appliedCategories = lifecycle.appliedCategories.add(appliedCategories);
+        }
+        lifecycle.survivalRejections += Math.max(0, survivalRejections);
+        lifecycle.semanticRejections += Math.max(0, semanticRejections);
+        lifecycle.alreadyEqualCells += Math.max(0, alreadyEqualCells);
         if (blocksApplied) lifecycle.lastAuthoritativeBlockCommitTick = now;
         if (biomesApplied) lifecycle.lastBiomeCommitTick = now;
     }
@@ -262,6 +274,13 @@ public final class WarheadLifecycleDiagnostics {
         lifecycle.completionTick = level == null ? -1L : level.getGameTime();
         lifecycle.fallbackReason = reason == null ? "cancelled" : "cancelled:" + reason;
         lifecycle.leakStatus = "WAITING_FOR_SHARED_LEASE_RELEASE";
+    }
+
+    public static synchronized void fallbackStarted(final UUID impactId,
+        final String reason) {
+        Lifecycle lifecycle = IMPACTS.get(impactId);
+        if (lifecycle != null) lifecycle.fallbackReason = reason == null
+            ? "prepared_stream_failed" : reason;
     }
 
     public static synchronized void leaseReleased(final ServerLevel level,
@@ -355,6 +374,12 @@ public final class WarheadLifecycleDiagnostics {
             .append(", bulkSafe=").append(value.bulkSafeMutations)
             .append(", specialPath=").append(value.specialPathMutations)
             .append(", conflicts=").append(value.revisionConflicts)
+            .append(", survivalRejections=").append(value.survivalRejections)
+            .append(", semanticRejections=").append(value.semanticRejections)
+            .append(", alreadyEqual=").append(value.alreadyEqualCells)
+            .append(", plannedCategories=").append(value.plannedCategories)
+            .append(", appliedCategories=").append(value.appliedCategories)
+            .append(", replacementHistogram=").append(value.replacementHistogram)
             .append(", recompiledSections=").append(value.recompiledSections)
             .append(", fallbackReason=").append(value.fallbackReason)
             .append(", serverBytesSent=-1")
@@ -494,6 +519,8 @@ public final class WarheadLifecycleDiagnostics {
         private long changedBiomeQuartsPlanned;
         private long bulkSafePlanned;
         private long specialPathPlanned;
+        private MutationCategoryCounts plannedCategories = MutationCategoryCounts.empty();
+        private Map<Integer, Long> replacementHistogram = Map.of();
         private long changedChunks;
         private final HashSet<Long> changedChunkIds = new HashSet<>();
         private long changedSections;
@@ -502,6 +529,10 @@ public final class WarheadLifecycleDiagnostics {
         private long bulkSafeMutations;
         private long specialPathMutations;
         private long revisionConflicts;
+        private long survivalRejections;
+        private long semanticRejections;
+        private long alreadyEqualCells;
+        private MutationCategoryCounts appliedCategories = MutationCategoryCounts.empty();
         private long recompiledSections;
         private String fallbackReason = "none";
         private long serverPacketsSent;

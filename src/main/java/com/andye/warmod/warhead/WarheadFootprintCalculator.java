@@ -20,25 +20,10 @@ public final class WarheadFootprintCalculator {
             throw new IllegalArgumentException("Yield and payload type disagree");
         }
 
-        StrategicExplosionProfile profile = StrategicExplosionProfiles.get(yield);
-        float visualScale = Mth.clamp(yield.visualScale(), 0.28F, 4.2F);
-        double craterRadius = yield.nuclear()
-            ? 12.0 + 13.0 * visualScale
-            : profile.horizontalRadius();
-        double aftermathRadius = yield.nuclear()
-            ? Math.ceil(nuclearAftermathRadius(craterRadius, visualScale))
-            : profile.horizontalRadius() * profile.aftermathRadiusScale();
-        double glassRadius = yield.nuclear()
-            ? nuclearGlassRadius((int) aftermathRadius, visualScale)
-            : conventionalGlassRadius(visualScale);
-        double biomeRadius = yield.nuclear()
-            ? NuclearBiomeDome.radius(aftermathRadius)
-            : 0.0;
-        double maximumRadius = Math.max(Math.max(craterRadius, aftermathRadius),
-            Math.max(glassRadius, biomeRadius));
-        LongSet required = requiredChunks(target.x, target.z, maximumRadius);
-        return new WarheadFootprint(craterRadius, aftermathRadius, glassRadius,
-            biomeRadius, maximumRadius, required);
+        NuclearTerrainProfile profile = NuclearTerrainProfile.forYield(yield);
+        LongSet required = requiredChunks(target.x, target.z,
+            profile.maximumMutationRadius());
+        return new WarheadFootprint(profile, required);
     }
 
     public static LongSet chunksIntersectingCircle(final double centerX,

@@ -153,7 +153,7 @@ public final class WarheadImpactService {
 				level, radarRootTrackId, id, radarRootTrackId,
 				event.impactPosition(), yield, seed, customFire);
 			if (sealed == null || !WarheadPreparedCommitManager.begin(level,
-				sealed.preparationId(), sealed.plan(), owner, yield, seed)) {
+				sealed.preparationId(), sealed.plan(), owner, yield, seed, customFire)) {
 				WarMod.LOGGER.error("Could not begin streaming terrain commit for {}; "
 					+ "using degraded terrain fallback", id);
 				if (sealed != null) WarheadPreparationCoordinator.completeCommit(level,

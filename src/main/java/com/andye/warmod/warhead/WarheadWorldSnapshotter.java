@@ -21,7 +21,7 @@ import net.minecraft.server.level.ServerLevel;
  */
 final class WarheadWorldSnapshotter {
     private static final int SURFACE_SUPPORT_DESCENT = 8;
-    private static final int VERTICAL_SCAN_ABOVE_SURFACE = 52;
+    private static final int VERTICAL_SCAN_ABOVE_SURFACE = 64;
     private static final int HALO_BELOW_SURFACE_TOP = 12;
     private static final int HALO_ABOVE_SURFACE_TOP = 2;
     private static final Strategy<BlockState> BLOCK_STRATEGY =
@@ -67,15 +67,19 @@ final class WarheadWorldSnapshotter {
         }
 
         boolean[] captureSection = new boolean[level.getSectionsCount()];
+        int[] requiredFeaturesBySection = new int[level.getSectionsCount()];
+        byte[] sectionCoverage = new byte[level.getSectionsCount()];
         if ((features & WarheadSnapshotFeatures.CRATER_VOLUME) != 0) {
-            markSections(level, captureSection, craterMinimumY, craterMaximumY);
+            markSections(level, captureSection, requiredFeaturesBySection,
+                craterMinimumY, craterMaximumY, WarheadSnapshotFeatures.CRATER_VOLUME);
         }
         boolean needsSurface = (features & (WarheadSnapshotFeatures.SURFACE
             | WarheadSnapshotFeatures.VERTICAL_FEATURES)) != 0;
         if (needsSurface) {
-            markSections(level, captureSection,
+            markSections(level, captureSection, requiredFeaturesBySection,
                 minimumSurfaceY - SURFACE_SUPPORT_DESCENT,
-                maximumSurfaceY + 1);
+                maximumSurfaceY + 1, features & (WarheadSnapshotFeatures.SURFACE
+                    | WarheadSnapshotFeatures.VERTICAL_FEATURES));
         }
         if ((features & WarheadSnapshotFeatures.VERTICAL_FEATURES) != 0) {
             int minimumVerticalSection = Math.floorDiv(
@@ -85,10 +89,15 @@ final class WarheadWorldSnapshotter {
             for (int sectionY = minimumVerticalSection;
                 sectionY <= maximumVerticalSection; sectionY++) {
                 int index = level.getSectionIndexFromSectionY(sectionY);
-                if (index < 0 || index >= captureSection.length || captureSection[index]) continue;
+                if (index < 0 || index >= captureSection.length) continue;
+                requiredFeaturesBySection[index] |= WarheadSnapshotFeatures.VERTICAL_FEATURES;
+                if (captureSection[index]) continue;
                 LevelChunkSection section = chunk.getSection(index);
                 if (section.maybeHas(state -> metadata.relevantVertical(Block.getId(state)))) {
                     captureSection[index] = true;
+                } else {
+                    sectionCoverage[index] =
+                        WarheadSectionCoverage.PROVEN_IRRELEVANT.wireId();
                 }
             }
         }
@@ -97,7 +106,10 @@ final class WarheadWorldSnapshotter {
         for (int index = 0; index < captureSection.length; index++) {
             if (!captureSection[index]) continue;
             LevelChunkSection section = chunk.getSection(index);
-            if (section.hasOnlyAir()) continue;
+            if (section.hasOnlyAir()) {
+                sectionCoverage[index] = WarheadSectionCoverage.PROVEN_ALL_AIR.wireId();
+                continue;
+            }
             PalettedContainerRO.PackedData<BlockState> packed =
                 section.getStates().pack(BLOCK_STRATEGY);
             int[] palette = packed.paletteEntries().stream()
@@ -107,6 +119,7 @@ final class WarheadWorldSnapshotter {
             packedSections.add(new WarheadPackedSection(
                 level.getSectionYFromSectionIndex(index), palette,
                 packed.bitsPerEntry(), storage));
+            sectionCoverage[index] = WarheadSectionCoverage.CAPTURED_PACKED.wireId();
         }
         Long2IntOpenHashMap halo = new Long2IntOpenHashMap();
         halo.defaultReturnValue(-1);
@@ -124,7 +137,8 @@ final class WarheadWorldSnapshotter {
         return new WarheadChunkSnapshot(position, startingRevision, minimumSectionY,
             sectionRevisions, minimumBuildY, maximumBuildY,
             craterMinimumY, craterMaximumY, features, motionTopY, oceanTopY,
-            metadata, packedSections, haloPositions, haloStateIds);
+            metadata, packedSections, sectionCoverage, requiredFeaturesBySection,
+            haloPositions, haloStateIds);
     }
 
     static int requiredFeatures(final ChunkPos chunk,
@@ -165,7 +179,7 @@ final class WarheadWorldSnapshotter {
         int maximum = Integer.MIN_VALUE;
         for (WarheadSnapshotRequirement requirement : requirements) {
             PreparedImpactSpec impact = requirement.impact();
-            StrategicExplosionProfile profile = StrategicExplosionProfiles.get(impact.yield());
+            NuclearTerrainProfile profile = requirement.footprint().terrainProfile();
             if (!WarheadFootprintCalculator.chunkIntersectsCircle(chunk.x(), chunk.z(),
                 impact.target().x, impact.target().z, profile.horizontalRadius() + 1.0)) continue;
             int centerY = Mth.floor(impact.target().y);
@@ -178,13 +192,17 @@ final class WarheadWorldSnapshotter {
     }
 
     private static void markSections(final ServerLevel level, final boolean[] sections,
-        final int minimumY, final int maximumY) {
+        final int[] requiredFeaturesBySection, final int minimumY, final int maximumY,
+        final int requiredFeatures) {
         if (maximumY < minimumY) return;
         int minimumSection = Math.floorDiv(minimumY, 16);
         int maximumSection = Math.floorDiv(maximumY, 16);
         for (int sectionY = minimumSection; sectionY <= maximumSection; sectionY++) {
             int index = level.getSectionIndexFromSectionY(sectionY);
-            if (index >= 0 && index < sections.length) sections[index] = true;
+            if (index >= 0 && index < sections.length) {
+                sections[index] = true;
+                requiredFeaturesBySection[index] |= requiredFeatures;
+            }
         }
     }
 

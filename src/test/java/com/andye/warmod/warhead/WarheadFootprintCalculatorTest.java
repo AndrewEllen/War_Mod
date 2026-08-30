@@ -12,9 +12,9 @@ import org.junit.jupiter.api.Test;
 final class WarheadFootprintCalculatorTest {
     @Test
     void nuclearYieldRadiiMatchTheExistingGameplayFormulas() {
-        assertNuclear(WarheadYield.TACTICAL_NUCLEAR, 35.66, 219.0, 281.0);
-        assertNuclear(WarheadYield.STRATEGIC_NUCLEAR, 47.10, 265.0, 340.0);
-        assertNuclear(WarheadYield.HEAVY_NUCLEAR, 58.15, 328.0, 420.0);
+        assertNuclear(WarheadYield.TACTICAL_NUCLEAR, 32.0, 219.0, 281.0);
+        assertNuclear(WarheadYield.STRATEGIC_NUCLEAR, 48.0, 265.0, 340.0);
+        assertNuclear(WarheadYield.HEAVY_NUCLEAR, 64.0, 328.0, 420.0);
     }
 
     @Test

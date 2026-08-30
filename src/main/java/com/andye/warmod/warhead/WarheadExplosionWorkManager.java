@@ -208,7 +208,7 @@ public final class WarheadExplosionWorkManager {
 		}
 		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
 		levelWork.entityBlasts.addLast(new EntityBlastWork(source, position,
-			StrategicExplosionProfiles.get(yield).entityBlastRadius()));
+			NuclearTerrainProfile.forYield(yield).entityBlastRadius()));
 	}
 
 	/** Exceptional degraded fallback after the entity blast was already dispatched. */

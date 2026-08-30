@@ -9,4 +9,14 @@ final class WarheadSnapshotFeatures {
     static final int ALL = CRATER_VOLUME | SURFACE | VERTICAL_FEATURES | BIOMES;
 
     private WarheadSnapshotFeatures() { }
+
+    static String name(final int feature) {
+        return switch (feature) {
+            case CRATER_VOLUME -> "crater_volume";
+            case SURFACE -> "surface";
+            case VERTICAL_FEATURES -> "vertical_features";
+            case BIOMES -> "biomes";
+            default -> "mask_" + Integer.toHexString(feature);
+        };
+    }
 }

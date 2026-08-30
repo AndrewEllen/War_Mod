@@ -33,6 +33,12 @@ final class WarheadSnapshotFlags {
     static final int AXIS_X = 1 << 20;
     static final int AXIS_Z = 1 << 21;
     static final int WATER = 1 << 22;
+    static final int SUGAR_CANE = 1 << 23;
+    static final int AQUATIC_PLANT = 1 << 24;
+    static final int DOUBLE_UPPER = 1 << 25;
+    static final int BUSH = 1 << 26;
+    static final int SULFUR = 1 << 27;
+    static final int SURVIVAL_SENSITIVE = 1 << 28;
 
     private WarheadSnapshotFlags() { }
 
@@ -69,6 +75,15 @@ final class WarheadSnapshotFlags {
             flags |= COBBLE;
         }
         if (isFragile(state)) flags |= FRAGILE;
+        if (state.is(Blocks.SUGAR_CANE)) flags |= SUGAR_CANE;
+        if (isAquaticPlant(state)) flags |= AQUATIC_PLANT;
+        if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)
+            && state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF)
+                == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER) {
+            flags |= DOUBLE_UPPER;
+        }
+        if (state.is(Blocks.BUSH)) flags |= BUSH;
+        if (state.is(Blocks.SULFUR)) flags |= SULFUR;
         if (exposed) flags |= EXPOSED;
 
         // Palette writes deliberately bypass BlockBehaviour callbacks and neighbour
@@ -93,7 +108,8 @@ final class WarheadSnapshotFlags {
     }
 
     static boolean relevantVertical(final int flags) {
-        return (flags & (SNOW | LEAVES | LOG | PLANK | GLASS | COBBLE | FRAGILE)) != 0;
+        return (flags & (SNOW | LEAVES | LOG | PLANK | GLASS | COBBLE | FRAGILE
+            | SURVIVAL_SENSITIVE)) != 0;
     }
 
     private static boolean isSoil(final BlockState state) {
@@ -129,9 +145,15 @@ final class WarheadSnapshotFlags {
             || state.is(Blocks.SWEET_BERRY_BUSH) || state.is(Blocks.DEAD_BUSH)
             || state.is(Blocks.SHORT_DRY_GRASS) || state.is(Blocks.TALL_DRY_GRASS)
             || state.is(Blocks.LEAF_LITTER) || state.is(Blocks.SUGAR_CANE)
-            || state.is(Blocks.TALL_SEAGRASS) || state.is(Blocks.KELP)
+            || state.is(Blocks.SEAGRASS) || state.is(Blocks.TALL_SEAGRASS)
+            || state.is(Blocks.KELP)
             || state.is(Blocks.KELP_PLANT) || state.is(Blocks.PALE_HANGING_MOSS)
             || state.is(BlockTags.FLOWERS) || state.is(BlockTags.CROPS)
             || state.getBlock().getDescriptionId().contains("sapling");
+    }
+
+    private static boolean isAquaticPlant(final BlockState state) {
+        return state.is(Blocks.SEAGRASS) || state.is(Blocks.TALL_SEAGRASS)
+            || state.is(Blocks.KELP) || state.is(Blocks.KELP_PLANT);
     }
 }

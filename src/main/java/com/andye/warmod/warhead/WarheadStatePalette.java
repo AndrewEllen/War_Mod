@@ -13,7 +13,8 @@ record WarheadStatePalette(int air, int magma, int tintedGlass, int blackGlass,
     int cobbledDeepslate, int tuff, int gravel, int coarseDirt, int rootedDirt,
     int podzol, int mycelium, int paleMoss, int mud, int sulfur,
     int potentSulfur, int paleLeaves, int paleLogX, int paleLogY, int paleLogZ,
-    int paleWood, int deadBush, int shortDryGrass, int tallDryGrass) {
+    int paleWood, int deadBush, int shortDryGrass, int tallDryGrass, int calcite,
+    WarheadDecorationPalette decoration) {
 
     static WarheadStatePalette capture() {
         BlockState paleLeaves = Blocks.PALE_OAK_LEAVES.defaultBlockState()
@@ -42,7 +43,8 @@ record WarheadStatePalette(int air, int magma, int tintedGlass, int blackGlass,
             id(paleLog.setValue(BlockStateProperties.AXIS, Direction.Axis.Z)),
             id(Blocks.PALE_OAK_WOOD.defaultBlockState()), id(Blocks.DEAD_BUSH.defaultBlockState()),
             id(Blocks.SHORT_DRY_GRASS.defaultBlockState()),
-            id(Blocks.TALL_DRY_GRASS.defaultBlockState()));
+            id(Blocks.TALL_DRY_GRASS.defaultBlockState()),
+            id(Blocks.CALCITE.defaultBlockState()), WarheadDecorationPalette.capture());
     }
 
     int paleLog(final int flags) {

@@ -46,7 +46,7 @@ final class WarheadPlanCompilerTest {
 
     @Test
     void craterGeometryOwnsOverlappingVerticalMutations() {
-        StrategicExplosionProfile profile = StrategicExplosionProfiles.get(
+        NuclearTerrainProfile profile = NuclearTerrainProfile.forYield(
             WarheadYield.TACTICAL_NUCLEAR);
         Vec3 center = new Vec3(8.0, 64.0, 8.0);
         assertTrue(WarheadPlanCompiler.craterOwnsCell(profile, center, 8, 64, 8));
