@@ -222,10 +222,6 @@ public final class IncomingWarheadEntity extends Entity {
 
         Vec3 pendingImpact = raycast.hit().map(BlockHitResult::getLocation)
             .orElse(elapsed >= flightTicks ? intendedTarget : null);
-        if (pendingImpact != null && !terrainReady(server, pendingImpact)) {
-            pauseForScheduler(server, previous);
-            return;
-        }
         if (waitingForChunks) {
             waitingForChunks = false;
             WarheadVisualNetworking.sendTimingCorrection(server, warheadId,
@@ -245,17 +241,6 @@ public final class IncomingWarheadEntity extends Entity {
             updateRotation(velocity);
             emitSonicBoom(server, next, velocity);
         }
-    }
-
-    private boolean terrainReady(final ServerLevel level, final Vec3 impact) {
-        if (payloadType != WarheadPayloadType.NUCLEAR) return true;
-        WarheadYield yield = persistentYield(level);
-        Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
-            level, impact, yield);
-        return WarheadPreparationCoordinator.ensureImpact(level, warheadId,
-            warheadId, radarRootTrackId(), effective, yield, visualSeed,
-            authoritativeCustomFire,
-            level.getGameTime() + 1L);
     }
 
     private void pauseForScheduler(final ServerLevel level, final Vec3 safePosition) {

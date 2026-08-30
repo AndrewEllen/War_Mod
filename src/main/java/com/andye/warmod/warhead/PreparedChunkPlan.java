@@ -9,7 +9,7 @@ public record PreparedChunkPlan(ChunkPos chunk, long sourceRevision,
     List<PreparedFireMutation> fireMutations, int[] changedColumns,
     long estimatedCost) {
     public PreparedChunkPlan {
-        if (chunk == null || activationTick < 0 || activationTick > 19
+        if (chunk == null || activationTick < 0 || activationTick > 15
             || blockSections == null || biomeSections == null
             || fireMutations == null || changedColumns == null
             || estimatedCost < 0L) {

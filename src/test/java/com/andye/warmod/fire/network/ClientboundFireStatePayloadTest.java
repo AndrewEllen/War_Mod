@@ -20,8 +20,9 @@ final class ClientboundFireStatePayloadTest {
                 (byte) FireVisualBand.MID.wireId(), 4, 2, 3, 4,
                 9.5, 13.0, 17.5, 1.5F, 2.0F, 1.5F,
                 0x0000_0000_0000_00C3L, 4.5F, 6.25F, 0.9F, 0.7F, 8.0F,
-                0.1F, 0.0F, -0.1F, 7, 4L,
+                0.6F, 0.1F, 0.0F, -0.1F, 7, 4L,
                 (byte) Direction.UP.ordinal(), (byte) FirePhase.FLAMING.ordinal(), 3L)),
+            List.of(91L, 92L),
             true, List.of(new ClientboundFireStatePayload.EmberEntry(5L,
                 1.0, 2.0, 3.0, 0.1F, 0.2F, 0.3F, 0.0F, 0.1F, 0.0F,
                 0.7F, 6L, 40L, 80)));
@@ -39,6 +40,7 @@ final class ClientboundFireStatePayloadTest {
                 decoded.cells().getFirst().occupancyMask());
             assertEquals(FireVisualBand.MID,
                 decoded.cells().getFirst().toCell().band());
+            assertEquals(List.of(91L, 92L), decoded.removedCellIds());
             assertTrue(decoded.isWellFormed());
         } finally {
             buffer.release();

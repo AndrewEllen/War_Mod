@@ -1,37 +1,40 @@
 package com.andye.warmod.warhead;
 
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.BlockTags;
-import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainerRO;
+import net.minecraft.world.level.chunk.Strategy;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.server.level.ServerLevel;
 
-/** Bounded server-thread capture. No world reference escapes in the result. */
+/**
+ * Main-thread bulk copier. Classification, adjacency and geometry run later on
+ * workers from compact palette data; no world reference escapes in the result.
+ */
 final class WarheadWorldSnapshotter {
-    private static final int VERTICAL_SCAN_BELOW_SURFACE = 8;
-    private static final int VERTICAL_SCAN_ABOVE_SURFACE = 52;
     private static final int SURFACE_SUPPORT_DESCENT = 8;
-    private static final Direction[] DIRECTIONS = Direction.values();
-    private static final Direction[] HORIZONTAL = {
-        Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST
-    };
+    private static final int VERTICAL_SCAN_ABOVE_SURFACE = 52;
+    private static final int HALO_BELOW_SURFACE_TOP = 12;
+    private static final int HALO_ABOVE_SURFACE_TOP = 2;
+    private static final Strategy<BlockState> BLOCK_STRATEGY =
+        Strategy.createForBlockStates(Block.BLOCK_STATE_REGISTRY);
 
     private WarheadWorldSnapshotter() { }
 
     static WarheadChunkSnapshot capture(final ServerLevel level, final ChunkPos position,
-        final List<WarheadSnapshotRequirement> requirements) {
+        final List<WarheadSnapshotRequirement> requirements,
+        final WarheadStateMetadata metadata) {
         LevelChunk chunk = level.getChunkSource().getChunkNow(position.x(), position.z());
-        if (chunk == null || requirements == null || requirements.isEmpty()) return null;
+        if (chunk == null || requirements == null || requirements.isEmpty()
+            || metadata == null) return null;
         WarheadChunkRevisionAccess revisions = (WarheadChunkRevisionAccess)(Object)chunk;
         long startingRevision = revisions.war_mod$getChunkRevision();
         int minimumBuildY = level.dimensionType().minY();
@@ -42,181 +45,201 @@ final class WarheadWorldSnapshotter {
             sectionRevisions[index] = revisions.war_mod$getSectionRevision(minimumSectionY + index);
         }
 
-        int craterMinimumY = Integer.MAX_VALUE;
-        int craterMaximumY = Integer.MIN_VALUE;
-        for (WarheadSnapshotRequirement requirement : requirements) {
-            PreparedImpactSpec impact = requirement.impact();
-            StrategicExplosionProfile profile = StrategicExplosionProfiles.get(impact.yield());
-            if (!WarheadFootprintCalculator.chunkIntersectsCircle(position.x(), position.z(),
-                impact.target().x, impact.target().z, profile.horizontalRadius() + 1.0)) continue;
-            int centerY = Mth.floor(impact.target().y);
-            craterMinimumY = Math.min(craterMinimumY,
-                centerY - Mth.ceil(profile.downwardRadius()) - 1);
-            craterMaximumY = Math.max(craterMaximumY,
-                centerY + Mth.ceil(profile.upwardRadius()) + 1);
-        }
-        if (craterMaximumY < craterMinimumY) {
-            craterMinimumY = 0;
-            craterMaximumY = -1;
-        } else {
-            craterMinimumY = Math.max(minimumBuildY, craterMinimumY);
-            craterMaximumY = Math.min(maximumBuildY, craterMaximumY);
-        }
-
+        int features = requiredFeatures(position, requirements);
+        int[] craterBand = requiredCraterBand(position, requirements,
+            minimumBuildY, maximumBuildY);
+        int craterMinimumY = craterBand[0];
+        int craterMaximumY = craterBand[1];
         int[] motionTopY = new int[256];
-        int[] terrainSurfaceY = new int[256];
-        int[] columnFlags = new int[256];
-        int[] surfaceStateIds = new int[256 * WarheadChunkSnapshot.SURFACE_LAYERS];
-        int[] surfaceFlags = new int[surfaceStateIds.length];
-        LongArrayList relevantPositions = new LongArrayList();
-        IntArrayList relevantStateIds = new IntArrayList();
-        IntArrayList relevantFlags = new IntArrayList();
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-
-        int baseX = position.getMinBlockX();
-        int baseZ = position.getMinBlockZ();
+        int[] oceanTopY = new int[256];
+        int minimumSurfaceY = maximumBuildY;
+        int maximumSurfaceY = minimumBuildY;
         for (int localZ = 0; localZ < 16; localZ++) {
             for (int localX = 0; localX < 16; localX++) {
                 int column = localZ * 16 + localX;
-                int worldX = baseX + localX;
-                int worldZ = baseZ + localZ;
-                int motionY = level.getHeight(Heightmap.Types.MOTION_BLOCKING,
-                    worldX, worldZ) - 1;
-                int terrainY = terrainSurfaceY(level, chunk, worldX, worldZ,
-                    minimumBuildY);
-                motionTopY[column] = motionY;
-                terrainSurfaceY[column] = terrainY;
-                if (terrainY >= minimumBuildY && touchesWater(level, worldX, terrainY, worldZ)) {
-                    columnFlags[column] |= WarheadSnapshotFlags.WATER_NEAR;
-                }
+                motionTopY[column] = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING,
+                    localX, localZ) - 1;
+                oceanTopY[column] = chunk.getHeight(Heightmap.Types.OCEAN_FLOOR,
+                    localX, localZ) - 1;
+                minimumSurfaceY = Math.min(minimumSurfaceY, oceanTopY[column]);
+                maximumSurfaceY = Math.max(maximumSurfaceY, oceanTopY[column]);
+            }
+        }
 
-                for (int layer = 0; layer < WarheadChunkSnapshot.SURFACE_LAYERS; layer++) {
-                    int y = terrainY + 1 - layer;
-                    int destination = layer * 256 + column;
-                    if (y < minimumBuildY || y > maximumBuildY) {
-                        surfaceStateIds[destination] = Block.getId(Blocks.AIR.defaultBlockState());
-                        surfaceFlags[destination] = WarheadSnapshotFlags.AIR;
-                        continue;
-                    }
-                    cursor.set(worldX, y, worldZ);
-                    BlockState state = chunk.getBlockState(cursor);
-                    surfaceStateIds[destination] = Block.getId(state);
-                    surfaceFlags[destination] = WarheadSnapshotFlags.classify(state,
-                        false, exposedToAir(level, cursor));
-                }
-
-                int columnStart = relevantPositions.size();
-                boolean naturalTree = false;
-                int scanMinimum = Math.max(minimumBuildY,
-                    terrainY - VERTICAL_SCAN_BELOW_SURFACE);
-                int scanMaximum = Math.min(maximumBuildY,
-                    terrainY + VERTICAL_SCAN_ABOVE_SURFACE);
-                for (int y = scanMinimum; y <= scanMaximum; y++) {
-                    cursor.set(worldX, y, worldZ);
-                    BlockState state = chunk.getBlockState(cursor);
-                    int flags = WarheadSnapshotFlags.classify(state, false, false);
-                    if (!WarheadSnapshotFlags.relevantVertical(flags)) continue;
-                    naturalTree |= (flags & WarheadSnapshotFlags.LEAVES) != 0;
-                    relevantPositions.add(cursor.asLong());
-                    relevantStateIds.add(Block.getId(state));
-                    relevantFlags.add(flags);
-                }
-                if (naturalTree) {
-                    for (int index = columnStart; index < relevantFlags.size(); index++) {
-                        int flags = relevantFlags.getInt(index);
-                        if ((flags & WarheadSnapshotFlags.LOG) != 0) {
-                            relevantFlags.set(index, flags | WarheadSnapshotFlags.NATURAL_TREE);
-                        }
-                    }
+        boolean[] captureSection = new boolean[level.getSectionsCount()];
+        if ((features & WarheadSnapshotFeatures.CRATER_VOLUME) != 0) {
+            markSections(level, captureSection, craterMinimumY, craterMaximumY);
+        }
+        boolean needsSurface = (features & (WarheadSnapshotFeatures.SURFACE
+            | WarheadSnapshotFeatures.VERTICAL_FEATURES)) != 0;
+        if (needsSurface) {
+            markSections(level, captureSection,
+                minimumSurfaceY - SURFACE_SUPPORT_DESCENT,
+                maximumSurfaceY + 1);
+        }
+        if ((features & WarheadSnapshotFeatures.VERTICAL_FEATURES) != 0) {
+            int minimumVerticalSection = Math.floorDiv(
+                minimumSurfaceY - SURFACE_SUPPORT_DESCENT, 16);
+            int maximumVerticalSection = Math.floorDiv(
+                maximumSurfaceY + VERTICAL_SCAN_ABOVE_SURFACE, 16);
+            for (int sectionY = minimumVerticalSection;
+                sectionY <= maximumVerticalSection; sectionY++) {
+                int index = level.getSectionIndexFromSectionY(sectionY);
+                if (index < 0 || index >= captureSection.length || captureSection[index]) continue;
+                LevelChunkSection section = chunk.getSection(index);
+                if (section.maybeHas(state -> metadata.relevantVertical(Block.getId(state)))) {
+                    captureSection[index] = true;
                 }
             }
         }
 
-        int craterHeight = Math.max(0, craterMaximumY - craterMinimumY + 1);
-        int[] craterStateIds = new int[256 * craterHeight];
-        int[] craterFlags = new int[craterStateIds.length];
-        float[] craterResistance = new float[craterStateIds.length];
-        for (int y = craterMinimumY; y <= craterMaximumY; y++) {
-            int layerOffset = (y - craterMinimumY) * 256;
-            for (int localZ = 0; localZ < 16; localZ++) {
-                for (int localX = 0; localX < 16; localX++) {
-                    int index = layerOffset + localZ * 16 + localX;
-                    cursor.set(baseX + localX, y, baseZ + localZ);
-                    BlockState state = chunk.getBlockState(cursor);
-                    boolean indestructible;
-                    try {
-                        indestructible = state.getDestroySpeed(level, cursor) < 0.0F;
-                    } catch (RuntimeException failure) {
-                        indestructible = true;
-                    }
-                    craterStateIds[index] = Block.getId(state);
-                    craterFlags[index] = WarheadSnapshotFlags.classify(state,
-                        indestructible, false);
-                    craterResistance[index] = Math.max(
-                        state.getBlock().getExplosionResistance(),
-                        state.getFluidState().getExplosionResistance());
-                }
-            }
+        ArrayList<WarheadPackedSection> packedSections = new ArrayList<>();
+        for (int index = 0; index < captureSection.length; index++) {
+            if (!captureSection[index]) continue;
+            LevelChunkSection section = chunk.getSection(index);
+            if (section.hasOnlyAir()) continue;
+            PalettedContainerRO.PackedData<BlockState> packed =
+                section.getStates().pack(BLOCK_STRATEGY);
+            int[] palette = packed.paletteEntries().stream()
+                .mapToInt(Block::getId).toArray();
+            long[] storage = packed.storage().map(stream -> stream.toArray())
+                .orElseGet(() -> new long[0]);
+            packedSections.add(new WarheadPackedSection(
+                level.getSectionYFromSectionIndex(index), palette,
+                packed.bitsPerEntry(), storage));
         }
-
+        Long2IntOpenHashMap halo = new Long2IntOpenHashMap();
+        halo.defaultReturnValue(-1);
+        if ((features & WarheadSnapshotFeatures.SURFACE) != 0) {
+            captureSurfaceHalo(level, position, oceanTopY, metadata.airStateId(), halo);
+        }
+        long[] haloPositions = new long[halo.size()];
+        int[] haloStateIds = new int[halo.size()];
+        int haloIndex = 0;
+        for (Long2IntMap.Entry entry : halo.long2IntEntrySet()) {
+            haloPositions[haloIndex] = entry.getLongKey();
+            haloStateIds[haloIndex++] = entry.getIntValue();
+        }
         if (startingRevision != revisions.war_mod$getChunkRevision()) return null;
         return new WarheadChunkSnapshot(position, startingRevision, minimumSectionY,
             sectionRevisions, minimumBuildY, maximumBuildY,
-            craterMinimumY, craterMaximumY, motionTopY, terrainSurfaceY, columnFlags,
-            surfaceStateIds, surfaceFlags, craterStateIds, craterFlags, craterResistance,
-            relevantPositions.toLongArray(), relevantStateIds.toIntArray(),
-            relevantFlags.toIntArray());
+            craterMinimumY, craterMaximumY, features, motionTopY, oceanTopY,
+            metadata, packedSections, haloPositions, haloStateIds);
     }
 
-    private static int terrainSurfaceY(final ServerLevel level, final LevelChunk chunk,
-        final int x, final int z, final int minimumY) {
-        int y = level.getHeight(Heightmap.Types.OCEAN_FLOOR, x, z) - 1;
-        BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos(x, y, z);
-        for (int descent = 0; descent <= SURFACE_SUPPORT_DESCENT && y >= minimumY;
-            descent++, y--) {
-            position.set(x, y, z);
-            BlockState state = chunk.getBlockState(position);
-            int flags = WarheadSnapshotFlags.classify(state, false, false);
-            if ((flags & (WarheadSnapshotFlags.AIR | WarheadSnapshotFlags.FLUID
-                | WarheadSnapshotFlags.LEAVES | WarheadSnapshotFlags.LOG
-                | WarheadSnapshotFlags.PLANK | WarheadSnapshotFlags.GLASS
-                | WarheadSnapshotFlags.COBBLE | WarheadSnapshotFlags.FRAGILE)) == 0
-                && !state.is(Blocks.LEAF_LITTER)) return y;
-        }
-        return minimumY - 1;
-    }
-
-    private static boolean exposedToAir(final ServerLevel level,
-        final BlockPos position) {
-        for (Direction direction : DIRECTIONS) {
-            BlockPos neighbour = position.relative(direction);
-            if (level.isInWorldBounds(neighbour) && chunkLoaded(level, neighbour)
-                && level.getBlockState(neighbour).isAir()) return true;
-        }
-        return false;
-    }
-
-    private static boolean touchesWater(final ServerLevel level, final int x,
-        final int surfaceY, final int z) {
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(x, surfaceY + 1, z);
-        if (chunkLoaded(level, cursor) && level.getFluidState(cursor).is(FluidTags.WATER)) {
-            return true;
-        }
-        for (Direction direction : HORIZONTAL) {
-            for (int distance = 1; distance <= 2; distance++) {
-                cursor.set(x + direction.getStepX() * distance, surfaceY,
-                    z + direction.getStepZ() * distance);
-                if (chunkLoaded(level, cursor)
-                    && level.getFluidState(cursor).is(FluidTags.WATER)) return true;
-                cursor.move(Direction.UP);
-                if (chunkLoaded(level, cursor)
-                    && level.getFluidState(cursor).is(FluidTags.WATER)) return true;
+    static int requiredFeatures(final ChunkPos chunk,
+        final List<WarheadSnapshotRequirement> requirements) {
+        int features = 0;
+        long packed = chunk.pack();
+        for (WarheadSnapshotRequirement requirement : requirements) {
+            if (!requirement.footprint().requiredChunks().contains(packed)) continue;
+            PreparedImpactSpec impact = requirement.impact();
+            WarheadFootprint footprint = requirement.footprint();
+            if (intersects(chunk, impact, footprint.craterRadius())) {
+                features |= WarheadSnapshotFeatures.CRATER_VOLUME;
+            }
+            if (intersects(chunk, impact, footprint.aftermathRadius())) {
+                features |= WarheadSnapshotFeatures.SURFACE;
+            }
+            if (intersects(chunk, impact,
+                Math.max(footprint.aftermathRadius(), footprint.glassRadius()))) {
+                features |= WarheadSnapshotFeatures.VERTICAL_FEATURES;
+            }
+            if (intersects(chunk, impact, footprint.biomeRadius())) {
+                features |= WarheadSnapshotFeatures.BIOMES;
             }
         }
-        return false;
+        return features;
     }
 
-    private static boolean chunkLoaded(final ServerLevel level, final BlockPos position) {
-        return level.getChunkSource().hasChunk(position.getX() >> 4, position.getZ() >> 4);
+    private static boolean intersects(final ChunkPos chunk,
+        final PreparedImpactSpec impact, final double radius) {
+        return radius > 0.0 && WarheadFootprintCalculator.chunkIntersectsCircle(
+            chunk.x(), chunk.z(), impact.target().x, impact.target().z, radius + 1.0);
+    }
+
+    private static int[] requiredCraterBand(final ChunkPos chunk,
+        final List<WarheadSnapshotRequirement> requirements,
+        final int minimumBuildY, final int maximumBuildY) {
+        int minimum = Integer.MAX_VALUE;
+        int maximum = Integer.MIN_VALUE;
+        for (WarheadSnapshotRequirement requirement : requirements) {
+            PreparedImpactSpec impact = requirement.impact();
+            StrategicExplosionProfile profile = StrategicExplosionProfiles.get(impact.yield());
+            if (!WarheadFootprintCalculator.chunkIntersectsCircle(chunk.x(), chunk.z(),
+                impact.target().x, impact.target().z, profile.horizontalRadius() + 1.0)) continue;
+            int centerY = Mth.floor(impact.target().y);
+            minimum = Math.min(minimum, centerY - Mth.ceil(profile.downwardRadius()) - 1);
+            maximum = Math.max(maximum, centerY + Mth.ceil(profile.upwardRadius()) + 1);
+        }
+        if (maximum < minimum) return new int[] {0, -1};
+        return new int[] {Math.max(minimumBuildY, minimum),
+            Math.min(maximumBuildY, maximum)};
+    }
+
+    private static void markSections(final ServerLevel level, final boolean[] sections,
+        final int minimumY, final int maximumY) {
+        if (maximumY < minimumY) return;
+        int minimumSection = Math.floorDiv(minimumY, 16);
+        int maximumSection = Math.floorDiv(maximumY, 16);
+        for (int sectionY = minimumSection; sectionY <= maximumSection; sectionY++) {
+            int index = level.getSectionIndexFromSectionY(sectionY);
+            if (index >= 0 && index < sections.length) sections[index] = true;
+        }
+    }
+
+    /** Copies only the two-cell X/Z border needed for worker-side exposure and water checks. */
+    private static void captureSurfaceHalo(final ServerLevel level, final ChunkPos chunk,
+        final int[] surfaceTopY, final int airStateId,
+        final Long2IntOpenHashMap destination) {
+        int baseX = chunk.getMinBlockX();
+        int baseZ = chunk.getMinBlockZ();
+        for (int localZ = 0; localZ < 16; localZ++) {
+            int leftTop = surfaceTopY[localZ * 16];
+            int rightTop = surfaceTopY[localZ * 16 + 15];
+            copyHaloColumn(level, baseX - 1, baseZ + localZ, leftTop,
+                airStateId, destination);
+            copyHaloColumn(level, baseX - 2, baseZ + localZ, leftTop,
+                airStateId, destination);
+            copyHaloColumn(level, baseX + 16, baseZ + localZ, rightTop,
+                airStateId, destination);
+            copyHaloColumn(level, baseX + 17, baseZ + localZ, rightTop,
+                airStateId, destination);
+        }
+        for (int localX = 0; localX < 16; localX++) {
+            int northTop = surfaceTopY[localX];
+            int southTop = surfaceTopY[15 * 16 + localX];
+            copyHaloColumn(level, baseX + localX, baseZ - 1, northTop,
+                airStateId, destination);
+            copyHaloColumn(level, baseX + localX, baseZ - 2, northTop,
+                airStateId, destination);
+            copyHaloColumn(level, baseX + localX, baseZ + 16, southTop,
+                airStateId, destination);
+            copyHaloColumn(level, baseX + localX, baseZ + 17, southTop,
+                airStateId, destination);
+        }
+    }
+
+    private static void copyHaloColumn(final ServerLevel level, final int worldX,
+        final int worldZ, final int surfaceTopY, final int airStateId,
+        final Long2IntOpenHashMap destination) {
+        LevelChunk neighbour = level.getChunkSource().getChunkNow(
+            Math.floorDiv(worldX, 16), Math.floorDiv(worldZ, 16));
+        if (neighbour == null) return;
+        int minimumBuildY = level.dimensionType().minY();
+        int maximumBuildY = minimumBuildY + level.dimensionType().height() - 1;
+        int minimumY = surfaceTopY - HALO_BELOW_SURFACE_TOP;
+        int maximumY = surfaceTopY + HALO_ABOVE_SURFACE_TOP;
+        for (int y = minimumY; y <= maximumY; y++) {
+            int stateId = airStateId;
+            if (y >= minimumBuildY && y <= maximumBuildY) {
+                int sectionIndex = level.getSectionIndex(y);
+                if (sectionIndex >= 0 && sectionIndex < neighbour.getSectionsCount()) {
+                    stateId = Block.getId(neighbour.getSection(sectionIndex).getBlockState(
+                        worldX & 15, y & 15, worldZ & 15));
+                }
+            }
+            destination.put(net.minecraft.core.BlockPos.asLong(worldX, y, worldZ), stateId);
+        }
     }
 }

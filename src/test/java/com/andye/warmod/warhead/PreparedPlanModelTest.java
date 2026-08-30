@@ -2,7 +2,9 @@ package com.andye.warmod.warhead;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.BitSet;
@@ -36,7 +38,7 @@ final class PreparedPlanModelTest {
     @Test
     void impactPlanCopiesAndFreezesItsChunkMap() {
         ChunkPos chunk = new ChunkPos(0, 0);
-        PreparedChunkPlan chunkPlan = new PreparedChunkPlan(chunk, 1L, 19,
+        PreparedChunkPlan chunkPlan = new PreparedChunkPlan(chunk, 1L, 15,
             List.of(), List.of(), List.of(), new int[0], 0L);
         Long2ObjectOpenHashMap<PreparedChunkPlan> chunks = new Long2ObjectOpenHashMap<>();
         chunks.put(chunk.pack(), chunkPlan);
@@ -44,7 +46,7 @@ final class PreparedPlanModelTest {
             WarheadPayloadType.NUCLEAR, WarheadYield.TACTICAL_NUCLEAR,
             new Vec3(8.0, 64.0, 8.0));
         PreparedImpactPlan plan = new PreparedImpactPlan(UUID.randomUUID(),
-            new Vec3(8.0, 64.0, 8.0), footprint, chunks, 19,
+            new Vec3(8.0, 64.0, 8.0), footprint, chunks, 15,
             PlanStatistics.empty());
         chunks.clear();
         assertEquals(1, plan.chunks().size());
@@ -53,9 +55,17 @@ final class PreparedPlanModelTest {
     }
 
     @Test
-    void radialApplicationReservesOneTickForLightingAndTrackingSync() {
+    void radialApplicationReservesFourTicksForLightingAndTrackingSync() {
         assertEquals(0, WarheadPreparedCommitManager.applicationTick(0));
-        assertEquals(18, WarheadPreparedCommitManager.applicationTick(18));
-        assertEquals(18, WarheadPreparedCommitManager.applicationTick(19));
+        assertEquals(15, WarheadPreparedCommitManager.applicationTick(18));
+        assertEquals(15, WarheadPreparedCommitManager.applicationTick(19));
+    }
+
+    @Test
+    void sparsePaletteChangesUseExactLightingWhileDenseCraterChangesRebuild() {
+        assertFalse(WarheadPreparedCommitManager.usesExactLightChecks(0, 0));
+        assertTrue(WarheadPreparedCommitManager.usesExactLightChecks(512, 3));
+        assertTrue(WarheadPreparedCommitManager.usesExactLightChecks(4_096, 1));
+        assertFalse(WarheadPreparedCommitManager.usesExactLightChecks(513, 2));
     }
 }

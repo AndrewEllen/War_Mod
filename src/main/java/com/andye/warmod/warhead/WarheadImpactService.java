@@ -77,39 +77,12 @@ public final class WarheadImpactService {
 		Vec3 effectivePosition = WarheadExplosionWorkManager.resolveDetonationCenter(level, pos, yield);
 		double preparationReadiness = yield.nuclear()
 			? WarheadPreparationCoordinator.readinessPercent(level, id) : 100.0;
-		ConsumedPreparedImpact prepared = yield.nuclear()
-			? WarheadPreparationCoordinator.consumeReadyImpact(level, id,
-				effectivePosition, yield, seed) : null;
-		if (prepared != null) effectivePosition = prepared.plan().center();
 		if (yield.nuclear()) {
 			WarheadLifecycleDiagnostics.impactAttempt(level, id, preparationReadiness,
-				prepared == null ? "explicit_unprepared_fallback" : null);
+				null);
 		}
 		WarheadImpactEvent event = WarheadImpactEvent.create(id, level.getGameTime(),
 			effectivePosition, yield, seed);
-		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks;
-		if (prepared != null) {
-			destroyedBlocks = TestExplosionService.captureDebris(level, id,
-				event.impactPosition(), yield, seed);
-			WarheadPreImpactPreparationManager.invalidateAround(level, id,
-				event.impactPosition(), yield,
-				prepared.plan().footprint().maximumMutationRadius());
-			if (!WarheadPreparedCommitManager.begin(level, prepared.preparationId(),
-				prepared.plan(), owner, yield, seed)) {
-				WarMod.LOGGER.error("Could not begin prepared terrain commit for {}", id);
-				WarheadPreparationCoordinator.completeCommit(level,
-					prepared.preparationId(), id);
-				return;
-			}
-		} else {
-			destroyedBlocks = null;
-			if (yield.nuclear()) {
-				WarheadPreparationCoordinator.cancelImpact(level, id,
-					CancellationReason.UNPREPARED_FALLBACK);
-				WarMod.LOGGER.warn("Nuclear impact {} used explicit unprepared fallback at {}",
-					id, effectivePosition);
-			}
-		}
 		/* Capture the atmospheric field before adding the radial blast impulse. The
 		   persistent cloud should drift with weather, not translate away from its own
 		   detonation as though the shockwave were a prevailing wind. */
@@ -135,13 +108,8 @@ public final class WarheadImpactService {
 			WarModPerformanceDiagnostics.Subsystem.VISUAL_PACKET_PREPARATION,
 			visualPacketStarted);
 		WarheadVisualNetworking.sendImpact(level, visualPayload,
-			event.impactPosition(), customFire, prepared != null);
-
-		if (destroyedBlocks == null) {
-			destroyedBlocks = TestExplosionService.createExplosion(level, owner, id,
-				event.impactPosition(), event.yield(), event.seed(), customFire);
-		}
-		spawnDebris(level, event, destroyedBlocks, craterProfile);
+			event.impactPosition(), customFire, yield.nuclear());
+		if (yield.nuclear()) WarheadLifecycleDiagnostics.visualImpact(level, id);
 
 		float thudVolume = Mth.clamp(0.50F + yield.visualScale() * 0.09F, 0.55F, 1.15F);
 		AcousticEngine.playSoundAtTime(
@@ -166,6 +134,38 @@ public final class WarheadImpactService {
 			event.acousticEventId("main_explosion"),
 			event.seed() ^ 0x4D41494E5F424F4FL
 		);
+
+		/* Physical impact is authoritative now. Terrain preparation is deliberately
+		 * sequenced after flash, sound, radar and entity blast dispatch so it can
+		 * never suppress or postpone the observable detonation. */
+		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks;
+		if (yield.nuclear()) {
+			WarheadExplosionWorkManager.detonateEntitiesOnly(level, owner,
+				event.impactPosition(), yield);
+			WarheadLifecycleDiagnostics.entityBlast(level, id);
+			destroyedBlocks = TestExplosionService.captureDebris(level, id,
+				event.impactPosition(), yield, seed);
+			WarheadPreImpactPreparationManager.invalidateAround(level, id,
+				event.impactPosition(), yield,
+				WarheadFootprintCalculator.calculate(yield.payloadType(), yield,
+					event.impactPosition()).maximumMutationRadius());
+			ConsumedPreparedImpact sealed = WarheadPreparationCoordinator.sealImpact(
+				level, radarRootTrackId, id, radarRootTrackId,
+				event.impactPosition(), yield, seed, customFire);
+			if (sealed == null || !WarheadPreparedCommitManager.begin(level,
+				sealed.preparationId(), sealed.plan(), owner, yield, seed)) {
+				WarMod.LOGGER.error("Could not begin streaming terrain commit for {}; "
+					+ "using degraded terrain fallback", id);
+				if (sealed != null) WarheadPreparationCoordinator.completeCommit(level,
+					sealed.preparationId(), id);
+				WarheadExplosionWorkManager.detonateTerrainOnly(level, owner, id,
+					event.impactPosition(), yield, seed, customFire);
+			}
+		} else {
+			destroyedBlocks = TestExplosionService.createExplosion(level, owner, id,
+				event.impactPosition(), event.yield(), event.seed(), customFire);
+		}
+		spawnDebris(level, event, destroyedBlocks, craterProfile);
 
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
 			WarMod.LOGGER.info("Warhead {} impacted: sequence={}, yield={}, position={}",

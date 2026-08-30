@@ -39,4 +39,14 @@ final class FireVisualLodPolicyTest {
         assertTrue(FireVisualLodPolicy.emberScale(0.2) <= 1.75F);
         assertTrue(FireVisualLodPolicy.emberRetention(0.2) < 0.10);
     }
+
+    @Test
+    void hysteresisPreventsBoundaryChatter() {
+        assertEquals(0, FireVisualLodPolicy.level(29.0, 0));
+        assertEquals(1, FireVisualLodPolicy.level(29.0, 1));
+        assertEquals(1, FireVisualLodPolicy.level(12.0, 1));
+        assertEquals(2, FireVisualLodPolicy.level(12.0, 2));
+        assertEquals(2, FireVisualLodPolicy.level(3.5, 2));
+        assertEquals(3, FireVisualLodPolicy.level(3.5, 3));
+    }
 }

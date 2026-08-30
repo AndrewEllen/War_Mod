@@ -9,6 +9,12 @@ public final class FireVisualLodPolicy {
     public static final double FULL_DETAIL_PIXELS = 32.0;
     public static final double MEDIUM_DETAIL_PIXELS = 14.0;
     public static final double FAR_DETAIL_PIXELS = 4.0;
+    public static final double FULL_ENTER_PIXELS = 36.0;
+    public static final double FULL_EXIT_PIXELS = 28.0;
+    public static final double MEDIUM_ENTER_PIXELS = 16.0;
+    public static final double MEDIUM_EXIT_PIXELS = 11.0;
+    public static final double FAR_ENTER_PIXELS = 5.0;
+    public static final double FAR_EXIT_PIXELS = 3.0;
 
     private FireVisualLodPolicy() { }
 
@@ -18,6 +24,21 @@ public final class FireVisualLodPolicy {
         if (projectedHostDiameter >= FULL_DETAIL_PIXELS) return 0;
         if (projectedHostDiameter >= MEDIUM_DETAIL_PIXELS) return 1;
         if (projectedHostDiameter >= FAR_DETAIL_PIXELS) return 2;
+        return 3;
+    }
+
+    /** Stateful enter/exit thresholds prevent camera and spyglass boundary chatter. */
+    public static int level(final double projectedHostDiameter,
+        final int previousLevel) {
+        if (!Double.isFinite(projectedHostDiameter) || projectedHostDiameter <= 0.0)
+            return 3;
+        int previous = clampLevel(previousLevel);
+        if (previous == 0 && projectedHostDiameter >= FULL_EXIT_PIXELS) return 0;
+        if (projectedHostDiameter >= FULL_ENTER_PIXELS) return 0;
+        if (previous <= 1 && projectedHostDiameter >= MEDIUM_EXIT_PIXELS) return 1;
+        if (projectedHostDiameter >= MEDIUM_ENTER_PIXELS) return 1;
+        if (previous <= 2 && projectedHostDiameter >= FAR_EXIT_PIXELS) return 2;
+        if (projectedHostDiameter >= FAR_ENTER_PIXELS) return 2;
         return 3;
     }
 

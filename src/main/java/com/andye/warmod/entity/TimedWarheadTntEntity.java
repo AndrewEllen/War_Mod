@@ -107,11 +107,7 @@ public final class TimedWarheadTntEntity extends Entity {
             || preparationTargetMoved(preparationTarget, position()))) {
             schedulePreparation(server, position());
         }
-        if (fuse > 1) {
-            fuse--;
-        } else if (fuse == 1 && (!yield.nuclear() || allPrepared(server))) {
-            fuse = 0;
-        }
+        fuse = nextFuse(fuse);
         getEntityData().set(DATA_FUSE, fuse);
         if (fuse <= 0) explode(server, position());
     }
@@ -136,22 +132,15 @@ public final class TimedWarheadTntEntity extends Entity {
         terrainPreparationScheduled = true;
     }
 
+    static int nextFuse(final int currentFuse) {
+        return Math.max(0, currentFuse - 1);
+    }
+
     /** Called by arming sites immediately after the entity is accepted by the level. */
     public void beginTerrainPreparation(final ServerLevel level) {
         if (!terrainPreparationScheduled && yield.nuclear()) {
             schedulePreparation(level, position());
         }
-    }
-
-    private boolean allPrepared(final ServerLevel level) {
-        if (!terrainPreparationScheduled) schedulePreparation(level, position());
-        int count = cluster ? 4 : 1;
-        for (int index = 0; index < count; index++) {
-            if (!WarheadPreparationCoordinator.readyForImpact(level, impactId(index))) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private void explode(final ServerLevel level, final Vec3 center) {

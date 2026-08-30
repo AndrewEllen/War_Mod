@@ -13,7 +13,7 @@ public record FireVisualCell(long id, FireVisualBand band, int cellSize,
     int cellX, int cellY, int cellZ, Vec3 centroid, Vec3 extents,
     long occupancyMask, float flameEnergy, float smokeMass,
     float maximumHeat, float averageIntensity, float coveredArea,
-    Vec3 wind, int hostCount, long seed, Direction dominantFace,
+    float clumpStrength, Vec3 wind, int hostCount, long seed, Direction dominantFace,
     FirePhase phase, long ignitionGameTime) {
 
     public boolean valid() {
@@ -23,7 +23,8 @@ public record FireVisualCell(long id, FireVisualBand band, int cellSize,
             && extents.z >= 0.0 && occupancyMask != 0L
             && finiteNonNegative(flameEnergy) && finiteNonNegative(smokeMass)
             && finiteNonNegative(maximumHeat) && finiteNonNegative(averageIntensity)
-            && finiteNonNegative(coveredArea) && wind != null && wind.isFinite()
+            && finiteNonNegative(coveredArea) && finiteNonNegative(clumpStrength)
+            && clumpStrength <= 2.0F && wind != null && wind.isFinite()
             && hostCount > 0 && hostCount <= 65_536 && dominantFace != null
             && phase != null;
     }

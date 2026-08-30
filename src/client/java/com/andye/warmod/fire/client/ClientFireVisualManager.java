@@ -19,17 +19,19 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 
-/** Client cache for complete-per-band fire cells and authoritative firebrands. */
+/** Persistent client cache for explicit fire-cell deltas and authoritative firebrands. */
 public final class ClientFireVisualManager {
     public static final ClientFireVisualManager INSTANCE = new ClientFireVisualManager();
     private static final int EXPIRY_TICKS = 160;
-    private static final int REPRESENTATION_TRANSITION_TICKS = 16;
+    private static final int REPRESENTATION_TRANSITION_TICKS = 8;
+    private static final int SMOKE_RETIRE_TICKS = 48;
 
     private final EnumMap<FireVisualBand, LinkedHashMap<Long, CellVisual>> cells =
         new EnumMap<>(FireVisualBand.class);
     private final LinkedHashMap<BandCellKey, CellVisual> retiringCells =
         new LinkedHashMap<>();
     private final Map<Long, EmberVisual> embers = new LinkedHashMap<>();
+    private final Map<Long, Integer> lodLevels = new LinkedHashMap<>();
     private final ArrayDeque<FireWindImpulse> windImpulses = new ArrayDeque<>();
     private ClientLevel activeLevel;
     private long highestGeneration = Long.MIN_VALUE;
@@ -72,6 +74,16 @@ public final class ClientFireVisualManager {
 
     private void acceptCells(final ClientboundFireStatePayload payload,
         final long receivedAt) {
+        for (long removedId : payload.removedCellIds()) {
+            for (FireVisualBand band : FireVisualBand.values()) {
+                CellVisual removed = cells.get(band).remove(removedId);
+                if (removed == null) continue;
+                BandCellKey key = new BandCellKey(band, removedId);
+                CellVisual smoke = removed.retireSmoke(receivedAt);
+                if (smoke == null) retiringCells.remove(key);
+                else retiringCells.put(key, smoke);
+            }
+        }
         EnumMap<FireVisualBand, List<FireVisualCell>> incoming =
             new EnumMap<>(FireVisualBand.class);
         for (FireVisualBand band : FireVisualBand.values()) incoming.put(band,
@@ -104,8 +116,10 @@ public final class ClientFireVisualManager {
             for (CellVisual previous : current.values()) {
                 if (incomingIds.contains(previous.cell.id())) continue;
                 hasOutgoing = true;
-                retiringCells.put(new BandCellKey(band, previous.cell.id()),
-                    previous.retire(receivedAt));
+                BandCellKey key = new BandCellKey(band, previous.cell.id());
+                CellVisual smoke = previous.retireSmoke(receivedAt);
+                if (smoke == null) retiringCells.remove(key);
+                else retiringCells.put(key, smoke);
             }
             for (FireVisualCell cell : bandCells) {
                 BandCellKey key = new BandCellKey(band, cell.id());
@@ -136,6 +150,13 @@ public final class ClientFireVisualManager {
         for (LinkedHashMap<Long, CellVisual> bandCells : cells.values())
             bandCells.values().removeIf(cell -> now - cell.lastSeenClientTick > EXPIRY_TICKS);
         retiringCells.values().removeIf(cell -> cell.transitionWeight(now) <= 0.0F);
+        if ((now & 15L) == 0L) {
+            HashSet<Long> active = new HashSet<>();
+            for (LinkedHashMap<Long, CellVisual> bandCells : cells.values())
+                active.addAll(bandCells.keySet());
+            for (BandCellKey key : retiringCells.keySet()) active.add(key.id());
+            lodLevels.keySet().removeIf(id -> !active.contains(id));
+        }
         Iterator<EmberVisual> emberIterator = embers.values().iterator();
         while (emberIterator.hasNext()) {
             EmberVisual ember = emberIterator.next();
@@ -152,12 +173,12 @@ public final class ClientFireVisualManager {
             + retiringCells.size());
         for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) {
             for (CellVisual cell : bandCells.values())
-                result.add(new VisualCell(cell.cell, cell.transitionWeight(now),
+                result.add(new VisualCell(cell.displayCell(now), cell.transitionWeight(now),
                     cell.lastSeenClientTick));
         }
         for (CellVisual cell : retiringCells.values()) {
             float weight = cell.transitionWeight(now);
-            if (weight > 0.0F) result.add(new VisualCell(cell.cell, weight,
+            if (weight > 0.0F) result.add(new VisualCell(cell.displayCell(now), weight,
                 cell.lastSeenClientTick));
         }
         return List.copyOf(result);
@@ -186,9 +207,22 @@ public final class ClientFireVisualManager {
         return length > 2.5 ? result.scale(2.5 / length) : result;
     }
 
+    public synchronized int lodLevel(final ClientLevel level, final long cellId,
+        final double projectedDiameter) {
+        if (level == null || activeLevel != level) {
+            return com.andye.warmod.fire.FireVisualLodPolicy.level(projectedDiameter);
+        }
+        int previous = lodLevels.getOrDefault(cellId,
+            com.andye.warmod.fire.FireVisualLodPolicy.level(projectedDiameter));
+        int next = com.andye.warmod.fire.FireVisualLodPolicy.level(
+            projectedDiameter, previous);
+        lodLevels.put(cellId, next);
+        return next;
+    }
+
     public synchronized void clear() {
         for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) bandCells.clear();
-        retiringCells.clear(); embers.clear(); windImpulses.clear();
+        retiringCells.clear(); embers.clear(); windImpulses.clear(); lodLevels.clear();
         ClientSmokeFlowField.INSTANCE.clear();
         highestGeneration = Long.MIN_VALUE;
         activeLevel = null;
@@ -198,7 +232,7 @@ public final class ClientFireVisualManager {
         if (level == null) { clear(); return false; }
         if (activeLevel != level) {
             for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) bandCells.clear();
-            retiringCells.clear(); embers.clear(); windImpulses.clear();
+            retiringCells.clear(); embers.clear(); windImpulses.clear(); lodLevels.clear();
             ClientSmokeFlowField.INSTANCE.clear();
             highestGeneration = Long.MIN_VALUE;
             activeLevel = level;
@@ -232,23 +266,26 @@ public final class ClientFireVisualManager {
         private final float transitionStartWeight;
         private final float transitionTargetWeight;
         private final long lastSeenClientTick;
+        private final int transitionTicks;
 
         private CellVisual(final FireVisualCell cell, final long transitionStartTick,
             final float transitionStartWeight, final float transitionTargetWeight,
-            final long lastSeenClientTick) {
+            final long lastSeenClientTick, final int transitionTicks) {
             this.cell = cell;
             this.transitionStartTick = transitionStartTick;
             this.transitionStartWeight = transitionStartWeight;
             this.transitionTargetWeight = transitionTargetWeight;
             this.lastSeenClientTick = lastSeenClientTick;
+            this.transitionTicks = Math.max(1, transitionTicks);
         }
 
         private static CellVisual immediate(final FireVisualCell cell, final long now) {
-            return new CellVisual(cell, now, 1.0F, 1.0F, now);
+            return new CellVisual(cell, now, 1.0F, 1.0F, now, 1);
         }
 
         private static CellVisual fadeIn(final FireVisualCell cell, final long now) {
-            return new CellVisual(cell, now, 0.0F, 1.0F, now);
+            return new CellVisual(cell, now, 0.0F, 1.0F, now,
+                REPRESENTATION_TRANSITION_TICKS);
         }
 
         private CellVisual accept(final FireVisualCell incoming, final long now) {
@@ -261,21 +298,43 @@ public final class ClientFireVisualManager {
                 lerp(cell.maximumHeat(), incoming.maximumHeat(), 0.44F),
                 lerp(cell.averageIntensity(), incoming.averageIntensity(), 0.44F),
                 lerp(cell.coveredArea(), incoming.coveredArea(), 0.40F),
+                lerp(cell.clumpStrength(), incoming.clumpStrength(), 0.40F),
                 cell.wind().lerp(incoming.wind(), 0.34), incoming.hostCount(),
                 cell.seed(), incoming.dominantFace(), incoming.phase(),
                 incoming.ignitionGameTime());
-            return new CellVisual(smoothed, now, currentWeight, 1.0F, now);
+            return new CellVisual(smoothed, now, currentWeight, 1.0F, now,
+                REPRESENTATION_TRANSITION_TICKS);
         }
 
-        private CellVisual retire(final long now) {
+        private CellVisual retireSmoke(final long now) {
+            if (cell.smokeMass() <= 0.012F && cell.flameEnergy() <= 0.012F) return null;
+            int lifetime = cell.smokeMass() > 0.012F
+                ? SMOKE_RETIRE_TICKS : REPRESENTATION_TRANSITION_TICKS;
             return new CellVisual(cell, now, transitionWeight(now), 0.0F,
-                lastSeenClientTick);
+                lastSeenClientTick, lifetime);
+        }
+
+        private FireVisualCell displayCell(final long now) {
+            if (transitionTargetWeight != 0.0F) return cell;
+            float flameProgress = Math.max(0.0F, Math.min(1.0F,
+                (now - transitionStartTick) / (float)REPRESENTATION_TRANSITION_TICKS));
+            float flameWeight = 1.0F - flameProgress;
+            return new FireVisualCell(cell.id(), cell.band(), cell.cellSize(),
+                cell.cellX(), cell.cellY(), cell.cellZ(), cell.centroid(), cell.extents(),
+                cell.occupancyMask(), cell.flameEnergy() * flameWeight,
+                cell.smokeMass(), cell.maximumHeat() * flameWeight,
+                cell.averageIntensity() * flameWeight, cell.coveredArea(),
+                cell.clumpStrength() * flameWeight, cell.wind(), cell.hostCount(),
+                cell.seed(), cell.dominantFace(), flameWeight > 0.0F
+                    ? com.andye.warmod.fire.FirePhase.DECAYING
+                    : com.andye.warmod.fire.FirePhase.SMOLDERING,
+                cell.ignitionGameTime());
         }
 
         private float transitionWeight(final long now) {
             if (transitionStartWeight == transitionTargetWeight) return transitionTargetWeight;
             float progress = Math.max(0.0F, Math.min(1.0F,
-                (now - transitionStartTick) / (float) REPRESENTATION_TRANSITION_TICKS));
+                (now - transitionStartTick) / (float) transitionTicks));
             return lerp(transitionStartWeight, transitionTargetWeight,
                 progress * progress * (3.0F - 2.0F * progress));
         }

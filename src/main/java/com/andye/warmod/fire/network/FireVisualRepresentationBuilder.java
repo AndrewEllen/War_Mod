@@ -16,7 +16,8 @@ import net.minecraft.world.phys.Vec3;
 
 /** Builds the bounded existing fire-network representation; it owns no state. */
 public final class FireVisualRepresentationBuilder {
-    private static final int MAX_CELL_SIZE = 4_096;
+    private static final int NEAR_FALLBACK_BUDGET = 80;
+    private static final int NEAR_FALLBACK_CELL_SIZE = 64;
 
     private FireVisualRepresentationBuilder() { }
 
@@ -31,6 +32,15 @@ public final class FireVisualRepresentationBuilder {
         EnumMap<FireVisualBand, Integer> cellCounts = new EnumMap<>(FireVisualBand.class);
         EnumMap<FireVisualBand, Integer> cellSizes = new EnumMap<>(FireVisualBand.class);
         for (FireVisualBand band : FireVisualBand.values()) {
+            if (band == FireVisualBand.NEAR) {
+                BandResult result = buildNear(patches, viewer);
+                cells.addAll(result.cells());
+                sourceHosts.put(band, (int) hosts.stream().filter(host ->
+                    band.contains(host.position().distanceTo(viewer))).count());
+                cellCounts.put(band, result.cells().size());
+                cellSizes.put(band, band.preferredCellSize());
+                continue;
+            }
             ArrayList<HostSample> bandHosts = new ArrayList<>();
             for (HostSample host : hosts) {
                 if (band.contains(host.position().distanceTo(viewer))) bandHosts.add(host);
@@ -55,17 +65,113 @@ public final class FireVisualRepresentationBuilder {
         final List<HostSample> hosts) {
         int cellSize = band.preferredCellSize();
         Map<CellCoordinate, CellAccumulator> buckets = bucket(hosts, cellSize);
-        while (buckets.size() > band.cellBudget() && cellSize < MAX_CELL_SIZE) {
-            cellSize = Math.min(MAX_CELL_SIZE, cellSize * 2);
-            buckets = bucket(hosts, cellSize);
-        }
         if (buckets.size() > band.cellBudget())
-            throw new IllegalStateException("Unable to fit occupied " + band
-                + " fire cells without dropping coverage");
+            throw new IllegalStateException("Fixed " + band + " fire grid exceeded budget: "
+                + buckets.size() + "/" + band.cellBudget());
         ArrayList<FireVisualCell> cells = new ArrayList<>(buckets.size());
         for (Map.Entry<CellCoordinate, CellAccumulator> entry : buckets.entrySet())
             cells.add(entry.getValue().finish(band, cellSize, entry.getKey()));
         return new BandResult(List.copyOf(cells), cellSize);
+    }
+
+    private static BandResult buildNear(final List<FireCellSnapshot> patches,
+        final Vec3 viewer) {
+        ArrayList<FireCellSnapshot> near = new ArrayList<>();
+        for (FireCellSnapshot patch : patches) {
+            if (validPatch(patch)
+                && FireVisualBand.NEAR.contains(patch.anchor().position().distanceTo(viewer))) {
+                near.add(patch);
+            }
+        }
+        near.sort(Comparator.comparingDouble((FireCellSnapshot patch) ->
+            patch.anchor().position().distanceToSqr(viewer)).thenComparingLong(
+                FireCellSnapshot::id));
+        int exactBudget = FireVisualBand.NEAR.cellBudget() - NEAR_FALLBACK_BUDGET;
+        int exactCount = Math.min(exactBudget, near.size());
+        Map<Long, Float> hostEnergy = hostEnergy(patches);
+        ArrayList<FireVisualCell> cells = new ArrayList<>(FireVisualBand.NEAR.cellBudget());
+        for (int index = 0; index < exactCount; index++) {
+            FireCellSnapshot patch = near.get(index);
+            cells.add(exactCell(patch, clumpStrength(patch, hostEnergy)));
+        }
+        if (exactCount < near.size()) {
+            List<HostSample> fallbackHosts = aggregateHosts(near.subList(exactCount, near.size()));
+            Map<CellCoordinate, CellAccumulator> fallback = bucket(fallbackHosts,
+                NEAR_FALLBACK_CELL_SIZE);
+            if (fallback.size() > NEAR_FALLBACK_BUDGET) {
+                throw new IllegalStateException("Fixed near fallback grid exceeded budget: "
+                    + fallback.size() + "/" + NEAR_FALLBACK_BUDGET);
+            }
+            for (Map.Entry<CellCoordinate, CellAccumulator> entry : fallback.entrySet()) {
+                cells.add(entry.getValue().finish(FireVisualBand.NEAR,
+                    NEAR_FALLBACK_CELL_SIZE, entry.getKey()));
+            }
+        }
+        return new BandResult(List.copyOf(cells), FireVisualBand.NEAR.preferredCellSize());
+    }
+
+    private static FireVisualCell exactCell(final FireCellSnapshot patch,
+        final float clumpStrength) {
+        BlockPos host = patch.anchor().host();
+        Vec3 position = patch.anchor().position();
+        float flameEnergy = Math.max(0.0F, patch.intensity() * patch.coverage()
+            * (0.25F + patch.heat() * 0.75F));
+        float smokeMass = Math.max(0.0F, patch.smoke() * patch.coverage());
+        int subX = Mth.clamp((int)Math.floor(patch.anchor().localX() * 8.0F), 0, 7);
+        int subZ = Mth.clamp((int)Math.floor(patch.anchor().localZ() * 8.0F), 0, 7);
+        float extent = Mth.clamp((0.08F + patch.coverage() * 0.50F)
+            * (1.0F + clumpStrength * 0.22F), 0.16F, 0.72F);
+        long id = exactCellId(patch.id());
+        return new FireVisualCell(id, FireVisualBand.NEAR, 1,
+            host.getX(), host.getY(), host.getZ(), position,
+            new Vec3(extent, extent, extent), 1L << (subZ * 8 + subX),
+            flameEnergy, smokeMass, Math.max(0.0F, patch.heat()),
+            Math.max(0.0F, patch.intensity()), Math.max(0.0F, patch.coverage()),
+            clumpStrength, patch.wind(), 1, patch.seed(), patch.anchor().face(), patch.phase(),
+            patch.ignitionGameTime());
+    }
+
+    private static Map<Long, Float> hostEnergy(final List<FireCellSnapshot> patches) {
+        Map<Long, Float> energy = new HashMap<>();
+        for (FireCellSnapshot patch : patches) {
+            if (!validPatch(patch) || patch.phase() == FirePhase.SMOLDERING
+                || patch.phase() == FirePhase.DECAYING) continue;
+            energy.merge(patch.anchor().host().asLong(), patch.heat() * patch.coverage(),
+                Math::max);
+        }
+        return energy;
+    }
+
+    private static float clumpStrength(final FireCellSnapshot patch,
+        final Map<Long, Float> hostEnergy) {
+        BlockPos host = patch.anchor().host();
+        float energy = 0.0F;
+        int burningHosts = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    Float sample = hostEnergy.get(BlockPos.asLong(host.getX() + dx,
+                        host.getY() + dy, host.getZ() + dz));
+                    if (sample == null) continue;
+                    energy += sample;
+                    burningHosts++;
+                }
+            }
+        }
+        float density = Mth.clamp((burningHosts - 6) / 12.0F, 0.0F, 1.5F);
+        float average = burningHosts == 0 ? 0.0F : energy / burningHosts;
+        return density * Mth.clamp(average * 1.25F, 0.0F, 1.0F);
+    }
+
+    private static boolean validPatch(final FireCellSnapshot patch) {
+        return patch != null && patch.anchor() != null && patch.phase() != null
+            && patch.wind() != null && patch.wind().isFinite()
+            && patch.anchor().position().isFinite();
+    }
+
+    private static long exactCellId(final long patchId) {
+        long id = mix(0x4E4541525F504154L ^ patchId) & Long.MAX_VALUE;
+        return id == 0L ? 1L : id;
     }
 
     private static Map<CellCoordinate, CellAccumulator> bucket(
@@ -87,8 +193,7 @@ public final class FireVisualRepresentationBuilder {
     private static List<HostSample> aggregateHosts(final List<FireCellSnapshot> patches) {
         LinkedHashMap<Long, HostAccumulator> hosts = new LinkedHashMap<>();
         for (FireCellSnapshot patch : patches) {
-            if (patch == null || patch.anchor() == null || patch.phase() == null
-                || patch.wind() == null || !patch.wind().isFinite()) continue;
+            if (!validPatch(patch)) continue;
             hosts.computeIfAbsent(patch.anchor().host().asLong(), ignored ->
                 new HostAccumulator(patch.anchor().host())).add(patch);
         }
@@ -255,7 +360,7 @@ public final class FireVisualRepresentationBuilder {
                 new Vec3(x / safe, y / safe, z / safe), extents,
                 occupancyMask == 0L ? 1L : occupancyMask,
                 (float) flameEnergy, (float) smokeMass, maximumHeat,
-                (float) (intensity / safe), (float) coveredArea,
+                (float) (intensity / safe), (float) coveredArea, 0.0F,
                 new Vec3(windX / safe, windY / safe, windZ / safe), hosts,
                 seed == 0L ? cellId(band, cellSize, coordinate) : seed,
                 Direction.values()[face], phase,

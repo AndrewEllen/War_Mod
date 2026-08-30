@@ -2,6 +2,7 @@ package com.andye.warmod.warhead;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -31,6 +32,7 @@ final class WarheadSnapshotFlags {
     static final int WATER_NEAR = 1 << 19;
     static final int AXIS_X = 1 << 20;
     static final int AXIS_Z = 1 << 21;
+    static final int WATER = 1 << 22;
 
     private WarheadSnapshotFlags() { }
 
@@ -39,6 +41,7 @@ final class WarheadSnapshotFlags {
         int flags = 0;
         if (state.isAir()) flags |= AIR;
         if (!state.getFluidState().isEmpty()) flags |= FLUID;
+        if (state.getFluidState().is(FluidTags.WATER)) flags |= WATER;
         if (indestructible) flags |= INDESTRUCTIBLE;
         if (state.is(Blocks.TNT)) flags |= TNT;
         if (state.is(BlockTags.SAND) && !state.is(Blocks.RED_SAND)) {
@@ -125,7 +128,7 @@ final class WarheadSnapshotFlags {
             || state.is(Blocks.BUSH) || state.is(Blocks.FIREFLY_BUSH)
             || state.is(Blocks.SWEET_BERRY_BUSH) || state.is(Blocks.DEAD_BUSH)
             || state.is(Blocks.SHORT_DRY_GRASS) || state.is(Blocks.TALL_DRY_GRASS)
-            || state.is(Blocks.SUGAR_CANE) || state.is(Blocks.SEAGRASS)
+            || state.is(Blocks.LEAF_LITTER) || state.is(Blocks.SUGAR_CANE)
             || state.is(Blocks.TALL_SEAGRASS) || state.is(Blocks.KELP)
             || state.is(Blocks.KELP_PLANT) || state.is(Blocks.PALE_HANGING_MOSS)
             || state.is(BlockTags.FLOWERS) || state.is(BlockTags.CROPS)

@@ -56,7 +56,7 @@ final class WarheadFlatFixtureScenarioTest {
         assertTrue(total.changedChunks() > 0L);
         assertTrue(total.changedBlocks() > 0L);
         assertTrue(total.changedBiomeQuarts() > 0L);
-        assertTrue(maximumActivation <= 19);
+        assertTrue(maximumActivation <= 15);
         System.out.printf(java.util.Locale.ROOT,
             "WARHEAD_FLAT_FIXTURE yield=%s requiredChunks=%d changedChunks=%d "
                 + "changedSections=%d changedBlocks=%d biomeQuarts=%d semantic=%d "

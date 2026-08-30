@@ -6,6 +6,7 @@ public enum PreparationState {
     SNAPSHOTTING,
     COMPILING,
     READY,
+    IMPACT_SEALED,
     COMMITTING,
     COMPLETE,
     REVALIDATING,

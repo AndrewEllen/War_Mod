@@ -4,7 +4,16 @@ import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.fire.FireEmberSnapshot;
 import com.andye.warmod.fire.wind.FireWindImpulse;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -12,9 +21,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
-/** Owns the complete-per-band, loss-tolerant client representation of fire. */
+/** Owns persistent per-viewer fire deltas with periodic complete repair snapshots. */
 public final class FireNetworking {
     private static final double VISUAL_RANGE = 1_536.0;
+    private static final long COMPLETE_REPAIR_INTERVAL_TICKS = 120L;
+    private static final Map<ServerLevel, Map<UUID, ViewerState>> VIEWERS =
+        new IdentityHashMap<>();
     private static boolean registered;
 
     private FireNetworking() { }
@@ -25,6 +37,12 @@ public final class FireNetworking {
             ClientboundFireStatePayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(ClientboundFireWindImpulsePayload.TYPE,
             ClientboundFireWindImpulsePayload.STREAM_CODEC);
+        ServerLevelEvents.UNLOAD.register((server, level) -> {
+            synchronized (FireNetworking.class) { VIEWERS.remove(level); }
+        });
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            synchronized (FireNetworking.class) { VIEWERS.clear(); }
+        });
         registered = true;
     }
 
@@ -40,23 +58,31 @@ public final class FireNetworking {
         }
     }
 
-    /** Each selected band is complete, so the next snapshot repairs packet loss. */
-    public static void sendSnapshots(final ServerLevel level,
+    /** Deltas are repaired periodically by a complete representation snapshot. */
+    public static synchronized void sendSnapshots(final ServerLevel level,
         final List<ViewerSnapshot> snapshots) {
         if (level == null || snapshots == null || snapshots.isEmpty()) return;
         long started = WarModPerformanceDiagnostics.begin();
         int sent = 0;
         int sentCells = 0;
+        Map<UUID, ViewerState> viewers = VIEWERS.computeIfAbsent(level,
+            ignored -> new HashMap<>());
+        Set<UUID> active = new HashSet<>();
         for (ViewerSnapshot snapshot : snapshots) {
             ServerPlayer player = level.getServer().getPlayerList()
                 .getPlayer(snapshot.playerId());
             if (player == null || player.level() != level) continue;
-            ClientboundFireStatePayload payload = payload(snapshot);
+            active.add(player.getUUID());
+            ViewerState viewer = viewers.computeIfAbsent(player.getUUID(),
+                ignored -> new ViewerState());
+            ClientboundFireStatePayload payload = payload(snapshot, viewer);
             if (!payload.isWellFormed()) continue;
             ServerPlayNetworking.send(player, payload);
             sent++;
             sentCells += payload.cells().size();
         }
+        viewers.keySet().removeIf(id -> !active.contains(id));
+        if (viewers.isEmpty()) VIEWERS.remove(level);
         WarModPerformanceDiagnostics.add(
             WarModPerformanceDiagnostics.Gauge.FIRE_SNAPSHOT_PACKETS_SENT, sent);
         WarModPerformanceDiagnostics.add(
@@ -66,14 +92,50 @@ public final class FireNetworking {
             WarModPerformanceDiagnostics.Subsystem.FIRE_NETWORK, started);
     }
 
-    private static ClientboundFireStatePayload payload(final ViewerSnapshot snapshot) {
-        List<ClientboundFireStatePayload.CellEntry> cells = snapshot.representation().cells()
-            .stream().map(ClientboundFireStatePayload.CellEntry::from).toList();
+    private static ClientboundFireStatePayload payload(final ViewerSnapshot snapshot,
+        final ViewerState viewer) {
+        LinkedHashMap<Long, ClientboundFireStatePayload.CellEntry> current =
+            new LinkedHashMap<>();
+        for (FireVisualCell cell : snapshot.representation().cells()) {
+            current.put(cell.id(), ClientboundFireStatePayload.CellEntry.from(cell));
+        }
+        boolean complete = viewer.cells.isEmpty()
+            || snapshot.serverGameTime() - viewer.lastCompleteTick
+                >= COMPLETE_REPAIR_INTERVAL_TICKS;
+        ArrayList<ClientboundFireStatePayload.CellEntry> cells = new ArrayList<>();
+        ArrayList<Long> removed = new ArrayList<>();
+        if (complete) {
+            cells.addAll(current.values());
+            viewer.lastCompleteTick = snapshot.serverGameTime();
+            WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_FULL_REPAIRS, 1L);
+            WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_CELL_ADDS,
+                current.size());
+        } else {
+            for (Map.Entry<Long, ClientboundFireStatePayload.CellEntry> entry
+                : current.entrySet()) {
+                if (!entry.getValue().equals(viewer.cells.get(entry.getKey()))) {
+                    cells.add(entry.getValue());
+                    WarModPerformanceDiagnostics.add(viewer.cells.containsKey(entry.getKey())
+                        ? WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_CELL_UPDATES
+                        : WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_CELL_ADDS, 1L);
+                }
+            }
+            for (long id : viewer.cells.keySet()) {
+                if (!current.containsKey(id)) removed.add(id);
+            }
+            WarModPerformanceDiagnostics.add(
+                WarModPerformanceDiagnostics.Gauge.FIRE_NETWORK_CELL_REMOVALS,
+                removed.size());
+        }
+        viewer.cells.clear();
+        viewer.cells.putAll(current);
         List<ClientboundFireStatePayload.EmberEntry> embers = snapshot.embers().stream()
             .map(FireNetworking::emberEntry).toList();
         return new ClientboundFireStatePayload(snapshot.serverGameTime(),
-            snapshot.generation(), snapshot.representation().completeBandMask(),
-            cells, true, embers);
+            snapshot.generation(), complete ? FireVisualBand.COMPLETE_MASK : 0,
+            List.copyOf(cells), List.copyOf(removed), true, embers);
     }
 
     private static ClientboundFireStatePayload.EmberEntry emberEntry(
@@ -89,4 +151,10 @@ public final class FireNetworking {
         long serverGameTime, long generation,
         FireVisualRepresentationBuilder.Representation representation,
         List<FireEmberSnapshot> embers) { }
+
+    private static final class ViewerState {
+        private final LinkedHashMap<Long, ClientboundFireStatePayload.CellEntry> cells =
+            new LinkedHashMap<>();
+        private long lastCompleteTick = Long.MIN_VALUE;
+    }
 }

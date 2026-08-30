@@ -12,7 +12,7 @@ public record PreparedImpactPlan(UUID impactId, Vec3 center,
     public PreparedImpactPlan {
         if (impactId == null || center == null || !center.isFinite()
             || footprint == null || chunks == null || finalActivationTick < 0
-            || finalActivationTick > 19 || statistics == null) {
+            || finalActivationTick > 15 || statistics == null) {
             throw new IllegalArgumentException("Invalid prepared impact plan");
         }
         chunks = Long2ObjectMaps.unmodifiable(new Long2ObjectOpenHashMap<>(chunks));

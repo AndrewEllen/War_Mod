@@ -61,7 +61,6 @@ public final class ArtilleryWarheadEntity extends Entity {
     private int chunkWaitTicks;
     private boolean clusterCarrier;
     private boolean split;
-    private Vec3 pendingImpact;
     private int clientLastAuthoritativeTick = -1;
     private int clientStaleTicks;
     private Vec3 clientVisualOffset = Vec3.ZERO;
@@ -91,10 +90,6 @@ public final class ArtilleryWarheadEntity extends Entity {
         }
         if (impacted || !(level() instanceof ServerLevel server)) return;
         if (!position().isFinite() || !target.isFinite() || !velocity.isFinite() || tickCount > 1_200) { discard(); return; }
-        if (pendingImpact != null) {
-            if (terrainReady(server, pendingImpact)) impact(server, pendingImpact);
-            return;
-        }
         if (!terrainPreparationScheduled && yield.nuclear()) {
             beginTerrainPreparation(server);
         }
@@ -273,23 +268,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     }
 
     private void tryImpact(final ServerLevel level, final Vec3 position) {
-        if (!terrainReady(level, position)) {
-            pendingImpact = WarheadExplosionWorkManager.resolveDetonationCenter(
-                level, position, yield);
-            setDeltaMovement(Vec3.ZERO);
-            return;
-        }
-        pendingImpact = null;
         impact(level, position);
-    }
-
-    private boolean terrainReady(final ServerLevel level, final Vec3 position) {
-        if (!yield.nuclear()) return true;
-        Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
-            level, position, yield);
-        return WarheadPreparationCoordinator.ensureImpact(level, id, id, id,
-            effective, yield, seed, customFire,
-            level.getGameTime() + 1L);
     }
     public Vec3 target() { return target; }
     public long visualSeed() { return level().isClientSide() ? entityData.get(DATA_VISUAL_SEED) : seed; }
@@ -309,9 +288,6 @@ public final class ArtilleryWarheadEntity extends Entity {
         out.storeNullable("owner", UUIDUtil.CODEC, ownerId);
         out.store("target", Vec3.CODEC, target);
         out.store("velocity", Vec3.CODEC, velocity);
-        if (pendingImpact != null && pendingImpact.isFinite()) {
-            out.store("pendingImpact", Vec3.CODEC, pendingImpact);
-        }
         out.putString("yield", yield.getSerializedName());
         out.putLong("seed", seed);
         out.putBoolean("customFire", customFire);
@@ -327,7 +303,6 @@ public final class ArtilleryWarheadEntity extends Entity {
         ownerId = in.read("owner", UUIDUtil.CODEC).orElse(null);
         target = in.read("target", Vec3.CODEC).orElse(Vec3.ZERO);
         velocity = in.read("velocity", Vec3.CODEC).orElse(Vec3.ZERO);
-        pendingImpact = in.read("pendingImpact", Vec3.CODEC).orElse(null);
         yield = WarheadYield.fromSerializedName(in.getStringOr("yield", "conventional"))
             .orElse(WarheadYield.CONVENTIONAL);
         seed = in.getLongOr("seed", 0L);

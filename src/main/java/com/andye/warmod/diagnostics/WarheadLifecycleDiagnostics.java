@@ -139,6 +139,45 @@ public final class WarheadLifecycleDiagnostics {
         trim();
     }
 
+    public static synchronized void chunkPrepared(final ServerLevel level,
+        final UUID impactId) {
+        Lifecycle lifecycle = IMPACTS.get(impactId);
+        if (level != null && lifecycle != null) {
+            lifecycle.firstPreparedChunkTick = valueOr(
+                lifecycle.firstPreparedChunkTick, level.getGameTime());
+        }
+    }
+
+    public static synchronized void impactSealed(final ServerLevel level,
+        final UUID impactId, final int preparedChunks, final int compilingChunks,
+        final int requiredChunks) {
+        Lifecycle lifecycle = IMPACTS.computeIfAbsent(impactId, Lifecycle::new);
+        if (level != null) lifecycle.impactSealedTick = valueOr(
+            lifecycle.impactSealedTick, level.getGameTime());
+        lifecycle.preparedChunksAtSeal = Math.max(lifecycle.preparedChunksAtSeal,
+            Math.max(0, preparedChunks));
+        lifecycle.compilingChunksAtSeal = Math.max(lifecycle.compilingChunksAtSeal,
+            Math.max(0, compilingChunks));
+        lifecycle.unsnapshottedChunksAtSeal = Math.max(0L,
+            requiredChunks - preparedChunks - compilingChunks);
+        lifecycle.requiredChunks = Math.max(lifecycle.requiredChunks,
+            Math.max(0, requiredChunks));
+    }
+
+    public static synchronized void visualImpact(final ServerLevel level,
+        final UUID impactId) {
+        Lifecycle lifecycle = IMPACTS.computeIfAbsent(impactId, Lifecycle::new);
+        if (level != null) lifecycle.visualImpactTick = valueOr(
+            lifecycle.visualImpactTick, level.getGameTime());
+    }
+
+    public static synchronized void entityBlast(final ServerLevel level,
+        final UUID impactId) {
+        Lifecycle lifecycle = IMPACTS.computeIfAbsent(impactId, Lifecycle::new);
+        if (level != null) lifecycle.entityBlastTick = valueOr(
+            lifecycle.entityBlastTick, level.getGameTime());
+    }
+
     public static synchronized void commitStarted(final ServerLevel level,
         final UUID impactId) {
         Lifecycle lifecycle = IMPACTS.get(impactId);
@@ -293,6 +332,16 @@ public final class WarheadLifecycleDiagnostics {
             .append(", readinessAtImpact=")
             .append(String.format(Locale.ROOT, "%.2f%%", value.planReadinessPercentAtAttempt))
             .append(", actualImpactTick=").append(value.actualImpactTick)
+            .append(", visualImpactTick=").append(value.visualImpactTick)
+            .append(", entityBlastTick=").append(value.entityBlastTick)
+            .append(", impactSealedTick=").append(value.impactSealedTick)
+            .append(", firstPreparedChunkTick=").append(value.firstPreparedChunkTick)
+            .append(", preparedChunksAtSeal=").append(value.preparedChunksAtSeal)
+            .append(", compilingChunksAtSeal=").append(value.compilingChunksAtSeal)
+            .append(", unsnapshottedChunksAtSeal=").append(
+                value.unsnapshottedChunksAtSeal)
+            .append(", detonationGateWaitTicks=").append(
+                delta(value.actualImpactTick, value.impactSealedTick))
             .append(", firstCommitTick=").append(value.firstAuthoritativeCommitTick)
             .append(", lastBlockTick=").append(value.lastAuthoritativeBlockCommitTick)
             .append(", lastBiomeTick=").append(value.lastBiomeCommitTick)
@@ -424,6 +473,13 @@ public final class WarheadLifecycleDiagnostics {
         private long planReadyTick = -1L;
         private double planReadinessPercentAtAttempt;
         private long actualImpactTick = -1L;
+        private long visualImpactTick = -1L;
+        private long entityBlastTick = -1L;
+        private long impactSealedTick = -1L;
+        private long firstPreparedChunkTick = -1L;
+        private long preparedChunksAtSeal;
+        private long compilingChunksAtSeal;
+        private long unsnapshottedChunksAtSeal;
         private long firstAuthoritativeCommitTick = -1L;
         private long lastAuthoritativeBlockCommitTick = -1L;
         private long lastBiomeCommitTick = -1L;

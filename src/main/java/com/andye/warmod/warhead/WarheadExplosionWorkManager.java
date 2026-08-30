@@ -211,6 +211,15 @@ public final class WarheadExplosionWorkManager {
 			StrategicExplosionProfiles.get(yield).entityBlastRadius()));
 	}
 
+	/** Exceptional degraded fallback after the entity blast was already dispatched. */
+	public static synchronized void detonateTerrainOnly(final ServerLevel level,
+		final @Nullable ServerPlayer source, final UUID warheadId,
+		final Vec3 position, final WarheadYield yield, final long seed,
+		final boolean customFire) {
+		scheduleDetonation(level, source, warheadId, position, yield, seed,
+			customFire, false);
+	}
+
 	/**
 	 * Callback-safe mutation for TNT and block-entity states. The prepared
 	 * committer uses this only for cells classified as semantic before impact.
@@ -286,6 +295,20 @@ public final class WarheadExplosionWorkManager {
 		final long seed,
 		final boolean customFire
 	) {
+		return scheduleDetonation(level, source, warheadId, position, yield, seed,
+			customFire, true);
+	}
+
+	private static ExplosionWork scheduleDetonation(
+		final ServerLevel level,
+		final @Nullable ServerPlayer source,
+		final UUID warheadId,
+		final Vec3 position,
+		final WarheadYield yield,
+		final long seed,
+		final boolean customFire,
+		final boolean includeEntityBlast
+	) {
 		if (level == null || warheadId == null || position == null || yield == null) throw new NullPointerException();
 		if (!position.isFinite()) throw new IllegalArgumentException("Invalid staged explosion position");
 		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(yield);
@@ -308,8 +331,10 @@ public final class WarheadExplosionWorkManager {
 		levelWork.works.add(work);
 		levelWork.byWarhead.put(warheadId, work);
 		levelWork.addVoidVolume(work.voidVolume);
-		levelWork.entityBlasts.addLast(new EntityBlastWork(
-			source, position, profile.entityBlastRadius()));
+		if (includeEntityBlast) {
+			levelWork.entityBlasts.addLast(new EntityBlastWork(
+				source, position, profile.entityBlastRadius()));
+		}
 		work.explosionContext = new FastExplosion(level, source, position, profile.entityBlastRadius());
 		return work;
 	}

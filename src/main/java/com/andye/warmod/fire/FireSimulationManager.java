@@ -408,6 +408,9 @@ public final class FireSimulationManager {
             WarModPerformanceDiagnostics.Gauge.FIRE_SNAPSHOT_IN_PROGRESS, 0L);
         WarModPerformanceDiagnostics.gauge(
             WarModPerformanceDiagnostics.Gauge.FIRE_SNAPSHOT_PENDING_PATCHES, 0L);
+        WarModPerformanceDiagnostics.gauge(
+            WarModPerformanceDiagnostics.Gauge.FIRE_VISUAL_INDEX_ENTRIES,
+            state.visualIndex.size());
         WarModPerformanceDiagnostics.record(
             WarModPerformanceDiagnostics.Subsystem.FIRE_SIMULATION, diagnosticsStarted);
     }
@@ -571,6 +574,7 @@ public final class FireSimulationManager {
                 spawnEmber(level, state, patch, now);
             }
         }
+        updateVisualPatch(level, state, patch, profile, now);
     }
 
     private static void transferHeat(final ServerLevel level, final LevelState state,
@@ -782,9 +786,10 @@ public final class FireSimulationManager {
         state.activePatchCount++;
         if (firstActivePatch) state.urgentVisualSnapshotPending = true;
         state.surfaceIndex.put(anchor.key(), id);
-		state.hostPatchCounts.merge(anchor.host().asLong(), 1, Integer::sum);
+        state.hostPatchCounts.merge(anchor.host().asLong(), 1, Integer::sum);
         indexActivePatch(state, patch);
         state.workQueue.addLast(id);
+        updateVisualPatch(level, state, patch, profile, now);
         return true;
     }
 
@@ -1066,6 +1071,7 @@ public final class FireSimulationManager {
 
     private static void removePatch(final LevelState state, final Patch patch) {
         if (state.patches.remove(patch.id) == null) return;
+        state.visualIndex.remove(patch.id);
         if (patch.simulationState == FireSimulationState.ACTIVE) {
             state.activePatchCount = Math.max(0, state.activePatchCount - 1);
             unindexActivePatch(state, patch);
@@ -1156,6 +1162,7 @@ public final class FireSimulationManager {
         patch.simulationState = FireSimulationState.DORMANT;
         indexDormantPatch(state, patch);
         scheduleDormantExpiry(state, patch, now);
+        state.visualIndex.markDormant(patch.id, now, patch.dormantExpiryTick);
     }
 
     private static void reactivateRelevantPatches(final ServerLevel level,
@@ -1197,7 +1204,10 @@ public final class FireSimulationManager {
         analyticallyAdvance(state, patch, now);
         if (patch.surfaceBurnLocked) {
             if (analyticallyExpired(patch, now)) removePatch(state, patch);
-            else scheduleDormantExpiry(state, patch, now);
+            else {
+                scheduleDormantExpiry(state, patch, now);
+                state.visualIndex.markDormant(patch.id, now, patch.dormantExpiryTick);
+            }
             return false;
         }
         if (analyticallyExpired(patch, now)) {
@@ -1206,6 +1216,7 @@ public final class FireSimulationManager {
         }
         unindexDormantPatch(state, patch);
         patch.simulationState = FireSimulationState.ACTIVE;
+        patch.lastVisualUpdateTick = Long.MIN_VALUE;
         patch.dormantExpiryTick = Long.MAX_VALUE;
         boolean firstActivePatch = state.activePatchCount == 0;
         state.activePatchCount++;
@@ -1228,7 +1239,10 @@ public final class FireSimulationManager {
                 || patch.dormantExpiryTick != expiry.expiryTick()) continue;
             analyticallyAdvance(state, patch, now);
             if (analyticallyExpired(patch, now)) removePatch(state, patch);
-            else scheduleDormantExpiry(state, patch, now);
+            else {
+                scheduleDormantExpiry(state, patch, now);
+                state.visualIndex.markDormant(patch.id, now, patch.dormantExpiryTick);
+            }
         }
     }
 
@@ -1353,7 +1367,7 @@ public final class FireSimulationManager {
         final ServerLevel level, final LevelState state, final ServerPlayer player,
         final long now, final long generation) {
         Vec3 viewer = player.position();
-        List<FireCellSnapshot> sources = visualSources(level, state, viewer, now);
+        List<FireCellSnapshot> sources = visualSources(state, viewer, now);
         FireVisualRepresentationBuilder.Representation representation =
             FireVisualRepresentationBuilder.build(sources, viewer);
         WarModPerformanceDiagnostics.add(
@@ -1367,34 +1381,18 @@ public final class FireSimulationManager {
             representation.cells().size());
         WarModPerformanceDiagnostics.add(
             WarModPerformanceDiagnostics.Gauge.FIRE_COMPLETE_SNAPSHOTS, 1L);
+        WarModPerformanceDiagnostics.add(
+            WarModPerformanceDiagnostics.Gauge.FIRE_NEAR_EXACT_PATCHES,
+            representation.cells().stream().filter(cell ->
+                cell.band() == com.andye.warmod.fire.network.FireVisualBand.NEAR
+                    && cell.cellSize() == 1 && cell.hostCount() == 1).count());
         return new FireNetworking.ViewerSnapshot(player.getUUID(), viewer, now, generation,
             representation, nearbyEmbers(level, state, viewer));
     }
 
-    private static List<FireCellSnapshot> visualSources(final ServerLevel level,
-        final LevelState state, final Vec3 viewer, final long now) {
-        int cellRadius = Mth.ceil(SMOKE_CLUSTER_RADIUS / SMOKE_CLUSTER_CELL_SIZE);
-        int viewerCellX = Math.floorDiv(Mth.floor(viewer.x), SMOKE_CLUSTER_CELL_SIZE);
-        int viewerCellZ = Math.floorDiv(Mth.floor(viewer.z), SMOKE_CLUSTER_CELL_SIZE);
-        ArrayList<FireCellSnapshot> result = new ArrayList<>();
-        HashSet<Long> visited = new HashSet<>();
-        for (int dx = -cellRadius; dx <= cellRadius; dx++) {
-            for (int dz = -cellRadius; dz <= cellRadius; dz++) {
-                Set<Long> ids = state.smokeCellIndex.get(
-                    chunkKey(viewerCellX + dx, viewerCellZ + dz));
-                if (ids == null) continue;
-                for (long id : ids) {
-                    if (!visited.add(id)) continue;
-                    Patch patch = state.patches.get(id);
-                    if (patch == null || patch.simulationState == FireSimulationState.EXPIRED
-                        || viewer.distanceToSqr(patch.anchor.position())
-                            > SMOKE_CLUSTER_RADIUS_SQUARED) continue;
-                    FireCellSnapshot snapshot = snapshotPatchForSmoke(level, state, patch, now);
-                    if (snapshot != null) result.add(snapshot);
-                }
-            }
-        }
-        return List.copyOf(result);
+    private static List<FireCellSnapshot> visualSources(final LevelState state,
+        final Vec3 viewer, final long now) {
+        return state.visualIndex.query(viewer, SMOKE_CLUSTER_RADIUS, now);
     }
 
     private static List<FireEmberSnapshot> nearbyEmbers(final ServerLevel level,
@@ -1413,39 +1411,20 @@ public final class FireSimulationManager {
             .map(RankedEmberSnapshot::snapshot).toList();
     }
 
-    private static FireCellSnapshot snapshotPatch(final ServerLevel level,
-        final LevelState state, final Patch patch, final long now) {
+    private static void updateVisualPatch(final ServerLevel level,
+        final LevelState state, final Patch patch, final FireFuelProfile profile,
+        final long now) {
         if (patch.simulationState != FireSimulationState.ACTIVE
-            || !isLoaded(level, patch.anchor.host())) return null;
-        FireFuelProfile profile = FireFuelProfile.of(level.getBlockState(patch.anchor.host()));
+            || patch.lastVisualUpdateTick != Long.MIN_VALUE
+                && now - patch.lastVisualUpdateTick < 4L) return;
         float smoke = smokeProduction(patch, profile);
         Vec3 wind = FireWindEngine.windAt(level, patch.anchor.position()).scale(
             ventilationFactor(level, state, patch.anchor.host(), now));
-        return new FireCellSnapshot(patch.id, patch.anchor, patch.targetIntensity,
+        state.visualIndex.upsert(new FireCellSnapshot(patch.id, patch.anchor,
+            patch.targetIntensity,
             patch.heat, patch.coverage, smoke, patch.phase, patch.seed,
-            patch.ignitionGameTime, wind);
-    }
-
-    private static FireCellSnapshot snapshotPatchForSmoke(final ServerLevel level,
-        final LevelState state, final Patch patch, final long now) {
-        if (patch.simulationState == FireSimulationState.ACTIVE)
-            return snapshotPatch(level, state, patch, now);
-        if (patch.simulationState != FireSimulationState.DORMANT) return null;
-        analyticallyAdvance(state, patch, now);
-        if (analyticallyExpired(patch, now)) return null;
-        float stage = switch (patch.phase) {
-            case IGNITION -> 0.08F;
-            case GROWING -> 0.20F + patch.coverage * 0.22F;
-            case FLAMING -> 0.55F;
-            case DECAYING -> 0.72F;
-            case SMOLDERING -> 0.90F;
-        };
-        float smoke = Mth.clamp(stage * (0.28F + patch.targetIntensity * 0.72F)
-            * (0.25F + patch.coverage * 0.75F), 0.01F, 1.0F);
-        Vec3 wind = FireWindEngine.windAt(level, patch.anchor.position());
-        return new FireCellSnapshot(patch.id, patch.anchor, patch.targetIntensity,
-            patch.heat, patch.coverage, smoke, patch.phase, patch.seed,
-            patch.ignitionGameTime, wind);
+            patch.ignitionGameTime, wind));
+        patch.lastVisualUpdateTick = now;
     }
 
     private static List<FireEmberSnapshot> emberSnapshots(final ServerLevel level,
@@ -1550,6 +1529,12 @@ public final class FireSimulationManager {
                 indexActivePatch(state, patch);
                 state.workQueue.addLast(id);
             }
+            FireFuelProfile profile = FireFuelProfile.of(level.getBlockState(anchor.host()));
+            patch.simulationState = FireSimulationState.ACTIVE;
+            updateVisualPatch(level, state, patch, profile, now);
+            patch.simulationState = dormant
+                ? FireSimulationState.DORMANT : FireSimulationState.ACTIVE;
+            if (dormant) state.visualIndex.markDormant(id, now, patch.dormantExpiryTick);
         }
 		for (FireEmberSavedData.Entry entry : savedEmbers) {
 			if (state.embers.size() >= MAX_EMBERS || !Double.isFinite(entry.x())
@@ -1778,6 +1763,7 @@ public final class FireSimulationManager {
         private final HashMap<Long, HashSet<Long>> patchChunkIndex = new HashMap<>();
         private final HashMap<Long, HashSet<Long>> smokeCellIndex = new HashMap<>();
         private final HashMap<Long, HashSet<Long>> dormantChunkIndex = new HashMap<>();
+        private final FireVisualStateIndex visualIndex = new FireVisualStateIndex();
         private final PriorityQueue<DormantExpiry> dormantExpiryQueue = new PriorityQueue<>(
             (left, right) -> Long.compare(left.expiryTick(), right.expiryTick()));
         private final ArrayDeque<Long> workQueue = new ArrayDeque<>();
@@ -1822,6 +1808,7 @@ public final class FireSimulationManager {
         private boolean consumed;
         private FireSimulationState simulationState = FireSimulationState.ACTIVE;
         private long dormantExpiryTick = Long.MAX_VALUE;
+        private long lastVisualUpdateTick = Long.MIN_VALUE;
 
         private Patch(final long id, final FireSurfaceAnchor anchor,
             final float targetIntensity, final FirePhase phase, final float heat,

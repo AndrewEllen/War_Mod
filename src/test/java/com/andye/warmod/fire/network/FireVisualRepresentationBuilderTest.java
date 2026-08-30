@@ -77,6 +77,52 @@ final class FireVisualRepresentationBuilderTest {
             0.01);
     }
 
+    @Test
+    void exactNearPatchKeepsItsStableIdAndSurfaceAnchor() {
+        BlockPos host = new BlockPos(4, 63, 7);
+        FireSurfaceAnchor anchor = new FireSurfaceAnchor(host, Direction.EAST,
+            1.0F, 0.25F, 0.75F);
+        FireCellSnapshot source = new FireCellSnapshot(77L, anchor, 0.8F, 0.9F,
+            0.7F, 0.6F, FirePhase.FLAMING, 123L, 10L, Vec3.ZERO);
+        FireVisualCell first = FireVisualRepresentationBuilder.build(List.of(source),
+            new Vec3(4.0, 64.0, 7.0)).cells().stream()
+            .filter(cell -> cell.band() == FireVisualBand.NEAR).findFirst().orElseThrow();
+        FireVisualCell second = FireVisualRepresentationBuilder.build(List.of(source),
+            new Vec3(5.0, 64.0, 7.0)).cells().stream()
+            .filter(cell -> cell.band() == FireVisualBand.NEAR).findFirst().orElseThrow();
+        assertEquals(first.id(), second.id());
+        assertEquals(anchor.position(), first.centroid());
+        assertEquals(Direction.EAST, first.dominantFace());
+        assertEquals(1, first.cellSize());
+    }
+
+    @Test
+    void populationChangesDoNotResizeAggregateBandGrids() {
+        ArrayList<FireCellSnapshot> sparse = new ArrayList<>();
+        ArrayList<FireCellSnapshot> dense = new ArrayList<>();
+        for (int index = 0; index < 40; index++)
+            sparse.add(patch(index + 1L, index - 20, 150 + index % 4));
+        dense.addAll(sparse);
+        for (int index = 40; index < 400; index++)
+            dense.add(patch(index + 1L, index % 40 - 20, 130 + index / 40));
+        var sparseResult = FireVisualRepresentationBuilder.build(sparse,
+            new Vec3(0.0, 64.0, 0.0));
+        var denseResult = FireVisualRepresentationBuilder.build(dense,
+            new Vec3(0.0, 64.0, 0.0));
+        for (FireVisualBand band : List.of(FireVisualBand.MID, FireVisualBand.FAR,
+            FireVisualBand.HORIZON)) {
+            assertEquals(band.preferredCellSize(), sparseResult.cellSizeByBand().get(band));
+            assertEquals(band.preferredCellSize(), denseResult.cellSizeByBand().get(band));
+        }
+        Set<Long> sparseMid = new HashSet<>();
+        for (FireVisualCell cell : sparseResult.cells())
+            if (cell.band() == FireVisualBand.MID) sparseMid.add(cell.id());
+        Set<Long> denseMid = new HashSet<>();
+        for (FireVisualCell cell : denseResult.cells())
+            if (cell.band() == FireVisualBand.MID) denseMid.add(cell.id());
+        assertTrue(denseMid.containsAll(sparseMid));
+    }
+
     private static FireCellSnapshot patch(final long id, final int x, final int z) {
         BlockPos host = new BlockPos(x, 63, z);
         return new FireCellSnapshot(id, FireSurfaceAnchor.center(host, Direction.UP),

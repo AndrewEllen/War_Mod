@@ -27,10 +27,18 @@ final class WarheadPlanCompiler {
             throw new IllegalArgumentException("Chunk is outside impact footprint");
         }
         Builders builders = new Builders(snapshot);
-        compileCrater(impact, snapshot, palette, builders);
-        compileSurface(impact, footprint, snapshot, palette, builders);
-        compileVertical(impact, footprint, snapshot, palette, builders);
-        compileBiomes(impact, footprint, snapshot, builders);
+        if (snapshot.hasFeature(WarheadSnapshotFeatures.CRATER_VOLUME)) {
+            compileCrater(impact, snapshot, palette, builders);
+        }
+        if (snapshot.hasFeature(WarheadSnapshotFeatures.SURFACE)) {
+            compileSurface(impact, footprint, snapshot, palette, builders);
+        }
+        if (snapshot.hasFeature(WarheadSnapshotFeatures.VERTICAL_FEATURES)) {
+            compileVertical(impact, footprint, snapshot, palette, builders);
+        }
+        if (snapshot.hasFeature(WarheadSnapshotFeatures.BIOMES)) {
+            compileBiomes(impact, footprint, snapshot, builders);
+        }
         int activationTick = radialActivationTick(impact.target(),
             footprint.maximumMutationRadius(), chunk);
         return builders.finish(chunk, snapshot.chunkRevision(), activationTick);
@@ -557,7 +565,7 @@ final class WarheadPlanCompiler {
         return new Column(bottom, top, adjusted);
     }
 
-    private static int radialActivationTick(final net.minecraft.world.phys.Vec3 center,
+    static int radialActivationTick(final net.minecraft.world.phys.Vec3 center,
         final double maximumRadius, final ChunkPos chunk) {
         double minimumX = chunk.getMinBlockX();
         double maximumX = chunk.getMaxBlockX() + 1.0;
@@ -567,7 +575,7 @@ final class WarheadPlanCompiler {
         double nearestZ = Mth.clamp(center.z, minimumZ, maximumZ);
         double distance = Math.sqrt((nearestX - center.x) * (nearestX - center.x)
             + (nearestZ - center.z) * (nearestZ - center.z));
-        return Mth.clamp(Mth.ceil(distance / Math.max(1.0, maximumRadius) * 19.0), 0, 19);
+        return Mth.clamp(Mth.ceil(distance / Math.max(1.0, maximumRadius) * 15.0), 0, 15);
     }
 
     private static long phaseKey(final int sectionY, final PreparedMutationPhase phase) {

@@ -49,12 +49,49 @@ final class FireRepresentationPlanTest {
                 + FireRepresentationPlan.equivalentArea(incoming.flames()), 0.001);
     }
 
+    @Test
+    void exactNearPatchUsesClumpDensityAndItsSurfaceNormal() {
+        FireVisualCell isolated = exactNearCell(0.0F);
+        FireVisualCell clumped = exactNearCell(1.0F);
+        CellPlan isolatedPlan = FireRepresentationPlan.plan(isolated, 20.0,
+            1.0, 1.0F, 0);
+        CellPlan clumpedPlan = FireRepresentationPlan.plan(clumped, 20.0,
+            1.0, 1.0F, 0);
+        assertTrue(clumpedPlan.flames().size() > isolatedPlan.flames().size());
+        for (Card card : clumpedPlan.flames()) {
+            assertTrue(card.position().x > clumped.centroid().x,
+                "east-face flames must sit outside the clicked surface");
+        }
+    }
+
+    @Test
+    void retiringSmokeCannotRegrowMinimumFlameCards() {
+        FireVisualCell source = exactNearCell(0.5F);
+        FireVisualCell smokeOnly = new FireVisualCell(source.id(), source.band(),
+            source.cellSize(), source.cellX(), source.cellY(), source.cellZ(),
+            source.centroid(), source.extents(), source.occupancyMask(), 0.0F,
+            source.smokeMass(), 0.0F, 0.0F, source.coveredArea(),
+            source.clumpStrength(), source.wind(), source.hostCount(), source.seed(),
+            source.dominantFace(), FirePhase.SMOLDERING, source.ignitionGameTime());
+        CellPlan plan = FireRepresentationPlan.plan(smokeOnly, 120.0,
+            1.0, 1.0F, 0);
+        assertTrue(plan.flames().isEmpty());
+        assertTrue(!plan.smoke().isEmpty());
+    }
+
     private static FireVisualCell cell() {
         return new FireVisualCell(7L, FireVisualBand.FAR, 8, 3, 8, -2,
             new Vec3(28.0, 64.0, -12.0), new Vec3(4.0, 2.0, 4.0),
             (1L << 9) | (1L << 18) | (1L << 45),
-            12.0F, 8.0F, 0.95F, 0.82F, 9.0F, Vec3.ZERO,
+            12.0F, 8.0F, 0.95F, 0.82F, 9.0F, 0.5F, Vec3.ZERO,
             9, 12345L, Direction.UP, FirePhase.FLAMING, 4L);
+    }
+
+    private static FireVisualCell exactNearCell(final float clump) {
+        return new FireVisualCell(17L, FireVisualBand.NEAR, 1, 1, 64, 0,
+            new Vec3(1.0, 64.4, 0.5), new Vec3(0.45, 0.45, 0.45), 1L << 20,
+            0.82F, 0.68F, 0.95F, 0.92F, 0.82F, clump, Vec3.ZERO,
+            1, 998L, Direction.EAST, FirePhase.FLAMING, 2L);
     }
 
     private static double opticalDepth(final List<Card> cards) {

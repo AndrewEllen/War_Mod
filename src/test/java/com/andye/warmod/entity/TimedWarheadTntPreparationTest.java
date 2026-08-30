@@ -26,4 +26,10 @@ final class TimedWarheadTntPreparationTest {
         assertTrue(TimedWarheadTntEntity.preparationTargetMoved(
             armed, armed.add(2.01, 0.0, 0.0)));
     }
+
+    @Test
+    void nuclearFuseCannotPauseAtOneForPreparation() {
+        assertTrue(TimedWarheadTntEntity.nextFuse(1) == 0);
+        assertTrue(TimedWarheadTntEntity.nextFuse(0) == 0);
+    }
 }

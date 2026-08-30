@@ -2,14 +2,16 @@ package com.andye.warmod.fire.network;
 
 /**
  * Stable, overlapping distance bands used by the authoritative fire visual
- * representation.  Budgets change the world-cell resolution inside a band;
- * they never decide which occupied region survives.
+ * representation. Each aggregate band has one fixed world grid: population
+ * changes can alter card counts, but can never resize the grid or churn IDs.
  */
 public enum FireVisualBand {
     NEAR(0, 0.0, 112.0, 1, 320),
-    MID(1, 80.0, 288.0, 2, 224),
-    FAR(2, 240.0, 704.0, 8, 160),
-    HORIZON(3, 640.0, 1_536.0, 32, 64);
+    /* The 8x8 occupancy mask makes this an effective four-block visual grid. */
+    MID(1, 80.0, 288.0, 32, 320),
+    /* Effective occupied subcells remain 16 and 64 blocks respectively. */
+    FAR(2, 240.0, 704.0, 128, 160),
+    HORIZON(3, 640.0, 1_536.0, 512, 64);
 
     public static final int COMPLETE_MASK = (1 << values().length) - 1;
 

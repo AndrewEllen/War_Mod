@@ -83,6 +83,12 @@ public final class WarModPerformanceDiagnostics {
         FIRE_SNAPSHOT_ENTRIES_BUILT("fire snapshot entries built"),
         FIRE_COMPLETE_SNAPSHOTS("fire complete snapshots"),
         FIRE_NETWORK_SENT_PATCH_ENTRIES("fire network sent patch entries"),
+        FIRE_NETWORK_CELL_ADDS("fire network cell adds"),
+        FIRE_NETWORK_CELL_UPDATES("fire network cell updates"),
+        FIRE_NETWORK_CELL_REMOVALS("fire network cell removals"),
+        FIRE_NETWORK_FULL_REPAIRS("fire network full repair snapshots"),
+        FIRE_VISUAL_INDEX_ENTRIES("fire incremental visual index entries"),
+        FIRE_NEAR_EXACT_PATCHES("fire exact near patch representations"),
         DEBRIS_PARTS_GENERATED("debris parts generated"),
         CRATER_BLOCKS_CHANGED("crater blocks changed"),
         SCHEDULER_OVERRUNS("shared scheduler deadline overruns"),
@@ -90,14 +96,19 @@ public final class WarModPerformanceDiagnostics {
         WARHEAD_TICKETED_CHUNKS("prepared warhead ticketed chunks"),
         WARHEAD_READY_CHUNKS("prepared warhead full chunks ready"),
         WARHEAD_SNAPSHOTTED_CHUNKS("prepared warhead snapshotted chunks"),
+        WARHEAD_SNAPSHOTS_CAPTURED("warhead detached snapshots captured"),
+        WARHEAD_SNAPSHOT_BYTES_COPIED("warhead detached snapshot bytes copied"),
+        WARHEAD_SNAPSHOT_SECTIONS_COPIED("warhead block palette sections copied"),
+        WARHEAD_SNAPSHOT_BLOCK_IDS_COPIED("warhead logical block state ids copied"),
         WARHEAD_COMPILED_CHUNKS("prepared warhead compiled chunks"),
         WARHEAD_READY_PLANS("prepared warhead ready plans"),
         ACTIVE_PREPARED_COMMITS("active prepared terrain commits"),
         PENDING_WARHEAD_RELIGHT_SYNCS("pending prepared relight and sync jobs"),
         PENDING_WARHEAD_ACKS("pending prepared terrain client acknowledgements"),
         WARHEAD_REVISION_CONFLICTS("prepared terrain revision conflicts"),
-        WARHEAD_SERVER_PACKETS_SENT("prepared terrain full chunk packets sent"),
-        WARHEAD_SLA_VIOLATIONS("prepared terrain 20 tick SLA violations");
+        WARHEAD_SERVER_PACKETS_SENT("prepared terrain sync packets sent"),
+        WARHEAD_SLA_VIOLATIONS("prepared terrain 16 tick SLA violations"),
+        WARHEAD_GLOBAL_PLAN_INVALIDATIONS("prepared terrain global plan invalidations");
 
         private final String label;
         Gauge(final String label) { this.label = label; }

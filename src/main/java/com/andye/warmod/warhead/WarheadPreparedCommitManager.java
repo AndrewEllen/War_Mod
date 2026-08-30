@@ -7,11 +7,14 @@ import com.andye.warmod.warhead.network.ClientboundWarheadTerrainCommitPayload;
 import com.andye.warmod.warhead.obscuration.NuclearTerrainObscurationEmitter;
 import com.andye.warmod.worldgen.ModBiomes;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
+import it.unimi.dsi.fastutil.shorts.ShortOpenHashSet;
+import it.unimi.dsi.fastutil.shorts.ShortSet;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +30,9 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundChunksBiomesPacket;
+import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ThreadedLevelLightEngine;
@@ -42,15 +48,19 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
-/** Main-thread bulk commit with bounded 0..19 radial buckets and tracked sync. */
+/** Main-thread streaming bulk commit with bounded 0..15 radial buckets and tracked sync. */
 public final class WarheadPreparedCommitManager {
     private static final byte IMMEDIATE_APPLIED = 1;
     private static final byte RADIAL_APPLIED = 2;
-    private static final int FINAL_APPLICATION_TICK = 18;
+    private static final int FINAL_APPLICATION_TICK = 15;
     private static final int CLIENT_ACK_TIMEOUT_TICKS = 40;
     private static final int MAX_CRATER_FIRE = 2_048;
     private static final int MAX_TREE_FIRE = 2_048;
     private static final int MAX_GROUND_FIRE = 2_048;
+    /* ThreadedLevelLightEngine exposes exact block checks but no safe live
+     * section-data reset in 26.2. Keep sparse surface damage section-local and
+     * retain the cheaper full rebuild for densely rewritten crater chunks. */
+    private static final int MAX_EXACT_LIGHT_CHECKS = 512;
     private static final int UPDATE_FLAGS = Block.UPDATE_KNOWN_SHAPE
         | Block.UPDATE_SUPPRESS_DROPS;
     private static final EnumSet<Heightmap.Types> LIVE_HEIGHTMAPS = EnumSet.of(
@@ -84,19 +94,13 @@ public final class WarheadPreparedCommitManager {
         Commit commit = new Commit(preparationId, plan,
             source == null ? null : source.getUUID(), yield, visualSeed,
             level.getGameTime());
+        commit.addChunks(plan.chunks().values());
         commits.addLast(commit);
         WarheadLifecycleDiagnostics.commitStarted(level, plan.impactId());
-
-        /* Crater chunks commit before the visible impact packet is emitted. Their
-         * tick-zero radial changes are folded into the same palette/light transaction;
-         * later radial buckets remain tied to their prepared pressure-front tick. */
-        for (PreparedChunkPlan chunkPlan : plan.chunks().values()) {
-            if (hasImmediate(chunkPlan)) {
-                commit.applyChunk(level, chunkPlan, true,
-                    applicationTick(chunkPlan.activationTick()) == 0);
-            }
-        }
-        WarheadExplosionWorkManager.detonateEntitiesOnly(level, source, plan.center(), yield);
+        /* ImpactService emits the flash/sound and schedules the entity blast before
+         * entering here. Apply any tick-zero terrain only after those observable
+         * effects have been dispatched. */
+        commit.applyAvailable(level, 0);
         return true;
     }
 
@@ -207,6 +211,12 @@ public final class WarheadPreparedCommitManager {
         return Math.min(FINAL_APPLICATION_TICK, Math.max(0, plannedTick));
     }
 
+    static boolean usesExactLightChecks(final int changedBlocks,
+        final int changedSections) {
+        return changedBlocks > 0 && (changedSections == 1
+            || changedBlocks <= MAX_EXACT_LIGHT_CHECKS);
+    }
+
     public record CommitSnapshot(boolean active, int ageTicks, int plannedChunks,
         int appliedChunks, int pendingLightAndPackets, int pendingAcknowledgements,
         int conflictedCells, int changedBlocks) { }
@@ -214,6 +224,8 @@ public final class WarheadPreparedCommitManager {
     private static final class Commit {
         private final UUID preparationId;
         private final PreparedImpactPlan plan;
+        private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<PreparedChunkPlan>
+            chunks = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
         private final UUID sourcePlayerId;
         private final WarheadYield yield;
         private final long visualSeed;
@@ -248,36 +260,54 @@ public final class WarheadPreparedCommitManager {
             this.yield = yield;
             this.visualSeed = visualSeed;
             this.startedAt = startedAt;
-            for (PreparedChunkPlan chunkPlan : plan.chunks().values()) {
+        }
+
+        private void addChunks(final Iterable<PreparedChunkPlan> additions) {
+            for (PreparedChunkPlan chunkPlan : additions) {
+                long packed = chunkPlan.chunk().pack();
+                if (chunks.putIfAbsent(packed, chunkPlan) != null) continue;
                 byte initial = 0;
                 if (!hasImmediate(chunkPlan)) initial |= IMMEDIATE_APPLIED;
                 if (!hasRadial(chunkPlan)) initial |= RADIAL_APPLIED;
-                appliedPhases.put(chunkPlan.chunk().pack(), initial);
+                appliedPhases.put(packed, initial);
             }
         }
 
         private void advance(final ServerLevel level) {
             int age = (int)Math.max(0L, level.getGameTime() - startedAt);
-            for (PreparedChunkPlan chunkPlan : plan.chunks().values()) {
-                long packed = chunkPlan.chunk().pack();
-                byte applied = appliedPhases.get(packed);
-                if ((applied & RADIAL_APPLIED) != 0) continue;
-                int activation = applicationTick(chunkPlan.activationTick());
-                if (age >= activation) applyChunk(level, chunkPlan, false, true);
-            }
+            addChunks(WarheadPreparationCoordinator.drainPreparedChunks(level,
+                preparationId, plan.impactId()));
+            applyAvailable(level, age);
             double radius = plan.footprint().maximumMutationRadius()
                 * Math.min(1.0, age / (double)Math.max(1, FINAL_APPLICATION_TICK));
             NuclearTerrainObscurationEmitter.mutationProgress(level, plan.impactId(),
                 plan.center(), visualSeed,
                 yield.visualScale(), plan.footprint().maximumMutationRadius(),
-                radius, radius, allPhasesApplied());
-            if (allPhasesApplied() && pendingSync == 0 && !markerSent) sendMarkers(level);
-            if (age >= 19 && !markerSent && !deadlineWarning) {
+                radius, radius, allPhasesApplied(level));
+            if (allPhasesApplied(level) && pendingSync == 0 && !markerSent) sendMarkers(level);
+            if (age >= FINAL_APPLICATION_TICK + 1 && !allPhasesApplied(level)
+                && !deadlineWarning) {
                 deadlineWarning = true;
                 WarheadLifecycleDiagnostics.deadlineViolation(plan.impactId());
-                WarMod.LOGGER.warn("Prepared impact {} missed the 20-tick sync target: "
-                    + "applied={}/{}, pendingSync={}", plan.impactId(), appliedChunkCount(),
-                    plan.chunks().size(), pendingSync);
+                WarMod.LOGGER.warn("Prepared impact {} missed the {}-tick terrain target: "
+                    + "applied={}/{}, received={}, pendingSync={}", plan.impactId(),
+                    FINAL_APPLICATION_TICK + 1, appliedChunkCount(),
+                    plan.footprint().requiredChunkCount(), chunks.size(), pendingSync);
+            }
+        }
+
+        private void applyAvailable(final ServerLevel level, final int age) {
+            for (PreparedChunkPlan chunkPlan : chunks.values()) {
+                long packed = chunkPlan.chunk().pack();
+                byte applied = appliedPhases.get(packed);
+                int activation = applicationTick(chunkPlan.activationTick());
+                boolean immediate = (applied & IMMEDIATE_APPLIED) == 0;
+                boolean radial = (applied & RADIAL_APPLIED) == 0 && age >= activation;
+                if (immediate || radial) {
+                    /* Coalesce tick-zero crater and radial changes into one heightmap,
+                     * light and packet transaction for the chunk. */
+                    applyChunk(level, chunkPlan, immediate, radial);
+                }
             }
         }
 
@@ -294,6 +324,8 @@ public final class WarheadPreparedCommitManager {
             if (chunk == null) return;
             ServerPlayer source = sourcePlayer(level);
             ChangeBounds bounds = new ChangeBounds();
+            Map<Integer, ShortOpenHashSet> sectionChanges = new HashMap<>();
+            Map<Integer, ShortOpenHashSet> directLightingChanges = new HashMap<>();
             boolean blockChanged = false;
             int sectionsBefore = changedSections;
             int blocksBefore = changedBlocks;
@@ -306,7 +338,7 @@ public final class WarheadPreparedCommitManager {
                     && !applyImmediate) || (sectionPlan.phase()
                         == PreparedMutationPhase.RADIAL_AFTERMATH && !applyRadial)) continue;
                 boolean sectionChanged = applySection(level, chunk, sectionPlan, source,
-                    bounds);
+                    bounds, sectionChanges, directLightingChanges);
                 blockChanged |= sectionChanged;
                 if (sectionChanged && changedSectionIds.add(SectionPos.asLong(
                     chunk.getPos().x(), sectionPlan.sectionY(), chunk.getPos().z()))) {
@@ -324,7 +356,11 @@ public final class WarheadPreparedCommitManager {
                 chunk.markUnsaved();
             }
             if (biomeChanged) chunk.markUnsaved();
-            if (blockChanged || biomeChanged) queueSync(level, chunk, blockChanged);
+            boolean specialMutation = specialPathMutations > specialBefore || fireChanged;
+            if (blockChanged || biomeChanged) {
+                queueSync(level, chunk, blockChanged, biomeChanged,
+                    sectionChanges, directLightingChanges, specialMutation);
+            }
             if (applyImmediate) previous |= IMMEDIATE_APPLIED;
             if (applyRadial) previous |= RADIAL_APPLIED;
             appliedPhases.put(packed, previous);
@@ -342,7 +378,9 @@ public final class WarheadPreparedCommitManager {
 
         private boolean applySection(final ServerLevel level, final LevelChunk chunk,
             final PreparedSectionPlan plan, final @Nullable ServerPlayer source,
-            final ChangeBounds bounds) {
+            final ChangeBounds bounds,
+            final Map<Integer, ShortOpenHashSet> sectionChanges,
+            final Map<Integer, ShortOpenHashSet> directLightingChanges) {
             int blockY = SectionPos.sectionToBlockCoord(plan.sectionY());
             if (blockY < level.dimensionType().minY()
                 || blockY >= level.dimensionType().minY() + level.dimensionType().height()) {
@@ -395,6 +433,14 @@ public final class WarheadPreparedCommitManager {
                     if (semantic.get(index)) specialPathMutations++;
                     else bulkSafeMutations++;
                     bounds.include(localX, worldY, localZ);
+                    sectionChanges.computeIfAbsent(plan.sectionY(),
+                        ignored -> new ShortOpenHashSet()).add((short)(localX << 8
+                            | localZ << 4 | localY));
+                    if (!semantic.get(index)) {
+                        directLightingChanges.computeIfAbsent(plan.sectionY(),
+                            ignored -> new ShortOpenHashSet()).add((short)(localX << 8
+                                | localZ << 4 | localY));
+                    }
                 }
             }
             if (directChanged) {
@@ -502,7 +548,10 @@ public final class WarheadPreparedCommitManager {
         }
 
         private void queueSync(final ServerLevel level, final LevelChunk chunk,
-            final boolean relight) {
+            final boolean relight, final boolean biomeChanged,
+            final Map<Integer, ShortOpenHashSet> sectionChanges,
+            final Map<Integer, ShortOpenHashSet> directLightingChanges,
+            final boolean forceFullChunk) {
             pendingSync++;
             chunkSyncs++;
             changedChunkIds.add(chunk.getPos().pack());
@@ -511,17 +560,35 @@ public final class WarheadPreparedCommitManager {
             CompletableFuture<?> lightReady;
             ThreadedLevelLightEngine light = level.getChunkSource().getLightEngine();
             if (relight) {
-                ((WarheadLightEngineAccess)(Object)light)
-                    .war_mod$resetChunkLighting(chunk.getPos());
-                for (int index = 0; index < chunk.getSectionsCount(); index++) {
-                    LevelChunkSection section = chunk.getSection(index);
-                    if (!section.hasOnlyAir()) {
-                        light.updateSectionStatus(SectionPos.of(chunk.getPos(),
-                            level.getSectionYFromSectionIndex(index)), false);
+                int directLightChecks = directLightingChanges.values().stream()
+                    .mapToInt(ShortOpenHashSet::size).sum();
+                if (usesExactLightChecks(directLightChecks,
+                    directLightingChanges.size())) {
+                    BlockPos.MutableBlockPos changed = new BlockPos.MutableBlockPos();
+                    int baseX = chunk.getPos().getMinBlockX();
+                    int baseZ = chunk.getPos().getMinBlockZ();
+                    for (Map.Entry<Integer, ShortOpenHashSet> entry
+                        : directLightingChanges.entrySet()) {
+                        int baseY = SectionPos.sectionToBlockCoord(entry.getKey());
+                        for (short packedPosition : entry.getValue()) {
+                            int packed = Short.toUnsignedInt(packedPosition);
+                            light.checkBlock(changed.set(baseX + (packed >> 8 & 15),
+                                baseY + (packed & 15), baseZ + (packed >> 4 & 15)));
+                        }
                     }
+                } else if (directLightChecks > 0) {
+                    ((WarheadLightEngineAccess)(Object)light)
+                        .war_mod$resetChunkLighting(chunk.getPos());
+                    for (int index = 0; index < chunk.getSectionsCount(); index++) {
+                        LevelChunkSection section = chunk.getSection(index);
+                        if (!section.hasOnlyAir()) {
+                            light.updateSectionStatus(SectionPos.of(chunk.getPos(),
+                                level.getSectionYFromSectionIndex(index)), false);
+                        }
+                    }
+                    light.setLightEnabled(chunk.getPos(), true);
+                    light.propagateLightSources(chunk.getPos());
                 }
-                light.setLightEnabled(chunk.getPos(), true);
-                light.propagateLightSources(chunk.getPos());
                 light.tryScheduleUpdate();
                 lightReady = light.waitForPendingTasks(chunk.getPos().x(), chunk.getPos().z());
             } else {
@@ -531,15 +598,40 @@ public final class WarheadPreparedCommitManager {
                 LevelChunk current = level.getChunkSource().getChunkNow(
                     chunk.getPos().x(), chunk.getPos().z());
                 if (failure == null && current != null) {
-                    ClientboundLevelChunkWithLightPacket packet =
-                        new ClientboundLevelChunkWithLightPacket(current,
-                            level.getChunkSource().getLightEngine(), null, null);
                     int sent = 0;
                     for (ServerPlayer player : level.getChunkSource().chunkMap
                         .getPlayers(chunk.getPos(), false)) {
-                        player.connection.send(packet);
+                        if (forceFullChunk) {
+                            player.connection.send(new ClientboundLevelChunkWithLightPacket(
+                                current, level.getChunkSource().getLightEngine(), null, null));
+                            sent++;
+                        } else {
+                            for (Map.Entry<Integer, ShortOpenHashSet> entry
+                                : sectionChanges.entrySet()) {
+                                ShortSet changes = entry.getValue();
+                                if (changes.isEmpty()) continue;
+                                int sectionIndex = level.getSectionIndexFromSectionY(
+                                    entry.getKey());
+                                if (sectionIndex < 0
+                                    || sectionIndex >= current.getSectionsCount()) continue;
+                                player.connection.send(new ClientboundSectionBlocksUpdatePacket(
+                                    SectionPos.of(current.getPos(), entry.getKey()), changes,
+                                    current.getSection(sectionIndex)));
+                                sent++;
+                            }
+                            if (relight) {
+                                player.connection.send(new ClientboundLightUpdatePacket(
+                                    current.getPos(), level.getChunkSource().getLightEngine(),
+                                    null, null));
+                                sent++;
+                            }
+                            if (biomeChanged) {
+                                player.connection.send(ClientboundChunksBiomesPacket.forChunks(
+                                    List.of(current)));
+                                sent++;
+                            }
+                        }
                         recipients.add(player.getUUID());
-                        sent++;
                     }
                     WarheadLifecycleDiagnostics.lightingCompleted(level,
                         plan.impactId(), sent);
@@ -578,7 +670,7 @@ public final class WarheadPreparedCommitManager {
         }
 
         private boolean complete(final ServerLevel level) {
-            if (!markerSent || pendingSync > 0 || !allPhasesApplied()) return false;
+            if (!markerSent || pendingSync > 0 || !allPhasesApplied(level)) return false;
             if (pendingAcknowledgements.isEmpty()) return true;
             if (level.getGameTime() - markerSentAt < CLIENT_ACK_TIMEOUT_TICKS) return false;
             WarMod.LOGGER.warn("Prepared impact {} client acknowledgement timeout: {} clients",
@@ -586,7 +678,9 @@ public final class WarheadPreparedCommitManager {
             return true;
         }
 
-        private boolean allPhasesApplied() {
+        private boolean allPhasesApplied(final ServerLevel level) {
+            if (!WarheadPreparationCoordinator.impactStreamClosed(level,
+                preparationId, plan.impactId())) return false;
             for (byte phases : appliedPhases.values()) {
                 if ((phases & (IMMEDIATE_APPLIED | RADIAL_APPLIED))
                     != (IMMEDIATE_APPLIED | RADIAL_APPLIED)) return false;
@@ -613,7 +707,8 @@ public final class WarheadPreparedCommitManager {
 
         private CommitSnapshot snapshot(final ServerLevel level) {
             return new CommitSnapshot(true,
-                (int)Math.max(0L, level.getGameTime() - startedAt), plan.chunks().size(),
+                (int)Math.max(0L, level.getGameTime() - startedAt),
+                plan.footprint().requiredChunkCount(),
                 appliedChunkCount(), pendingSync, pendingAcknowledgements.size(),
                 conflictedCells, changedBlocks);
         }

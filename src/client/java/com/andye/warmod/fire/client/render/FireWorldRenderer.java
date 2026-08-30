@@ -109,8 +109,10 @@ public final class FireWorldRenderer {
             double projectedCellDiameter = projection.projectedDiameter(worldPosition,
                 Math.max(0.5F, Math.max((float) cell.extents().x,
                     Math.max((float) cell.extents().y, (float) cell.extents().z))));
+            int detailLevel = ClientFireVisualManager.INSTANCE.lodLevel(level,
+                cell.id(), projectedCellDiameter);
             CellPlan plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,
-                WarheadRenderSettings.qualityScale(), representationWeight);
+                WarheadRenderSettings.qualityScale(), representationWeight, detailLevel);
             if (plan.flames().isEmpty() && plan.smoke().isEmpty()) continue;
             representedCells++;
             if (cpuFlames) cpuFlameCards += plan.flames().size();
