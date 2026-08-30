@@ -46,8 +46,11 @@ public final class IcbmConstants {
     public static final int TERMINAL_STREAM_LOOKAHEAD_TICKS = 48;
     public static final int TERMINAL_TARGET_LEAD_TICKS = 60;
 
-    /** 7x7 chunks centred on the predicted impact. */
-    public static final int IMPACT_CHUNK_RADIUS = 3;
+    /** Minimum preparation window: radius one is exactly a 3x3 chunk square. */
+    public static final int MINIMUM_PREPARATION_CHUNK_RADIUS = 1;
+
+    /** Legacy 7x7 simulation window retained only for terminal vehicle/defence ticking. */
+    public static final int TERMINAL_TARGET_SIMULATION_CHUNK_RADIUS = 3;
 
     /** Two minutes at the normal 20 TPS server rate. */
     public static final int IMPACT_CHUNK_TAIL_TICKS = 2400;

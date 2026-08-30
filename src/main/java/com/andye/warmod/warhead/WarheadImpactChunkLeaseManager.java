@@ -172,7 +172,7 @@ public final class WarheadImpactChunkLeaseManager {
         IcbmChunkTicketRegistry.addWindow(
             chunks,
             IcbmChunkTicketRegistry.chunk(impact),
-            IcbmConstants.IMPACT_CHUNK_RADIUS
+            IcbmConstants.MINIMUM_PREPARATION_CHUNK_RADIUS
         );
     }
 

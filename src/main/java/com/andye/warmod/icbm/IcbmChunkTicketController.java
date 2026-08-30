@@ -165,9 +165,9 @@ public final class IcbmChunkTicketController {
 		WarheadYield yield = WarheadYieldRegistry.resolve(
 			level, missileId, missileId, plan.payloadType());
 		if (yield.nuclear()) {
-			/* The carrier already knows the exact target, seed and yield.  Feed
-			 * those loaded approach chunks to the incremental terrain discovery
-			 * for the whole flight, instead of compressing it into terminal ticks. */
+			/* The carrier already knows the exact target, seed and yield. Start or
+			 * retarget the separate load-only full-footprint preparation now; this
+			 * small simulation corridor is not used as terrain readiness evidence. */
 			WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(
 				level, missileId, plan.intendedTarget(), yield, plan.visualSeed(), leaseTicks);
 		}

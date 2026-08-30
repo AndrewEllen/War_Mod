@@ -10,7 +10,15 @@ import com.andye.warmod.warhead.WarheadGlassShockwaveManager;
 import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
 import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
+import com.andye.warmod.warhead.WarheadPreparationCoordinator;
+import com.andye.warmod.warhead.WarheadPreparationRequest;
+import com.andye.warmod.warhead.PreparedImpactSpec;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadExplosionWorkManager;
+import com.andye.warmod.warhead.CancellationReason;
+import com.andye.warmod.warhead.WarheadFireSettings;
 import java.util.HashSet;
+import java.util.List;
 import java.util.SplittableRandom;
 import java.util.Set;
 import java.util.UUID;
@@ -45,6 +53,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     private Vec3 velocity = Vec3.ZERO;
     private WarheadYield yield = WarheadYield.CONVENTIONAL;
     private long seed;
+    private boolean customFire;
     private final Set<ChunkPos> heldChunks = new HashSet<>();
     private boolean impacted;
     private boolean cleaned;
@@ -52,6 +61,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     private int chunkWaitTicks;
     private boolean clusterCarrier;
     private boolean split;
+    private Vec3 pendingImpact;
     private int clientLastAuthoritativeTick = -1;
     private int clientStaleTicks;
     private Vec3 clientVisualOffset = Vec3.ZERO;
@@ -61,6 +71,7 @@ public final class ArtilleryWarheadEntity extends Entity {
     public ArtilleryWarheadEntity(final ServerLevel level, final UUID id, final UUID ownerId, final Vec3 origin, final Vec3 target, final Vec3 velocity, final WarheadYield yield, final long seed, final boolean clusterCarrier) {
         this(ModEntityTypes.ARTILLERY_WARHEAD, level);
         this.id = id; this.ownerId = ownerId; this.target = target; this.velocity = velocity; this.yield = yield; this.seed = seed; this.clusterCarrier = clusterCarrier;
+        this.customFire = WarheadFireSettings.get(level).customFire();
         entityData.set(DATA_VISUAL_SEED, seed);
         entityData.set(DATA_FLIGHT_TICKS, ArtilleryTrajectory.flightTicks(origin, target, velocity));
         entityData.set(DATA_CLUSTER_CARRIER, clusterCarrier);
@@ -80,13 +91,12 @@ public final class ArtilleryWarheadEntity extends Entity {
         }
         if (impacted || !(level() instanceof ServerLevel server)) return;
         if (!position().isFinite() || !target.isFinite() || !velocity.isFinite() || tickCount > 1_200) { discard(); return; }
+        if (pendingImpact != null) {
+            if (terrainReady(server, pendingImpact)) impact(server, pendingImpact);
+            return;
+        }
         if (!terrainPreparationScheduled && yield.nuclear()) {
-            WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(
-                server, id, target, yield, seed,
-                Math.max(1, entityData.get(DATA_FLIGHT_TICKS)
-                    + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS + 120)
-            );
-            terrainPreparationScheduled = true;
+            beginTerrainPreparation(server);
         }
         Set<ChunkPos> desired = desiredChunks();
         Vec3 from = position();
@@ -106,7 +116,10 @@ public final class ArtilleryWarheadEntity extends Entity {
             HitResult hit = ProjectileUtil.getHitResultOnMoveVector(this,
                 entity -> entity.isAlive() && !(entity instanceof ArtilleryWarheadEntity)
                     && (ownerId == null || !ownerId.equals(entity.getUUID())));
-            if (hit.getType() != HitResult.Type.MISS) { impact(server, hit.getLocation()); return; }
+            if (hit.getType() != HitResult.Type.MISS) {
+                tryImpact(server, hit.getLocation());
+                return;
+            }
         }
         if (!next.isFinite()) { discard(); return; }
         setPos(next);
@@ -117,7 +130,18 @@ public final class ArtilleryWarheadEntity extends Entity {
         updateRotation(velocity);
         // The solver chooses a fractional final tick.  Impact at the commanded coordinates on
         // the first complete flight tick rather than exploding several blocks short at speed.
-        if (activeTicks >= entityData.get(DATA_FLIGHT_TICKS)) impact(server, target);
+        if (activeTicks >= entityData.get(DATA_FLIGHT_TICKS)) tryImpact(server, target);
+    }
+
+    /** Called by the launcher immediately after a successful entity insertion. */
+    public void beginTerrainPreparation(final ServerLevel level) {
+        if (terrainPreparationScheduled || !yield.nuclear()) return;
+        WarheadYieldRegistry.put(level, id, yield, customFire);
+        WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(
+            level, id, target, yield, seed,
+            Math.max(1, entityData.get(DATA_FLIGHT_TICKS)
+                + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS + 120));
+        terrainPreparationScheduled = true;
     }
 
     /**
@@ -164,11 +188,25 @@ public final class ArtilleryWarheadEntity extends Entity {
             UUID childId = UUID.randomUUID();
             ArtilleryWarheadEntity child = new ArtilleryWarheadEntity(level, childId, ownerId,
                 position(), childTarget, childVelocity, yield, random.nextLong(), false);
+            child.customFire = customFire;
             children.add(child);
+        }
+        if (yield.nuclear()) {
+            List<PreparedImpactSpec> impacts = children.stream().map(child ->
+                new PreparedImpactSpec(child.id,
+                    WarheadExplosionWorkManager.resolveDetonationCenter(level,
+                        child.target, yield), yield.payloadType(), yield, child.seed,
+                    customFire)).toList();
+            WarheadPreparationCoordinator.request(level,
+                new WarheadPreparationRequest(id, id, level.dimension(), impacts,
+                    level.getGameTime() + Math.max(1, remainingTicks),
+                    WarheadDeliveryMode.CLUSTER_FOUR));
         }
         for (ArtilleryWarheadEntity child : children) {
             if (!level.addFreshEntity(child)) {
                 children.forEach(ArtilleryWarheadEntity::discard);
+                WarheadPreparationCoordinator.cancelPreparation(level, id,
+                    CancellationReason.LAUNCH_FAILED);
                 split = false;
                 return;
             }
@@ -191,7 +229,8 @@ public final class ArtilleryWarheadEntity extends Entity {
             ? Math.max(ArtilleryConstants.TARGET_LEAD_TICKS, 96)
             : ArtilleryConstants.TARGET_LEAD_TICKS;
         if (position().distanceTo(target) <= ArtilleryConstants.MAX_MUZZLE_SPEED * impactLeadTicks) {
-            int impactRadius = yield.nuclear() ? IcbmConstants.IMPACT_CHUNK_RADIUS : 1;
+            int impactRadius = yield.nuclear()
+                ? IcbmConstants.TERMINAL_TARGET_SIMULATION_CHUNK_RADIUS : 1;
             IcbmChunkTicketRegistry.addWindow(
                 desired, IcbmChunkTicketRegistry.chunk(target), impactRadius);
         }
@@ -228,9 +267,29 @@ public final class ArtilleryWarheadEntity extends Entity {
         ServerPlayer owner = ownerId == null ? null : level.getServer().getPlayerList().getPlayer(ownerId);
         if (owner != null && owner.level() != level) owner = null;
         WarheadImpactChunkLeaseManager.hold(level, id, position, IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
-        WarheadYieldRegistry.put(level, id, yield);
+        WarheadYieldRegistry.put(level, id, yield, customFire);
         WarheadImpactService.impact(level, owner, id, id, position, seed, yield.payloadType());
         discard();
+    }
+
+    private void tryImpact(final ServerLevel level, final Vec3 position) {
+        if (!terrainReady(level, position)) {
+            pendingImpact = WarheadExplosionWorkManager.resolveDetonationCenter(
+                level, position, yield);
+            setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        pendingImpact = null;
+        impact(level, position);
+    }
+
+    private boolean terrainReady(final ServerLevel level, final Vec3 position) {
+        if (!yield.nuclear()) return true;
+        Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
+            level, position, yield);
+        return WarheadPreparationCoordinator.ensureImpact(level, id, id, id,
+            effective, yield, seed, customFire,
+            level.getGameTime() + 1L);
     }
     public Vec3 target() { return target; }
     public long visualSeed() { return level().isClientSide() ? entityData.get(DATA_VISUAL_SEED) : seed; }
@@ -245,9 +304,47 @@ public final class ArtilleryWarheadEntity extends Entity {
     }
     public boolean clusterCarrier() { return entityData.get(DATA_CLUSTER_CARRIER); }
     private void updateRotation(final Vec3 value) { if (value.lengthSqr() < 1.0E-8) return; setYRot((float)(Math.atan2(value.z, value.x) * 180.0 / Math.PI) - 90.0F); setXRot((float)(-Math.atan2(value.y, value.horizontalDistance()) * 180.0 / Math.PI)); }
-    @Override protected void addAdditionalSaveData(final ValueOutput out) { out.store("id", UUIDUtil.CODEC, id); out.storeNullable("owner", UUIDUtil.CODEC, ownerId); out.store("target", Vec3.CODEC, target); out.store("velocity", Vec3.CODEC, velocity); out.putString("yield", yield.getSerializedName()); out.putLong("seed", seed); out.putInt("flightTicks", entityData.get(DATA_FLIGHT_TICKS)); out.putInt("activeTicks", entityData.get(DATA_ACTIVE_TICKS)); out.putBoolean("impacted", impacted); out.putBoolean("clusterCarrier", clusterCarrier); out.putBoolean("split", split); }
-    @Override protected void readAdditionalSaveData(final ValueInput in) { id = in.read("id", UUIDUtil.CODEC).orElseGet(UUID::randomUUID); ownerId = in.read("owner", UUIDUtil.CODEC).orElse(null); target = in.read("target", Vec3.CODEC).orElse(Vec3.ZERO); velocity = in.read("velocity", Vec3.CODEC).orElse(Vec3.ZERO); yield = WarheadYield.fromSerializedName(in.getStringOr("yield", "conventional")).orElse(WarheadYield.CONVENTIONAL); seed = in.getLongOr("seed", 0L); impacted = in.getBooleanOr("impacted", false); clusterCarrier = in.getBooleanOr("clusterCarrier", false); split = in.getBooleanOr("split", false); entityData.set(DATA_VISUAL_SEED, seed); entityData.set(DATA_FLIGHT_TICKS, Math.max(1, in.getIntOr("flightTicks", ArtilleryTrajectory.flightTicks(position(), target, velocity)))); entityData.set(DATA_ACTIVE_TICKS, Math.max(0, in.getIntOr("activeTicks", 0))); entityData.set(DATA_CLUSTER_CARRIER, clusterCarrier); setDeltaMovement(velocity); }
-    @Override public void remove(final RemovalReason reason) { if (level() instanceof ServerLevel server && !cleaned) { for (ChunkPos chunk : Set.copyOf(heldChunks)) IcbmChunkTicketRegistry.release(server, chunk); heldChunks.clear(); cleaned = true; } super.remove(reason); }
+    @Override protected void addAdditionalSaveData(final ValueOutput out) {
+        out.store("id", UUIDUtil.CODEC, id);
+        out.storeNullable("owner", UUIDUtil.CODEC, ownerId);
+        out.store("target", Vec3.CODEC, target);
+        out.store("velocity", Vec3.CODEC, velocity);
+        if (pendingImpact != null && pendingImpact.isFinite()) {
+            out.store("pendingImpact", Vec3.CODEC, pendingImpact);
+        }
+        out.putString("yield", yield.getSerializedName());
+        out.putLong("seed", seed);
+        out.putBoolean("customFire", customFire);
+        out.putInt("flightTicks", entityData.get(DATA_FLIGHT_TICKS));
+        out.putInt("activeTicks", entityData.get(DATA_ACTIVE_TICKS));
+        out.putBoolean("impacted", impacted);
+        out.putBoolean("clusterCarrier", clusterCarrier);
+        out.putBoolean("split", split);
+    }
+
+    @Override protected void readAdditionalSaveData(final ValueInput in) {
+        id = in.read("id", UUIDUtil.CODEC).orElseGet(UUID::randomUUID);
+        ownerId = in.read("owner", UUIDUtil.CODEC).orElse(null);
+        target = in.read("target", Vec3.CODEC).orElse(Vec3.ZERO);
+        velocity = in.read("velocity", Vec3.CODEC).orElse(Vec3.ZERO);
+        pendingImpact = in.read("pendingImpact", Vec3.CODEC).orElse(null);
+        yield = WarheadYield.fromSerializedName(in.getStringOr("yield", "conventional"))
+            .orElse(WarheadYield.CONVENTIONAL);
+        seed = in.getLongOr("seed", 0L);
+        customFire = in.getBooleanOr("customFire",
+            level() instanceof ServerLevel server
+                && WarheadFireSettings.get(server).customFire());
+        impacted = in.getBooleanOr("impacted", false);
+        clusterCarrier = in.getBooleanOr("clusterCarrier", false);
+        split = in.getBooleanOr("split", false);
+        entityData.set(DATA_VISUAL_SEED, seed);
+        entityData.set(DATA_FLIGHT_TICKS, Math.max(1, in.getIntOr("flightTicks",
+            ArtilleryTrajectory.flightTicks(position(), target, velocity))));
+        entityData.set(DATA_ACTIVE_TICKS, Math.max(0, in.getIntOr("activeTicks", 0)));
+        entityData.set(DATA_CLUSTER_CARRIER, clusterCarrier);
+        setDeltaMovement(velocity);
+    }
+    @Override public void remove(final RemovalReason reason) { if (level() instanceof ServerLevel server && !cleaned) { for (ChunkPos chunk : Set.copyOf(heldChunks)) IcbmChunkTicketRegistry.release(server, chunk); heldChunks.clear(); if (!impacted && !split) WarheadPreparationCoordinator.cancelImpact(server, id, CancellationReason.ENTITY_REMOVED); cleaned = true; } super.remove(reason); }
     @Override public boolean hurtServer(final ServerLevel level, final DamageSource source, final float amount) { return false; }
     @Override public boolean isPickable() { return false; }
     @Override public boolean isPushable() { return false; }

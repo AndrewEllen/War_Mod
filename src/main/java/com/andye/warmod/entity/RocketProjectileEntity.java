@@ -5,6 +5,11 @@ import com.andye.warmod.rocket.RocketCollisionDetector;
 import com.andye.warmod.rocket.RocketConstants;
 import com.andye.warmod.rocket.RocketImpactService;
 import com.andye.warmod.rocket.RocketPayloadType;
+import com.andye.warmod.warhead.CancellationReason;
+import com.andye.warmod.warhead.WarheadExplosionWorkManager;
+import com.andye.warmod.warhead.WarheadPreparationCoordinator;
+import com.andye.warmod.warhead.WarheadYield;
+import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.UUID;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.UUIDUtil;
@@ -29,6 +34,7 @@ public final class RocketProjectileEntity extends Entity {
         RocketProjectileEntity.class, EntityDataSerializers.LONG);
     private @Nullable UUID ownerId;
     private boolean impactHandled;
+    private Vec3 pendingImpact;
 
     public RocketProjectileEntity(final EntityType<? extends RocketProjectileEntity> type,
         final Level level) { super(type, level); }
@@ -49,6 +55,15 @@ public final class RocketProjectileEntity extends Entity {
     @Override public void tick() {
         super.tick();
         if (level().isClientSide() || !(level() instanceof ServerLevel server)) return;
+        if (pendingImpact != null) {
+            setDeltaMovement(Vec3.ZERO);
+            if (terrainReady(server, pendingImpact)) {
+                impactHandled = true;
+                RocketImpactService.impact(server, this, pendingImpact);
+                discard();
+            }
+            return;
+        }
         if (tickCount >= RocketConstants.LIFETIME_TICKS || !position().isFinite()) {
             discard(); return;
         }
@@ -62,6 +77,11 @@ public final class RocketProjectileEntity extends Entity {
         HitResult hit = RocketCollisionDetector.detect(this);
         if (hit.getType() != HitResult.Type.MISS) {
             if (!impactHandled) {
+                if (!terrainReady(server, hit.getLocation())) {
+                    pendingImpact = hit.getLocation();
+                    setDeltaMovement(Vec3.ZERO);
+                    return;
+                }
                 impactHandled = true;
                 RocketImpactService.impact(server, this, hit.getLocation());
             }
@@ -74,6 +94,18 @@ public final class RocketProjectileEntity extends Entity {
                 -RocketConstants.GRAVITY_PER_TICK,
                 wind.z * RocketConstants.WIND_RESPONSE_PER_TICK);
         setDeltaMovement(nextVelocity);
+    }
+
+    private boolean terrainReady(final ServerLevel level, final Vec3 impact) {
+        if (payloadType() != RocketPayloadType.NUCLEAR_ICBM) return true;
+        WarheadYield yield = WarheadYieldRegistry.resolve(level, getUUID(), getUUID(),
+            payloadType().warhead());
+        Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
+            level, impact, yield);
+        return WarheadPreparationCoordinator.ensureImpact(level, getUUID(), getUUID(),
+            getUUID(), effective, yield, visualSeed(),
+            WarheadYieldRegistry.usesCustomFire(level, getUUID(), getUUID()),
+            level.getGameTime() + 1L);
     }
 
     public RocketPayloadType payloadType() {
@@ -89,6 +121,7 @@ public final class RocketProjectileEntity extends Entity {
     @Override protected void readAdditionalSaveData(final ValueInput input) {
         ownerId = input.read("owner", UUIDUtil.CODEC).orElse(null);
         impactHandled = input.getBooleanOr("impact_handled", false);
+        pendingImpact = input.read("pending_impact", Vec3.CODEC).orElse(null);
         try { setPayloadType(RocketPayloadType.valueOf(input.getStringOr("payload", "HE"))); }
         catch (IllegalArgumentException exception) { setPayloadType(RocketPayloadType.HE); }
         getEntityData().set(VISUAL_SEED, input.getLongOr("visual_seed", 0L));
@@ -97,12 +130,23 @@ public final class RocketProjectileEntity extends Entity {
     @Override protected void addAdditionalSaveData(final ValueOutput output) {
         output.storeNullable("owner", UUIDUtil.CODEC, ownerId);
         output.putBoolean("impact_handled", impactHandled);
+        if (pendingImpact != null && pendingImpact.isFinite()) {
+            output.store("pending_impact", Vec3.CODEC, pendingImpact);
+        }
         output.putString("payload", payloadType().name());
         output.putLong("visual_seed", visualSeed());
     }
 
     @Override public boolean hurtServer(final ServerLevel level,
         final DamageSource source, final float amount) { return false; }
+    @Override public void remove(final RemovalReason reason) {
+        if (!impactHandled && level() instanceof ServerLevel server
+            && payloadType() == RocketPayloadType.NUCLEAR_ICBM) {
+            WarheadPreparationCoordinator.cancelImpact(server, getUUID(),
+                CancellationReason.ENTITY_REMOVED);
+        }
+        super.remove(reason);
+    }
     @Override public boolean shouldRenderAtSqrDistance(final double distance) {
         return distance <= RocketConstants.VISUAL_RANGE_BLOCKS
             * RocketConstants.VISUAL_RANGE_BLOCKS;

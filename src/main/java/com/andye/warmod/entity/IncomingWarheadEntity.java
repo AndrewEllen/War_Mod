@@ -15,6 +15,11 @@ import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import com.andye.warmod.warhead.WarheadImpactService;
 import com.andye.warmod.warhead.WarheadPayloadType;
+import com.andye.warmod.warhead.WarheadYield;
+import com.andye.warmod.warhead.WarheadYieldRegistry;
+import com.andye.warmod.warhead.WarheadExplosionWorkManager;
+import com.andye.warmod.warhead.WarheadPreparationCoordinator;
+import com.andye.warmod.warhead.CancellationReason;
 import com.andye.warmod.warhead.WarheadTrajectory;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.network.WarheadVisualNetworking;
@@ -63,6 +68,8 @@ public final class IncomingWarheadEntity extends Entity {
     private boolean cancelled;
     private boolean sonicBoomEmitted;
     private WarheadPayloadType payloadType = WarheadPayloadType.CONVENTIONAL;
+    private WarheadYield authoritativeYield;
+    private boolean authoritativeCustomFire;
 
     private final Set<ChunkPos> heldTicketChunks = new HashSet<>();
     private int pausedSimulationTicks;
@@ -135,6 +142,7 @@ public final class IncomingWarheadEntity extends Entity {
         }
 
         double elapsed = effectiveElapsed(server);
+        maintainTerrainPreparation(server, elapsed);
         Vec3 previous = WarheadTrajectory.position(
             startPosition,
             intendedTarget,
@@ -165,6 +173,36 @@ public final class IncomingWarheadEntity extends Entity {
         }
     }
 
+    private void maintainTerrainPreparation(final ServerLevel level,
+        final double elapsed) {
+        if (payloadType != WarheadPayloadType.NUCLEAR) return;
+        WarheadYield yield = persistentYield(level);
+        Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
+            level, intendedTarget, yield);
+        long remaining = ceilRemainingTicks(flightTicks - elapsed);
+        WarheadPreparationCoordinator.ensureImpact(level, warheadId, warheadId,
+            radarRootTrackId(), effective, yield, visualSeed,
+            authoritativeCustomFire,
+            level.getGameTime() + remaining);
+    }
+
+    private WarheadYield persistentYield(final ServerLevel level) {
+        if (authoritativeYield == null) {
+            authoritativeYield = WarheadYieldRegistry.resolve(level, warheadId,
+                radarRootTrackId(), payloadType);
+            authoritativeCustomFire = WarheadYieldRegistry.usesCustomFire(level,
+                warheadId, radarRootTrackId());
+        }
+        WarheadYieldRegistry.put(level, radarRootTrackId(), authoritativeYield,
+            authoritativeCustomFire);
+        return authoritativeYield;
+    }
+
+    private static long ceilRemainingTicks(final double value) {
+        if (!Double.isFinite(value)) return 1L;
+        return Math.max(1L, (long)Math.ceil(value));
+    }
+
     private void advanceAuthoritativeFlight(final ServerLevel server,
         final double elapsed, final Vec3 previous, final Vec3 next) {
         Set<ChunkPos> desired = desiredStreamingWindow(elapsed);
@@ -172,17 +210,6 @@ public final class IncomingWarheadEntity extends Entity {
         if (!prepareStreamingWindow(server, desired)) {
             pauseForChunkLoading(server, previous);
             return;
-        }
-
-        if (waitingForChunks) {
-            waitingForChunks = false;
-            WarheadVisualNetworking.sendTimingCorrection(
-                server,
-                warheadId,
-                pausedSimulationTicks,
-                false,
-                previous
-            );
         }
 
         consecutiveChunkWaitTicks = 0;
@@ -193,10 +220,19 @@ public final class IncomingWarheadEntity extends Entity {
             return;
         }
 
-        if (raycast.hit().isPresent()) {
-            impact(server, raycast.hit().get().getLocation());
-        } else if (elapsed >= flightTicks) {
-            impact(server, intendedTarget);
+        Vec3 pendingImpact = raycast.hit().map(BlockHitResult::getLocation)
+            .orElse(elapsed >= flightTicks ? intendedTarget : null);
+        if (pendingImpact != null && !terrainReady(server, pendingImpact)) {
+            pauseForScheduler(server, previous);
+            return;
+        }
+        if (waitingForChunks) {
+            waitingForChunks = false;
+            WarheadVisualNetworking.sendTimingCorrection(server, warheadId,
+                pausedSimulationTicks, false, previous);
+        }
+        if (pendingImpact != null) {
+            impact(server, pendingImpact);
         } else {
             Vec3 velocity = WarheadTrajectory.velocity(
                 startPosition,
@@ -209,6 +245,17 @@ public final class IncomingWarheadEntity extends Entity {
             updateRotation(velocity);
             emitSonicBoom(server, next, velocity);
         }
+    }
+
+    private boolean terrainReady(final ServerLevel level, final Vec3 impact) {
+        if (payloadType != WarheadPayloadType.NUCLEAR) return true;
+        WarheadYield yield = persistentYield(level);
+        Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
+            level, impact, yield);
+        return WarheadPreparationCoordinator.ensureImpact(level, warheadId,
+            warheadId, radarRootTrackId(), effective, yield, visualSeed,
+            authoritativeCustomFire,
+            level.getGameTime() + 1L);
     }
 
     private void pauseForScheduler(final ServerLevel level, final Vec3 safePosition) {
@@ -290,6 +337,9 @@ public final class IncomingWarheadEntity extends Entity {
         payloadType = WarheadPayloadType.fromSerializedName(
             input.getStringOr("PayloadType", "conventional")
         ).orElse(WarheadPayloadType.CONVENTIONAL);
+        authoritativeYield = WarheadYield.fromSerializedName(
+            input.getStringOr("AuthoritativeYield", "")).orElse(null);
+        authoritativeCustomFire = input.getBooleanOr("AuthoritativeCustomFire", false);
         clusterIndex = input.getIntOr("ClusterIndex", 0);
         clusterCount = Math.max(1, input.getIntOr("ClusterCount", 1));
 
@@ -333,6 +383,10 @@ public final class IncomingWarheadEntity extends Entity {
         output.putBoolean("Impacted", impacted);
         output.putBoolean("SonicBoomEmitted", sonicBoomEmitted);
         output.putString("PayloadType", payloadType.serializedName());
+        if (authoritativeYield != null) {
+            output.putString("AuthoritativeYield", authoritativeYield.getSerializedName());
+            output.putBoolean("AuthoritativeCustomFire", authoritativeCustomFire);
+        }
         output.putInt("ClusterIndex", clusterIndex);
         output.putInt("ClusterCount", clusterCount);
     }
@@ -417,6 +471,8 @@ public final class IncomingWarheadEntity extends Entity {
             warheadId
         );
         releaseStreamingTickets(server);
+        WarheadPreparationCoordinator.cancelImpact(server, warheadId,
+            CancellationReason.INTERCEPTED);
         discard();
         return true;
     }
@@ -638,7 +694,7 @@ public final class IncomingWarheadEntity extends Entity {
             IcbmChunkTicketRegistry.addWindow(
                 desired,
                 IcbmChunkTicketRegistry.chunk(intendedTarget),
-                IcbmConstants.IMPACT_CHUNK_RADIUS
+                IcbmConstants.TERMINAL_TARGET_SIMULATION_CHUNK_RADIUS
             );
         }
 
@@ -745,6 +801,8 @@ public final class IncomingWarheadEntity extends Entity {
                     radarRootTrackId(),
                     warheadId
                 );
+                WarheadPreparationCoordinator.cancelImpact(server, warheadId,
+                    CancellationReason.ENTITY_REMOVED);
             }
         }
 

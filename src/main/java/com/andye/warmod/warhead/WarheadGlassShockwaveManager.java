@@ -8,7 +8,6 @@ import com.andye.warmod.scheduler.WarModServerWorkScheduler.WorkPermit;
 import com.andye.warmod.warhead.network.ClientboundWarheadImpactPayload;
 import com.andye.warmod.warhead.obscuration.NuclearTerrainObscurationEmitter;
 import com.andye.warmod.worldgen.ModBiomes;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -110,14 +109,13 @@ public final class WarheadGlassShockwaveManager {
 
         boolean nuclear = payload.payloadType() == WarheadPayloadType.NUCLEAR;
         float visualScale = Mth.clamp(payload.impactVisualScale(), 0.28F, 4.2F);
-        double craterRadius = nuclear ? 12.0 + 13.0 * visualScale : 0.0;
-        int aftermathRadius = nuclear
-            ? Mth.ceil(nuclearAftermathRadius(craterRadius, visualScale)) : 0;
-        int glassRadius = nuclear ? nuclearGlassRadius(aftermathRadius, visualScale) : 0;
-        double maximumRadius = nuclear
-            ? Math.max(Math.max(72.0 + visualScale * 58.0,
-                nuclearAftermathRadius(craterRadius, visualScale)), glassRadius)
-            : conventionalGlassRadius(visualScale);
+        WarheadYield yield = WarheadFootprintCalculator.yieldForVisualScale(
+            payload.payloadType(), visualScale);
+        WarheadFootprint footprint = WarheadFootprintCalculator.calculate(
+            payload.payloadType(), yield, center);
+        int aftermathRadius = nuclear ? Mth.ceil(footprint.aftermathRadius()) : 0;
+        int glassRadius = nuclear ? Mth.ceil(footprint.glassRadius()) : 0;
+        double maximumRadius = footprint.maximumMutationRadius();
         NuclearTerrainPreparation preparation = nuclear
             ? takePreparation(level, payload.warheadId()) : null;
         if (nuclear && preparation == null) {
@@ -133,7 +131,7 @@ public final class WarheadGlassShockwaveManager {
         }
         Wave wave = new Wave(
             payload.warheadId(), center, payload.impactGameTime(), payload.visualSeed(), maximumRadius,
-            visualScale, nuclear, preparation, customFire);
+            visualScale, nuclear, footprint, preparation, customFire);
         WAVES.computeIfAbsent(level, ignored -> new ArrayDeque<>()).addLast(wave);
     }
 
@@ -153,10 +151,10 @@ public final class WarheadGlassShockwaveManager {
     ) {
         if (level == null || impactId == null || center == null || !center.isFinite()
             || yield == null || !yield.nuclear()) return;
-        float visualScale = Mth.clamp(yield.visualScale(), 0.28F, 4.2F);
-        double craterRadius = 12.0 + 13.0 * visualScale;
-        int aftermathRadius = Mth.ceil(nuclearAftermathRadius(craterRadius, visualScale));
-        int glassRadius = nuclearGlassRadius(aftermathRadius, visualScale);
+        WarheadFootprint footprint = WarheadFootprintCalculator.calculate(
+            yield.payloadType(), yield, center);
+        int aftermathRadius = Mth.ceil(footprint.aftermathRadius());
+        int glassRadius = Mth.ceil(footprint.glassRadius());
         long expiresAt = level.getGameTime() + Math.max(1, lifetimeTicks);
         Map<java.util.UUID, NuclearTerrainPreparation> preparations =
             NUCLEAR_PREPARATIONS.computeIfAbsent(level, ignored -> new HashMap<>());
@@ -197,18 +195,6 @@ public final class WarheadGlassShockwaveManager {
         NuclearTerrainPreparation removed = preparations.remove(impactId);
         if (removed != null) removed.stopDiscovery();
         if (preparations.isEmpty()) NUCLEAR_PREPARATIONS.remove(level);
-    }
-
-    private static int nuclearGlassRadius(final int aftermathRadius, final float visualScale) {
-        return Mth.ceil(Math.max(aftermathRadius * 1.28,
-            conventionalGlassRadius(visualScale) * 1.55));
-    }
-
-    private static double conventionalGlassRadius(final float visualScale) {
-        if (visualScale < 0.49F) return 36.0;
-        if (visualScale < 0.82F) return 64.0;
-        if (visualScale < 1.19F) return 104.0;
-        return 152.0;
     }
 
     private static synchronized void tick(final ServerLevel level) {
@@ -307,14 +293,6 @@ public final class WarheadGlassShockwaveManager {
         WarModPerformanceDiagnostics.record(
             WarModPerformanceDiagnostics.Subsystem.AFTERMATH_APPLICATION,
             diagnosticsStarted);
-    }
-
-    private static double nuclearAftermathRadius(final double craterRadius,
-        final float visualScale) {
-        /* Tactical reaches the former heavy-nuclear footprint; strategic and
-           heavy yields extend about fifty percent beyond their old 3x scars. */
-        double multiplier = visualScale < 2.20F ? 6.125 : 5.625;
-        return craterRadius * multiplier;
     }
 
     private static void advancePreparations(final ServerLevel level) {
@@ -424,6 +402,7 @@ public final class WarheadGlassShockwaveManager {
         private Wave(final java.util.UUID warheadId, final Vec3 center,
             final long startGameTime, final long seed,
             final double maximumRadius, final float visualScale, final boolean nuclear,
+            final WarheadFootprint footprint,
             final NuclearTerrainPreparation preparation, final boolean customFire) {
             this.warheadId = warheadId;
             this.center = center;
@@ -433,10 +412,10 @@ public final class WarheadGlassShockwaveManager {
             this.visualScale = visualScale;
             this.nuclear = nuclear;
 			this.customFire = customFire;
-            this.craterRadius = nuclear ? 12.0 + 13.0 * visualScale : 0.0;
+            this.craterRadius = nuclear ? footprint.craterRadius() : 0.0;
             /* Keep the excavated crater unchanged; only the burned surface reaches out further. */
             this.aftermathRadius = nuclear
-                ? Mth.ceil(nuclearAftermathRadius(craterRadius, visualScale)) : 0;
+                ? Mth.ceil(footprint.aftermathRadius()) : 0;
             this.preparation = preparation;
             this.aftermathRequiredChunks = preparation == null ? 0
                 : AftermathChunkLeaseWindow.chunks(center, 0.0, preparation.radius).size();
@@ -599,18 +578,14 @@ public final class WarheadGlassShockwaveManager {
                         ? Math.min(PREPARED_MICROBATCH,
                             PREPARED_SURFACE_MUTATIONS_PER_WAVE_TICK)
                         : PREPARED_MICROBATCH;
-                    LongArrayList batch = preparation.takeExactPhase(phase,
-                        coupledShell, Math.min(limit, remaining));
-                    if (batch.isEmpty()) {
+                    int applied = preparation.drainExactPhase(phase,
+                        coupledShell, Math.min(limit, remaining),
+                        packed -> applyPreparedEntry(level, phase, packed));
+                    if (applied == 0) {
                         coupledPhase++;
                         continue;
                     }
-                    NuclearShellMutationBatch shellBatch = new NuclearShellMutationBatch(
-                        coupledShell, coupledShell * SPEED_BLOCKS_PER_TICK,
-                        (coupledShell + 1) * SPEED_BLOCKS_PER_TICK, phase, batch);
-                    for (long packed : shellBatch.mutations())
-                        applyPreparedEntry(level, shellBatch.phase(), packed);
-                    remaining -= shellBatch.mutations().size();
+                    remaining -= applied;
                     continue;
                 }
                 /* Biome section writes are flushed outside advance(), once per
@@ -1288,9 +1263,6 @@ public final class WarheadGlassShockwaveManager {
 
         private record BiomeSectionKey(int chunkX, int sectionY, int chunkZ) { }
 
-        private record NuclearShellMutationBatch(int shellIndex, double minimumRadius,
-            double maximumRadius, int phase, LongArrayList mutations) { }
-
         private BlockState fusedSand(final long hash, final boolean redSand,
             final double craterNormalized) {
             double selector = unit(hash ^ 0x46555345445F534EL);
@@ -1702,24 +1674,24 @@ public final class WarheadGlassShockwaveManager {
         private final double treeRadius;
         private final double biomeRadius;
         private final int radius;
-        private final Map<Integer, LongArrayList> leavesByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> logsByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> structuralLogsByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> planksByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> glassByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> cobbleByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> snowByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> fragileByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> hangingMossByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> surfacesByShell = new HashMap<>();
-        private final Map<Integer, LongArrayList> biomesByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> leavesByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> logsByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> structuralLogsByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> planksByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> glassByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> cobbleByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> snowByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> fragileByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> hangingMossByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> surfacesByShell = new HashMap<>();
+        private final Map<Integer, LongMutationCursor> biomesByShell = new HashMap<>();
         private long expiresAt;
         private final LongOpenHashSet deferredColumns = new LongOpenHashSet();
         private final ArrayDeque<Long> deferredQueue = new ArrayDeque<>();
         private final Map<Integer, Integer> deferredByShell = new HashMap<>();
         private int scanRing;
         private int scanPerimeterOffset;
-        private double discoveryRadiusLimit = 64.0;
+        private final double discoveryRadiusLimit;
         private long completedColumns;
         private boolean mainScanComplete;
 
@@ -1730,6 +1702,7 @@ public final class WarheadGlassShockwaveManager {
             this.treeRadius = aftermathRadius;
             this.biomeRadius = NuclearBiomeDome.radius(aftermathRadius);
             this.radius = Math.max(glassRadius, Mth.ceil(biomeRadius));
+            this.discoveryRadiusLimit = this.radius;
             this.expiresAt = expiresAt;
             this.scanRing = 0;
         }
@@ -1770,9 +1743,7 @@ public final class WarheadGlassShockwaveManager {
                 || !surfacesByShell.isEmpty() || !biomesByShell.isEmpty();
         }
 
-        private void setDiscoveryRadiusLimit(final double limit) {
-            discoveryRadiusLimit = Mth.clamp(limit, 0.0, radius);
-        }
+        private void setDiscoveryRadiusLimit(final double limit) { }
 
         private int deferredColumnCount() { return deferredColumns.size(); }
 
@@ -1877,11 +1848,11 @@ public final class WarheadGlassShockwaveManager {
             if (surfaceY < level.dimensionType().minY()) return;
             int shell = shellFor(Math.sqrt(distanceSqr));
             if (distanceSqr <= biomeRadius * biomeRadius) {
-                biomesByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                biomesByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                     .add(BlockPos.asLong(x, 0, z));
             }
             if (distanceSqr <= treeRadiusSqr) {
-                surfacesByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                surfacesByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                     .add(BlockPos.asLong(x, 0, z));
                 discoverVerticalTargets(level, x, z, surfaceY, shell);
             } else {
@@ -1912,7 +1883,7 @@ public final class WarheadGlassShockwaveManager {
                 for (; y <= sectionEnd; y++) {
                     position.set(x, y, z);
                     if (Wave.isGlass(level.getBlockState(position))) {
-                        glassByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        glassByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(position.asLong());
                     }
                 }
@@ -1931,7 +1902,7 @@ public final class WarheadGlassShockwaveManager {
                 position.set(x, y, z);
                 if (level.getBlockState(position).isAir() && moss.canSurvive(level, position)) {
                     hangingMossByShell.computeIfAbsent(shell,
-                        ignored -> new LongArrayList()).add(position.asLong());
+                        ignored -> new LongMutationCursor()).add(position.asLong());
                     return;
                 }
             }
@@ -1962,29 +1933,29 @@ public final class WarheadGlassShockwaveManager {
                     cursor.set(x, y, z);
                     BlockState state = level.getBlockState(cursor);
                     if (Wave.isSnowLike(state)) {
-                        snowByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        snowByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     } else if (state.is(BlockTags.LEAVES)) {
-                        leavesByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        leavesByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     } else if (state.is(BlockTags.LOGS)) {
-                        Map<Integer, LongArrayList> target = naturalTreeColumn
+                        Map<Integer, LongMutationCursor> target = naturalTreeColumn
                             ? logsByShell : structuralLogsByShell;
-                        target.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        target.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     } else if (state.is(BlockTags.PLANKS)) {
-                        planksByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        planksByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     } else if (Wave.isGlass(state)) {
-                        glassByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        glassByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     } else if (Wave.isCobbleStructure(state)) {
-                        cobbleByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        cobbleByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     } else if (Wave.isFragileSurface(state) || state.is(BlockTags.FLOWERS)
                         || state.is(BlockTags.CROPS)
                         || state.getBlock().getDescriptionId().contains("sapling")) {
-                        fragileByShell.computeIfAbsent(shell, ignored -> new LongArrayList())
+                        fragileByShell.computeIfAbsent(shell, ignored -> new LongMutationCursor())
                             .add(cursor.asLong());
                     }
                 }
@@ -2014,21 +1985,21 @@ public final class WarheadGlassShockwaveManager {
             return Math.max(0, Mth.floor(distance / SPEED_BLOCKS_PER_TICK));
         }
 
-        private LongArrayList takeExactPhase(final int phase, final int shell,
-            final int limit) {
+        private int drainExactPhase(final int phase, final int shell,
+            final int limit, final java.util.function.LongConsumer consumer) {
             return switch (phase) {
-                case 0 -> takeExact(snowByShell, shell, limit);
-                case 1 -> takeExact(surfacesByShell, shell, limit);
-                case 2 -> takeExact(glassByShell, shell, limit);
-                case 3 -> takeExact(fragileByShell, shell, limit);
-                case 4 -> takeExact(leavesByShell, shell, limit);
-                case 5 -> takeExact(logsByShell, shell, limit);
-                case 6 -> takeExact(structuralLogsByShell, shell, limit);
-                case 7 -> takeExact(planksByShell, shell, limit);
-                case 8 -> takeExact(hangingMossByShell, shell, limit);
-                case 9 -> takeExact(cobbleByShell, shell, limit);
-                case 10 -> takeExact(biomesByShell, shell, limit);
-                default -> new LongArrayList();
+                case 0 -> drainExact(snowByShell, shell, limit, consumer);
+                case 1 -> drainExact(surfacesByShell, shell, limit, consumer);
+                case 2 -> drainExact(glassByShell, shell, limit, consumer);
+                case 3 -> drainExact(fragileByShell, shell, limit, consumer);
+                case 4 -> drainExact(leavesByShell, shell, limit, consumer);
+                case 5 -> drainExact(logsByShell, shell, limit, consumer);
+                case 6 -> drainExact(structuralLogsByShell, shell, limit, consumer);
+                case 7 -> drainExact(planksByShell, shell, limit, consumer);
+                case 8 -> drainExact(hangingMossByShell, shell, limit, consumer);
+                case 9 -> drainExact(cobbleByShell, shell, limit, consumer);
+                case 10 -> drainExact(biomesByShell, shell, limit, consumer);
+                default -> 0;
             };
         }
 
@@ -2049,29 +2020,26 @@ public final class WarheadGlassShockwaveManager {
                 + queued(biomesByShell);
         }
 
-        private static long queued(final Map<Integer, LongArrayList> source) {
+        private static long queued(final Map<Integer, LongMutationCursor> source) {
             long count = 0L;
-            for (LongArrayList values : source.values()) count += values.size();
+            for (LongMutationCursor values : source.values()) count += values.remaining();
             return count;
         }
 
-        private static LongArrayList takeExact(final Map<Integer, LongArrayList> source,
-            final int shell, final int limit) {
-            LongArrayList result = new LongArrayList(Math.max(0, limit));
-            if (limit <= 0) return result;
-            LongArrayList values = source.get(shell);
-            if (values == null || values.isEmpty()) return result;
-            int count = Math.min(limit, values.size());
-            for (int index = 0; index < count; index++) result.add(values.getLong(index));
-            values.removeElements(0, count);
-            if (values.isEmpty()) source.remove(shell);
-            return result;
+        private static int drainExact(final Map<Integer, LongMutationCursor> source,
+            final int shell, final int limit,
+            final java.util.function.LongConsumer consumer) {
+            LongMutationCursor values = source.get(shell);
+            if (values == null || !values.hasNext()) return 0;
+            int count = values.drain(limit, consumer);
+            if (!values.hasNext()) source.remove(shell);
+            return count;
         }
 
-        private static boolean hasExact(final Map<Integer, LongArrayList> source,
+        private static boolean hasExact(final Map<Integer, LongMutationCursor> source,
             final int shell) {
-            LongArrayList values = source.get(shell);
-            return values != null && !values.isEmpty();
+            LongMutationCursor values = source.get(shell);
+            return values != null && values.hasNext();
         }
     }
 

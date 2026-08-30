@@ -115,7 +115,7 @@ public final class WarheadLaunchService {
                 / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK
         ));
 
-        return spawn(
+        Optional<LaunchResult> result = spawn(
             level,
             owner,
             id,
@@ -129,6 +129,11 @@ public final class WarheadLaunchService {
             1,
             SpawnContext.CARRIER
         );
+        if (payloadType == WarheadPayloadType.NUCLEAR && result.isPresent()) {
+            transferCarrierPreparation(level, radarRootTrackId,
+                List.of(result.get()), WarheadDeliveryMode.SINGLE);
+        }
+        return result;
     }
 
     public static List<LaunchResult> launchClusterFromCarrier(
@@ -212,7 +217,34 @@ public final class WarheadLaunchService {
             return List.of();
         }
 
+        if (payloadType == WarheadPayloadType.NUCLEAR) {
+            transferCarrierPreparation(level, radarRootTrackId, results,
+                WarheadDeliveryMode.CLUSTER_FOUR);
+        }
+
         return List.copyOf(results);
+    }
+
+    private static void transferCarrierPreparation(final ServerLevel level,
+        final UUID radarRootTrackId, final List<LaunchResult> results,
+        final WarheadDeliveryMode deliveryMode) {
+        ArrayList<PreparedImpactSpec> impacts = new ArrayList<>(results.size());
+        long expectedImpactTick = level.getGameTime();
+        for (LaunchResult result : results) {
+            WarheadYield exactYield = WarheadYieldRegistry.resolve(level,
+                result.warheadId(), radarRootTrackId, result.payloadType());
+            Vec3 effectiveCenter = WarheadExplosionWorkManager.resolveDetonationCenter(
+                level, result.intendedTarget(), exactYield);
+            impacts.add(new PreparedImpactSpec(result.warheadId(), effectiveCenter,
+                result.payloadType(), exactYield, result.visualSeed(),
+                WarheadYieldRegistry.usesCustomFire(level, result.warheadId(),
+                    radarRootTrackId)));
+            expectedImpactTick = Math.max(expectedImpactTick,
+                result.launchGameTime() + result.flightTicks());
+        }
+        WarheadPreparationCoordinator.request(level,
+            new WarheadPreparationRequest(radarRootTrackId, radarRootTrackId,
+                level.dimension(), impacts, expectedImpactTick, deliveryMode));
     }
 
     private static Optional<LaunchResult> spawn(
@@ -297,6 +329,11 @@ public final class WarheadLaunchService {
 
         WarheadYield exactYield = WarheadYieldRegistry.resolve(level, id,
             radarRootTrackId, payloadType);
+        if (exactYield.nuclear()) {
+            WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(level,
+                id, target, exactYield, seed,
+                ticks + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS);
+        }
         WarheadDeliveryMode exactDelivery = context == SpawnContext.CARRIER
             ? StrategicMissilePayloadRegistry.get(radarRootTrackId, payloadType).deliveryMode()
             : WarheadDeliveryMode.SINGLE;

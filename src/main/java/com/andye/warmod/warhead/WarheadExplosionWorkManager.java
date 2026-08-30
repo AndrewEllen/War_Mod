@@ -199,6 +199,37 @@ public final class WarheadExplosionWorkManager {
 		scheduleDetonation(level, source, warheadId, position, yield, seed, customFire);
 	}
 
+	/** Entity-only half used when a prepared bulk terrain plan owns the crater. */
+	public static synchronized void detonateEntitiesOnly(final ServerLevel level,
+		final @Nullable ServerPlayer source, final Vec3 position,
+		final WarheadYield yield) {
+		if (level == null || position == null || yield == null || !position.isFinite()) {
+			throw new IllegalArgumentException("Invalid prepared entity blast");
+		}
+		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
+		levelWork.entityBlasts.addLast(new EntityBlastWork(source, position,
+			StrategicExplosionProfiles.get(yield).entityBlastRadius()));
+	}
+
+	/**
+	 * Callback-safe mutation for TNT and block-entity states. The prepared
+	 * committer uses this only for cells classified as semantic before impact.
+	 */
+	public static boolean applyPreparedSemanticMutation(final ServerLevel level,
+		final @Nullable ServerPlayer source, final BlockPos position,
+		final Vec3 center, final float blastRadius, final BlockState replacement) {
+		if (level == null || position == null || center == null || replacement == null
+			|| !center.isFinite() || !level.isInWorldBounds(position)) return false;
+		BlockState before = level.getBlockState(position);
+		if (before.equals(replacement)) return false;
+		FastExplosion explosion = new FastExplosion(level, source, center,
+			Math.max(1.0F, blastRadius));
+		before.onExplosionHit(level, position, explosion, (stack, dropPosition) -> { });
+		BlockState after = level.getBlockState(position);
+		if (!after.equals(before)) return true;
+		return level.setBlock(position, replacement, FAST_REMOVE_FLAGS);
+	}
+
 	/** True once the destructive crater columns can no longer overwrite its final skin. */
 	public static synchronized boolean isCraterExcavationComplete(
 		final ServerLevel level, final UUID warheadId
@@ -672,6 +703,7 @@ public final class WarheadExplosionWorkManager {
 		private final UUID warheadId;
 		private final Vec3 center;
 		private final StrategicExplosionProfile profile;
+		private final WarheadFootprint footprint;
 		private final long seed;
 		private final CompletableFuture<ShapeTemplate> templateFuture;
 		private final @Nullable CraterMutationPlan mutationPlan;
@@ -732,6 +764,8 @@ public final class WarheadExplosionWorkManager {
 			this.warheadId = warheadId;
 			this.center = center;
 			this.profile = profile;
+			this.footprint = WarheadFootprintCalculator.calculate(
+				profile.yield().payloadType(), profile.yield(), center);
 			this.seed = seed;
 			this.templateFuture = templateFuture;
 			this.mutationPlan = mutationPlan;
@@ -745,7 +779,7 @@ public final class WarheadExplosionWorkManager {
 			this.mirror = (mix(seed ^ 0x4D4952524F525F34L) & 1L) != 0L;
 			this.aftermathStep = profile.yield().nuclear() ? 2 : 1;
 			this.structuralStep = profile.horizontalRadius() >= 96.0 ? 2 : 1;
-			int radius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
+			int radius = Mth.ceil(footprint.aftermathRadius());
 			this.aftermathX = -radius;
 			this.aftermathZ = -radius;
 			int structuralRadius = Mth.ceil(profile.horizontalRadius() * 1.08);
@@ -967,7 +1001,7 @@ public final class WarheadExplosionWorkManager {
 			double age = Math.max(0.0, level.getGameTime() - detonationGameTime
 				+ (profile.yield().nuclear() ? 1.0 : 0.0));
 			if (profile.yield().nuclear()) age *= WarheadVisualMath.NUCLEAR_TIME_SCALE;
-			double maximumRadius = Math.max(1.0, profile.horizontalRadius() * profile.aftermathRadiusScale());
+			double maximumRadius = Math.max(1.0, footprint.aftermathRadius());
 			double currentRadius = Math.min(maximumRadius,
 				age * WarheadVisualMath.AIR_SHOCKWAVE_SPEED_BLOCKS_PER_TICK);
 			int changed = 0;
@@ -1207,7 +1241,7 @@ public final class WarheadExplosionWorkManager {
 		}
 
 		private boolean advanceAftermath(final ServerLevel level) {
-			int radius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
+			int radius = Mth.ceil(footprint.aftermathRadius());
 			/* Nuclear surface/vegetation transformation is prepared during flight and
 			 * drained in large bounded slices by WarheadGlassShockwaveManager as the
 			 * impact flash begins. Retaining this older second pass would overwrite
@@ -1356,7 +1390,9 @@ public final class WarheadExplosionWorkManager {
 			}
 			Column[] array = columns.toArray(Column[]::new);
 			Arrays.sort(array, Comparator.comparingDouble(column -> column.radial));
-			int surfaceRadius = Mth.ceil(profile.horizontalRadius() * profile.aftermathRadiusScale());
+			WarheadFootprint footprint = WarheadFootprintCalculator.calculate(
+				profile.yield().payloadType(), profile.yield(), Vec3.ZERO);
+			int surfaceRadius = Mth.ceil(footprint.aftermathRadius());
 			int surfaceStep = profile.yield().nuclear() && surfaceRadius > 80 ? 2 : 1;
 			ArrayList<SurfacePoint> surface = new ArrayList<>();
 			for (int x = -surfaceRadius; x <= surfaceRadius; x += surfaceStep) {
@@ -1449,8 +1485,12 @@ public final class WarheadExplosionWorkManager {
 					currentX = Mth.floor(center.x) + currentColumn.dx;
 					currentZ = Mth.floor(center.z) + currentColumn.dz;
 					if (!level.getChunkSource().hasChunk(currentX >> 4, currentZ >> 4)) {
+						/* A missing required chunk is a readiness failure, never an
+						 * optional hole. Revisit this exact column after the preparation
+						 * lease makes its full chunk accessible. */
+						columnIndex--;
 						currentColumn = null;
-						continue;
+						break;
 					}
 					int centerY = Mth.floor(center.y);
 					int surfaceOffset = level.getHeight(Heightmap.Types.MOTION_BLOCKING,

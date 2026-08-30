@@ -41,6 +41,11 @@ public final class WarModPerformanceDiagnostics {
         NUCLEAR_CRATER("nuclear crater mutation"),
         NUCLEAR_WAVE("nuclear aftermath wave"),
         NUCLEAR_PREPARATION("nuclear terrain preparation"),
+        WARHEAD_SNAPSHOT_CAPTURE("prepared warhead snapshot capture"),
+        WARHEAD_WORKER_COMPILE("prepared warhead worker compile"),
+        WARHEAD_BULK_COMMIT("prepared warhead bulk commit"),
+        WARHEAD_RELIGHT("prepared warhead relight completion"),
+        WARHEAD_CHUNK_SYNC("prepared warhead tracked chunk sync"),
         FIRE_SIMULATION("fire simulation"),
         FIRE_SNAPSHOT_PREPARATION("fire snapshot preparation"),
         FIRE_NETWORK("fire visual networking"),
@@ -80,7 +85,19 @@ public final class WarModPerformanceDiagnostics {
         FIRE_NETWORK_SENT_PATCH_ENTRIES("fire network sent patch entries"),
         DEBRIS_PARTS_GENERATED("debris parts generated"),
         CRATER_BLOCKS_CHANGED("crater blocks changed"),
-        SCHEDULER_OVERRUNS("shared scheduler deadline overruns");
+        SCHEDULER_OVERRUNS("shared scheduler deadline overruns"),
+        WARHEAD_REQUIRED_CHUNKS("prepared warhead required chunks"),
+        WARHEAD_TICKETED_CHUNKS("prepared warhead ticketed chunks"),
+        WARHEAD_READY_CHUNKS("prepared warhead full chunks ready"),
+        WARHEAD_SNAPSHOTTED_CHUNKS("prepared warhead snapshotted chunks"),
+        WARHEAD_COMPILED_CHUNKS("prepared warhead compiled chunks"),
+        WARHEAD_READY_PLANS("prepared warhead ready plans"),
+        ACTIVE_PREPARED_COMMITS("active prepared terrain commits"),
+        PENDING_WARHEAD_RELIGHT_SYNCS("pending prepared relight and sync jobs"),
+        PENDING_WARHEAD_ACKS("pending prepared terrain client acknowledgements"),
+        WARHEAD_REVISION_CONFLICTS("prepared terrain revision conflicts"),
+        WARHEAD_SERVER_PACKETS_SENT("prepared terrain full chunk packets sent"),
+        WARHEAD_SLA_VIOLATIONS("prepared terrain 20 tick SLA violations");
 
         private final String label;
         Gauge(final String label) { this.label = label; }
@@ -164,6 +181,7 @@ public final class WarModPerformanceDiagnostics {
         peakTickNanos = 0L;
         for (Timing timing : TIMINGS.values()) timing.reset();
         for (GaugeValue value : GAUGES.values()) value.reset();
+        WarheadLifecycleDiagnostics.reset();
     }
 
     public static synchronized Path exportReport(final MinecraftServer server) throws IOException {
@@ -197,6 +215,7 @@ public final class WarModPerformanceDiagnostics {
         totalTickNanos += elapsed;
         tickSamples++;
         peakTickNanos = Math.max(peakTickNanos, elapsed);
+        WarheadLifecycleDiagnostics.observeServerTick(elapsed);
         serverTickCounter++;
         if (serverTickCounter % OVERLAY_INTERVAL_TICKS != 0L || OVERLAY_VIEWERS.isEmpty()) return;
         Component message = Component.literal(compactStatus());
@@ -249,6 +268,7 @@ public final class WarModPerformanceDiagnostics {
             .append("- FIRE_SIMULATION includes the authoritative fire tick; FIRE_SNAPSHOT_PREPARATION and FIRE_NETWORK isolate visual state work.\n")
             .append("- TERRAIN_OBSCURATION_SEND measures server emission/packet dispatch only. Client receipt and GPU rendering are intentionally not sampled by the server.\n");
         report.append("- FIRE_SIMULATION is an inclusive parent timing; snapshot and network timings are nested diagnostics and must not be added to it.\n");
+        WarheadLifecycleDiagnostics.appendReport(report);
         return report.toString();
     }
 

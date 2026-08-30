@@ -2,6 +2,10 @@ package com.andye.warmod.diagnostics.client;
 
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import com.andye.warmod.warhead.network.ClientboundWarheadTerrainCommitPayload;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 
 /** Bounded client frame/extraction timing with tail-latency percentiles. */
@@ -23,9 +27,20 @@ public final class ClientPerformanceTelemetry {
     private static final Samples GPU_EMITTER_UPLOAD_CPU = new Samples();
     private static final Samples GPU_STATS_READBACK_CPU = new Samples();
     private static final Samples TERRAIN_SHOCKFRONT_CPU = new Samples();
+    private static final Samples TERRAIN_MARKER_CALLBACK = new Samples();
+    private static final Samples TERRAIN_MARKER_PROCESSING = new Samples();
+    private static final Samples IMPACT_TO_TERRAIN_FINAL = new Samples();
     private static final Samples VANILLA_PARTICLE_EXTRACTION_CPU = new Samples();
     private static final Samples VANILLA_PARTICLE_RENDER_CPU = new Samples();
     private static long vanillaParticleCount;
+    private static long terrainChangedChunks;
+    private static long terrainChangedSections;
+    private static long terrainChangedCells;
+    private static long terrainChangedBiomeQuarts;
+    private static long terrainMaximumQueueDepth;
+    private static long terrainSequenceGaps;
+    private static final Map<UUID, Long> IMPACT_ACCEPTED_NANOS = new HashMap<>();
+    private static final Map<UUID, Long> TERRAIN_SEQUENCES = new HashMap<>();
     private static long frameStarted;
     private static boolean registered;
 
@@ -87,6 +102,36 @@ public final class ClientPerformanceTelemetry {
     public static synchronized void recordTerrainShockfrontNanos(final long nanos) {
         TERRAIN_SHOCKFRONT_CPU.add(nanos);
     }
+    public static synchronized void markImpactAccepted(final UUID impactId) {
+        if (impactId == null) return;
+        IMPACT_ACCEPTED_NANOS.put(impactId, System.nanoTime());
+        terrainMaximumQueueDepth = Math.max(terrainMaximumQueueDepth,
+            IMPACT_ACCEPTED_NANOS.size());
+    }
+    public static synchronized void acceptTerrainCommit(
+        final ClientboundWarheadTerrainCommitPayload payload, final long callbackStarted) {
+        if (payload == null) return;
+        long now = System.nanoTime();
+        /* Fabric decodes before invoking this render-thread callback, so this is the
+         * observable callback/dispatch cost, not a fabricated codec-only duration. */
+        TERRAIN_MARKER_CALLBACK.add(Math.max(0L, now - callbackStarted));
+        long previous = TERRAIN_SEQUENCES.getOrDefault(payload.impactId(), 0L);
+        if (payload.sequence() != previous + 1L) terrainSequenceGaps++;
+        TERRAIN_SEQUENCES.put(payload.impactId(), payload.sequence());
+        terrainChangedChunks += payload.changedChunks();
+        terrainChangedSections += payload.changedSections();
+        terrainChangedCells += payload.changedCells();
+        terrainChangedBiomeQuarts += payload.changedBiomeQuarts();
+        Long accepted = IMPACT_ACCEPTED_NANOS.remove(payload.impactId());
+        if (accepted != null) IMPACT_TO_TERRAIN_FINAL.add(Math.max(0L, now - accepted));
+        /* Vanilla full-chunk packets have already installed blocks, biomes, light and
+         * render invalidations when this ordered marker reaches the client thread. */
+        TERRAIN_MARKER_PROCESSING.add(Math.max(0L, System.nanoTime() - now));
+    }
+    public static synchronized void clearTerrainLifecycle() {
+        IMPACT_ACCEPTED_NANOS.clear();
+        TERRAIN_SEQUENCES.clear();
+    }
     public static synchronized void recordVanillaParticleExtractionNanos(final long nanos,
         final long particleCount) {
         VANILLA_PARTICLE_EXTRACTION_CPU.add(nanos);
@@ -106,7 +151,10 @@ public final class ClientPerformanceTelemetry {
             GPU_SCHEDULER_CPU.snapshot(), GPU_EMITTER_UPLOAD_CPU.snapshot(),
             GPU_STATS_READBACK_CPU.snapshot(), TERRAIN_SHOCKFRONT_CPU.snapshot(),
             vanillaParticleCount, VANILLA_PARTICLE_EXTRACTION_CPU.snapshot(),
-            VANILLA_PARTICLE_RENDER_CPU.snapshot());
+            VANILLA_PARTICLE_RENDER_CPU.snapshot(), TERRAIN_MARKER_CALLBACK.snapshot(),
+            TERRAIN_MARKER_PROCESSING.snapshot(), IMPACT_TO_TERRAIN_FINAL.snapshot(),
+            terrainChangedChunks, terrainChangedSections, terrainChangedCells,
+            terrainChangedBiomeQuarts, terrainMaximumQueueDepth, terrainSequenceGaps);
     }
 
     public record Percentiles(double p50Millis, double p95Millis,
@@ -121,7 +169,11 @@ public final class ClientPerformanceTelemetry {
         Percentiles gpuEmitterUploadCpu, Percentiles gpuStatsReadbackCpu,
         Percentiles terrainShockfrontCpu, long vanillaParticleCount,
         Percentiles vanillaParticleExtractionCpu,
-        Percentiles vanillaParticleRenderCpu) { }
+        Percentiles vanillaParticleRenderCpu, Percentiles terrainMarkerCallback,
+        Percentiles terrainMarkerProcessing, Percentiles impactToTerrainFinal,
+        long terrainChangedChunks, long terrainChangedSections, long terrainChangedCells,
+        long terrainChangedBiomeQuarts, long terrainMaximumQueueDepth,
+        long terrainSequenceGaps) { }
 
     private static final class Samples {
         private final ArrayDeque<Long> values = new ArrayDeque<>(WINDOW);

@@ -7,7 +7,10 @@ import com.andye.warmod.warhead.network.ClientboundWarheadLaunchPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadRemovePayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadTimingCorrectionPayload;
 import com.andye.warmod.warhead.network.ClientboundWarheadClientControlPayload;
+import com.andye.warmod.warhead.network.ClientboundWarheadTerrainCommitPayload;
+import com.andye.warmod.warhead.network.ServerboundWarheadTerrainCommitAckPayload;
 import com.andye.warmod.warhead.client.render.WarheadClientControlHandler;
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -26,6 +29,7 @@ public final class ClientWarheadNetworking {
 			ClientTerminalAudioManager.INSTANCE.acceptLaunch(payload);
 		});
 		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadImpactPayload.TYPE, (payload, context) -> {
+			ClientPerformanceTelemetry.markImpactAccepted(payload.warheadId());
 			ClientWarheadVisualManager.INSTANCE.acceptImpact(payload);
 			ClientTerminalAudioManager.INSTANCE.acceptImpact(payload.warheadId());
 		});
@@ -39,14 +43,26 @@ public final class ClientWarheadNetworking {
 		});
 		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadClientControlPayload.TYPE,
 			(payload, context) -> WarheadClientControlHandler.accept(payload));
+		ClientPlayNetworking.registerGlobalReceiver(ClientboundWarheadTerrainCommitPayload.TYPE,
+			(payload, context) -> {
+				long callbackStarted = System.nanoTime();
+				if (payload.isWellFormed()) {
+					ClientPerformanceTelemetry.acceptTerrainCommit(payload, callbackStarted);
+					ClientPlayNetworking.send(
+					new ServerboundWarheadTerrainCommitAckPayload(
+						payload.impactId(), payload.sequence()));
+				}
+			});
 		ClientTickEvents.END_CLIENT_TICK.register(ClientWarheadVisualManager.INSTANCE::tick);
 		ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> {
 			ClientWarheadVisualManager.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
+			ClientPerformanceTelemetry.clearTerrainLifecycle();
 		});
 		ClientLevelEvents.AFTER_CLIENT_LEVEL_CHANGE.register((client, level) -> {
 			ClientWarheadVisualManager.INSTANCE.clear();
 			ClientDebrisBatchManager.INSTANCE.clear();
+			ClientPerformanceTelemetry.clearTerrainLifecycle();
 		});
 		registered = true;
 	}

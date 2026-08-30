@@ -10,6 +10,7 @@ import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import com.andye.warmod.warhead.WarheadPreparedCommitManager;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -38,6 +39,15 @@ public final class WarheadVisualNetworking {
             ClientboundWarheadTimingCorrectionPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(ClientboundWarheadClientControlPayload.TYPE,
             ClientboundWarheadClientControlPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(ClientboundWarheadTerrainCommitPayload.TYPE,
+            ClientboundWarheadTerrainCommitPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(ServerboundWarheadTerrainCommitAckPayload.TYPE,
+            ServerboundWarheadTerrainCommitAckPayload.STREAM_CODEC);
+        ServerPlayNetworking.registerGlobalReceiver(ServerboundWarheadTerrainCommitAckPayload.TYPE,
+            (payload, context) -> {
+                if (payload.isWellFormed()) WarheadPreparedCommitManager.ack(
+                    context.player(), payload.impactId(), payload.sequence());
+            });
         payloadTypesRegistered = true;
     }
 
@@ -60,6 +70,12 @@ public final class WarheadVisualNetworking {
     public static synchronized void sendImpact(final ServerLevel level,
         final ClientboundWarheadImpactPayload payload, final Vec3 impact,
 		final boolean customFire) {
+        sendImpact(level, payload, impact, customFire, false);
+    }
+
+    public static synchronized void sendImpact(final ServerLevel level,
+        final ClientboundWarheadImpactPayload payload, final Vec3 impact,
+		final boolean customFire, final boolean preparedTerrain) {
         if (payload == null || payload.warheadId() == null) return;
         ClientboundWarheadImpactPayload authoritative = payload.withAuthoritativeState(
             nextSequence(payload.warheadId()), level.getGameTime());
@@ -71,7 +87,9 @@ public final class WarheadVisualNetworking {
         RECENT_IMPACTS.put(authoritative.warheadId(), new ImpactDescriptor(
             authoritative.impactVisualScale(),
             authoritative.payloadType() == WarheadPayloadType.NUCLEAR));
-        WarheadGlassShockwaveManager.schedule(level, authoritative, impact, customFire);
+        if (!preparedTerrain) {
+            WarheadGlassShockwaveManager.schedule(level, authoritative, impact, customFire);
+        }
         sendToNearby(level, authoritative, impact);
     }
 

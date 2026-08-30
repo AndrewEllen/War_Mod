@@ -63,13 +63,7 @@ public final class WarheadPreImpactPreparationManager {
         levelWork.enqueue(preparation);
     }
 
-    /**
-     * Starts the nuclear surface discovery as soon as a caller already knows
-     * its yield, seed and intended impact.  ICBMs get those values only once
-     * their terminal entity is observed, while artillery and timed charges
-     * know them at launch/fuse time.  The scan is deliberately read-only and
-     * ignores unloaded chunks; it never expands the caller's chunk lease.
-     */
+    /** Starts authoritative preparation as soon as the exact impact parameters exist. */
     public static void scheduleKnownNuclearTerrain(
         final ServerLevel level,
         final UUID warheadId,
@@ -80,10 +74,12 @@ public final class WarheadPreImpactPreparationManager {
     ) {
         if (level == null || warheadId == null || intendedTarget == null
             || !intendedTarget.isFinite() || yield == null || !yield.nuclear()) return;
-        WarheadExplosionWorkManager.prepareCraterMutationPlan(level, warheadId,
-            intendedTarget, yield, seed, lifetimeTicks);
-        WarheadGlassShockwaveManager.prepareNuclearTerrain(
-            level, warheadId, intendedTarget, yield, seed, lifetimeTicks);
+        Vec3 effectiveCenter = WarheadExplosionWorkManager.resolveDetonationCenter(
+            level, intendedTarget, yield);
+        WarheadPreparationCoordinator.ensureImpact(level, warheadId, warheadId,
+            warheadId, effectiveCenter, yield, seed,
+            WarheadYieldRegistry.usesCustomFire(level, warheadId, warheadId),
+            level.getGameTime() + Math.max(1, lifetimeTicks));
     }
 
     public static synchronized Optional<List<WarheadExplosionDropContext.DestroyedBlock>> consume(
@@ -272,7 +268,7 @@ public final class WarheadPreImpactPreparationManager {
             this.expiresAt = expiresAt;
             this.impactWindow = IcbmChunkTicketRegistry.window(
                 IcbmChunkTicketRegistry.chunk(intendedTarget),
-                IcbmConstants.IMPACT_CHUNK_RADIUS
+                IcbmConstants.TERMINAL_TARGET_SIMULATION_CHUNK_RADIUS
             );
         }
 
@@ -290,9 +286,6 @@ public final class WarheadPreImpactPreparationManager {
                 );
                 seed = entity.visualSeed();
                 effectiveCenter = WarheadExplosionWorkManager.resolveDetonationCenter(level, intendedTarget, yield);
-                WarheadExplosionWorkManager.prepareCraterMutationPlan(level, warheadId,
-                    effectiveCenter, yield, seed,
-                    Math.max(1, (int) (expiresAt - level.getGameTime())));
                 scheduleKnownNuclearTerrain(
                     level, warheadId, effectiveCenter, yield, seed,
                     Math.max(1, (int) (expiresAt - level.getGameTime()))
@@ -312,8 +305,6 @@ public final class WarheadPreImpactPreparationManager {
             effectiveCenter = center;
             yield = actualYield;
             seed = actualSeed;
-            WarheadExplosionWorkManager.prepareCraterMutationPlan(
-                level, warheadId, center, actualYield, actualSeed, 1);
             sampler = WarheadDebrisSourceSampler.begin(center, actualYield, actualSeed, terrainCache);
         }
 

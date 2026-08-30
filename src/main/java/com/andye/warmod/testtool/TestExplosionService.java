@@ -3,11 +3,11 @@ package com.andye.warmod.testtool;
 import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.fire.wind.FireWindEngine;
-import com.andye.warmod.warhead.StrategicExplosionProfile;
 import com.andye.warmod.warhead.StrategicExplosionProfiles;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadDebrisSourceSampler;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
+import com.andye.warmod.warhead.WarheadFootprintCalculator;
 import com.andye.warmod.warhead.WarheadPayloadType;
 import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
 import com.andye.warmod.warhead.WarheadYield;
@@ -71,23 +71,8 @@ public final class TestExplosionService {
 		 * otherwise take only a bounded synchronous prefix so debris cosmetics
 		 * cannot stall the authoritative detonation.
 		 */
-		long debrisConsumeStarted = WarModPerformanceDiagnostics.begin();
-		Optional<List<WarheadExplosionDropContext.DestroyedBlock>> preparedDebris =
-			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed);
-		WarModPerformanceDiagnostics.record(
-			WarModPerformanceDiagnostics.Subsystem.DEBRIS_SOURCE_CONSUME,
-			debrisConsumeStarted);
-		List<WarheadExplosionDropContext.DestroyedBlock> debris;
-		if (preparedDebris.isPresent()) {
-			debris = preparedDebris.get();
-		} else {
-			long fallbackSamplingStarted = WarModPerformanceDiagnostics.begin();
-			debris = WarheadDebrisSourceSampler.sampleBounded(
-				level, position, yield, seed, UNPREPARED_DEBRIS_CHECK_BUDGET);
-			WarModPerformanceDiagnostics.record(
-				WarModPerformanceDiagnostics.Subsystem.FALLBACK_DEBRIS_SAMPLING,
-				fallbackSamplingStarted);
-		}
+		List<WarheadExplosionDropContext.DestroyedBlock> debris = captureDebris(
+			level, warheadId, position, yield, seed);
 
 		/*
 		 * This explosion is about to mutate terrain observed by other in-flight
@@ -102,6 +87,27 @@ public final class TestExplosionService {
 		WarModPerformanceDiagnostics.record(
 			WarModPerformanceDiagnostics.Subsystem.CRATER_WORK_CREATION,
 			craterWorkStarted);
+		return debris;
+	}
+
+	/** Read-only debris capture used before a prepared bulk commit mutates terrain. */
+	public static List<WarheadExplosionDropContext.DestroyedBlock> captureDebris(
+		final ServerLevel level, final UUID warheadId, final Vec3 position,
+		final WarheadYield yield, final long seed) {
+		long debrisConsumeStarted = WarModPerformanceDiagnostics.begin();
+		Optional<List<WarheadExplosionDropContext.DestroyedBlock>> preparedDebris =
+			WarheadPreImpactPreparationManager.consume(level, warheadId, position, yield, seed);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.DEBRIS_SOURCE_CONSUME,
+			debrisConsumeStarted);
+		if (preparedDebris.isPresent()) return preparedDebris.get();
+		long fallbackSamplingStarted = WarModPerformanceDiagnostics.begin();
+		List<WarheadExplosionDropContext.DestroyedBlock> debris =
+			WarheadDebrisSourceSampler.sampleBounded(level, position, yield, seed,
+				UNPREPARED_DEBRIS_CHECK_BUDGET);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.FALLBACK_DEBRIS_SAMPLING,
+			fallbackSamplingStarted);
 		return debris;
 	}
 
@@ -167,21 +173,7 @@ public final class TestExplosionService {
 	}
 
 	private static double preparationInvalidationRadius(final WarheadYield yield) {
-		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(yield);
-		double surfaceRadius = profile.horizontalRadius() * profile.aftermathRadiusScale();
-		float visualScale = Math.max(0.28F, Math.min(4.2F, yield.visualScale()));
-		double shockwaveRadius;
-		if (yield.nuclear()) {
-			shockwaveRadius = 72.0 + visualScale * 58.0;
-		} else if (visualScale < 0.49F) {
-			shockwaveRadius = 36.0;
-		} else if (visualScale < 0.82F) {
-			shockwaveRadius = 64.0;
-		} else if (visualScale < 1.19F) {
-			shockwaveRadius = 104.0;
-		} else {
-			shockwaveRadius = 152.0;
-		}
-		return Math.max(surfaceRadius, shockwaveRadius);
+		return WarheadFootprintCalculator.calculate(yield.payloadType(), yield,
+			Vec3.ZERO).maximumMutationRadius();
 	}
 }

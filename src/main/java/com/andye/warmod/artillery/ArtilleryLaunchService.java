@@ -19,6 +19,7 @@ public final class ArtilleryLaunchService {
         ArtilleryWarheadEntity entity = new ArtilleryWarheadEntity(level, id, owner, origin,
             target, velocity, payload.yield(), random.nextLong(), payload.cluster());
         if (!level.addFreshEntity(entity)) return Optional.empty();
+        entity.beginTerrainPreparation(level);
         // Artillery streams a short rolling corridor from its entity tick. Acquiring the ICBM's
         // complete 500-block approach corridor here generated more than a hundred chunks on the
         // firing tick and was the source of the intermittent launch freeze.
