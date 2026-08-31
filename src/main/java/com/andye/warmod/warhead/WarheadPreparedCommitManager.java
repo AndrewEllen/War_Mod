@@ -7,6 +7,7 @@ import com.andye.warmod.warhead.network.ClientboundWarheadTerrainCommitPayload;
 import com.andye.warmod.warhead.obscuration.NuclearTerrainObscurationEmitter;
 import com.andye.warmod.worldgen.ModBiomes;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.shorts.ShortOpenHashSet;
 import it.unimi.dsi.fastutil.shorts.ShortSet;
 import java.util.ArrayDeque;
@@ -53,6 +54,8 @@ public final class WarheadPreparedCommitManager {
     private static final byte IMMEDIATE_APPLIED = 1;
     private static final byte RADIAL_APPLIED = 2;
     private static final int FINAL_APPLICATION_TICK = 15;
+    private static final int MAX_FALLBACK_COMPILES_PER_TICK = 2;
+    private static final long FALLBACK_COMPILE_BUDGET_NANOS = 3_000_000L;
     private static final int CLIENT_ACK_TIMEOUT_TICKS = 40;
     private static final int MAX_CRATER_FIRE = 2_048;
     private static final int MAX_TREE_FIRE = 2_048;
@@ -91,6 +94,46 @@ public final class WarheadPreparedCommitManager {
         final UUID preparationId, final PreparedImpactPlan plan,
         final @Nullable ServerPlayer source, final WarheadYield yield,
         final long visualSeed, final boolean customFire) {
+        return begin(level, preparationId, plan, source, yield, visualSeed,
+            customFire, false);
+    }
+
+    /**
+     * Last-resort entry when no detachable preparation survived until impact. The
+     * commit still uses the detached snapshot/compiler policy and the normal
+     * radial/category application path; only ownership and snapshot capture move
+     * to the bounded server-thread fallback.
+     */
+    public static synchronized boolean beginLiveFallback(final ServerLevel level,
+        final UUID impactId, final Vec3 center, final @Nullable ServerPlayer source,
+        final WarheadYield yield, final long visualSeed, final boolean customFire) {
+        if (level == null || impactId == null || center == null || !center.isFinite()
+            || yield == null || !yield.nuclear()) return false;
+        if (active(level, impactId)) return true;
+        WarheadFootprint footprint = WarheadFootprintCalculator.calculate(
+            yield.payloadType(), yield, center);
+        PreparedImpactPlan plan = new PreparedImpactPlan(impactId, center, footprint,
+            new Long2ObjectOpenHashMap<>(), FINAL_APPLICATION_TICK,
+            PlanStatistics.empty());
+        return begin(level, UUID.randomUUID(), plan, source, yield, visualSeed,
+            customFire, true);
+    }
+
+    public static synchronized boolean active(final ServerLevel level,
+        final UUID impactId) {
+        ArrayDeque<Commit> commits = COMMITS.get(level);
+        if (commits == null || impactId == null) return false;
+        for (Commit commit : commits) {
+            if (commit.plan.impactId().equals(impactId)) return true;
+        }
+        return false;
+    }
+
+    private static boolean begin(final ServerLevel level,
+        final UUID preparationId, final PreparedImpactPlan plan,
+        final @Nullable ServerPlayer source, final WarheadYield yield,
+        final long visualSeed, final boolean customFire,
+        final boolean detachedFallback) {
         if (level == null || preparationId == null || plan == null || yield == null) return false;
         registerLifecycle();
         ArrayDeque<Commit> commits = COMMITS.computeIfAbsent(level,
@@ -101,9 +144,10 @@ public final class WarheadPreparedCommitManager {
         Commit commit = new Commit(preparationId, plan,
             source == null ? null : source.getUUID(), yield, visualSeed,
             customFire, level.getGameTime());
-        commit.addChunks(plan.chunks().values());
+        commit.addChunks(plan.chunks().values(), false);
         commits.addLast(commit);
         WarheadLifecycleDiagnostics.commitStarted(level, plan.impactId());
+        if (detachedFallback) commit.startFallback(level, "preparation_unavailable");
         /* ImpactService emits the flash/sound and schedules the entity blast before
          * entering here. Apply any tick-zero terrain only after those observable
          * effects have been dispatched. */
@@ -146,6 +190,7 @@ public final class WarheadPreparedCommitManager {
             Commit commit = commits.removeFirst();
             commit.advance(level);
             if (commit.complete(level)) {
+                commit.releaseFallbackLease(level);
                 WarheadLifecycleDiagnostics.completed(level, commit.plan.impactId());
                 WarheadPreparationCoordinator.completeCommit(level,
                     commit.preparationId, commit.plan.impactId());
@@ -187,6 +232,7 @@ public final class WarheadPreparedCommitManager {
         ArrayDeque<Commit> commits = COMMITS.remove(level);
         if (commits == null) return;
         for (Commit commit : commits) {
+            commit.releaseFallbackLease(level);
             WarheadLifecycleDiagnostics.impactCancelled(level, commit.plan.impactId(),
                 "dimension_unload_during_commit");
             WarheadPreparationCoordinator.completeCommit(level,
@@ -269,6 +315,14 @@ public final class WarheadPreparedCommitManager {
         private boolean markerSent;
         private boolean deadlineWarning;
         private boolean fallbackStarted;
+        private UUID fallbackLeaseId;
+        private ArrayDeque<Long> fallbackQueue;
+        private List<WarheadSnapshotRequirement> fallbackRequirements = List.of();
+        private WarheadStateMetadata fallbackMetadata;
+        private WarheadStatePalette fallbackPalette;
+        private final Set<Long> preparedOwners = new HashSet<>();
+        private final Set<Long> fallbackOwners = new HashSet<>();
+        private PlanStatistics plannedStatistics = PlanStatistics.empty();
 
         private Commit(final UUID preparationId, final PreparedImpactPlan plan,
             final UUID sourcePlayerId, final WarheadYield yield, final long visualSeed,
@@ -282,11 +336,14 @@ public final class WarheadPreparedCommitManager {
             this.startedAt = startedAt;
         }
 
-        private void addChunks(final Iterable<PreparedChunkPlan> additions) {
+        private void addChunks(final Iterable<PreparedChunkPlan> additions,
+            final boolean fallbackOwner) {
+            boolean changed = false;
             for (PreparedChunkPlan chunkPlan : additions) {
                 long packed = chunkPlan.chunk().pack();
                 if (chunks.putIfAbsent(packed, chunkPlan) != null) continue;
                 PlanStatistics statistics = WarheadPlanCompiler.statistics(chunkPlan);
+                plannedStatistics = plannedStatistics.add(statistics);
                 plannedCells += Math.toIntExact(Math.min(Integer.MAX_VALUE,
                     statistics.changedBlocks()));
                 for (WarheadMutationCategory category : WarheadMutationCategory.values()) {
@@ -297,18 +354,29 @@ public final class WarheadPreparedCommitManager {
                 if (!hasImmediate(chunkPlan)) initial |= IMMEDIATE_APPLIED;
                 if (!hasRadial(chunkPlan)) initial |= RADIAL_APPLIED;
                 appliedPhases.put(packed, initial);
+                (fallbackOwner ? fallbackOwners : preparedOwners).add(packed);
+                WarheadLifecycleDiagnostics.chunkOwnership(plan.impactId(), packed,
+                    fallbackOwner);
+                changed = true;
             }
+            if (changed) WarheadLifecycleDiagnostics.planExtended(plan.impactId(),
+                plannedStatistics);
         }
 
         private void advance(final ServerLevel level) {
             int age = (int)Math.max(0L, level.getGameTime() - startedAt);
-            if (WarheadPreparationCoordinator.impactStreamState(level,
-                preparationId, plan.impactId()) == ImpactStreamState.FAILED) {
-                startFallback(level);
-                return;
+            ImpactStreamState streamState = WarheadPreparationCoordinator.impactStreamState(
+                level, preparationId, plan.impactId());
+            if (streamState == ImpactStreamState.FAILED) {
+                startFallback(level, "prepared_stream_detached_complete_fallback");
+                compileDetachedFallback(level);
+            } else {
+                addChunks(WarheadPreparationCoordinator.drainPreparedChunks(level,
+                    preparationId, plan.impactId()), false);
+                addChunks(WarheadPreparationCoordinator.compileFallbackChunks(level,
+                    preparationId, plan.impactId(), MAX_FALLBACK_COMPILES_PER_TICK,
+                    FALLBACK_COMPILE_BUDGET_NANOS), true);
             }
-            addChunks(WarheadPreparationCoordinator.drainPreparedChunks(level,
-                preparationId, plan.impactId()));
             applyAvailable(level, age);
             double radius = plan.footprint().maximumMutationRadius()
                 * Math.min(1.0, age / (double)Math.max(1, FINAL_APPLICATION_TICK));
@@ -328,15 +396,76 @@ public final class WarheadPreparedCommitManager {
             }
         }
 
-        private void startFallback(final ServerLevel level) {
+        private void startFallback(final ServerLevel level, final String reason) {
             if (fallbackStarted) return;
             fallbackStarted = true;
-            WarMod.LOGGER.error("Prepared terrain stream failed for {}; starting the "
-                + "bounded degraded terrain path", plan.impactId());
-            WarheadLifecycleDiagnostics.fallbackStarted(plan.impactId(),
-                "prepared_stream_failed");
-            WarheadExplosionWorkManager.detonateTerrainOnly(level, sourcePlayer(level),
-                plan.impactId(), plan.center(), yield, visualSeed, customFire);
+            fallbackLeaseId = UUID.randomUUID();
+            fallbackMetadata = WarheadStateMetadata.capture(level);
+            fallbackPalette = WarheadStatePalette.capture();
+            PreparedImpactSpec impact = new PreparedImpactSpec(plan.impactId(),
+                plan.center(), yield.payloadType(), yield, visualSeed, customFire);
+            fallbackRequirements = List.of(new WarheadSnapshotRequirement(impact,
+                plan.footprint()));
+            ArrayList<Long> missing = new ArrayList<>();
+            for (long packed : plan.footprint().requiredChunks()) {
+                if (!chunks.containsKey(packed)) missing.add(packed);
+            }
+            missing.sort(java.util.Comparator.comparingInt((Long packed) ->
+                WarheadPlanCompiler.radialActivationTick(plan.center(),
+                    plan.footprint().maximumMutationRadius(),
+                    ChunkPos.unpack(packed.longValue())))
+                .thenComparingLong(Long::longValue));
+            fallbackQueue = new ArrayDeque<>(missing);
+            WarheadPreparationLeaseManager.acquireOrReplace(level, fallbackLeaseId,
+                plan.center(), plan.footprint(), level.getGameTime() + 1_200L);
+            WarMod.LOGGER.error("Prepared terrain stream failed for {}; assigning {} "
+                + "missing chunks to the complete bounded live compiler", plan.impactId(),
+                fallbackQueue.size());
+            WarheadLifecycleDiagnostics.fallbackStarted(plan.impactId(), reason);
+            WarheadLifecycleDiagnostics.ownershipPlanned(plan.impactId(),
+                preparedOwners.size(), fallbackQueue.size());
+        }
+
+        private void compileDetachedFallback(final ServerLevel level) {
+            if (!fallbackStarted || fallbackQueue == null || fallbackQueue.isEmpty()) return;
+            long deadline = System.nanoTime() + FALLBACK_COMPILE_BUDGET_NANOS;
+            int inspected = 0;
+            int limit = Math.min(fallbackQueue.size(), MAX_FALLBACK_COMPILES_PER_TICK);
+            while (inspected < limit && System.nanoTime() < deadline) {
+                long packed = fallbackQueue.removeFirst();
+                inspected++;
+                if (chunks.containsKey(packed)) continue;
+                if (!WarheadPreparationLeaseManager.chunkReady(level, fallbackLeaseId,
+                    packed)) {
+                    fallbackQueue.addLast(packed);
+                    continue;
+                }
+                WarheadChunkSnapshot snapshot = WarheadWorldSnapshotter.capture(level,
+                    ChunkPos.unpack(packed), fallbackRequirements, fallbackMetadata);
+                if (snapshot == null) {
+                    fallbackQueue.addLast(packed);
+                    continue;
+                }
+                try {
+                    snapshot.preflight();
+                    PreparedChunkPlan compiled = WarheadPlanCompiler.compile(
+                        fallbackRequirements.getFirst().impact(), plan.footprint(),
+                        snapshot, fallbackPalette);
+                    addChunks(List.of(compiled), true);
+                    WarheadLifecycleDiagnostics.chunkPrepared(level, plan.impactId());
+                } catch (Throwable failure) {
+                    fallbackQueue.addLast(packed);
+                    WarMod.LOGGER.error("Complete live-fallback compile failed for impact {} "
+                        + "chunk {}; ownership retained for retry", plan.impactId(),
+                        ChunkPos.unpack(packed), failure);
+                }
+            }
+        }
+
+        private void releaseFallbackLease(final ServerLevel level) {
+            if (fallbackLeaseId == null) return;
+            WarheadPreparationLeaseManager.release(level, fallbackLeaseId);
+            fallbackLeaseId = null;
         }
 
         private void applyAvailable(final ServerLevel level, final int age) {
@@ -738,7 +867,6 @@ public final class WarheadPreparedCommitManager {
         }
 
         private boolean complete(final ServerLevel level) {
-            if (fallbackStarted) return true;
             if (!markerSent || pendingSync > 0 || !allPhasesApplied(level)) return false;
             if (pendingAcknowledgements.isEmpty()) return true;
             if (level.getGameTime() - markerSentAt < CLIENT_ACK_TIMEOUT_TICKS) return false;
@@ -748,7 +876,9 @@ public final class WarheadPreparedCommitManager {
         }
 
         private boolean allPhasesApplied(final ServerLevel level) {
-            if (!WarheadPreparationCoordinator.impactStreamClosed(level,
+            if (fallbackStarted) {
+                if (fallbackQueue == null || !fallbackQueue.isEmpty()) return false;
+            } else if (!WarheadPreparationCoordinator.impactStreamClosed(level,
                 preparationId, plan.impactId())) return false;
             for (long packed : plan.footprint().requiredChunks()) {
                 if (!appliedPhases.containsKey(packed)) return false;

@@ -97,6 +97,28 @@ final class FireVisualRepresentationBuilderTest {
     }
 
     @Test
+    void everyNearPatchSurvivesBeyondSinglePacketCapacity() {
+        ArrayList<FireCellSnapshot> patches = new ArrayList<>();
+        long id = 1L;
+        for (int x = -36; x <= 36 && patches.size() < 1_500; x++) {
+            for (int z = -36; z <= 36 && patches.size() < 1_500; z++) {
+                patches.add(patch(id++, x, z));
+            }
+        }
+
+        var result = FireVisualRepresentationBuilder.build(patches,
+            new Vec3(0.0, 64.0, 0.0));
+        List<FireVisualCell> near = result.cells().stream()
+            .filter(cell -> cell.band() == FireVisualBand.PATCH).toList();
+
+        assertEquals(patches.size(), near.size());
+        assertEquals(patches.size(), ids(near).size());
+        assertTrue(result.cells().size() > ClientboundFireStatePayload.MAX_CELLS,
+            "large complete representations must be paged, not truncated");
+        assertEquals(0, result.omittedCellsByBand().get(FireVisualBand.PATCH));
+    }
+
+    @Test
     void populationChangesDoNotResizeAggregateBandGrids() {
         ArrayList<FireCellSnapshot> sparse = new ArrayList<>();
         ArrayList<FireCellSnapshot> dense = new ArrayList<>();

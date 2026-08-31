@@ -34,8 +34,7 @@ public final class FireVisualRepresentationBuilder {
         if (validPatches.isEmpty()) return Representation.empty();
         List<HostSample> hosts = aggregateHosts(validPatches);
         Map<Long, Float> hostEnergy = hostEnergy(validPatches);
-        ArrayList<FireVisualCell> cells = new ArrayList<>(
-            ClientboundFireStatePayload.MAX_CELLS);
+        ArrayList<FireVisualCell> cells = new ArrayList<>();
         EnumMap<FireVisualBand, Integer> sourceHosts = new EnumMap<>(FireVisualBand.class);
         EnumMap<FireVisualBand, Integer> cellCounts = new EnumMap<>(FireVisualBand.class);
         EnumMap<FireVisualBand, Integer> cellSizes = new EnumMap<>(FireVisualBand.class);
@@ -57,10 +56,6 @@ public final class FireVisualRepresentationBuilder {
         }
         cells.sort(Comparator.comparingInt((FireVisualCell cell) -> cell.band().wireId())
             .thenComparingLong(FireVisualCell::id));
-        if (cells.size() > ClientboundFireStatePayload.MAX_CELLS) {
-            throw new IllegalStateException("Fire representation exceeded packet capacity: "
-                + cells.size());
-        }
         return new Representation(List.copyOf(cells), FireVisualBand.COMPLETE_MASK,
             hosts.size(), Map.copyOf(sourceHosts), Map.copyOf(cellCounts),
             Map.copyOf(cellSizes), Map.copyOf(omittedCells));
@@ -74,7 +69,8 @@ public final class FireVisualRepresentationBuilder {
                 continue;
             candidates.add(patchCell(patch, clumpStrength(patch.anchor().host(), hostEnergy)));
         }
-        return bounded(FireVisualBand.PATCH, candidates, viewer);
+        candidates.sort(Comparator.comparingLong(FireVisualCell::id));
+        return new BandResult(List.copyOf(candidates), 0);
     }
 
     private static BandResult buildHosts(final List<HostSample> hosts,
@@ -165,10 +161,12 @@ public final class FireVisualRepresentationBuilder {
         int subZ = Mth.clamp((int)Math.floor(patch.anchor().localZ() * 8.0F), 0, 7);
         float extent = Mth.clamp((0.08F + patch.coverage() * 0.50F)
             * (1.0F + clumpStrength * 0.22F), 0.16F, 0.72F);
-        return new FireVisualCell(patchCellId(patch.id()), hostCellId(host),
+        float flameEnvelope = flameEnvelopeHeight(patch.intensity(), patch.coverage(),
+            patch.heat(), clumpStrength, patch.phase());
+        return new FireVisualCell(patchCellId(patch.anchor(), subX, subZ), hostCellId(host),
             FireVisualBand.PATCH, 1, host.getX(), host.getY(), host.getZ(), position,
             new Vec3(extent, extent, extent), 1L << (subZ * 8 + subX),
-            flameEnergy, smokeMass, Math.max(0.0F, patch.heat()),
+            flameEnergy, flameEnvelope, smokeMass, Math.max(0.0F, patch.heat()),
             Math.max(0.0F, patch.intensity()), Math.max(0.0F, patch.coverage()),
             clumpStrength, patch.wind(), 1, patch.seed(), patch.anchor().face(),
             patch.phase(), patch.ignitionGameTime());
@@ -181,9 +179,25 @@ public final class FireVisualRepresentationBuilder {
             cellId(FireVisualBand.LOCAL, FireVisualBand.LOCAL.preferredCellSize(), local),
             FireVisualBand.HOST, 1, host.host().getX(), host.host().getY(),
             host.host().getZ(), host.position(), new Vec3(0.5, 0.5, 0.5), 1L << 36,
-            host.flameEnergy(), host.smokeMass(), host.maximumHeat(),
+            host.flameEnergy(), host.flameEnvelopeHeight()
+                * (1.0F + clumpStrength * 0.55F), host.smokeMass(), host.maximumHeat(),
             host.averageIntensity(), host.coveredArea(), clumpStrength, host.wind(), 1,
             host.seed(), host.dominantFace(), host.phase(), host.ignitionGameTime());
+    }
+
+    private static float flameEnvelopeHeight(final float intensity,
+        final float coverage, final float heat, final float clumpStrength,
+        final FirePhase phase) {
+        float stage = switch (phase) {
+            case IGNITION -> 0.45F;
+            case GROWING -> 0.65F + Math.min(1.0F, Math.max(0.0F, coverage)) * 0.35F;
+            case FLAMING -> 1.0F;
+            case DECAYING -> 0.72F;
+            case SMOLDERING -> 0.24F;
+        };
+        return Math.max(0.05F, (0.22F + Math.max(0.0F, intensity) * 1.85F)
+            * stage * (1.0F + Math.max(0.0F, clumpStrength) * 0.55F)
+            * (0.82F + Math.min(1.2F, Math.max(0.0F, heat)) * 0.18F));
     }
 
     private static Map<Long, Float> hostEnergy(final List<FireCellSnapshot> patches) {
@@ -261,8 +275,13 @@ public final class FireVisualRepresentationBuilder {
             .toList();
     }
 
-    private static long patchCellId(final long patchId) {
-        return positiveId(mix(0x50415443485F4944L ^ patchId));
+    private static long patchCellId(final com.andye.warmod.fire.FireSurfaceAnchor anchor,
+        final int subX, final int subZ) {
+        int subY = Mth.clamp((int)Math.floor(anchor.localY() * 8.0F), 0, 7);
+        long surface = anchor.host().asLong()
+            ^ ((long)anchor.face().ordinal() << 58)
+            ^ ((long)subX << 6) ^ ((long)subY << 3) ^ subZ;
+        return positiveId(mix(0x50415443485F4944L ^ surface));
     }
 
     private static long hostCellId(final BlockPos host) {
@@ -307,7 +326,7 @@ public final class FireVisualRepresentationBuilder {
     private record BandResult(List<FireVisualCell> cells, int omittedCells) { }
     private record CellCoordinate(int x, int y, int z) { }
     private record HostSample(BlockPos host, Vec3 position, float flameEnergy,
-        float smokeMass, float maximumHeat, float averageIntensity,
+        float flameEnvelopeHeight, float smokeMass, float maximumHeat, float averageIntensity,
         float coveredArea, Vec3 wind, long seed, Direction dominantFace,
         FirePhase phase, long ignitionGameTime) { }
 
@@ -316,6 +335,7 @@ public final class FireVisualRepresentationBuilder {
         private final double[] faceEnergy = new double[Direction.values().length];
         private double weight, x, y, z, windX, windY, windZ;
         private double flameEnergy, smokeMass, intensity, coveredArea;
+        private float flameEnvelopeHeight;
         private float maximumHeat;
         private long seed;
         private long ignitionGameTime = Long.MAX_VALUE;
@@ -338,6 +358,9 @@ public final class FireVisualRepresentationBuilder {
                 patch.intensity() * patch.coverage() * (0.25 + patch.heat() * 0.75));
             double sampleSmoke = Math.max(0.0, patch.smoke() * patch.coverage());
             flameEnergy += sampleFlame; smokeMass += sampleSmoke;
+            flameEnvelopeHeight = Math.max(flameEnvelopeHeight,
+                flameEnvelopeHeight(patch.intensity(), patch.coverage(), patch.heat(),
+                    0.0F, patch.phase()));
             coveredArea += Math.max(0.0, patch.coverage());
             intensity += patch.intensity() * sampleWeight;
             maximumHeat = Math.max(maximumHeat, patch.heat());
@@ -357,7 +380,7 @@ public final class FireVisualRepresentationBuilder {
                 if (faceEnergy[index] > faceEnergy[face]) face = index;
             }
             return new HostSample(host, new Vec3(x / safe, y / safe, z / safe),
-                (float)flameEnergy, (float)smokeMass, maximumHeat,
+                (float)flameEnergy, flameEnvelopeHeight, (float)smokeMass, maximumHeat,
                 (float)(intensity / safe), (float)coveredArea,
                 new Vec3(windX / safe, windY / safe, windZ / safe),
                 seed == 0L ? mix(host.asLong()) : seed, Direction.values()[face], phase,
@@ -368,6 +391,7 @@ public final class FireVisualRepresentationBuilder {
     private static final class CellAccumulator {
         private double weight, x, y, z, windX, windY, windZ;
         private double flameEnergy, smokeMass, intensity, coveredArea;
+        private float flameEnvelopeHeight;
         private float maximumHeat;
         private int minimumX = Integer.MAX_VALUE, minimumY = Integer.MAX_VALUE,
             minimumZ = Integer.MAX_VALUE;
@@ -392,6 +416,8 @@ public final class FireVisualRepresentationBuilder {
             windY += host.wind().y * sampleWeight;
             windZ += host.wind().z * sampleWeight;
             flameEnergy += host.flameEnergy(); smokeMass += host.smokeMass();
+            flameEnvelopeHeight = Math.max(flameEnvelopeHeight,
+                host.flameEnvelopeHeight());
             intensity += host.averageIntensity() * sampleWeight;
             coveredArea += host.coveredArea();
             maximumHeat = Math.max(maximumHeat, host.maximumHeat());
@@ -441,7 +467,7 @@ public final class FireVisualRepresentationBuilder {
                 coordinate.x(), coordinate.y(), coordinate.z(),
                 new Vec3(x / safe, y / safe, z / safe), extents,
                 occupancyMask == 0L ? 1L : occupancyMask,
-                (float)flameEnergy, (float)smokeMass, maximumHeat,
+                (float)flameEnergy, flameEnvelopeHeight, (float)smokeMass, maximumHeat,
                 (float)(intensity / safe), (float)coveredArea, 0.0F,
                 new Vec3(windX / safe, windY / safe, windZ / safe), hosts,
                 seed == 0L ? id : seed, Direction.values()[face], phase,

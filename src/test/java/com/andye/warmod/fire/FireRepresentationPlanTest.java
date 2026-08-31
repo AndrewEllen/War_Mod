@@ -21,7 +21,7 @@ final class FireRepresentationPlanTest {
         assertTrue(near.flames().size() > far.flames().size());
         double farArea = FireRepresentationPlan.equivalentArea(far.flames());
         assertEquals(farArea, FireRepresentationPlan.equivalentArea(near.flames()),
-            farArea * 0.15);
+            farArea * 0.10);
         assertEquals(opticalDepth(far.smoke()), opticalDepth(near.smoke()), 0.001);
         int common = Math.min(far.flames().size(), near.flames().size());
         for (int index = 0; index < common; index++)

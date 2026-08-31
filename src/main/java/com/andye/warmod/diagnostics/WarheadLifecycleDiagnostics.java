@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Per-impact evidence for the prepared nuclear terrain lifecycle. Values that
@@ -131,15 +132,27 @@ public final class WarheadLifecycleDiagnostics {
     }
 
     public static synchronized void impactAttempt(final ServerLevel level,
-        final UUID impactId, final double readinessPercent, final String fallbackReason) {
+        final UUID impactId, final double readinessPercent, final String fallbackReason,
+        final Vec3 requestedCenter, final Vec3 resolvedCenter) {
         Lifecycle lifecycle = IMPACTS.computeIfAbsent(impactId, Lifecycle::new);
         lifecycle.actualImpactTick = level == null ? -1L : level.getGameTime();
+        lifecycle.requestedImpactCenter = requestedCenter;
+        lifecycle.resolvedImpactCenter = resolvedCenter;
         lifecycle.planReadinessPercentAtAttempt = Math.max(0.0,
             Math.min(100.0, readinessPercent));
         if (fallbackReason != null && !fallbackReason.isBlank()) {
             lifecycle.fallbackReason = fallbackReason;
         }
         trim();
+    }
+
+    public static synchronized void snapshotDomainFailure(final UUID impactId,
+        final String domain, final int sectionY, final String coverage) {
+        Lifecycle lifecycle = IMPACTS.get(impactId);
+        if (lifecycle == null) return;
+        lifecycle.snapshotDomainFailures++;
+        lifecycle.lastSnapshotDomainFailure = String.valueOf(domain) + '@' + sectionY
+            + ':' + String.valueOf(coverage);
     }
 
     public static synchronized void chunkPrepared(final ServerLevel level,
@@ -276,11 +289,46 @@ public final class WarheadLifecycleDiagnostics {
         lifecycle.leakStatus = "WAITING_FOR_SHARED_LEASE_RELEASE";
     }
 
+    public static synchronized void chunkOwnership(final UUID impactId,
+        final long packedChunk, final boolean fallback) {
+        Lifecycle lifecycle = IMPACTS.get(impactId);
+        if (lifecycle == null) return;
+        (fallback ? lifecycle.fallbackOwnerChunkIds
+            : lifecycle.preparedOwnerChunkIds).add(packedChunk);
+    }
+
+    public static synchronized void ownershipPlanned(final UUID impactId,
+        final int preparedChunks, final int fallbackChunks) {
+        Lifecycle lifecycle = IMPACTS.get(impactId);
+        if (lifecycle == null) return;
+        lifecycle.preparedOwnersPlanned = Math.max(lifecycle.preparedOwnersPlanned,
+            Math.max(0, preparedChunks));
+        lifecycle.fallbackOwnersPlanned = Math.max(lifecycle.fallbackOwnersPlanned,
+            Math.max(0, fallbackChunks));
+    }
+
+    public static synchronized void planExtended(final UUID impactId,
+        final PlanStatistics statistics) {
+        Lifecycle lifecycle = IMPACTS.get(impactId);
+        if (lifecycle == null || statistics == null) return;
+        lifecycle.changedChunksPlanned = statistics.changedChunks();
+        lifecycle.changedSectionsPlanned = statistics.changedSections();
+        lifecycle.changedBlocksPlanned = statistics.changedBlocks();
+        lifecycle.changedBiomeQuartsPlanned = statistics.changedBiomeQuarts();
+        lifecycle.specialPathPlanned = statistics.semanticMutations();
+        lifecycle.bulkSafePlanned = Math.max(0L,
+            statistics.changedBlocks() - statistics.semanticMutations());
+        lifecycle.plannedCategories = statistics.categories();
+        lifecycle.replacementHistogram = statistics.replacementHistogram();
+        lifecycle.peakPlanMemoryEstimate = Math.max(lifecycle.peakPlanMemoryEstimate,
+            statistics.estimatedBytes());
+    }
+
     public static synchronized void fallbackStarted(final UUID impactId,
         final String reason) {
         Lifecycle lifecycle = IMPACTS.get(impactId);
         if (lifecycle != null) lifecycle.fallbackReason = reason == null
-            ? "prepared_stream_failed" : reason;
+            ? "prepared_stream_detached_complete_fallback" : reason;
     }
 
     public static synchronized void leaseReleased(final ServerLevel level,
@@ -351,6 +399,11 @@ public final class WarheadLifecycleDiagnostics {
             .append(", readinessAtImpact=")
             .append(String.format(Locale.ROOT, "%.2f%%", value.planReadinessPercentAtAttempt))
             .append(", actualImpactTick=").append(value.actualImpactTick)
+            .append(", requestedCenter=").append(value.requestedImpactCenter)
+            .append(", resolvedCenter=").append(value.resolvedImpactCenter)
+            .append(", snapshotDomainFailures=").append(value.snapshotDomainFailures)
+            .append(", lastSnapshotDomainFailure=").append(
+                value.lastSnapshotDomainFailure)
             .append(", visualImpactTick=").append(value.visualImpactTick)
             .append(", entityBlastTick=").append(value.entityBlastTick)
             .append(", impactSealedTick=").append(value.impactSealedTick)
@@ -359,6 +412,10 @@ public final class WarheadLifecycleDiagnostics {
             .append(", compilingChunksAtSeal=").append(value.compilingChunksAtSeal)
             .append(", unsnapshottedChunksAtSeal=").append(
                 value.unsnapshottedChunksAtSeal)
+            .append(", preparedOwners=").append(value.preparedOwnerChunkIds.size())
+            .append('/').append(value.preparedOwnersPlanned)
+            .append(", fallbackOwners=").append(value.fallbackOwnerChunkIds.size())
+            .append('/').append(value.fallbackOwnersPlanned)
             .append(", detonationGateWaitTicks=").append(
                 delta(value.actualImpactTick, value.impactSealedTick))
             .append(", firstCommitTick=").append(value.firstAuthoritativeCommitTick)
@@ -498,6 +555,10 @@ public final class WarheadLifecycleDiagnostics {
         private long planReadyTick = -1L;
         private double planReadinessPercentAtAttempt;
         private long actualImpactTick = -1L;
+        private Vec3 requestedImpactCenter;
+        private Vec3 resolvedImpactCenter;
+        private long snapshotDomainFailures;
+        private String lastSnapshotDomainFailure = "none";
         private long visualImpactTick = -1L;
         private long entityBlastTick = -1L;
         private long impactSealedTick = -1L;
@@ -505,6 +566,10 @@ public final class WarheadLifecycleDiagnostics {
         private long preparedChunksAtSeal;
         private long compilingChunksAtSeal;
         private long unsnapshottedChunksAtSeal;
+        private long preparedOwnersPlanned;
+        private long fallbackOwnersPlanned;
+        private final HashSet<Long> preparedOwnerChunkIds = new HashSet<>();
+        private final HashSet<Long> fallbackOwnerChunkIds = new HashSet<>();
         private long firstAuthoritativeCommitTick = -1L;
         private long lastAuthoritativeBlockCommitTick = -1L;
         private long lastBiomeCommitTick = -1L;

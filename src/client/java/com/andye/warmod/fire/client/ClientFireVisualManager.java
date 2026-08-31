@@ -23,7 +23,7 @@ import net.minecraft.world.phys.Vec3;
 public final class ClientFireVisualManager {
     public static final ClientFireVisualManager INSTANCE = new ClientFireVisualManager();
     private static final int EXPIRY_TICKS = 160;
-    private static final int REPRESENTATION_TRANSITION_TICKS = 8;
+    private static final int REPRESENTATION_TRANSITION_TICKS = 16;
     private static final int SMOKE_RETIRE_TICKS = 48;
 
     private final EnumMap<FireVisualBand, LinkedHashMap<Long, CellVisual>> cells =
@@ -31,8 +31,9 @@ public final class ClientFireVisualManager {
     private final LinkedHashMap<BandCellKey, CellVisual> retiringCells =
         new LinkedHashMap<>();
     private final Map<Long, EmberVisual> embers = new LinkedHashMap<>();
-    private final Map<Long, Integer> lodLevels = new LinkedHashMap<>();
+    private final Map<HierarchyLodKey, Integer> lodLevels = new LinkedHashMap<>();
     private final ArrayDeque<FireWindImpulse> windImpulses = new ArrayDeque<>();
+    private PendingPageTransaction pendingPages;
     private ClientLevel activeLevel;
     private long highestGeneration = Long.MIN_VALUE;
 
@@ -47,16 +48,36 @@ public final class ClientFireVisualManager {
             GpuParticleEngine.recordFirePacket(false, false, 0, storedCellCount());
             return;
         }
-        if (payload.generation() <= highestGeneration) {
+        ClientboundFireStatePayload accepted = payload;
+        if (payload.pageCount() > 1) {
+            if (payload.generation() <= highestGeneration) {
+                GpuParticleEngine.recordFirePacket(false, true, 0, storedCellCount());
+                return;
+            }
+            if (pendingPages == null || !pendingPages.matches(payload)) {
+                pendingPages = new PendingPageTransaction(payload);
+            }
+            pendingPages.accept(payload);
+            if (!pendingPages.complete()) {
+                GpuParticleEngine.recordFirePacket(true, false,
+                    payload.cells().size(), storedCellCount());
+                return;
+            }
+            accepted = pendingPages.merge();
+            pendingPages = null;
+        } else if (payload.generation() <= highestGeneration) {
             GpuParticleEngine.recordFirePacket(false, true, 0, storedCellCount());
             return;
+        } else if (pendingPages != null
+            && payload.generation() >= pendingPages.generation) {
+            pendingPages = null;
         }
-        highestGeneration = payload.generation();
+        highestGeneration = accepted.generation();
         long receivedAt = level.getGameTime();
-        acceptCells(payload, receivedAt);
+        acceptCells(accepted, receivedAt);
 
-        HashSet<Long> receivedEmbers = new HashSet<>(payload.embers().size());
-        for (ClientboundFireStatePayload.EmberEntry entry : payload.embers()) {
+        HashSet<Long> receivedEmbers = new HashSet<>(accepted.embers().size());
+        for (ClientboundFireStatePayload.EmberEntry entry : accepted.embers()) {
             receivedEmbers.add(entry.id());
             Vec3 incoming = new Vec3(entry.x(), entry.y(), entry.z());
             Vec3 velocity = new Vec3(entry.velocityX(), entry.velocityY(), entry.velocityZ());
@@ -64,12 +85,13 @@ public final class ClientFireVisualManager {
             EmberVisual visual = embers.get(entry.id());
             if (visual == null) embers.put(entry.id(), new EmberVisual(entry.id(), incoming,
                 velocity, wind, entry.intensity(), entry.seed(), entry.startGameTime(),
-                entry.lifetime(), payload.serverGameTime(), receivedAt));
+                entry.lifetime(), accepted.serverGameTime(), receivedAt));
             else visual.accept(incoming, velocity, wind, entry.intensity(), entry.seed(),
-                entry.startGameTime(), entry.lifetime(), payload.serverGameTime(), receivedAt);
+                entry.startGameTime(), entry.lifetime(), accepted.serverGameTime(), receivedAt);
         }
-        if (payload.emberComplete()) embers.keySet().removeIf(id -> !receivedEmbers.contains(id));
-        GpuParticleEngine.recordFirePacket(true, false, payload.cells().size(), storedCellCount());
+        if (accepted.emberComplete()) embers.keySet().removeIf(id -> !receivedEmbers.contains(id));
+        GpuParticleEngine.recordFirePacket(true, false,
+            accepted.cells().size(), storedCellCount());
     }
 
     private void acceptCells(final ClientboundFireStatePayload payload,
@@ -168,11 +190,16 @@ public final class ClientFireVisualManager {
             bandCells.values().removeIf(cell -> now - cell.lastSeenClientTick > EXPIRY_TICKS);
         retiringCells.values().removeIf(cell -> cell.transitionWeight(now) <= 0.0F);
         if ((now & 15L) == 0L) {
-            HashSet<Long> active = new HashSet<>();
-            for (LinkedHashMap<Long, CellVisual> bandCells : cells.values())
-                active.addAll(bandCells.keySet());
-            for (BandCellKey key : retiringCells.keySet()) active.add(key.id());
-            lodLevels.keySet().removeIf(id -> !active.contains(id));
+            HashSet<HierarchyLodKey> active = new HashSet<>();
+            for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) {
+                for (CellVisual visual : bandCells.values()) {
+                    active.add(HierarchyLodKey.of(visual.cell));
+                }
+            }
+            for (CellVisual visual : retiringCells.values()) {
+                active.add(HierarchyLodKey.of(visual.cell));
+            }
+            lodLevels.keySet().removeIf(key -> !active.contains(key));
         }
         Iterator<EmberVisual> emberIterator = embers.values().iterator();
         while (emberIterator.hasNext()) {
@@ -224,22 +251,29 @@ public final class ClientFireVisualManager {
         return length > 2.5 ? result.scale(2.5 / length) : result;
     }
 
-    public synchronized int lodLevel(final ClientLevel level, final long cellId,
+    public synchronized int lodLevel(final ClientLevel level, final FireVisualCell cell,
         final double projectedDiameter) {
         if (level == null || activeLevel != level) {
             return com.andye.warmod.fire.FireVisualLodPolicy.level(projectedDiameter);
         }
-        int previous = lodLevels.getOrDefault(cellId,
+        HierarchyLodKey key = HierarchyLodKey.of(cell);
+        int previous = lodLevels.getOrDefault(key,
             com.andye.warmod.fire.FireVisualLodPolicy.level(projectedDiameter));
         int next = com.andye.warmod.fire.FireVisualLodPolicy.level(
             projectedDiameter, previous);
-        lodLevels.put(cellId, next);
+        lodLevels.put(key, next);
+        if (next != previous) {
+            com.andye.warmod.diagnostics.WarModPerformanceDiagnostics.add(
+                com.andye.warmod.diagnostics.WarModPerformanceDiagnostics.Gauge
+                    .FIRE_LOD_TRANSITIONS, 1L);
+        }
         return next;
     }
 
     public synchronized void clear() {
         for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) bandCells.clear();
         retiringCells.clear(); embers.clear(); windImpulses.clear(); lodLevels.clear();
+        pendingPages = null;
         ClientSmokeFlowField.INSTANCE.clear();
         highestGeneration = Long.MIN_VALUE;
         activeLevel = null;
@@ -250,6 +284,7 @@ public final class ClientFireVisualManager {
         if (activeLevel != level) {
             for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) bandCells.clear();
             retiringCells.clear(); embers.clear(); windImpulses.clear(); lodLevels.clear();
+            pendingPages = null;
             ClientSmokeFlowField.INSTANCE.clear();
             highestGeneration = Long.MIN_VALUE;
             activeLevel = level;
@@ -276,6 +311,70 @@ public final class ClientFireVisualManager {
     public record EmberTrailSample(Vec3 position, Vec3 wind, long gameTime) { }
 
     private record BandCellKey(FireVisualBand band, long id) { }
+    private record HierarchyLodKey(int x, int y, int z) {
+        private static HierarchyLodKey of(final FireVisualCell cell) {
+            int rootSize = FireVisualBand.HORIZON.preferredCellSize();
+            int cellVerticalSize = Math.max(1, cell.cellSize() / 2);
+            int rootVerticalSize = Math.max(1, rootSize / 2);
+            int worldX = cell.cellX() * cell.cellSize();
+            int worldY = cell.cellY() * cellVerticalSize;
+            int worldZ = cell.cellZ() * cell.cellSize();
+            return new HierarchyLodKey(
+                Math.floorDiv(worldX, rootSize),
+                Math.floorDiv(worldY, rootVerticalSize),
+                Math.floorDiv(worldZ, rootSize));
+        }
+    }
+
+    static final class PendingPageTransaction {
+        private final long generation;
+        private final long transactionId;
+        private final int pageCount;
+        private final ClientboundFireStatePayload[] pages;
+        private int received;
+
+        PendingPageTransaction(final ClientboundFireStatePayload first) {
+            generation = first.generation();
+            transactionId = first.pageTransactionId();
+            pageCount = first.pageCount();
+            pages = new ClientboundFireStatePayload[pageCount];
+        }
+
+        boolean matches(final ClientboundFireStatePayload page) {
+            return page.generation() == generation
+                && page.pageTransactionId() == transactionId
+                && page.pageCount() == pageCount;
+        }
+
+        void accept(final ClientboundFireStatePayload page) {
+            if (!matches(page) || pages[page.pageIndex()] != null) return;
+            pages[page.pageIndex()] = page;
+            received++;
+        }
+
+        boolean complete() { return received == pageCount; }
+
+        ClientboundFireStatePayload merge() {
+            ArrayList<ClientboundFireStatePayload.CellEntry> cells = new ArrayList<>();
+            ArrayList<Long> removed = new ArrayList<>();
+            ArrayList<ClientboundFireStatePayload.EmberEntry> embers = new ArrayList<>();
+            int completeMask = 0;
+            boolean emberComplete = false;
+            long serverGameTime = 0L;
+            for (ClientboundFireStatePayload page : pages) {
+                if (page == null) throw new IllegalStateException("Incomplete fire page transaction");
+                serverGameTime = Math.max(serverGameTime, page.serverGameTime());
+                completeMask |= page.completeBandMask();
+                emberComplete |= page.emberComplete();
+                cells.addAll(page.cells());
+                removed.addAll(page.removedCellIds());
+                embers.addAll(page.embers());
+            }
+            return new ClientboundFireStatePayload(serverGameTime, generation,
+                transactionId, 0, 1, completeMask, List.copyOf(cells),
+                List.copyOf(removed), emberComplete, List.copyOf(embers));
+        }
+    }
 
     private static final class CellVisual {
         private final FireVisualCell cell;
@@ -312,6 +411,7 @@ public final class ClientFireVisualManager {
                 incoming.cellSize(), incoming.cellX(), incoming.cellY(), incoming.cellZ(),
                 cell.centroid().lerp(incoming.centroid(), 0.44), incoming.extents(),
                 incoming.occupancyMask(), lerp(cell.flameEnergy(), incoming.flameEnergy(), 0.44F),
+                lerp(cell.flameEnvelopeHeight(), incoming.flameEnvelopeHeight(), 0.44F),
                 lerp(cell.smokeMass(), incoming.smokeMass(), 0.40F),
                 lerp(cell.maximumHeat(), incoming.maximumHeat(), 0.44F),
                 lerp(cell.averageIntensity(), incoming.averageIntensity(), 0.44F),
@@ -336,11 +436,12 @@ public final class ClientFireVisualManager {
             if (transitionTargetWeight != 0.0F) return cell;
             float flameProgress = Math.max(0.0F, Math.min(1.0F,
                 (now - transitionStartTick) / (float)REPRESENTATION_TRANSITION_TICKS));
-            float flameWeight = 1.0F - flameProgress;
+            float flameWeight = 1.0F - smoothStep(flameProgress);
             return new FireVisualCell(cell.id(), cell.parentId(), cell.band(), cell.cellSize(),
                 cell.cellX(), cell.cellY(), cell.cellZ(), cell.centroid(), cell.extents(),
                 cell.occupancyMask(), cell.flameEnergy() * flameWeight,
-                cell.smokeMass(), cell.maximumHeat() * flameWeight,
+                cell.flameEnvelopeHeight(), cell.smokeMass(),
+                cell.maximumHeat() * flameWeight,
                 cell.averageIntensity() * flameWeight, cell.coveredArea(),
                 cell.clumpStrength() * flameWeight, cell.wind(), cell.hostCount(),
                 cell.seed(), cell.dominantFace(), flameWeight > 0.0F
@@ -354,7 +455,11 @@ public final class ClientFireVisualManager {
             float progress = Math.max(0.0F, Math.min(1.0F,
                 (now - transitionStartTick) / (float) transitionTicks));
             return lerp(transitionStartWeight, transitionTargetWeight,
-                progress * progress * (3.0F - 2.0F * progress));
+                smoothStep(progress));
+        }
+
+        private static float smoothStep(final float value) {
+            return value * value * (3.0F - 2.0F * value);
         }
     }
 

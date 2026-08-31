@@ -36,6 +36,27 @@ final class ImpactStreamPolicyTest {
             true, true, required, compiled, empty));
     }
 
+    @Test
+    void allTacticalChunksCanReachPreparedOrFallbackOwnership() {
+        LongOpenHashSet required = new LongOpenHashSet();
+        LongOpenHashSet prepared = new LongOpenHashSet();
+        LongOpenHashSet fallback = new LongOpenHashSet();
+        for (long packed = 0; packed < 1_041; packed++) {
+            required.add(packed);
+            if (packed % 17 == 0) fallback.add(packed);
+            else prepared.add(packed);
+        }
+
+        assertTrue(ImpactStreamPolicy.containsAllOwnedChunks(required, prepared, fallback));
+        fallback.remove(17L);
+        assertFalse(ImpactStreamPolicy.containsAllOwnedChunks(required, prepared, fallback));
+        prepared.add(17L);
+        assertTrue(ImpactStreamPolicy.containsAllOwnedChunks(required, prepared, fallback));
+        fallback.add(17L);
+        assertFalse(ImpactStreamPolicy.containsAllOwnedChunks(required, prepared, fallback),
+            "a required chunk cannot be owned by both compiler paths");
+    }
+
     private static LongOpenHashSet set(final long... values) {
         LongOpenHashSet result = new LongOpenHashSet();
         for (long value : values) result.add(value);

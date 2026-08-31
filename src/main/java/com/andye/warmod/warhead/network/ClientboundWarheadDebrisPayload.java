@@ -16,6 +16,7 @@ public record ClientboundWarheadDebrisPayload(
 	double originY,
 	double originZ,
 	long spawnGameTime,
+	boolean nuclear,
 	List<Entry> entries
 ) implements CustomPacketPayload {
 	private static final int MAX_ENTRIES = 320;
@@ -30,6 +31,7 @@ public record ClientboundWarheadDebrisPayload(
 			buffer.writeDouble(payload.originY);
 			buffer.writeDouble(payload.originZ);
 			buffer.writeLong(payload.spawnGameTime);
+			buffer.writeBoolean(payload.nuclear);
 			buffer.writeVarInt(payload.entries.size());
 			for (Entry entry : payload.entries) entry.write(buffer);
 		},
@@ -39,6 +41,7 @@ public record ClientboundWarheadDebrisPayload(
 			double y = buffer.readDouble();
 			double z = buffer.readDouble();
 			long gameTime = buffer.readLong();
+			boolean nuclear = buffer.readBoolean();
 			int encodedCount = Math.max(0, buffer.readVarInt());
 			int count = Math.min(MAX_ENTRIES, encodedCount);
 			List<Entry> entries = new ArrayList<>(count);
@@ -46,7 +49,8 @@ public record ClientboundWarheadDebrisPayload(
 				Entry entry = Entry.read(buffer);
 				if (index < MAX_ENTRIES) entries.add(entry);
 			}
-			return new ClientboundWarheadDebrisPayload(id, x, y, z, gameTime, List.copyOf(entries));
+			return new ClientboundWarheadDebrisPayload(id, x, y, z, gameTime,
+				nuclear, List.copyOf(entries));
 		}
 	);
 
@@ -59,6 +63,11 @@ public record ClientboundWarheadDebrisPayload(
 			|| !Double.isFinite(originZ) || entries.size() > MAX_ENTRIES) return false;
 		for (Entry entry : entries) if (entry == null || !entry.isWellFormed()) return false;
 		return true;
+	}
+
+	public ClientboundWarheadDebrisPayload withNuclear(final boolean value) {
+		return value == nuclear ? this : new ClientboundWarheadDebrisPayload(
+			impactId, originX, originY, originZ, spawnGameTime, value, entries);
 	}
 
 	@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }

@@ -31,6 +31,14 @@ void main() {
     uint id = inputAliveIds[aliveIndex];
     if (id >= particleCapacity) return;
     Particle particle = particles[id];
+    // Semantic probes are diagnostic one-frame samples. They must never persist
+    // into a later real-work health sample or contribute visible layer energy.
+    if ((particle.metadata.z & 0x8000u) != 0u) {
+        particles[id].velocity_lifetime.w = 0.0;
+        uint deadIndex = atomicAdd(deadCount, 1u);
+        if (deadIndex < particleCapacity) deadIds[deadIndex] = id;
+        return;
+    }
     float lifetime = particle.velocity_lifetime.w;
     float age = particle.position_age.w + deltaSeconds;
     if (lifetime <= 0.0 || age >= lifetime) {

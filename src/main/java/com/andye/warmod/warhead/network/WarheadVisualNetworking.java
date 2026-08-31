@@ -97,8 +97,10 @@ public final class WarheadVisualNetworking {
         final ClientboundWarheadDebrisPayload payload, final Vec3 impact) {
         if (!payload.isWellFormed() || payload.entries().isEmpty()) return;
         ImpactDescriptor descriptor = RECENT_IMPACTS.remove(payload.impactId());
-        ClientboundWarheadDebrisPayload tuned = descriptor == null ? payload
-            : WarheadDebrisVisualTuner.tune(payload, descriptor.visualScale(), descriptor.nuclear());
+        ClientboundWarheadDebrisPayload classified = descriptor == null ? payload
+            : payload.withNuclear(descriptor.nuclear());
+        ClientboundWarheadDebrisPayload tuned = descriptor == null ? classified
+            : WarheadDebrisVisualTuner.tune(classified, descriptor.visualScale(), descriptor.nuclear());
         if (tuned.isWellFormed() && !tuned.entries().isEmpty()) sendToNearby(level, tuned, impact);
     }
 

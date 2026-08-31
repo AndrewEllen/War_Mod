@@ -75,11 +75,12 @@ public final class FireNetworking {
             active.add(player.getUUID());
             ViewerState viewer = viewers.computeIfAbsent(player.getUUID(),
                 ignored -> new ViewerState());
-            ClientboundFireStatePayload payload = payload(snapshot, viewer);
-            if (!payload.isWellFormed()) continue;
-            ServerPlayNetworking.send(player, payload);
-            sent++;
-            sentCells += payload.cells().size();
+            for (ClientboundFireStatePayload payload : payloads(snapshot, viewer)) {
+                if (!payload.isWellFormed()) continue;
+                ServerPlayNetworking.send(player, payload);
+                sent++;
+                sentCells += payload.cells().size();
+            }
         }
         viewers.keySet().removeIf(id -> !active.contains(id));
         if (viewers.isEmpty()) VIEWERS.remove(level);
@@ -92,7 +93,7 @@ public final class FireNetworking {
             WarModPerformanceDiagnostics.Subsystem.FIRE_NETWORK, started);
     }
 
-    private static ClientboundFireStatePayload payload(final ViewerSnapshot snapshot,
+    private static List<ClientboundFireStatePayload> payloads(final ViewerSnapshot snapshot,
         final ViewerState viewer) {
         LinkedHashMap<Long, ClientboundFireStatePayload.CellEntry> current =
             new LinkedHashMap<>();
@@ -133,9 +134,31 @@ public final class FireNetworking {
         viewer.cells.putAll(current);
         List<ClientboundFireStatePayload.EmberEntry> embers = snapshot.embers().stream()
             .map(FireNetworking::emberEntry).toList();
-        return new ClientboundFireStatePayload(snapshot.serverGameTime(),
-            snapshot.generation(), complete ? FireVisualBand.COMPLETE_MASK : 0,
-            List.copyOf(cells), List.copyOf(removed), true, embers);
+        int pageCount = Math.max(1, Math.max(
+            divideRoundUp(cells.size(), ClientboundFireStatePayload.MAX_CELLS),
+            divideRoundUp(removed.size(), ClientboundFireStatePayload.MAX_REMOVED_CELLS)));
+        ArrayList<ClientboundFireStatePayload> pages = new ArrayList<>(pageCount);
+        for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+            int cellStart = pageIndex * ClientboundFireStatePayload.MAX_CELLS;
+            int cellEnd = Math.min(cells.size(), cellStart
+                + ClientboundFireStatePayload.MAX_CELLS);
+            int removedStart = pageIndex * ClientboundFireStatePayload.MAX_REMOVED_CELLS;
+            int removedEnd = Math.min(removed.size(), removedStart
+                + ClientboundFireStatePayload.MAX_REMOVED_CELLS);
+            List<ClientboundFireStatePayload.CellEntry> pageCells = cellStart < cellEnd
+                ? List.copyOf(cells.subList(cellStart, cellEnd)) : List.of();
+            List<Long> pageRemoved = removedStart < removedEnd
+                ? List.copyOf(removed.subList(removedStart, removedEnd)) : List.of();
+            pages.add(new ClientboundFireStatePayload(snapshot.serverGameTime(),
+                snapshot.generation(), snapshot.generation(), pageIndex, pageCount,
+                complete ? FireVisualBand.COMPLETE_MASK : 0, pageCells, pageRemoved,
+                pageIndex == 0, pageIndex == 0 ? embers : List.of()));
+        }
+        return List.copyOf(pages);
+    }
+
+    private static int divideRoundUp(final int value, final int divisor) {
+        return value <= 0 ? 0 : 1 + (value - 1) / divisor;
     }
 
     private static ClientboundFireStatePayload.EmberEntry emberEntry(

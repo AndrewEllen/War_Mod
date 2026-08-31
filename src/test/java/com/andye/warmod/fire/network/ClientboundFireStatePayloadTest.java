@@ -19,7 +19,7 @@ final class ClientboundFireStatePayloadTest {
             List.of(new ClientboundFireStatePayload.CellEntry(1L, 99L,
                 (byte) FireVisualBand.LOCAL.wireId(), 4, 2, 3, 4,
                 9.5, 13.0, 17.5, 1.5F, 2.0F, 1.5F,
-                0x0000_0000_0000_00C3L, 4.5F, 6.25F, 0.9F, 0.7F, 8.0F,
+                0x0000_0000_0000_00C3L, 4.5F, 2.4F, 6.25F, 0.9F, 0.7F, 8.0F,
                 0.6F, 0.1F, 0.0F, -0.1F, 7, 4L,
                 (byte) Direction.UP.ordinal(), (byte) FirePhase.FLAMING.ordinal(), 3L)),
             List.of(91L, 92L),

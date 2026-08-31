@@ -28,4 +28,20 @@ final class ImpactStreamPolicy {
         }
         return true;
     }
+
+    static boolean containsAllOwnedChunks(final LongSet requiredChunks,
+        final LongSet preparedChunks, final LongSet fallbackChunks) {
+        if (requiredChunks == null || preparedChunks == null || fallbackChunks == null
+            || preparedChunks.size() + fallbackChunks.size() < requiredChunks.size()) {
+            return false;
+        }
+        for (long packed : requiredChunks) {
+            boolean prepared = preparedChunks.contains(packed);
+            boolean fallback = fallbackChunks.contains(packed);
+            if (prepared == fallback) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

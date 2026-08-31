@@ -4,7 +4,6 @@ import static org.lwjgl.opengl.GL43C.*;
 
 import com.andye.warmod.WarMod;
 import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
-import com.andye.warmod.fire.FireRepresentationPlan.Card;
 import com.andye.warmod.fire.FireRepresentationPlan.CellPlan;
 import com.andye.warmod.fire.network.FireVisualBand;
 import com.andye.warmod.particle.gpu.GpuVfxScheduler.CameraInfo;
@@ -67,7 +66,9 @@ public final class GpuParticleEngine {
     public enum EffectClass {
         NUCLEAR, CONVENTIONAL, FIRE_FIELD, TERRAIN_OBSCURATION, LEGACY
     }
-    public enum LayerHealth { UNPROBED, PROBING, HEALTHY, DEGRADED, FAILED }
+    public enum LayerHealth {
+        UNPROBED, PROBING, VERIFYING, CROSSFADE, HEALTHY, DEGRADED, FAILED
+    }
 
     public enum VisualLayer {
         FIREBALL(180, 900, 5_000, 8_000, 2.20F, false),
@@ -128,7 +129,10 @@ public final class GpuParticleEngine {
     private static final int INDIRECT_COMMAND_STRIDE = 16;
     private static final int LAYER_COUNT = VisualLayer.values().length;
     private static final int TYPE_STATS_UINTS = TYPE_COUNT * 4 + 4;
-    private static final int STATS_UINTS = TYPE_STATS_UINTS + LAYER_COUNT * 4;
+    private static final int LAYER_STATS_UINTS = 8;
+    static final int SYNTHETIC_PROBE_FLAG = 1 << 15;
+    private static final int STATS_UINTS = TYPE_STATS_UINTS
+        + LAYER_COUNT * LAYER_STATS_UINTS;
     private static final int STATS_RING_SIZE = 6;
     private static final String SHADER_ROOT = "/assets/war_mod/shaders/gpu_particles/";
     private static final Set<VisualLayer> GPU_CAPABLE_LAYERS = Set.copyOf(EnumSet.of(
@@ -136,6 +140,8 @@ public final class GpuParticleEngine {
         VisualLayer.STEM,
         VisualLayer.GROUND_DUST, VisualLayer.TERRAIN_OBSCURATION,
         VisualLayer.FLAMES, VisualLayer.SMOKE, VisualLayer.EMBERS));
+    private static final GpuLayerHealthPolicy LAYER_HEALTH_POLICY =
+        new GpuLayerHealthPolicy(GPU_CAPABLE_LAYERS);
     private static final LinkedHashMap<EffectKey, PendingEffect> PENDING_EFFECTS =
         new LinkedHashMap<>();
     private static final LinkedHashMap<Long, FireFieldSubmission> PENDING_FIRE_FIELDS =
@@ -155,6 +161,12 @@ public final class GpuParticleEngine {
     private static final int[] statsBuffers = new int[STATS_RING_SIZE];
     private static final long[] statsFences = new long[STATS_RING_SIZE];
     private static final boolean[] statsInFlight = new boolean[STATS_RING_SIZE];
+    private static final long[] statsFrameSequences = new long[STATS_RING_SIZE];
+    private static final long[] statsScheduleIdentities = new long[STATS_RING_SIZE];
+    @SuppressWarnings("unchecked")
+    private static final Map<VisualLayer, GpuVfxScheduler.LayerSchedule>[]
+        statsLayerSchedules = new Map[STATS_RING_SIZE];
+    private static final VisualLayer[] statsProbeLayers = new VisualLayer[STATS_RING_SIZE];
     private static int debugParticleBuffer, debugVisibleBuffer;
     private static int updateProgram, spawnProgram, cullProgram, prepareProgram, renderProgram;
     private static PrepareUniforms prepareUniforms;
@@ -180,10 +192,10 @@ public final class GpuParticleEngine {
     private static final long[] activeByLayer = new long[LAYER_COUNT];
     private static final int[] spawnedByLayer = new int[LAYER_COUNT];
     private static final int[] rejectedByLayer = new int[LAYER_COUNT];
-    private static final int[] zeroVisibleFramesByLayer = new int[LAYER_COUNT];
-    private static final long[] layerRetryAfterFrame = new long[LAYER_COUNT];
-    private static final EnumMap<VisualLayer, LayerHealth> LAYER_HEALTH =
-        new EnumMap<>(VisualLayer.class);
+    private static final long[] distanceCulledByLayer = new long[LAYER_COUNT];
+    private static final long[] sizeCulledByLayer = new long[LAYER_COUNT];
+    private static final long[] frustumCulledByLayer = new long[LAYER_COUNT];
+    private static final long[] depthCulledByLayer = new long[LAYER_COUNT];
     @SuppressWarnings("unchecked")
     private static final ArrayDeque<Long>[] GPU_TIMES_NANOS = new ArrayDeque[] {
         new ArrayDeque<Long>(120), new ArrayDeque<Long>(120),
@@ -211,6 +223,7 @@ public final class GpuParticleEngine {
         EnumSet.noneOf(ParticleType.class);
     private static VisualLayer semanticProbeLayer;
     private static long semanticProbeStartFrame;
+    private static long newestCompletedStatsFrame = Long.MIN_VALUE;
 
     static {
         resetLayerHealth();
@@ -240,14 +253,32 @@ public final class GpuParticleEngine {
     }
     public static boolean canRender(final VisualLayer layer) {
         return layer != null && isGpuReady() && GPU_CAPABLE_LAYERS.contains(layer)
-            && LAYER_HEALTH.getOrDefault(layer, LayerHealth.FAILED) == LayerHealth.HEALTHY;
+            && LAYER_HEALTH_POLICY.gpuAuthoritative(layer);
+    }
+    public static boolean shouldSubmitGpu(final VisualLayer layer) {
+        return layer != null && isGpuReady() && GPU_CAPABLE_LAYERS.contains(layer)
+            && LAYER_HEALTH_POLICY.shouldSubmitRealWork(layer);
+    }
+    public static boolean shouldRenderCpu(final VisualLayer layer) {
+        return !canRender(layer) || LAYER_HEALTH_POLICY.cpuOpticalWeight(layer) > 0.001F;
+    }
+    public static float gpuOpticalWeight(final VisualLayer layer) {
+        return layer == null || !isGpuReady() ? 0.0F
+            : LAYER_HEALTH_POLICY.gpuOpticalWeight(layer);
+    }
+    public static float cpuOpticalWeight(final VisualLayer layer) {
+        return layer == null || !isGpuReady() ? 1.0F
+            : LAYER_HEALTH_POLICY.cpuOpticalWeight(layer);
+    }
+    public static String actualRoute(final VisualLayer layer) {
+        return layer == null || !isGpuReady() ? "cpu"
+            : LAYER_HEALTH_POLICY.actualRoute(layer);
     }
     public static synchronized LayerHealth layerHealth(final VisualLayer layer) {
-        return layer == null ? LayerHealth.FAILED
-            : LAYER_HEALTH.getOrDefault(layer, LayerHealth.FAILED);
+        return LAYER_HEALTH_POLICY.health(layer);
     }
     public static synchronized Map<VisualLayer, LayerHealth> layerHealthSnapshot() {
-        return Map.copyOf(LAYER_HEALTH);
+        return LAYER_HEALTH_POLICY.snapshot();
     }
     static boolean readinessProofComplete(final boolean depthDisabled,
         final boolean depthEnabled, final boolean worldOcclusion,
@@ -322,7 +353,10 @@ public final class GpuParticleEngine {
         Arrays.fill(rejectedByType, 0);
         Arrays.fill(activeByLayer, 0L); Arrays.fill(visibleByLayer, 0L);
         Arrays.fill(spawnedByLayer, 0); Arrays.fill(rejectedByLayer, 0);
-        Arrays.fill(zeroVisibleFramesByLayer, 0);
+        Arrays.fill(distanceCulledByLayer, 0L);
+        Arrays.fill(sizeCulledByLayer, 0L);
+        Arrays.fill(frustumCulledByLayer, 0L);
+        Arrays.fill(depthCulledByLayer, 0L);
         clientFirePatches = fireFieldSubmissions = receivedFirePatchEntries = storedFirePatches = 0;
         acceptedFirePackets = rejectedFirePackets = staleFirePackets = 0;
         submittedParticles = requestedParticles = rejectedParticles = 0L;
@@ -346,7 +380,7 @@ public final class GpuParticleEngine {
             rejectedFirePackets, staleFirePackets, receivedFirePatchEntries,
             storedFirePatches);
         return new DebugSnapshot(backend, backendPreference, readiness, effectiveBackend(),
-            Map.copyOf(LAYER_HEALTH),
+            LAYER_HEALTH_POLICY.snapshot(),
             active, visible,
             Math.max(0L, active - visible), submittedParticles, requestedParticles,
             rejectedParticles, deadSlots,
@@ -362,8 +396,10 @@ public final class GpuParticleEngine {
         return new GpuBudgetSnapshot(configuredScale, adaptiveQuality,
             limits.spawnRatePerSecond(), limits.fragmentCostPerSecond(),
             limits.emitterCapacity(), PARTICLE_CAPACITY, Math.max(0L, deadSlots),
-            limits.protectedTransientParticleSlots(), Math.max(0L,
-                deadSlots - limits.protectedTransientParticleSlots()));
+            limits.protectedTransientParticleSlots(),
+            limits.protectedFireParticleSlots(), Math.max(0L,
+                deadSlots - limits.protectedTransientParticleSlots()), Math.max(0L,
+                deadSlots - limits.protectedFireParticleSlots()));
     }
 
     public static synchronized GpuProbeSnapshot probeSnapshot() {
@@ -446,10 +482,10 @@ public final class GpuParticleEngine {
                 viewportWidth, viewportHeight);
             long statsReadbackStarted = System.nanoTime();
             collectCompletedStats();
-            updateLayerHealthWatchdog();
             ClientPerformanceTelemetry.recordGpuStatsReadbackNanos(
                 Math.max(0L, System.nanoTime() - statsReadbackStarted));
             submissions = withSemanticProbe(submissions, camera);
+            VisualLayer frameProbeLayer = semanticProbeLayer;
             int statsSlot = acquireStatsSlot();
             int frameStatsBuffer = statsSlot >= 0
                 ? statsBuffers[statsSlot] : statsScratchBuffer;
@@ -460,11 +496,22 @@ public final class GpuParticleEngine {
                 Math.max(0L, deadSlots), WarheadRenderSettings.qualityScale());
             ClientPerformanceTelemetry.recordGpuSchedulerNanos(
                 Math.max(0L, System.nanoTime() - schedulerStarted));
-            scheduledLayerCount = scheduled.visibleLayerCount();
-            scheduledEmitterCount = scheduled.emitters().size();
-            lastLayerSchedules = layerScheduleSnapshots(scheduled.layerSchedules());
+            List<EmitterCommand> routedEmitters = routedEmitters(
+                scheduled.emitters(), frameProbeLayer);
+            Map<VisualLayer, GpuVfxScheduler.LayerSchedule> routedSchedules =
+                routedLayerSchedules(scheduled.layerSchedules(), routedEmitters);
+            scheduledLayerCount = (int)routedSchedules.values().stream()
+                .filter(layer -> layer.emittersScheduled() > 0).count();
+            scheduledEmitterCount = routedEmitters.size();
+            long scheduleIdentity = scheduleIdentity(frameSequence, routedSchedules);
+            if (statsSlot >= 0) {
+                statsFrameSequences[statsSlot] = frameSequence;
+                statsScheduleIdentities[statsSlot] = scheduleIdentity;
+                statsLayerSchedules[statsSlot] = routedSchedules;
+                statsProbeLayers[statsSlot] = frameProbeLayer;
+            }
             long emitterUploadStarted = System.nanoTime();
-            int spawned = uploadEmitters(scheduled.emitters(), deltaSeconds);
+            int spawned = uploadEmitters(routedEmitters, deltaSeconds);
             ClientPerformanceTelemetry.recordGpuEmitterUploadNanos(
                 Math.max(0L, System.nanoTime() - emitterUploadStarted));
             requestedParticles += spawned;
@@ -472,8 +519,8 @@ public final class GpuParticleEngine {
             bindStorageBuffers(frameStatsBuffer);
             prepareDispatch(false);
             runTimedGpuStage(GpuStage.UPDATE, () -> dispatchUpdate(deltaSeconds));
-            if (!scheduled.emitters().isEmpty()) runTimedGpuStage(GpuStage.SPAWN,
-                () -> dispatchSpawn(scheduled.emitters().size()));
+            if (!routedEmitters.isEmpty()) runTimedGpuStage(GpuStage.SPAWN,
+                () -> dispatchSpawn(routedEmitters.size()));
             prepareDispatch(true);
             runTimedGpuStage(GpuStage.CULL, () -> dispatchCull(camera.pos,
                 viewProjection, viewportHeight, cameraInfo.projectionScale(), stack));
@@ -530,51 +577,31 @@ public final class GpuParticleEngine {
         Vec3 position = camera.pos.add(forward.x * 0.75,
             forward.y * 0.75, forward.z * 0.75);
         ArrayList<EffectSubmission> effects = new ArrayList<>(submissions.effects());
-        ArrayList<FireFieldSubmission> fireFields = new ArrayList<>(submissions.fireFields());
         long probeId = 0x53454D414E544943L ^ layer.ordinal();
-        if (layer == VisualLayer.FLAMES || layer == VisualLayer.SMOKE
-            || layer == VisualLayer.EMBERS) {
-            List<Card> flames = layer == VisualLayer.FLAMES
-                ? List.of(new Card(position, 0.035F, 0.65F, probeId)) : List.of();
-            List<Card> smoke = layer == VisualLayer.SMOKE
-                ? List.of(new Card(position, 0.045F, 0.45F, probeId)) : List.of();
-            CellPlan plan = new CellPlan(flames, smoke, 0, 0.08F, 0.12F, 1.0F);
-            List<FireFieldCell> cells = layer == VisualLayer.EMBERS ? List.of()
-                : List.of(new FireFieldCell(probeId, position, Vec3.ZERO,
-                    0.8F, 0.8F, 0.10F, plan, probeId));
-            List<FireFieldEmber> embers = layer == VisualLayer.EMBERS
-                ? List.of(new FireFieldEmber(probeId, position, Vec3.ZERO,
-                    0.8F, 0.035F, 1.0F, probeId)) : List.of();
-            fireFields.add(new FireFieldSubmission(probeId, position, 0.12F,
-                cells, embers));
-        } else {
-            ParticleType type = particleTypeForLayer(layer);
-            if (type == null) return submissions;
-            EmitterCommand command = new EmitterCommand(position, Vec3.ZERO,
-                1.0F, 1.2F, 0.9F, 0.5F, 0.2F, 0.35F,
-                0.035F, 0.005F, 0.0F, 48, (int) probeId, type, 0, 1.0F)
-                .withSemanticLayer(layer);
-            EffectClass effectClass = switch (layer) {
-                case GROUND_DUST, SMOKE_SHROUD -> EffectClass.CONVENTIONAL;
-                case TERRAIN_OBSCURATION -> EffectClass.TERRAIN_OBSCURATION;
-                default -> EffectClass.NUCLEAR;
-            };
-            EffectDescriptor descriptor = new EffectDescriptor(effectClass,
-                probeId, position, 0.12F, 1.0F);
-            effects.add(new EffectSubmission(descriptor, Map.of(layer, List.of(command))));
-        }
-        return new FrameSubmissions(List.copyOf(effects), List.copyOf(fireFields));
+        ParticleType type = particleTypeForLayer(layer);
+        if (type == null) return submissions;
+        EmitterCommand command = new EmitterCommand(position, Vec3.ZERO,
+            1.0F, 0.20F, 0.9F, 0.5F, 0.2F, 0.35F,
+            0.035F, 0.005F, 0.0F, 48, (int) probeId, type,
+            SYNTHETIC_PROBE_FLAG, 1.0F).withSemanticLayer(layer);
+        EffectClass effectClass = switch (layer) {
+            case FLAMES, SMOKE, EMBERS -> EffectClass.FIRE_FIELD;
+            case GROUND_DUST, SMOKE_SHROUD -> EffectClass.CONVENTIONAL;
+            case TERRAIN_OBSCURATION -> EffectClass.TERRAIN_OBSCURATION;
+            default -> EffectClass.NUCLEAR;
+        };
+        EffectDescriptor descriptor = new EffectDescriptor(effectClass,
+            probeId, position, 0.12F, 1.0F);
+        effects.add(new EffectSubmission(descriptor, Map.of(layer, List.of(command))));
+        return new FrameSubmissions(List.copyOf(effects), submissions.fireFields());
     }
 
     private static void advanceSemanticProbeState() {
         if (semanticProbeLayer != null) {
-            int layerId = semanticProbeLayer.ordinal();
-            if (spawnedByLayer[layerId] > 0 && visibleByLayer[layerId] > 0L) {
-                LAYER_HEALTH.put(semanticProbeLayer, LayerHealth.HEALTHY);
-                zeroVisibleFramesByLayer[layerId] = 0;
-                semanticProbeLayer = null;
-            } else if (frameSequence - semanticProbeStartFrame > 120L) {
-                LAYER_HEALTH.put(semanticProbeLayer, LayerHealth.FAILED);
+            GpuLayerHealthPolicy.ProbeResult result =
+                LAYER_HEALTH_POLICY.recordSyntheticProbe(semanticProbeLayer,
+                    frameSequence, false);
+            if (result == GpuLayerHealthPolicy.ProbeResult.FAILED) {
                 WarMod.LOGGER.warn("GPU semantic layer probe failed for {}; retaining CPU fallback",
                     semanticProbeLayer.name().toLowerCase(java.util.Locale.ROOT));
                 semanticProbeLayer = null;
@@ -582,13 +609,10 @@ public final class GpuParticleEngine {
         }
         for (VisualLayer candidate : VisualLayer.values()) {
             if (!GPU_CAPABLE_LAYERS.contains(candidate)) continue;
-            LayerHealth health = LAYER_HEALTH.get(candidate);
-            if (health != LayerHealth.UNPROBED
-                && !(health == LayerHealth.DEGRADED
-                    && frameSequence >= layerRetryAfterFrame[candidate.ordinal()])) continue;
+            if (!LAYER_HEALTH_POLICY.canStartProbe(candidate, frameSequence)) continue;
             semanticProbeLayer = candidate;
             semanticProbeStartFrame = frameSequence;
-            LAYER_HEALTH.put(candidate, LayerHealth.PROBING);
+            LAYER_HEALTH_POLICY.startProbe(candidate, frameSequence);
             int layerId = candidate.ordinal();
             spawnedByLayer[layerId] = rejectedByLayer[layerId] = 0;
             activeByLayer[layerId] = visibleByLayer[layerId] = 0L;
@@ -596,45 +620,16 @@ public final class GpuParticleEngine {
         }
     }
 
-    private static void updateLayerHealthWatchdog() {
-        for (VisualLayer layer : GPU_CAPABLE_LAYERS) {
-            if (LAYER_HEALTH.get(layer) != LayerHealth.HEALTHY) continue;
-            GpuLayerScheduleSnapshot schedule = lastLayerSchedules.get(layer);
-            int layerId = layer.ordinal();
-            if (schedule == null || schedule.commandsSubmitted() <= 0
-                || schedule.particlesAccepted() <= 0L) {
-                zeroVisibleFramesByLayer[layerId] = 0;
-                continue;
-            }
-            boolean usefulOutput = visibleByLayer[layerId] > 0L;
-            boolean expectedOutput = spawnedByLayer[layerId] > 0
-                || activeByLayer[layerId] > 0L;
-            if (!expectedOutput || usefulOutput) {
-                zeroVisibleFramesByLayer[layerId] = 0;
-                continue;
-            }
-            if (++zeroVisibleFramesByLayer[layerId] < 8) continue;
-            LAYER_HEALTH.put(layer, LayerHealth.DEGRADED);
-            layerRetryAfterFrame[layerId] = frameSequence + 120L;
-            zeroVisibleFramesByLayer[layerId] = 0;
-            WarMod.LOGGER.warn("GPU semantic layer {} produced no visible instances for eight "
-                + "scheduled frames; enabling its CPU fallback",
-                layer.name().toLowerCase(java.util.Locale.ROOT));
-        }
-    }
-
     private static void resetLayerHealth() {
-        LAYER_HEALTH.clear();
-        for (VisualLayer layer : VisualLayer.values()) LAYER_HEALTH.put(layer,
-            GPU_CAPABLE_LAYERS.contains(layer) ? LayerHealth.UNPROBED : LayerHealth.FAILED);
-        Arrays.fill(zeroVisibleFramesByLayer, 0);
-        Arrays.fill(layerRetryAfterFrame, 0L);
+        LAYER_HEALTH_POLICY.reset();
         semanticProbeLayer = null;
         semanticProbeStartFrame = 0L;
+        newestCompletedStatsFrame = Long.MIN_VALUE;
     }
 
     private static Map<VisualLayer, GpuLayerScheduleSnapshot> layerScheduleSnapshots(
-        final Map<VisualLayer, GpuVfxScheduler.LayerSchedule> schedules) {
+        final CompletedStats completed) {
+        Map<VisualLayer, GpuVfxScheduler.LayerSchedule> schedules = completed.schedules();
         if (schedules == null || schedules.isEmpty()) return Map.of();
         EnumMap<VisualLayer, GpuLayerScheduleSnapshot> snapshots =
             new EnumMap<>(VisualLayer.class);
@@ -642,14 +637,76 @@ public final class GpuParticleEngine {
             ParticleType type = particleTypeForLayer(layer);
             int layerId = layer.ordinal();
             snapshots.put(layer, new GpuLayerScheduleSnapshot(
+                completed.frameSequence(), completed.scheduleIdentity(),
                 schedule.commandsSubmitted(), schedule.emittersRequested(),
                 schedule.emittersScheduled(), schedule.particlesRequested(),
                 schedule.particlesAccepted(), schedule.particlesRejected(),
                 type == null ? "none" : type.name().toLowerCase(java.util.Locale.ROOT),
-                Integer.toUnsignedLong(rejectedByLayer[layerId]),
-                activeByLayer[layerId], visibleByLayer[layerId]));
+                Integer.toUnsignedLong(completed.rejectedByLayer()[layerId]),
+                completed.activeByLayer()[layerId], completed.visibleByLayer()[layerId],
+                completed.distanceCulledByLayer()[layerId],
+                completed.sizeCulledByLayer()[layerId],
+                completed.frustumCulledByLayer()[layerId] + schedule.frustumCulled(),
+                completed.depthCulledByLayer()[layerId],
+                schedule.capacityCulled()
+                    + Integer.toUnsignedLong(completed.rejectedByLayer()[layerId]),
+                actualRoute(layer)));
         });
         return Map.copyOf(snapshots);
+    }
+
+    private static long scheduleIdentity(final long sequence,
+        final Map<VisualLayer, GpuVfxScheduler.LayerSchedule> schedules) {
+        long identity = mix64(sequence ^ 0x5343484544554C45L);
+        for (Map.Entry<VisualLayer, GpuVfxScheduler.LayerSchedule> entry
+            : new java.util.TreeMap<>(schedules).entrySet()) {
+            GpuVfxScheduler.LayerSchedule layer = entry.getValue();
+            identity = mix64(identity ^ entry.getKey().ordinal() * 0x9E3779B97F4A7C15L
+                ^ layer.commandsSubmitted() * 0xD1B54A32D192ED03L
+                ^ layer.emittersScheduled() * 0x94D049BB133111EBL
+                ^ layer.particlesAccepted());
+        }
+        return identity;
+    }
+
+    /** Exact semantic schedule for the emitters that actually reach the SSBO. */
+    private static Map<VisualLayer, GpuVfxScheduler.LayerSchedule> routedLayerSchedules(
+        final Map<VisualLayer, GpuVfxScheduler.LayerSchedule> scheduled,
+        final List<EmitterCommand> routedEmitters) {
+        EnumMap<VisualLayer, Integer> emittersByLayer = new EnumMap<>(VisualLayer.class);
+        EnumMap<VisualLayer, Long> particlesByLayer = new EnumMap<>(VisualLayer.class);
+        for (EmitterCommand emitter : routedEmitters) {
+            VisualLayer layer = emitter.semanticLayer();
+            emittersByLayer.merge(layer, 1, Integer::sum);
+            particlesByLayer.merge(layer, (long)Math.max(0, emitter.spawnCount()), Long::sum);
+        }
+        EnumMap<VisualLayer, GpuVfxScheduler.LayerSchedule> result =
+            new EnumMap<>(VisualLayer.class);
+        scheduled.forEach((layer, source) -> {
+            int routedCount = emittersByLayer.getOrDefault(layer, 0);
+            long routedParticles = particlesByLayer.getOrDefault(layer, 0L);
+            result.put(layer, new GpuVfxScheduler.LayerSchedule(
+                source.commandsSubmitted(), source.emittersRequested(), routedCount,
+                source.particlesRequested(), routedParticles,
+                Math.max(0L, source.particlesRequested() - routedParticles),
+                source.frustumCulled(), source.capacityCulled()));
+        });
+        return Map.copyOf(result);
+    }
+
+    static List<EmitterCommand> routedEmitters(final List<EmitterCommand> emitters,
+        final VisualLayer probeLayer) {
+        if (emitters == null || emitters.isEmpty()) return List.of();
+        ArrayList<EmitterCommand> routed = new ArrayList<>(emitters.size());
+        for (EmitterCommand emitter : emitters) {
+            boolean syntheticProbe = (emitter.flags() & SYNTHETIC_PROBE_FLAG) != 0;
+            float weight = syntheticProbe
+                ? emitter.semanticLayer() == probeLayer ? 0.001F : 0.0F
+                : gpuOpticalWeight(emitter.semanticLayer());
+            if (weight < 0.001F) continue;
+            routed.add(emitter.withOpacityMultiplier(weight));
+        }
+        return List.copyOf(routed);
     }
 
     private static ParticleType particleTypeForLayer(final VisualLayer layer) {
@@ -840,7 +897,10 @@ public final class GpuParticleEngine {
         Arrays.fill(rejectedByType, 0);
         Arrays.fill(activeByLayer, 0L); Arrays.fill(visibleByLayer, 0L);
         Arrays.fill(spawnedByLayer, 0); Arrays.fill(rejectedByLayer, 0);
-        Arrays.fill(zeroVisibleFramesByLayer, 0);
+        Arrays.fill(distanceCulledByLayer, 0L);
+        Arrays.fill(sizeCulledByLayer, 0L);
+        Arrays.fill(frustumCulledByLayer, 0L);
+        Arrays.fill(depthCulledByLayer, 0L);
     }
 
     private static int uploadEmitters(final List<EmitterCommand> emitters,
@@ -1055,49 +1115,166 @@ public final class GpuParticleEngine {
     }
 
     private static void collectCompletedStats() {
+        ArrayList<CompletedStats> completed = new ArrayList<>();
         for (int slot = 0; slot < STATS_RING_SIZE; slot++) {
             if (!statsInFlight[slot] || statsFences[slot] == 0L) continue;
             int result = glClientWaitSync(statsFences[slot], 0, 0L);
             if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
-                collectStatsSlot(slot);
+                completed.add(collectStatsSlot(slot));
+        }
+        completed.sort(java.util.Comparator.comparingLong(CompletedStats::frameSequence));
+        for (CompletedStats sample : completed) {
+            for (int type = 0; type < TYPE_COUNT; type++) {
+                submittedParticles += Integer.toUnsignedLong(sample.spawnedByType()[type]);
+                rejectedParticles += Integer.toUnsignedLong(sample.rejectedByType()[type]);
+            }
+            evaluateCompletedStats(sample);
+            if (sample.frameSequence() > newestCompletedStatsFrame) publishCompletedStats(sample);
         }
     }
 
-    private static void collectStatsSlot(final int slot) {
+    private static CompletedStats collectStatsSlot(final int slot) {
         ByteBuffer data = MemoryUtil.memAlloc(STATS_UINTS * Integer.BYTES);
         try {
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, statsBuffers[slot]);
             glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0L, data);
+            long[] sampleActiveByType = new long[TYPE_COUNT];
+            int[] sampleSpawnedByType = new int[TYPE_COUNT];
+            int[] sampleRejectedByType = new int[TYPE_COUNT];
+            long[] sampleVisibleByType = new long[TYPE_COUNT];
             for (int type = 0; type < TYPE_COUNT; type++) {
-                activeByType[type] = Integer.toUnsignedLong(data.getInt(type * Integer.BYTES));
-                spawnedByType[type] = data.getInt((TYPE_COUNT + type) * Integer.BYTES);
-                rejectedByType[type] = data.getInt((TYPE_COUNT * 2 + type) * Integer.BYTES);
-                visibleByType[type] = Integer.toUnsignedLong(
+                sampleActiveByType[type] = Integer.toUnsignedLong(
+                    data.getInt(type * Integer.BYTES));
+                sampleSpawnedByType[type] = data.getInt(
+                    (TYPE_COUNT + type) * Integer.BYTES);
+                sampleRejectedByType[type] = data.getInt(
+                    (TYPE_COUNT * 2 + type) * Integer.BYTES);
+                sampleVisibleByType[type] = Integer.toUnsignedLong(
                     data.getInt((TYPE_COUNT * 3 + type) * Integer.BYTES));
-                submittedParticles += Integer.toUnsignedLong(spawnedByType[type]);
-                rejectedParticles += Integer.toUnsignedLong(rejectedByType[type]);
             }
+            long[] sampleActiveByLayer = new long[LAYER_COUNT];
+            int[] sampleSpawnedByLayer = new int[LAYER_COUNT];
+            int[] sampleRejectedByLayer = new int[LAYER_COUNT];
+            long[] sampleVisibleByLayer = new long[LAYER_COUNT];
+            long[] sampleDistanceCulled = new long[LAYER_COUNT];
+            long[] sampleSizeCulled = new long[LAYER_COUNT];
+            long[] sampleFrustumCulled = new long[LAYER_COUNT];
+            long[] sampleDepthCulled = new long[LAYER_COUNT];
             for (int layer = 0; layer < LAYER_COUNT; layer++) {
-                activeByLayer[layer] = Integer.toUnsignedLong(data.getInt(
+                sampleActiveByLayer[layer] = Integer.toUnsignedLong(data.getInt(
                     (TYPE_STATS_UINTS + layer) * Integer.BYTES));
-                spawnedByLayer[layer] = data.getInt(
+                sampleSpawnedByLayer[layer] = data.getInt(
                     (TYPE_STATS_UINTS + LAYER_COUNT + layer) * Integer.BYTES);
-                rejectedByLayer[layer] = data.getInt(
+                sampleRejectedByLayer[layer] = data.getInt(
                     (TYPE_STATS_UINTS + LAYER_COUNT * 2 + layer) * Integer.BYTES);
-                visibleByLayer[layer] = Integer.toUnsignedLong(data.getInt(
+                sampleVisibleByLayer[layer] = Integer.toUnsignedLong(data.getInt(
                     (TYPE_STATS_UINTS + LAYER_COUNT * 3 + layer) * Integer.BYTES));
+                sampleDistanceCulled[layer] = Integer.toUnsignedLong(data.getInt(
+                    (TYPE_STATS_UINTS + LAYER_COUNT * 4 + layer) * Integer.BYTES));
+                sampleSizeCulled[layer] = Integer.toUnsignedLong(data.getInt(
+                    (TYPE_STATS_UINTS + LAYER_COUNT * 5 + layer) * Integer.BYTES));
+                sampleFrustumCulled[layer] = Integer.toUnsignedLong(data.getInt(
+                    (TYPE_STATS_UINTS + LAYER_COUNT * 6 + layer) * Integer.BYTES));
+                sampleDepthCulled[layer] = Integer.toUnsignedLong(data.getInt(
+                    (TYPE_STATS_UINTS + LAYER_COUNT * 7 + layer) * Integer.BYTES));
             }
-            deadSlots = Math.min(PARTICLE_CAPACITY, Integer.toUnsignedLong(
-                data.getInt((TYPE_COUNT * 4 + 3) * Integer.BYTES)));
-            distanceCulled = Integer.toUnsignedLong(data.getInt(TYPE_COUNT * 4 * Integer.BYTES));
-            sizeCulled = Integer.toUnsignedLong(data.getInt((TYPE_COUNT * 4 + 1) * Integer.BYTES));
-            frustumCulled = Integer.toUnsignedLong(data.getInt((TYPE_COUNT * 4 + 2) * Integer.BYTES));
+            return new CompletedStats(statsFrameSequences[slot],
+                statsScheduleIdentities[slot],
+                statsLayerSchedules[slot] == null ? Map.of() : statsLayerSchedules[slot],
+                statsProbeLayers[slot], sampleActiveByType, sampleSpawnedByType,
+                sampleRejectedByType, sampleVisibleByType, sampleActiveByLayer,
+                sampleSpawnedByLayer, sampleRejectedByLayer, sampleVisibleByLayer,
+                sampleDistanceCulled, sampleSizeCulled, sampleFrustumCulled,
+                sampleDepthCulled, Math.min(PARTICLE_CAPACITY, Integer.toUnsignedLong(
+                    data.getInt((TYPE_COUNT * 4 + 3) * Integer.BYTES))),
+                Integer.toUnsignedLong(data.getInt(TYPE_COUNT * 4 * Integer.BYTES)),
+                Integer.toUnsignedLong(data.getInt((TYPE_COUNT * 4 + 1) * Integer.BYTES)),
+                Integer.toUnsignedLong(data.getInt((TYPE_COUNT * 4 + 2) * Integer.BYTES)));
         } finally {
             MemoryUtil.memFree(data);
             if (statsFences[slot] != 0L) glDeleteSync(statsFences[slot]);
             statsFences[slot] = 0L;
             statsInFlight[slot] = false;
+            statsFrameSequences[slot] = 0L;
+            statsScheduleIdentities[slot] = 0L;
+            statsLayerSchedules[slot] = null;
+            statsProbeLayers[slot] = null;
         }
+    }
+
+    private static void evaluateCompletedStats(final CompletedStats completed) {
+        for (VisualLayer layer : GPU_CAPABLE_LAYERS) {
+            int index = layer.ordinal();
+            GpuVfxScheduler.LayerSchedule schedule = completed.schedules().get(layer);
+            boolean probe = completed.probeLayer() == layer;
+            if (probe) {
+                boolean visible = (completed.spawnedByLayer()[index] > 0
+                    || completed.activeByLayer()[index] > 0L)
+                    && completed.visibleByLayer()[index] > 0L;
+                GpuLayerHealthPolicy.ProbeResult result =
+                    LAYER_HEALTH_POLICY.recordSyntheticProbe(layer,
+                        completed.frameSequence(), visible);
+                if (result == GpuLayerHealthPolicy.ProbeResult.PASSED_DIAGNOSTIC) {
+                    if (semanticProbeLayer == layer) semanticProbeLayer = null;
+                    WarMod.LOGGER.info("GPU semantic layer {} passed its diagnostic probe; "
+                        + "awaiting eight matched real-work frames",
+                        layer.name().toLowerCase(java.util.Locale.ROOT));
+                }
+                continue;
+            }
+            boolean realDemand = schedule != null && schedule.commandsSubmitted() > 0
+                && schedule.particlesAccepted() > 0L;
+            long outputPopulation = completed.activeByLayer()[index]
+                + Integer.toUnsignedLong(completed.spawnedByLayer()[index]);
+            long culledPopulation = completed.distanceCulledByLayer()[index]
+                + completed.sizeCulledByLayer()[index]
+                + completed.frustumCulledByLayer()[index]
+                + completed.depthCulledByLayer()[index];
+            boolean expectedVisibility = outputPopulation > culledPopulation;
+            GpuLayerHealthPolicy.Evaluation evaluation = LAYER_HEALTH_POLICY.evaluate(
+                layer, new GpuLayerHealthPolicy.MatchedFrame(completed.frameSequence(),
+                    completed.scheduleIdentity(), completed.scheduleIdentity(), false,
+                    realDemand, expectedVisibility, outputPopulation > 0L,
+                    completed.visibleByLayer()[index]));
+            if (evaluation == GpuLayerHealthPolicy.Evaluation.DEGRADED) {
+                WarMod.LOGGER.warn("GPU semantic layer {} produced zero visible instances for "
+                    + "eight matched real-work frames; actual route is now CPU",
+                    layer.name().toLowerCase(java.util.Locale.ROOT));
+            } else if (evaluation == GpuLayerHealthPolicy.Evaluation.CROSSFADE_STARTED) {
+                WarMod.LOGGER.info("GPU semantic layer {} verified on eight real-work frames; "
+                    + "starting 12-frame CPU/GPU crossfade",
+                    layer.name().toLowerCase(java.util.Locale.ROOT));
+            } else if (evaluation == GpuLayerHealthPolicy.Evaluation.AUTHORITY_GRANTED) {
+                WarMod.LOGGER.info("GPU semantic layer {} completed real-work crossfade; "
+                    + "actual route is now GPU",
+                    layer.name().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+    }
+
+    private static void publishCompletedStats(final CompletedStats completed) {
+        newestCompletedStatsFrame = completed.frameSequence();
+        System.arraycopy(completed.activeByType(), 0, activeByType, 0, TYPE_COUNT);
+        System.arraycopy(completed.spawnedByType(), 0, spawnedByType, 0, TYPE_COUNT);
+        System.arraycopy(completed.rejectedByType(), 0, rejectedByType, 0, TYPE_COUNT);
+        System.arraycopy(completed.visibleByType(), 0, visibleByType, 0, TYPE_COUNT);
+        System.arraycopy(completed.activeByLayer(), 0, activeByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.spawnedByLayer(), 0, spawnedByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.rejectedByLayer(), 0, rejectedByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.visibleByLayer(), 0, visibleByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.distanceCulledByLayer(), 0,
+            distanceCulledByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.sizeCulledByLayer(), 0,
+            sizeCulledByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.frustumCulledByLayer(), 0,
+            frustumCulledByLayer, 0, LAYER_COUNT);
+        System.arraycopy(completed.depthCulledByLayer(), 0,
+            depthCulledByLayer, 0, LAYER_COUNT);
+        deadSlots = completed.deadSlots();
+        distanceCulled = completed.distanceCulled();
+        sizeCulled = completed.sizeCulled();
+        frustumCulled = completed.frustumCulled();
+        lastLayerSchedules = layerScheduleSnapshots(completed);
     }
 
     private static void runAutomaticProbe(final CameraRenderState camera,
@@ -1381,6 +1558,10 @@ public final class GpuParticleEngine {
         dispatchBuffer = debugParticleBuffer = debugVisibleBuffer = statsScratchBuffer = 0;
         Arrays.fill(aliveBuffers, 0); Arrays.fill(statsBuffers, 0);
         Arrays.fill(statsFences, 0L); Arrays.fill(statsInFlight, false);
+        Arrays.fill(statsFrameSequences, 0L);
+        Arrays.fill(statsScheduleIdentities, 0L);
+        Arrays.fill(statsLayerSchedules, null);
+        Arrays.fill(statsProbeLayers, null);
         Arrays.fill(sampleQueries, 0); Arrays.fill(sampleQueryIssued, false);
         Arrays.fill(sampleProbeStages, null); Arrays.fill(sampleAutomatic, false);
         Arrays.fill(gpuStageEwmaMillis, 0.0);
@@ -1437,21 +1618,34 @@ public final class GpuParticleEngine {
         List<FireFieldSubmission> fireFields) { }
     public record FireFieldCell(long id, FireVisualBand representation,
         Vec3 position, Vec3 surfaceNormal, Vec3 wind, float intensity,
-        float heat, float smokeMass, float boundsRadius, CellPlan plan, long seed) {
+        float heat, float smokeMass, float flameEnvelopeHeight,
+        float boundsRadius, CellPlan plan, long seed) {
+        public FireFieldCell(final long id, final FireVisualBand representation,
+            final Vec3 position, final Vec3 surfaceNormal, final Vec3 wind,
+            final float intensity, final float heat, final float smokeMass,
+            final float boundsRadius, final CellPlan plan, final long seed) {
+            this(id, representation, position, surfaceNormal, wind, intensity, heat,
+                smokeMass, defaultEnvelope(heat, boundsRadius), boundsRadius, plan, seed);
+        }
         public FireFieldCell(final long id, final Vec3 position, final Vec3 wind,
             final float intensity, final float heat, final float boundsRadius,
             final CellPlan plan, final long seed) {
             this(id, FireVisualBand.HOST, position, new Vec3(0.0, 1.0, 0.0), wind,
                 intensity, heat, plan == null ? 0.0F
-                    : plan.representedSmokeOpticalDepth(), boundsRadius, plan, seed);
+                    : plan.representedSmokeOpticalDepth(),
+                defaultEnvelope(heat, boundsRadius), boundsRadius, plan, seed);
         }
         public boolean valid() { return position != null && position.isFinite()
             && representation != null && surfaceNormal != null && surfaceNormal.isFinite()
             && surfaceNormal.lengthSqr() > 1.0E-8 && wind != null && wind.isFinite()
             && Float.isFinite(intensity) && Float.isFinite(heat)
             && Float.isFinite(smokeMass) && smokeMass >= 0.0F
+            && Float.isFinite(flameEnvelopeHeight) && flameEnvelopeHeight > 0.0F
             && Float.isFinite(boundsRadius) && boundsRadius > 0.0F
             && plan != null && (!plan.flames().isEmpty() || !plan.smoke().isEmpty()); }
+        private static float defaultEnvelope(final float heat, final float boundsRadius) {
+            return Math.max(0.25F, boundsRadius * (0.8F + Math.max(0.0F, heat) * 1.4F));
+        }
     }
     public record FireFieldEmber(long id, Vec3 position, Vec3 velocity,
         float intensity, float size, float importance, long seed) {
@@ -1526,6 +1720,12 @@ public final class GpuParticleEngine {
                 replacement == null ? semanticLayer : replacement,
                 orientation, orientationMode);
         }
+        EmitterCommand withOpacityMultiplier(final float multiplier) {
+            return new EmitterCommand(position, velocity, scale, lifetimeSeconds,
+                red, green, blue, Math.max(0.001F, opacity * multiplier), size,
+                spread, velocityJitter, spawnCount, seed, type, flags, importance,
+                semanticLayer, orientation, orientationMode);
+        }
     }
 
     public record DebugSnapshot(Backend backend, BackendPreference preference,
@@ -1546,16 +1746,20 @@ public final class GpuParticleEngine {
     public record GpuBudgetSnapshot(double configuredScale, double adaptiveQuality,
         double spawnRatePerSecond, double fragmentCostPerSecond,
         int emitterCapacity, int particleCapacity, long availableDeadSlots,
-        int protectedTransientSlots, long persistentAvailableSlots) { }
+        int protectedTransientSlots, int protectedFireSlots,
+        long persistentAvailableSlots, long transientAvailableSlots) { }
     public record GpuProbeSnapshot(String stage, boolean depthDisabledPassed,
         boolean depthEnabledPassed, boolean worldOcclusionPassed,
         int directEmitterTypesPassed, int directEmitterTypesRequired) { }
-    public record GpuLayerScheduleSnapshot(int commandsSubmitted,
+    public record GpuLayerScheduleSnapshot(long frameSequence, long scheduleIdentity,
+        int commandsSubmitted,
         int emittersRequested, int emittersScheduled,
         long particlesRequested, long particlesAccepted,
         long particlesRejectedByScheduler, String sharedParticleType,
         long particlesRejectedByDeadList, long aliveParticles,
-        long visibleInstances) { }
+        long visibleInstances, long distanceCulled, long projectedSizeCulled,
+        long frustumCulled, long depthCulled, long capacityCulled,
+        String actualRoute) { }
     public record GpuStageTimings(GpuTiming update, GpuTiming spawn,
         GpuTiming cull, GpuTiming raster) { }
     public record GpuTiming(double p50Millis, double p95Millis,
@@ -1582,6 +1786,15 @@ public final class GpuParticleEngine {
     }
     private enum GpuStage { UPDATE, SPAWN, CULL, RASTER }
     private record EffectKey(EffectClass effectClass, long id) { }
+    private record CompletedStats(long frameSequence, long scheduleIdentity,
+        Map<VisualLayer, GpuVfxScheduler.LayerSchedule> schedules,
+        VisualLayer probeLayer, long[] activeByType, int[] spawnedByType,
+        int[] rejectedByType, long[] visibleByType, long[] activeByLayer,
+        int[] spawnedByLayer, int[] rejectedByLayer, long[] visibleByLayer,
+        long[] distanceCulledByLayer, long[] sizeCulledByLayer,
+        long[] frustumCulledByLayer, long[] depthCulledByLayer,
+        long deadSlots, long distanceCulled, long sizeCulled,
+        long frustumCulled) { }
     private static final class PendingEffect {
         private EffectDescriptor descriptor;
         private final EnumMap<VisualLayer, ArrayList<EmitterCommand>> layers =

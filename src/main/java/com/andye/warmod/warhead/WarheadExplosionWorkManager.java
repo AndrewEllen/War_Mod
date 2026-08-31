@@ -128,7 +128,6 @@ public final class WarheadExplosionWorkManager {
 	) {
 		if (level == null || requested == null || yield == null) throw new NullPointerException();
 		if (!requested.isFinite()) throw new IllegalArgumentException("requested impact must be finite");
-		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		cursor.set(Mth.floor(requested.x), Mth.floor(requested.y), Mth.floor(requested.z));
 		int startY = cursor.getY();
@@ -142,7 +141,6 @@ public final class WarheadExplosionWorkManager {
 			if (!level.getChunkSource().hasChunk(
 				SectionPos.blockToSectionCoord(cursor.getX()),
 				SectionPos.blockToSectionCoord(cursor.getZ()))) break;
-			if (levelWork.isVirtualAir(cursor)) continue;
 			BlockState state = level.getBlockState(cursor);
 			FluidState fluid = state.getFluidState();
 			if (!state.isAir() || !fluid.isEmpty()) {
@@ -209,15 +207,6 @@ public final class WarheadExplosionWorkManager {
 		LevelWork levelWork = LEVELS.computeIfAbsent(level, ignored -> new LevelWork());
 		levelWork.entityBlasts.addLast(new EntityBlastWork(source, position,
 			NuclearTerrainProfile.forYield(yield).entityBlastRadius()));
-	}
-
-	/** Exceptional degraded fallback after the entity blast was already dispatched. */
-	public static synchronized void detonateTerrainOnly(final ServerLevel level,
-		final @Nullable ServerPlayer source, final UUID warheadId,
-		final Vec3 position, final WarheadYield yield, final long seed,
-		final boolean customFire) {
-		scheduleDetonation(level, source, warheadId, position, yield, seed,
-			customFire, false);
 	}
 
 	/**

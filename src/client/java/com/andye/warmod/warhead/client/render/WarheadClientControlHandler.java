@@ -79,9 +79,13 @@ public final class WarheadClientControlHandler {
     }
 
     private static void debrisStatus() {
-        feedback("War Mod debris velocity: horizontal="
+        feedback("War Mod conventional debris velocity: horizontal="
             + WarheadDebrisTuning.horizontalVelocityMultiplier()
             + "x, vertical=" + WarheadDebrisTuning.verticalVelocityMultiplier()
+            + "x; nuclear legacy transform: horizontal="
+            + WarheadDebrisTuning.nuclearHorizontalVelocityMultiplier()
+            + "x, vertical="
+            + WarheadDebrisTuning.nuclearVerticalVelocityMultiplier()
             + "x (applies to newly spawned debris)");
     }
 
@@ -133,9 +137,11 @@ public final class WarheadClientControlHandler {
             + " effectiveAdaptive=" + format(gpu.adaptiveQuality())
             + " hardParticles=" + gpu.capacity()
             + " hardEmitters=" + budget.emitterCapacity()
-            + " liveSlots=" + gpu.activeParticles()
-            + " transientReserve=" + budget.protectedTransientSlots()
-            + " persistentFree=" + budget.persistentAvailableSlots());
+             + " liveSlots=" + gpu.activeParticles()
+             + " transientReserve=" + budget.protectedTransientSlots()
+             + " fireReserve=" + budget.protectedFireSlots()
+             + " persistentFree=" + budget.persistentAvailableSlots()
+             + " transientFree=" + budget.transientAvailableSlots());
     }
 
     private static String layerRoute(final GpuParticleEngine.DebugSnapshot gpu,
@@ -143,7 +149,7 @@ public final class WarheadClientControlHandler {
         GpuParticleEngine.LayerHealth health = gpu.layerHealth().getOrDefault(layer,
             GpuParticleEngine.LayerHealth.FAILED);
         return health.name().toLowerCase(java.util.Locale.ROOT) + "->"
-            + (GpuParticleEngine.canRender(layer) ? "GPU" : "CPU");
+            + GpuParticleEngine.actualRoute(layer).toUpperCase(java.util.Locale.ROOT);
     }
 
     private static int bandCount(final java.util.Map<FireVisualBand, Integer> bands,

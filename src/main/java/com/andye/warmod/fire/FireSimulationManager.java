@@ -346,7 +346,7 @@ public final class FireSimulationManager {
             WorkClass.FIRE_ACTIVE, activeBudget)) {
             if (permit.available()) {
                 long simulationDeadline = permit.deadlineNanos();
-                expireDormantPatches(state, now, simulationDeadline);
+                expireDormantPatches(level, state, now, simulationDeadline);
                 reactivateRelevantPatches(level, state, now, simulationDeadline);
                 pruneSurfaceCooldowns(state, now);
                 decayWetness(state, now, simulationDeadline);
@@ -419,7 +419,7 @@ public final class FireSimulationManager {
         final Patch patch, final long now) {
         BlockPos host = patch.anchor.host();
         if (!isSimulationRelevant(level, host)) {
-            makeDormant(state, patch, now);
+            makeDormant(level, state, patch, now);
             return;
         }
         int elapsed = (int) Mth.clamp(now - patch.lastUpdateTick, 1L, 40L);
@@ -442,8 +442,10 @@ public final class FireSimulationManager {
             patch.heat -= (0.006F + wetness * 0.025F) * elapsed;
         }
 
-        if (patch.surfaceFlame && now >= patch.hardBurnEndTick)
+        if (patch.surfaceFlame && now >= patch.hardBurnEndTick) {
             lockSurfaceBurn(state, patch, now);
+            applyPendingScorch(level, patch);
+        }
 
         if (!patch.surfaceBurnLocked && profile.flammable() && !water && wetness < 0.45F
             && patch.phase != FirePhase.DECAYING
@@ -543,15 +545,9 @@ public final class FireSimulationManager {
             && patch.heat > 0.075F && now >= patch.nextTransferTick
             && now >= state.nextHostTransferTick.getOrDefault(hostKey, 0L)
             && state.newIgnitionsThisTick < MAX_NEW_IGNITIONS_PER_TICK) {
-            int transferInterval = Math.max(3,
-                11 - (int) (patch.targetIntensity * 7.0F)
-                    - (int) Math.min(3.0F, clump * 2.0F));
-            int dueTransfers = 1 + Math.min(3, (int) Math.max(0L,
-                (now - patch.nextTransferTick) / transferInterval));
-            /* A patch can be revisited far less often than its desired transfer
-               cadence when the fixed 256-update budget is busy. Scale the one
-               bounded scan by missed intervals instead of paying for repeats. */
-            transferHeat(level, state, patch, profile, now, dueTransfers);
+            int transferInterval = CombustionPolicy.spreadCadenceTicks(
+                patch.targetIntensity);
+            transferHeat(level, state, patch, profile, now);
             patch.nextTransferTick = now + transferInterval;
             state.nextHostTransferTick.put(hostKey, now + transferInterval);
         }
@@ -578,8 +574,7 @@ public final class FireSimulationManager {
     }
 
     private static void transferHeat(final ServerLevel level, final LevelState state,
-        final Patch source, final FireFuelProfile sourceProfile, final long now,
-        final int dueTransfers) {
+        final Patch source, final FireFuelProfile sourceProfile, final long now) {
         Vec3 origin = source.anchor.position();
         Vec3 wind = FireWindEngine.windAt(level, origin).scale(
             ventilationFactor(level, state, source.anchor.host(), now));
@@ -587,17 +582,19 @@ public final class FireSimulationManager {
         Vec3 windDirection = horizontalWind > 1.0E-5
             ? new Vec3(wind.x / horizontalWind, 0.0, wind.z / horizontalWind) : Vec3.ZERO;
         SplittableRandom random = new SplittableRandom(mix(source.seed ^ now));
+        CadenceIgnitionGate ignitionGate = new CadenceIgnitionGate(
+            source.anchor.host().asLong());
 
         for (int[] offset : SURFACE_OFFSETS) {
             FireSurfaceAnchor target = source.anchor.gridOffset(offset[0], offset[1]);
             if (target != null) depositAlongSurface(level, state, source,
-                sourceProfile, target, now, dueTransfers);
+                sourceProfile, target, now, ignitionGate);
         }
 
         for (Direction direction : DIRECTIONS) {
             BlockPos candidate = source.anchor.host().relative(direction);
 			depositToBlock(level, state, source, sourceProfile, candidate, origin,
-                windDirection, horizontalWind, now, 1.0F, dueTransfers, true);
+                windDirection, horizontalWind, now, 1.0F, true, ignitionGate);
         }
         /* Only close radiation/convection may heat without contact. Long-range,
            wind-biased ignition is carried by the authoritative firebrands below. */
@@ -606,7 +603,7 @@ public final class FireSimulationManager {
 		for (int rise = 2; rise <= 5; rise++) {
 			BlockPos candidate = source.anchor.host().above(rise);
 			depositToBlock(level, state, source, sourceProfile, candidate, origin,
-				windDirection, horizontalWind, now, 2.3F / rise, dueTransfers, false);
+				windDirection, horizontalWind, now, 2.3F / rise, false, ignitionGate);
 		}
         int radius = 3;
         int samples = 12 + Mth.ceil(source.targetIntensity * 14.0F);
@@ -619,28 +616,28 @@ public final class FireSimulationManager {
 			if (candidate.distSqr(source.anchor.host()) > 12.0) continue;
             float sampling = dy > 0 ? 1.85F : 0.74F;
             depositToBlock(level, state, source, sourceProfile, candidate, origin,
-				windDirection, horizontalWind, now, sampling, dueTransfers, false);
+				windDirection, horizontalWind, now, sampling, false, ignitionGate);
         }
     }
 
     private static void depositAlongSurface(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile profile, final FireSurfaceAnchor target,
-        final long now, final int dueTransfers) {
+        final long now, final CadenceIgnitionGate ignitionGate) {
         float dose = 0.055F + source.heat * source.coverage * profile.heatRelease()
 			* (0.24F + source.targetIntensity * 0.30F);
         if (source.heat > 0.45F && source.coverage > 0.18F)
             dose *= 1.55F + Math.min(0.35F, source.targetIntensity * 0.35F);
-        dose *= dueTransfers;
+        dose = CombustionPolicy.cadenceDose(dose);
         if (dose <= 0.003F) return;
         addPreheat(level, state, target, dose, source.targetIntensity,
-            source.seed, now, profile);
+            source.seed, now, profile, true, ignitionGate);
     }
 
     private static void depositToBlock(final ServerLevel level, final LevelState state,
         final Patch source, final FireFuelProfile sourceProfile, final BlockPos candidate,
 		final Vec3 origin, final Vec3 windDirection, final double windSpeed,
-        final long now, final float samplingScale, final int dueTransfers,
-        final boolean directContact) {
+        final long now, final float samplingScale, final boolean directContact,
+        final CadenceIgnitionGate ignitionGate) {
         if (!isLoaded(level, candidate) || candidate.equals(source.anchor.host())) return;
         FireFuelProfile targetProfile = FireFuelProfile.of(level.getBlockState(candidate));
         if (!targetProfile.flammable()
@@ -673,15 +670,24 @@ public final class FireSimulationManager {
         float dose = (float) (source.heat * source.coverage * sourceProfile.heatRelease()
 			* (0.24 + source.targetIntensity * 0.32 + convection)
             * distanceFalloff * samplingScale * verticalContact * windBias
-            * directCanopyCoupling * targetFuelCoupling * dueTransfers);
+            * directCanopyCoupling * targetFuelCoupling);
+        dose = CombustionPolicy.cadenceDose(dose);
         if (dose <= 0.004F) return;
         addPreheat(level, state, target, dose, source.targetIntensity, source.seed, now,
-            targetProfile);
+            targetProfile, directContact, ignitionGate);
     }
 
     private static void addPreheat(final ServerLevel level, final LevelState state,
         final FireSurfaceAnchor target, final float amount, final float sourceIntensity,
         final long sourceSeed, final long now, final FireFuelProfile profile) {
+        addPreheat(level, state, target, amount, sourceIntensity, sourceSeed, now,
+            profile, true, new CadenceIgnitionGate(Long.MIN_VALUE));
+    }
+
+    private static void addPreheat(final ServerLevel level, final LevelState state,
+        final FireSurfaceAnchor target, final float amount, final float sourceIntensity,
+        final long sourceSeed, final long now, final FireFuelProfile profile,
+        final boolean directContact, final CadenceIgnitionGate ignitionGate) {
         if (surfaceCoolingDown(state, target.key(), now)) {
             state.preheat.remove(target.key());
             return;
@@ -691,13 +697,14 @@ public final class FireSimulationManager {
             Patch existingPatch = state.patches.get(existingId);
             if (existingPatch != null) {
                 if (existingPatch.simulationState == FireSimulationState.DORMANT
-                    && !activateDormantPatch(state, existingPatch, now)) {
+                    && !activateDormantPatch(level, state, existingPatch, now)) {
                     existingPatch = null;
                 }
             }
             if (existingPatch != null) {
                 if (existingPatch.surfaceFlame && now >= existingPatch.hardBurnEndTick) {
                     lockSurfaceBurn(state, existingPatch, now);
+                    applyPendingScorch(level, existingPatch);
                     return;
                 }
                 if (existingPatch.surfaceBurnLocked) return;
@@ -718,20 +725,28 @@ public final class FireSimulationManager {
         float existing = exposure == null ? 0.0F : Math.max(0.0F,
             exposure.dose - (now - exposure.lastTouched) * 0.00018F);
         float dose = existing + amount;
+        int exposureCadences = CombustionPolicy.distinctExposureCadences(
+            exposure == null ? 0 : exposure.distinctCadences,
+            exposure == null ? Long.MIN_VALUE : exposure.lastCadenceTick, now);
+        long targetHost = target.host().asLong();
+        boolean hostAdmission = ignitionGate.mayIgnite(targetHost);
         if (dose >= profile.ignitionThreshold()
+            && CombustionPolicy.mayIgnite(directContact, exposureCadences)
+            && hostAdmission
             && state.newIgnitionsThisTick < MAX_NEW_IGNITIONS_PER_TICK) {
             float intensity = Mth.clamp(0.16F + sourceIntensity * 0.62F, 0.20F, 0.90F);
             if (igniteInternal(level, state, target, intensity,
                 mix(sourceSeed ^ target.host().asLong() ^ now), false, false)) {
                 state.newIgnitionsThisTick++;
+                ignitionGate.recordIgnition(targetHost);
                 state.preheat.remove(target.key());
+                return;
             }
-            return;
         }
         if (exposure == null && state.preheat.size() >= MAX_PREHEAT_SURFACES) return;
 		if (exposure == null && state.preheatDecayQueued.add(target.key()))
 			state.preheatDecayQueue.addLast(target.key());
-        state.preheat.put(target.key(), new Exposure(dose, now));
+		state.preheat.put(target.key(), new Exposure(dose, now, now, exposureCadences));
     }
 
     private static boolean igniteInternal(final ServerLevel level, final LevelState state,
@@ -746,13 +761,14 @@ public final class FireSimulationManager {
             Patch existing = state.patches.get(existingId);
             if (existing != null) {
                 if (existing.simulationState == FireSimulationState.DORMANT
-                    && !activateDormantPatch(state, existing, now)) {
+                    && !activateDormantPatch(level, state, existing, now)) {
                     existing = null;
                 }
             }
             if (existing != null) {
                 if (existing.surfaceFlame && now >= existing.hardBurnEndTick) {
                     lockSurfaceBurn(state, existing, now);
+                    applyPendingScorch(level, existing);
                     return false;
                 }
                 if (existing.surfaceBurnLocked) return false;
@@ -790,6 +806,8 @@ public final class FireSimulationManager {
         indexActivePatch(state, patch);
         state.workQueue.addLast(id);
         updateVisualPatch(level, state, patch, profile, now);
+        WarModPerformanceDiagnostics.add(
+            WarModPerformanceDiagnostics.Gauge.FIRE_SIMULATION_IGNITIONS, 1L);
         return true;
     }
 
@@ -812,9 +830,30 @@ public final class FireSimulationManager {
         patch.fuel = 0.0F;
         patch.heat = Math.min(patch.heat, 0.18F);
         patch.surfaceBurnLocked = true;
+        patch.scorchPending = true;
+        WarModPerformanceDiagnostics.add(
+            WarModPerformanceDiagnostics.Gauge.FIRE_SIMULATION_BURNOUTS, 1L);
         patch.remainingExternalHeatBudget = 0.0F;
         if (state != null) addSurfaceCooldown(state, patch.anchor.key(),
             SurfaceBurnPolicy.cooldownExpiry(Math.max(now, patch.hardBurnEndTick)));
+    }
+
+    private static void applyPendingScorch(final ServerLevel level, final Patch patch) {
+        if (!patch.scorchPending || patch.scorched) return;
+        BlockPos host = patch.anchor.host();
+        if (!isLoaded(level, host) || level.getBlockEntity(host) != null) return;
+        BlockState current = level.getBlockState(host);
+        if (FireFuelProfile.of(current) == FireFuelProfile.LOW) {
+            BlockState scorched = CombustionPolicy.scorchedState(current);
+            if (!scorched.equals(current)) {
+                if (level.setBlock(host, scorched, Block.UPDATE_ALL)) {
+                    WarModPerformanceDiagnostics.add(
+                        WarModPerformanceDiagnostics.Gauge.FIRE_SCORCHED_BLOCKS, 1L);
+                }
+            }
+        }
+        patch.scorchPending = false;
+        patch.scorched = true;
     }
 
     private static boolean surfaceCoolingDown(final LevelState state,
@@ -1148,10 +1187,11 @@ public final class FireSimulationManager {
         return false;
     }
 
-    private static void makeDormant(final LevelState state, final Patch patch,
-        final long now) {
+    private static void makeDormant(final ServerLevel level, final LevelState state,
+        final Patch patch, final long now) {
         if (patch.simulationState != FireSimulationState.ACTIVE) return;
         analyticallyAdvance(state, patch, now);
+        applyPendingScorch(level, patch);
         if (analyticallyExpired(patch, now)) {
             removePatch(state, patch);
             return;
@@ -1188,7 +1228,7 @@ public final class FireSimulationManager {
                         if (patch == null || patch.simulationState != FireSimulationState.DORMANT)
                             continue;
                         if (!isSimulationRelevant(level, patch.anchor.host())) continue;
-                        activateDormantPatch(state, patch, now);
+                        activateDormantPatch(level, state, patch, now);
                         reactivated++;
                         if (reactivated >= MAX_DORMANT_REACTIVATIONS_PER_TICK
                             || state.activePatchCount >= MAX_ACTIVE_PATCHES) return;
@@ -1198,10 +1238,11 @@ public final class FireSimulationManager {
         }
     }
 
-    private static boolean activateDormantPatch(final LevelState state, final Patch patch,
-        final long now) {
+    private static boolean activateDormantPatch(final ServerLevel level,
+        final LevelState state, final Patch patch, final long now) {
         if (patch.simulationState != FireSimulationState.DORMANT) return true;
         analyticallyAdvance(state, patch, now);
+        applyPendingScorch(level, patch);
         if (patch.surfaceBurnLocked) {
             if (analyticallyExpired(patch, now)) removePatch(state, patch);
             else {
@@ -1227,8 +1268,8 @@ public final class FireSimulationManager {
         return true;
     }
 
-    private static void expireDormantPatches(final LevelState state, final long now,
-        final long deadline) {
+    private static void expireDormantPatches(final ServerLevel level,
+        final LevelState state, final long now, final long deadline) {
         int processed = 0;
         while (!state.dormantExpiryQueue.isEmpty()
             && state.dormantExpiryQueue.peek().expiryTick() <= now) {
@@ -1238,6 +1279,7 @@ public final class FireSimulationManager {
             if (patch == null || patch.simulationState != FireSimulationState.DORMANT
                 || patch.dormantExpiryTick != expiry.expiryTick()) continue;
             analyticallyAdvance(state, patch, now);
+            applyPendingScorch(level, patch);
             if (analyticallyExpired(patch, now)) removePatch(state, patch);
             else {
                 scheduleDormantExpiry(state, patch, now);
@@ -1386,6 +1428,10 @@ public final class FireSimulationManager {
             representation.cells().stream().filter(cell ->
                 cell.band() == com.andye.warmod.fire.network.FireVisualBand.NEAR
                     && cell.cellSize() == 1 && cell.hostCount() == 1).count());
+        WarModPerformanceDiagnostics.add(
+            WarModPerformanceDiagnostics.Gauge.FIRE_NEAR_CELL_OMISSIONS,
+            representation.omittedCellsByBand().getOrDefault(
+                com.andye.warmod.fire.network.FireVisualBand.PATCH, 0));
         return new FireNetworking.ViewerSnapshot(player.getUUID(), viewer, now, generation,
             representation, nearbyEmbers(level, state, viewer));
     }
@@ -1506,6 +1552,7 @@ public final class FireSimulationManager {
                 if (patch.surfaceBurnLocked) {
                     patch.targetIntensity = 0.0F;
                     patch.fuel = 0.0F;
+                    patch.scorchPending = true;
                     addSurfaceCooldown(state, anchor.key(),
                         SurfaceBurnPolicy.cooldownExpiry(
                             Math.max(now, patch.hardBurnEndTick)));
@@ -1530,6 +1577,7 @@ public final class FireSimulationManager {
                 state.workQueue.addLast(id);
             }
             FireFuelProfile profile = FireFuelProfile.of(level.getBlockState(anchor.host()));
+            applyPendingScorch(level, patch);
             patch.simulationState = FireSimulationState.ACTIVE;
             updateVisualPatch(level, state, patch, profile, now);
             patch.simulationState = dormant
@@ -1805,6 +1853,8 @@ public final class FireSimulationManager {
         private long lastExternalHeatTick = Long.MIN_VALUE;
         private float remainingExternalHeatBudget;
         private boolean surfaceBurnLocked;
+        private boolean scorchPending;
+        private boolean scorched;
         private boolean consumed;
         private FireSimulationState simulationState = FireSimulationState.ACTIVE;
         private long dormantExpiryTick = Long.MAX_VALUE;
@@ -1845,7 +1895,25 @@ public final class FireSimulationManager {
         }
     }
 
-    private record Exposure(float dose, long lastTouched) { }
+    private record Exposure(float dose, long lastTouched, long lastCadenceTick,
+        int distinctCadences) { }
+
+    private static final class CadenceIgnitionGate {
+        private final long sourceHost;
+        private boolean newHostIgnited;
+
+        private CadenceIgnitionGate(final long sourceHost) {
+            this.sourceHost = sourceHost;
+        }
+
+        private boolean mayIgnite(final long targetHost) {
+            return targetHost == sourceHost || !newHostIgnited;
+        }
+
+        private void recordIgnition(final long targetHost) {
+            if (targetHost != sourceHost) newHostIgnited = true;
+        }
+    }
     private record CachedVentilation(float factor, long expiresAt) { }
     private record DormantExpiry(long patchId, long expiryTick) { }
     private record RankedEmberSnapshot(FireEmberSnapshot snapshot, double distanceSquared) { }

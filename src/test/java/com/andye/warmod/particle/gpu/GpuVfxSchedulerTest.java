@@ -224,12 +224,14 @@ final class GpuVfxSchedulerTest {
         }
         GpuVfxScheduler.LayerSchedule flames = scheduled.layerSchedules()
             .get(VisualLayer.FLAMES);
-        assertTrue(flames == null || flames.particlesAccepted() == 0,
-            "persistent fire must yield when only the transient reserve is free");
+        assertTrue(flames != null && flames.particlesAccepted() > 0,
+            "persistent fire lost its independent guaranteed floor");
+        assertTrue(flames.emittersScheduled() > 0,
+            "persistent fire lost every spatial representative");
     }
 
     @Test
-    void exactPatchCardsCollapseIntoOneGpuEmitterPerSemanticLayer() {
+    void exactPatchCardsRemainPersistentLifecycleEmitters() {
         List<Card> flameCards = cards(48, 0.18F, 0.72F);
         List<Card> smokeCards = cards(32, 0.28F, 0.48F);
         CellPlan plan = new CellPlan(flameCards, smokeCards, 2,
@@ -249,16 +251,22 @@ final class GpuVfxSchedulerTest {
             new FrameSubmissions(List.of(), List.of(field)), CAMERA, 1.0,
             80L, 0.05F, 262_144L, 100.0);
 
-        assertEquals(50, scheduled.layerSchedules().get(VisualLayer.FLAMES)
+        assertEquals(50 * flameCards.size(), scheduled.layerSchedules().get(VisualLayer.FLAMES)
             .commandsSubmitted());
-        assertEquals(50, scheduled.layerSchedules().get(VisualLayer.SMOKE)
+        assertEquals(50 * smokeCards.size(), scheduled.layerSchedules().get(VisualLayer.SMOKE)
             .commandsSubmitted());
+        assertTrue(scheduled.emitters().stream()
+            .filter(command -> command.semanticLayer() == VisualLayer.FLAMES)
+            .allMatch(command -> command.lifetimeSeconds() >= 0.60F
+                && command.lifetimeSeconds() <= 1.40F));
     }
 
     @Test
     void schedulerPublishesTheProtectedTransientReserve() {
         assertEquals(GpuVfxScheduler.PROTECTED_TRANSIENT_PARTICLE_SLOTS,
             GpuVfxScheduler.budgetLimits(1.0, 1.0).protectedTransientParticleSlots());
+        assertEquals(GpuVfxScheduler.PROTECTED_FIRE_PARTICLE_SLOTS,
+            GpuVfxScheduler.budgetLimits(1.0, 1.0).protectedFireParticleSlots());
     }
 
     private static GpuVfxScheduler.ScheduledFrame schedule(

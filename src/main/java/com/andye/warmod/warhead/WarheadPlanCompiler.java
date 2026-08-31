@@ -273,9 +273,9 @@ final class WarheadPlanCompiler {
                 } else if ((flags & WarheadSnapshotFlags.LOG) != 0) {
                     if ((flags & WarheadSnapshotFlags.NATURAL_TREE) != 0) {
                         int column = (z & 15) * 16 + (x & 15);
-                        replacement = NuclearVegetationPolicy.naturalLog(impact,
-                            palette, flags, y, snapshot.terrainSurfaceY(column),
-                            normalized, packed);
+                            replacement = NuclearVegetationPolicy.naturalLog(impact,
+                                palette, flags, y, snapshot.verticalSurfaceY(column),
+                                normalized, packed);
                         if (replacement != Integer.MIN_VALUE
                             && replacement != palette.air()) {
                             addTreeFire(impact, builders, x, y, z, normalized, packed, 1.0);
@@ -328,7 +328,7 @@ final class WarheadPlanCompiler {
                 int verticalHeight = NuclearBiomePolicy.verticalHeight(distance,
                     footprint.biomeRadius(), impact.yield().visualScale());
                 if (verticalHeight < 0) continue;
-                int surfaceY = snapshot.terrainSurfaceY(localZ * 16 + localX);
+                int surfaceY = snapshot.biomeSurfaceY(localZ * 16 + localX);
                 if (surfaceY < snapshot.minimumBuildY()) continue;
                 int minimumQuartY = QuartPos.fromBlock(surfaceY + NuclearBiomeDome.BOTTOM_OFFSET);
                 int maximumQuartY = QuartPos.fromBlock(surfaceY + verticalHeight);

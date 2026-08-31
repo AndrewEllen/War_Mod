@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead.network;
 
+import com.andye.warmod.warhead.ConventionalDebrisBallistics;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -13,11 +14,13 @@ final class WarheadDebrisVisualTuner {
 
     static ClientboundWarheadDebrisPayload tune(final ClientboundWarheadDebrisPayload payload,
         final float visualScale, final boolean nuclear) {
-        if (payload == null || payload.entries().size() < 2) return payload;
+        if (payload == null || payload.entries().isEmpty()) return payload;
         int groupSize = nuclear
             ? Mth.clamp(Math.round(2.0F + visualScale * 0.85F), 3, 6)
             : visualScale < 0.55F ? 1 : Mth.clamp(Math.round(1.0F + visualScale), 2, 4);
-        if (groupSize <= 1) return payload;
+        if (payload.entries().size() < 2 || groupSize <= 1) {
+            return nuclear ? payload : ensureConventionalClearance(payload, visualScale);
+        }
 
         ArrayList<ClientboundWarheadDebrisPayload.Entry> remaining = new ArrayList<>(payload.entries());
         ArrayList<ClientboundWarheadDebrisPayload.Entry> combined = new ArrayList<>();
@@ -38,7 +41,27 @@ final class WarheadDebrisVisualTuner {
             combined.add(combine(group, visualScale, nuclear));
         }
         return new ClientboundWarheadDebrisPayload(payload.impactId(), payload.originX(), payload.originY(),
-            payload.originZ(), payload.spawnGameTime(), List.copyOf(combined));
+            payload.originZ(), payload.spawnGameTime(), nuclear, List.copyOf(combined));
+    }
+
+    private static ClientboundWarheadDebrisPayload ensureConventionalClearance(
+        final ClientboundWarheadDebrisPayload payload, final float visualScale) {
+        ArrayList<ClientboundWarheadDebrisPayload.Entry> cleared =
+            new ArrayList<>(payload.entries().size());
+        for (ClientboundWarheadDebrisPayload.Entry entry : payload.entries()) {
+            net.minecraft.world.phys.Vec3 velocity =
+                ConventionalDebrisBallistics.ensureClearance(
+                    new net.minecraft.world.phys.Vec3(entry.velocityX(), entry.velocityY(),
+                        entry.velocityZ()), entry.offsetX(), entry.offsetZ(), visualScale);
+            cleared.add(new ClientboundWarheadDebrisPayload.Entry(
+                entry.offsetX(), entry.offsetY(), entry.offsetZ(),
+                (float) velocity.x, (float) velocity.y, (float) velocity.z,
+                entry.spinX(), entry.spinY(), entry.spinZ(), entry.scale(), entry.lifetime(),
+                entry.parts()));
+        }
+        return new ClientboundWarheadDebrisPayload(payload.impactId(), payload.originX(),
+            payload.originY(), payload.originZ(), payload.spawnGameTime(), false,
+            List.copyOf(cleared));
     }
 
     private static ClientboundWarheadDebrisPayload.Entry combine(
@@ -77,14 +100,27 @@ final class WarheadDebrisVisualTuner {
         }
 
         double horizontal = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ);
-        double maximumHorizontal = (nuclear ? 0.58 : 0.72) + 0.34 / Math.sqrt(Math.max(1, parts.size()));
-        if (horizontal > maximumHorizontal) {
-            double factor = maximumHorizontal / horizontal;
-            velocityX *= factor;
-            velocityZ *= factor;
+        if (nuclear) {
+            /* Nuclear debris semantics are intentionally unchanged. */
+            double maximumHorizontal = 0.58 + 0.34 / Math.sqrt(Math.max(1, parts.size()));
+            if (horizontal > maximumHorizontal) {
+                double factor = maximumHorizontal / horizontal;
+                velocityX *= factor;
+                velocityZ *= factor;
+            }
+            double maximumVertical = 0.42 + 0.34 / Math.sqrt(Math.max(1, parts.size()));
+            velocityY = Mth.clamp(velocityY, 0.10, maximumVertical);
+        } else {
+            /* Grouping keeps the weighted momentum. Only add the radial component
+               required to leave the shared opaque core before it clears. */
+            net.minecraft.world.phys.Vec3 cleared =
+                ConventionalDebrisBallistics.ensureClearance(
+                    new net.minecraft.world.phys.Vec3(velocityX, velocityY, velocityZ),
+                    offsetX, offsetZ, visualScale);
+            velocityX = cleared.x;
+            velocityY = cleared.y;
+            velocityZ = cleared.z;
         }
-        double maximumVertical = (nuclear ? 0.42 : 0.56) + 0.34 / Math.sqrt(Math.max(1, parts.size()));
-        velocityY = Mth.clamp(velocityY, 0.10, maximumVertical);
         double spinScale = 1.0 / Math.sqrt(Math.max(1.0, parts.size() / 4.0));
         float scale = Mth.clamp(0.92F + (float) Math.sqrt(parts.size()) * 0.028F
             + Math.min(0.08F, visualScale * 0.018F), 0.92F, 1.15F);

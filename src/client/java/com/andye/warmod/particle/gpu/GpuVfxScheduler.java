@@ -32,6 +32,7 @@ import org.joml.Matrix4f;
 final class GpuVfxScheduler {
     static final int MAX_SCHEDULED_EMITTERS = 4_096;
     static final int PROTECTED_TRANSIENT_PARTICLE_SLOTS = 32_768;
+    static final int PROTECTED_FIRE_PARTICLE_SLOTS = 32_768;
     private static final double BASE_SPAWN_RATE_BUDGET = 155_250.0;
     private static final double BASE_FRAGMENT_COST_BUDGET = 115_000.0;
     private static final int FIRE_SURFACE_DISTRIBUTION_FLAG = 1;
@@ -49,10 +50,27 @@ final class GpuVfxScheduler {
         }
 
         ArrayList<LayerDemand> demands = new ArrayList<>();
+        EnumMap<VisualLayer, MutableLayerSchedule> layerSchedules =
+            new EnumMap<>(VisualLayer.class);
         for (EffectSubmission effect : effects) {
             EffectDescriptor descriptor = effect.descriptor();
-            if (descriptor == null || !descriptor.valid()
-                || !camera.visible(descriptor.position(), descriptor.boundsRadius())) continue;
+            if (descriptor == null || !descriptor.valid()) continue;
+            if (!camera.visible(descriptor.position(), descriptor.boundsRadius())) {
+                for (Map.Entry<VisualLayer, List<EmitterCommand>> entry
+                    : effect.layers().entrySet()) {
+                    List<EmitterCommand> submitted = entry.getValue();
+                    if (submitted == null || submitted.isEmpty()) continue;
+                    MutableLayerSchedule rejected = layerSchedules.computeIfAbsent(
+                        entry.getKey(), ignored -> new MutableLayerSchedule());
+                    long particles = Math.round(submitted.stream()
+                        .mapToDouble(EmitterCommand::spawnCount).sum());
+                    rejected.commandsSubmitted += submitted.size();
+                    rejected.emittersRequested += submitted.size();
+                    rejected.particlesRequested += particles;
+                    rejected.frustumCulled += submitted.size();
+                }
+                continue;
+            }
             double projectedDiameter = camera.projectedDiameter(
                 descriptor.position(), descriptor.boundsRadius());
             double screenImportance = screenImportance(projectedDiameter, camera.viewportHeight());
@@ -80,15 +98,28 @@ final class GpuVfxScheduler {
 
         BudgetLimits limits = budgetLimits(adaptiveQuality, budgetScale);
         double liveSlotRate = Math.max(0.0, deadSlots) / Math.max(0.001, deltaSeconds);
+        boolean hasCriticalTransient = demands.stream().anyMatch(demand ->
+            demand.admission == AdmissionClass.CRITICAL_TRANSIENT);
+        boolean hasPersistentFire = demands.stream().anyMatch(demand ->
+            demand.admission == AdmissionClass.PERSISTENT_WORLD);
         double persistentLiveSlotRate = Math.max(0.0,
-            deadSlots - PROTECTED_TRANSIENT_PARTICLE_SLOTS)
+            deadSlots - (hasCriticalTransient ? PROTECTED_TRANSIENT_PARTICLE_SLOTS : 0))
+            / Math.max(0.001, deltaSeconds);
+        double transientLiveSlotRate = Math.max(0.0,
+            deadSlots - (hasPersistentFire ? PROTECTED_FIRE_PARTICLE_SLOTS : 0))
             / Math.max(0.001, deltaSeconds);
         BudgetState budget = new BudgetState(
             limits.spawnRatePerSecond(),
             limits.fragmentCostPerSecond(),
-            liveSlotRate, persistentLiveSlotRate);
+            liveSlotRate, transientLiveSlotRate, persistentLiveSlotRate,
+            (hasCriticalTransient ? PROTECTED_TRANSIENT_PARTICLE_SLOTS : 0)
+                / Math.max(0.001, deltaSeconds),
+            (hasPersistentFire ? PROTECTED_FIRE_PARTICLE_SLOTS : 0)
+                / Math.max(0.001, deltaSeconds));
+        allocateGuaranteedFloors(demands, budget);
         for (AdmissionClass admission : AdmissionClass.values())
             allocatePhase(demands, budget, AllocationPhase.CRITICAL, admission);
+        budget.releaseUnusedReservations();
         for (AllocationPhase phase : List.of(AllocationPhase.QUALITY,
             AllocationPhase.TARGET, AllocationPhase.MAXIMUM)) {
             for (AdmissionClass admission : AdmissionClass.values())
@@ -98,8 +129,6 @@ final class GpuVfxScheduler {
 
         ArrayList<EmitterCommand> scheduled = new ArrayList<>(MAX_SCHEDULED_EMITTERS);
         EnumMap<VisualLayer, Integer> scheduledByLayer = new EnumMap<>(VisualLayer.class);
-        EnumMap<VisualLayer, MutableLayerSchedule> layerSchedules =
-            new EnumMap<>(VisualLayer.class);
         for (LayerDemand demand : demands) {
             MutableLayerSchedule layerSchedule = layerSchedules.computeIfAbsent(
                 demand.layer, ignored -> new MutableLayerSchedule());
@@ -136,55 +165,61 @@ final class GpuVfxScheduler {
         double scale = Math.max(0.001, budgetScale);
         return new BudgetLimits(BASE_SPAWN_RATE_BUDGET * quality * scale,
             BASE_FRAGMENT_COST_BUDGET * quality * scale,
-            MAX_SCHEDULED_EMITTERS, PROTECTED_TRANSIENT_PARTICLE_SLOTS);
+            MAX_SCHEDULED_EMITTERS, PROTECTED_TRANSIENT_PARTICLE_SLOTS,
+            PROTECTED_FIRE_PARTICLE_SLOTS);
     }
 
     private static List<EffectSubmission> expandFireField(final FireFieldSubmission field,
         final CameraInfo camera) {
         if (field == null || !field.valid() || !camera.visible(field.center(), field.radius()))
             return List.of();
-        ArrayList<EmitterCommand> flames = new ArrayList<>(field.cells().size());
-        ArrayList<EmitterCommand> smoke = new ArrayList<>(field.cells().size());
+        ArrayList<EmitterCommand> flames = new ArrayList<>();
+        ArrayList<EmitterCommand> smoke = new ArrayList<>();
         for (FireFieldCell cell : field.cells()) {
             if (!cell.valid() || !camera.visible(cell.position(), cell.boundsRadius())) continue;
             Vec3 normal = cell.surfaceNormal().normalize();
             boolean exactPatch = cell.representation().exactPatch();
             if (!cell.plan().flames().isEmpty()) {
-                int sourceCards = cell.plan().flames().size();
-                int rate = compactRate(sourceCards,
-                    Math.max(4, Math.round(8.0F + cell.intensity() * 12.0F)));
-                float radius = representativeRadius(cell.plan().flames(), 0.08F);
-                float opacity = representativeOpacity(cell.plan().flames(), 0.96F);
-                Vec3 position = cell.position().add(normal.scale(exactPatch ? 0.045 : 0.0))
-                    .add(0.0, exactPatch ? 0.02 : 0.05 + radius * 0.12, 0.0);
-                Vec3 velocity = cell.wind().scale(0.11)
-                    .add(normal.scale(exactPatch ? 0.26 + cell.heat() * 0.20 : 0.0))
-                    .add(0.0, 0.72 + cell.heat() * 0.62, 0.0);
-                flames.add(new EmitterCommand(position, velocity, 1.0F,
-                    0.90F + cell.heat() * 0.48F, 1.0F,
-                    0.20F + cell.heat() * 0.38F, 0.025F, opacity, radius,
-                    compactSpread(cell, radius, false), 0.42F, rate,
-                    mix32(cell.seed() ^ 0x464C414D455F5041L), ParticleType.FIRE,
-                    exactPatch ? FIRE_SURFACE_DISTRIBUTION_FLAG : 0,
-                    1.0F + cell.heat(), VisualLayer.FLAMES, normal,
-                    exactPatch ? 2 : 0));
+                int cardIndex = 0;
+                for (Card card : cell.plan().flames()) {
+                    long tongueSeed = mix64(cell.seed() ^ card.seed()
+                        ^ cardIndex++ * 0x9E3779B97F4A7C15L);
+                    float lifetime = 0.60F + (float) unit(tongueSeed, 0) * 0.80F;
+                    float envelope = Math.max(card.radius() * 1.6F,
+                        cell.flameEnvelopeHeight());
+                    Vec3 position = card.position().add(normal.scale(exactPatch ? 0.035 : 0.015));
+                    Vec3 velocity = cell.wind().scale(0.10 + lifetime * 0.035)
+                        .add(normal.scale(exactPatch ? 0.10 + cell.heat() * 0.08 : 0.04))
+                        .add(0.0, 0.18 + envelope / Math.max(1.2F, lifetime * 3.4F), 0.0);
+                    flames.add(new EmitterCommand(position, velocity, 1.0F,
+                        lifetime, 1.0F, 0.18F + cell.heat() * 0.42F, 0.018F,
+                        Math.min(0.98F, card.opacity()), card.radius(),
+                        Math.max(0.025F, card.radius() * (exactPatch ? 0.34F : 0.52F)),
+                        0.08F + cell.heat() * 0.08F,
+                        exactPatch ? 2 : 1,
+                        mix32(tongueSeed), ParticleType.FIRE,
+                        FIRE_SURFACE_DISTRIBUTION_FLAG,
+                        1.0F + cell.heat(), VisualLayer.FLAMES, normal, 2));
+                }
             }
             if (!cell.plan().smoke().isEmpty()) {
-                int sourceCards = cell.plan().smoke().size();
-                int rate = compactRate(sourceCards, Math.max(3, Math.round(5.0F
-                    + cell.plan().representedSmokeOpticalDepth() * 4.0F)));
-                float radius = representativeRadius(cell.plan().smoke(), 0.12F);
-                float opacity = representativeOpacity(cell.plan().smoke(), 0.72F);
-                smoke.add(new EmitterCommand(cell.position().add(0.0,
-                    0.30 + radius * 0.34, 0.0),
-                    cell.wind().scale(0.18).add(0.0, 0.68, 0.0), 1.0F,
-                    4.2F + cell.plan().representedSmokeOpticalDepth() * 0.65F,
-                    0.15F, 0.16F, 0.15F, opacity, radius,
-                    compactSpread(cell, radius, true), 0.26F, rate,
-                    mix32(cell.seed() ^ 0x534D4F4B455F5041L), ParticleType.SMOKE,
-                    exactPatch ? FIRE_SURFACE_DISTRIBUTION_FLAG : 0,
-                    0.74F + cell.plan().representedSmokeOpticalDepth(),
-                    VisualLayer.SMOKE, normal, 0));
+                int cardIndex = 0;
+                for (Card card : cell.plan().smoke()) {
+                    long smokeSeed = mix64(cell.seed() ^ card.seed()
+                        ^ cardIndex++ * 0xD1B54A32D192ED03L);
+                    float lifetime = 3.5F + (float) unit(smokeSeed, 1) * 1.7F;
+                    smoke.add(new EmitterCommand(card.position().add(normal.scale(0.06))
+                        .add(0.0, Math.max(0.12, cell.flameEnvelopeHeight() * 0.18), 0.0),
+                        cell.wind().scale(0.16 + lifetime * 0.012)
+                            .add(0.0, 0.46 + cell.heat() * 0.24, 0.0), 1.0F,
+                        lifetime, 0.15F, 0.16F, 0.15F,
+                        Math.min(0.72F, card.opacity()), card.radius(),
+                        Math.max(0.08F, card.radius() * 0.52F), 0.12F,
+                        exactPatch ? 1 : 1, mix32(smokeSeed), ParticleType.SMOKE,
+                        FIRE_SURFACE_DISTRIBUTION_FLAG,
+                        0.74F + cell.plan().representedSmokeOpticalDepth(),
+                        VisualLayer.SMOKE, normal, 0));
+                }
             }
         }
 
@@ -251,6 +286,30 @@ final class GpuVfxScheduler {
      * distributes that budget among effects. Hundreds of fire cells therefore
      * cannot each claim an independent FLAMES or SMOKE minimum.
      */
+    private static void allocateGuaranteedFloors(final List<LayerDemand> demands,
+        final BudgetState budget) {
+        ArrayList<LayerDemand> protectedDemands = new ArrayList<>();
+        double requestedRate = 0.0;
+        double requestedCost = 0.0;
+        for (LayerDemand demand : demands) {
+            if (demand.admission != AdmissionClass.CRITICAL_TRANSIENT
+                && demand.admission != AdmissionClass.PERSISTENT_WORLD) continue;
+            double foothold = Math.min(demand.requestedRate,
+                demand.admission == AdmissionClass.CRITICAL_TRANSIENT ? 4.0 : 2.0);
+            if (foothold <= 0.0) continue;
+            protectedDemands.add(demand);
+            requestedRate += foothold;
+            requestedCost += foothold * demand.particleCost;
+        }
+        double scale = budget.globalFairScale(requestedRate, requestedCost);
+        for (LayerDemand demand : protectedDemands) {
+            double foothold = Math.min(demand.requestedRate,
+                demand.admission == AdmissionClass.CRITICAL_TRANSIENT ? 4.0 : 2.0);
+            demand.allocatedRate += budget.grantGuaranteed(foothold * scale,
+                demand.particleCost, demand.admission);
+        }
+    }
+
     private static void allocatePhase(final List<LayerDemand> demands,
         final BudgetState budget, final AllocationPhase phase,
         final AdmissionClass admission) {
@@ -336,13 +395,46 @@ final class GpuVfxScheduler {
                 (LayerDemand demand) -> demand.weight).reversed())
             .thenComparingLong(demand -> demand.descriptor.id())
             .thenComparingInt(demand -> demand.layer.ordinal()));
-        for (AdmissionClass admission : AdmissionClass.values()) {
-            ArrayList<LayerDemand> admitted = new ArrayList<>();
-            for (LayerDemand demand : active) {
-                if (demand.admission == admission) admitted.add(demand);
+        ArrayList<LayerDemand> critical = admitted(active,
+            AdmissionClass.CRITICAL_TRANSIENT);
+        ArrayList<LayerDemand> persistent = admitted(active,
+            AdmissionClass.PERSISTENT_WORLD);
+        /* Guaranteed classes are interleaved. A maximum wildfire cannot consume
+           the critical explosion floor, and simultaneous explosions cannot erase
+           every emitter belonging to a persistent fire region. */
+        for (int index = 0; remaining > 0
+            && (index < critical.size() || index < persistent.size()); index++) {
+            if (index < critical.size() && remaining > 0) {
+                critical.get(index).allocatedSlots = 1;
+                remaining--;
             }
-            /* One emitter per admitted effect first, then complete every
-               topology floor before moving to a lower-priority class. */
+            if (index < persistent.size() && remaining > 0) {
+                persistent.get(index).allocatedSlots = 1;
+                remaining--;
+            }
+        }
+        boolean protectedProgress = true;
+        while (remaining > 0 && protectedProgress) {
+            protectedProgress = false;
+            for (int index = 0; remaining > 0
+                && (index < critical.size() || index < persistent.size()); index++) {
+                if (index < critical.size()) {
+                    LayerDemand demand = critical.get(index);
+                    if (demand.allocatedSlots < demand.topologyFloor()) {
+                        demand.allocatedSlots++; remaining--; protectedProgress = true;
+                    }
+                }
+                if (remaining > 0 && index < persistent.size()) {
+                    LayerDemand demand = persistent.get(index);
+                    if (demand.allocatedSlots < demand.topologyFloor()) {
+                        demand.allocatedSlots++; remaining--; protectedProgress = true;
+                    }
+                }
+            }
+        }
+        for (AdmissionClass admission : List.of(AdmissionClass.IMPORTANT_TRANSIENT,
+            AdmissionClass.AMBIENT_DETAIL)) {
+            ArrayList<LayerDemand> admitted = admitted(active, admission);
             for (LayerDemand demand : admitted) {
                 if (remaining <= 0) break;
                 demand.allocatedSlots = 1;
@@ -386,6 +478,14 @@ final class GpuVfxScheduler {
                 if (remaining == before) break;
             }
         }
+    }
+
+    private static ArrayList<LayerDemand> admitted(final List<LayerDemand> demands,
+        final AdmissionClass admission) {
+        ArrayList<LayerDemand> result = new ArrayList<>();
+        for (LayerDemand demand : demands) if (demand.admission == admission)
+            result.add(demand);
+        return result;
     }
 
     private static List<EmitterCommand> represent(final LayerDemand demand) {
@@ -689,6 +789,10 @@ final class GpuVfxScheduler {
         return (int) (mixed ^ mixed >>> 32);
     }
 
+    private static double unit(final long value, final int lane) {
+        return (mix64(value + lane * 0x9E3779B97F4A7C15L) >>> 11) * 0x1.0p-53;
+    }
+
     record CameraInfo(Vec3 position, Matrix4f viewProjection, float projectionScale,
         int viewportWidth, int viewportHeight) {
         boolean visible(final Vec3 center, final float radius) {
@@ -713,11 +817,12 @@ final class GpuVfxScheduler {
 
     record LayerSchedule(int commandsSubmitted, int emittersRequested,
         int emittersScheduled, long particlesRequested,
-        long particlesAccepted, long particlesRejected) { }
+        long particlesAccepted, long particlesRejected,
+        int frustumCulled, int capacityCulled) { }
 
     record BudgetLimits(double spawnRatePerSecond,
         double fragmentCostPerSecond, int emitterCapacity,
-        int protectedTransientParticleSlots) { }
+        int protectedTransientParticleSlots, int protectedFireParticleSlots) { }
 
     private enum AdmissionClass {
         CRITICAL_TRANSIENT,
@@ -826,15 +931,25 @@ final class GpuVfxScheduler {
         private double remainingSpawnRate;
         private double remainingFragmentCost;
         private double remainingLiveSlotRate;
+        private double remainingTransientLiveSlotRate;
         private double remainingPersistentLiveSlotRate;
+        private final double transientReserveRate;
+        private final double fireReserveRate;
+        private double allocatedTransientRate;
+        private double allocatedFireRate;
         private double allocatedFragmentCost;
 
         private BudgetState(final double spawnRate, final double fragmentCost,
-            final double liveSlotRate, final double persistentLiveSlotRate) {
+            final double liveSlotRate, final double transientLiveSlotRate,
+            final double persistentLiveSlotRate, final double transientReserveRate,
+            final double fireReserveRate) {
             remainingSpawnRate = Math.max(0.0, spawnRate);
             remainingFragmentCost = Math.max(0.0, fragmentCost);
             remainingLiveSlotRate = Math.max(0.0, liveSlotRate);
+            remainingTransientLiveSlotRate = Math.max(0.0, transientLiveSlotRate);
             remainingPersistentLiveSlotRate = Math.max(0.0, persistentLiveSlotRate);
+            this.transientReserveRate = Math.max(0.0, transientReserveRate);
+            this.fireReserveRate = Math.max(0.0, fireReserveRate);
         }
 
         private double grant(final double requestedRate, final double particleCost,
@@ -846,14 +961,59 @@ final class GpuVfxScheduler {
             if (admission == AdmissionClass.PERSISTENT_WORLD
                 || admission == AdmissionClass.AMBIENT_DETAIL) {
                 granted = Math.min(granted, remainingPersistentLiveSlotRate);
+            } else {
+                granted = Math.min(granted, remainingTransientLiveSlotRate);
             }
+            consume(granted, safeCost, admission);
+            return Math.max(0.0, granted);
+        }
+
+        private double grantGuaranteed(final double requestedRate,
+            final double particleCost, final AdmissionClass admission) {
+            if (requestedRate <= 0.0) return 0.0;
+            double safeCost = Math.max(0.25, particleCost);
+            double granted = Math.min(requestedRate, Math.min(remainingSpawnRate,
+                Math.min(remainingLiveSlotRate, remainingFragmentCost / safeCost)));
+            consume(granted, safeCost, admission);
+            return Math.max(0.0, granted);
+        }
+
+        private void consume(final double granted, final double safeCost,
+            final AdmissionClass admission) {
             remainingSpawnRate -= granted;
             remainingLiveSlotRate -= granted;
-            remainingPersistentLiveSlotRate = Math.max(0.0,
-                remainingPersistentLiveSlotRate - granted);
+            if (admission == AdmissionClass.PERSISTENT_WORLD
+                || admission == AdmissionClass.AMBIENT_DETAIL) {
+                remainingPersistentLiveSlotRate = Math.max(0.0,
+                    remainingPersistentLiveSlotRate - granted);
+            } else {
+                remainingTransientLiveSlotRate = Math.max(0.0,
+                    remainingTransientLiveSlotRate - granted);
+            }
             remainingFragmentCost -= granted * safeCost;
             allocatedFragmentCost += granted * safeCost;
-            return Math.max(0.0, granted);
+            if (admission == AdmissionClass.CRITICAL_TRANSIENT)
+                allocatedTransientRate += granted;
+            if (admission == AdmissionClass.PERSISTENT_WORLD)
+                allocatedFireRate += granted;
+        }
+
+        private double globalFairScale(final double requestedRate,
+            final double requestedFragmentCost) {
+            if (requestedRate <= 0.0 || requestedFragmentCost <= 0.0) return 0.0;
+            return Math.min(1.0, Math.min(remainingSpawnRate / requestedRate,
+                Math.min(remainingLiveSlotRate / requestedRate,
+                    remainingFragmentCost / requestedFragmentCost)));
+        }
+
+        private void releaseUnusedReservations() {
+            double unusedTransient = Math.max(0.0,
+                transientReserveRate - allocatedTransientRate);
+            double unusedFire = Math.max(0.0, fireReserveRate - allocatedFireRate);
+            remainingPersistentLiveSlotRate = Math.min(remainingLiveSlotRate,
+                remainingPersistentLiveSlotRate + unusedTransient);
+            remainingTransientLiveSlotRate = Math.min(remainingLiveSlotRate,
+                remainingTransientLiveSlotRate + unusedFire);
         }
 
         private double fairScale(final double requestedRate,
@@ -863,6 +1023,8 @@ final class GpuVfxScheduler {
             if (admission == AdmissionClass.PERSISTENT_WORLD
                 || admission == AdmissionClass.AMBIENT_DETAIL) {
                 liveRate = Math.min(liveRate, remainingPersistentLiveSlotRate);
+            } else {
+                liveRate = Math.min(liveRate, remainingTransientLiveSlotRate);
             }
             return Math.min(1.0, Math.min(
                 remainingSpawnRate / requestedRate,
@@ -875,7 +1037,10 @@ final class GpuVfxScheduler {
                 || remainingFragmentCost <= 0.01
                 || (admission == AdmissionClass.PERSISTENT_WORLD
                     || admission == AdmissionClass.AMBIENT_DETAIL)
-                    && remainingPersistentLiveSlotRate <= 0.01;
+                    && remainingPersistentLiveSlotRate <= 0.01
+                || (admission == AdmissionClass.CRITICAL_TRANSIENT
+                    || admission == AdmissionClass.IMPORTANT_TRANSIENT)
+                    && remainingTransientLiveSlotRate <= 0.01;
         }
     }
 
@@ -885,11 +1050,13 @@ final class GpuVfxScheduler {
         private int emittersScheduled;
         private long particlesRequested;
         private long particlesAccepted;
+        private int frustumCulled;
 
         private LayerSchedule snapshot() {
             return new LayerSchedule(commandsSubmitted, emittersRequested,
                 emittersScheduled, particlesRequested, particlesAccepted,
-                Math.max(0L, particlesRequested - particlesAccepted));
+                Math.max(0L, particlesRequested - particlesAccepted),
+                frustumCulled, Math.max(0, emittersRequested - emittersScheduled));
         }
     }
 

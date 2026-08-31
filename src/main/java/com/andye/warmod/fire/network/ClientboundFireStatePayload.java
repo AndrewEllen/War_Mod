@@ -13,6 +13,7 @@ import net.minecraft.world.phys.Vec3;
 
 /** Periodic complete snapshots plus explicit loss-tolerant cell deltas. */
 public record ClientboundFireStatePayload(long serverGameTime, long generation,
+    long pageTransactionId, int pageIndex, int pageCount,
     int completeBandMask, List<CellEntry> cells, List<Long> removedCellIds,
     boolean emberComplete, List<EmberEntry> embers)
     implements CustomPacketPayload {
@@ -31,6 +32,9 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         final ClientboundFireStatePayload payload) {
         buffer.writeLong(payload.serverGameTime);
         buffer.writeLong(payload.generation);
+        buffer.writeLong(payload.pageTransactionId);
+        buffer.writeVarInt(payload.pageIndex);
+        buffer.writeVarInt(payload.pageCount);
         buffer.writeByte(payload.completeBandMask);
         int count = Math.min(MAX_CELLS, payload.cells.size());
         buffer.writeVarInt(count);
@@ -46,7 +50,9 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
             buffer.writeFloat(cell.extentX); buffer.writeFloat(cell.extentY);
             buffer.writeFloat(cell.extentZ);
             buffer.writeLong(cell.occupancyMask);
-            buffer.writeFloat(cell.flameEnergy); buffer.writeFloat(cell.smokeMass);
+            buffer.writeFloat(cell.flameEnergy);
+            buffer.writeFloat(cell.flameEnvelopeHeight);
+            buffer.writeFloat(cell.smokeMass);
             buffer.writeFloat(cell.maximumHeat); buffer.writeFloat(cell.averageIntensity);
             buffer.writeFloat(cell.coveredArea); buffer.writeFloat(cell.clumpStrength);
             buffer.writeFloat(cell.windX); buffer.writeFloat(cell.windY);
@@ -81,6 +87,9 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
     private static ClientboundFireStatePayload read(final RegistryFriendlyByteBuf buffer) {
         long gameTime = buffer.readLong();
         long generation = buffer.readLong();
+        long pageTransactionId = buffer.readLong();
+        int pageIndex = buffer.readVarInt();
+        int pageCount = buffer.readVarInt();
         int completeBandMask = buffer.readUnsignedByte();
         int count = buffer.readVarInt();
         if (count < 0 || count > MAX_CELLS)
@@ -92,7 +101,7 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
                 buffer.readInt(), buffer.readInt(), buffer.readInt(),
                 buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
-                buffer.readLong(), buffer.readFloat(), buffer.readFloat(),
+                buffer.readLong(), buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
                 buffer.readFloat(), buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
                 buffer.readVarInt(), buffer.readLong(), buffer.readByte(),
@@ -113,7 +122,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
             buffer.readFloat(), buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
             buffer.readFloat(), buffer.readFloat(), buffer.readFloat(),
             buffer.readLong(), buffer.readLong(), buffer.readVarInt()));
-        return new ClientboundFireStatePayload(gameTime, generation, completeBandMask,
+        return new ClientboundFireStatePayload(gameTime, generation, pageTransactionId,
+            pageIndex, pageCount, completeBandMask,
             List.copyOf(cells), List.copyOf(removed), emberComplete,
             List.copyOf(embers));
     }
@@ -122,12 +132,23 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         final long generation, final int completeBandMask,
         final List<CellEntry> cells, final boolean emberComplete,
         final List<EmberEntry> embers) {
-        this(serverGameTime, generation, completeBandMask, cells, List.of(),
+        this(serverGameTime, generation, generation, 0, 1, completeBandMask,
+            cells, List.of(),
             emberComplete, embers);
     }
 
+    public ClientboundFireStatePayload(final long serverGameTime,
+        final long generation, final int completeBandMask,
+        final List<CellEntry> cells, final List<Long> removedCellIds,
+        final boolean emberComplete, final List<EmberEntry> embers) {
+        this(serverGameTime, generation, generation, 0, 1, completeBandMask,
+            cells, removedCellIds, emberComplete, embers);
+    }
+
     public boolean isWellFormed() {
-        if (generation < 0L || (completeBandMask & ~FireVisualBand.COMPLETE_MASK) != 0
+        if (generation < 0L || pageTransactionId < 0L || pageCount < 1
+            || pageCount > 256 || pageIndex < 0 || pageIndex >= pageCount
+            || (completeBandMask & ~FireVisualBand.COMPLETE_MASK) != 0
             || cells == null || cells.size() > MAX_CELLS
             || removedCellIds == null || removedCellIds.size() > MAX_REMOVED_CELLS
             || embers == null
@@ -144,7 +165,7 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         int cellX, int cellY, int cellZ,
         double centroidX, double centroidY, double centroidZ,
         float extentX, float extentY, float extentZ, long occupancyMask,
-        float flameEnergy, float smokeMass, float maximumHeat,
+        float flameEnergy, float flameEnvelopeHeight, float smokeMass, float maximumHeat,
         float averageIntensity, float coveredArea, float clumpStrength,
         float windX, float windY, float windZ, int hostCount, long seed,
         byte dominantFace, byte phase, long ignitionGameTime) {
@@ -155,7 +176,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
                 cell.cellX(), cell.cellY(), cell.cellZ(), cell.centroid().x,
                 cell.centroid().y, cell.centroid().z, (float) cell.extents().x,
                 (float) cell.extents().y, (float) cell.extents().z,
-                cell.occupancyMask(), cell.flameEnergy(), cell.smokeMass(),
+                cell.occupancyMask(), cell.flameEnergy(), cell.flameEnvelopeHeight(),
+                cell.smokeMass(),
                 cell.maximumHeat(), cell.averageIntensity(), cell.coveredArea(),
                 cell.clumpStrength(),
                 (float) cell.wind().x, (float) cell.wind().y, (float) cell.wind().z,
@@ -169,7 +191,8 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
                 cellSize, cellX, cellY, cellZ,
                 new Vec3(centroidX, centroidY, centroidZ),
                 new Vec3(extentX, extentY, extentZ), occupancyMask,
-                flameEnergy, smokeMass, maximumHeat, averageIntensity, coveredArea,
+                flameEnergy, flameEnvelopeHeight, smokeMass, maximumHeat,
+                averageIntensity, coveredArea,
                 clumpStrength, new Vec3(windX, windY, windZ), hostCount, seed,
                 Direction.values()[Byte.toUnsignedInt(dominantFace)],
                 FirePhase.values()[Byte.toUnsignedInt(phase)], ignitionGameTime);
@@ -186,6 +209,7 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
                 && Double.isFinite(centroidZ) && finiteNonNegative(extentX)
                 && finiteNonNegative(extentY) && finiteNonNegative(extentZ)
                 && occupancyMask != 0L && finiteNonNegative(flameEnergy)
+                && finiteNonNegative(flameEnvelopeHeight) && flameEnvelopeHeight <= 128.0F
                 && finiteNonNegative(smokeMass) && finiteNonNegative(maximumHeat)
                 && finiteNonNegative(averageIntensity) && finiteNonNegative(coveredArea)
                 && finiteNonNegative(clumpStrength) && clumpStrength <= 2.0F

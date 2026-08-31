@@ -46,10 +46,12 @@ void main() {
     Particle particle = particles[id];
     uint type = min(particle.metadata.x, particleTypeCount - 1u);
     uint layer = min(particle.metadata.z >> 16u, visualLayerCount - 1u);
+    uint layerStatsBase = particleTypeCount * 4u + 4u;
     vec3 relative = particle.position_age.xyz - cameraPosition;
     float distanceSquared = dot(relative, relative);
     if (distanceSquared > 2359296.0) {
         atomicAdd(stats[particleTypeCount * 4u], 1u);
+        atomicAdd(stats[layerStatsBase + visualLayerCount * 4u + layer], 1u);
         return;
     }
     float distance = max(0.25, sqrt(distanceSquared));
@@ -61,6 +63,7 @@ void main() {
         float stable = float(hash32(id ^ particle.metadata.y)) / 4294967295.0;
         if (stable > keep) {
             atomicAdd(stats[particleTypeCount * 4u + 1u], 1u);
+            atomicAdd(stats[layerStatsBase + visualLayerCount * 5u + layer], 1u);
             return;
         }
     }
@@ -70,13 +73,13 @@ void main() {
         || abs(clip.y) > clip.w * (1.0 + allowance)
         || clip.z < -clip.w || clip.z > clip.w) {
         atomicAdd(stats[particleTypeCount * 4u + 2u], 1u);
+        atomicAdd(stats[layerStatsBase + visualLayerCount * 6u + layer], 1u);
         return;
     }
     uint outputIndex = atomicAdd(commands[type].instanceCount, 1u);
     if (outputIndex < particleCapacity) {
         visibleIds[type * particleCapacity + outputIndex] = id;
         atomicAdd(stats[particleTypeCount * 3u + type], 1u);
-        atomicAdd(stats[particleTypeCount * 4u + 4u
-            + visualLayerCount * 3u + layer], 1u);
+        atomicAdd(stats[layerStatsBase + visualLayerCount * 3u + layer], 1u);
     }
 }

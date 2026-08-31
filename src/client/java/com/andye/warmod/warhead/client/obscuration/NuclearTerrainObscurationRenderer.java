@@ -6,6 +6,7 @@ import com.andye.warmod.particle.gpu.GpuParticleEngine.EffectHandle;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.EmitterCommand;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.ParticleType;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.VisualLayer;
+import com.andye.warmod.warhead.client.render.OpticalEnvelopeVertexConsumer;
 import com.andye.warmod.warhead.client.obscuration.ClientNuclearTerrainObscurationManager.DustCell;
 import com.andye.warmod.warhead.client.obscuration.ClientNuclearTerrainObscurationManager.ObscurationImpactView;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -70,7 +71,7 @@ public final class NuclearTerrainObscurationRenderer {
             frame = Frame.EMPTY;
             return;
         }
-        if (GpuParticleEngine.canRender(VisualLayer.TERRAIN_OBSCURATION))
+        if (GpuParticleEngine.shouldSubmitGpu(VisualLayer.TERRAIN_OBSCURATION))
             submitGpu(selected);
         frame = new Frame(camera.pos, gameTime, List.copyOf(selected));
     }
@@ -167,10 +168,13 @@ public final class NuclearTerrainObscurationRenderer {
         Frame snapshot = frame;
         if (snapshot == Frame.EMPTY || snapshot.cells().isEmpty()
             || context.poseStack() == null
-            || GpuParticleEngine.canRender(VisualLayer.TERRAIN_OBSCURATION)) return;
+            || !GpuParticleEngine.shouldRenderCpu(VisualLayer.TERRAIN_OBSCURATION)) return;
         context.submitNodeCollector().submitCustomGeometry(context.poseStack(),
             NuclearTerrainObscurationRenderPipelines.terrainDust(),
-            (pose, buffer) -> render(pose, buffer, snapshot));
+            (pose, buffer) -> render(pose,
+                OpticalEnvelopeVertexConsumer.scale(buffer,
+                    GpuParticleEngine.cpuOpticalWeight(VisualLayer.TERRAIN_OBSCURATION)),
+                snapshot));
     }
 
     private static void render(final PoseStack.Pose pose, final VertexConsumer buffer,

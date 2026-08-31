@@ -79,7 +79,7 @@ public final class WarheadImpactService {
 			? WarheadPreparationCoordinator.readinessPercent(level, id) : 100.0;
 		if (yield.nuclear()) {
 			WarheadLifecycleDiagnostics.impactAttempt(level, id, preparationReadiness,
-				null);
+				null, pos, effectivePosition);
 		}
 		WarheadImpactEvent event = WarheadImpactEvent.create(id, level.getGameTime(),
 			effectivePosition, yield, seed);
@@ -152,14 +152,19 @@ public final class WarheadImpactService {
 			ConsumedPreparedImpact sealed = WarheadPreparationCoordinator.sealImpact(
 				level, radarRootTrackId, id, radarRootTrackId,
 				event.impactPosition(), yield, seed, customFire);
-			if (sealed == null || !WarheadPreparedCommitManager.begin(level,
-				sealed.preparationId(), sealed.plan(), owner, yield, seed, customFire)) {
-				WarMod.LOGGER.error("Could not begin streaming terrain commit for {}; "
-					+ "using degraded terrain fallback", id);
+			boolean commitStarted = sealed != null && WarheadPreparedCommitManager.begin(level,
+				sealed.preparationId(), sealed.plan(), owner, yield, seed, customFire);
+			if (!commitStarted && !WarheadPreparedCommitManager.active(level, id)) {
+				WarMod.LOGGER.error("Could not begin detached prepared terrain commit for {}; "
+					+ "starting the complete bounded live compiler", id);
 				if (sealed != null) WarheadPreparationCoordinator.completeCommit(level,
 					sealed.preparationId(), id);
-				WarheadExplosionWorkManager.detonateTerrainOnly(level, owner, id,
-					event.impactPosition(), yield, seed, customFire);
+				commitStarted = WarheadPreparedCommitManager.beginLiveFallback(level, id,
+					event.impactPosition(), owner, yield, seed, customFire);
+			}
+			if (!commitStarted && !WarheadPreparedCommitManager.active(level, id)) {
+				WarMod.LOGGER.error("No complete terrain commit owner could be established for {}",
+					id);
 			}
 		} else {
 			destroyedBlocks = TestExplosionService.createExplosion(level, owner, id,
@@ -315,7 +320,8 @@ public final class WarheadImpactService {
 			WarModPerformanceDiagnostics.Gauge.DEBRIS_PARTS_GENERATED,
 			debrisPartCount);
 		WarheadVisualNetworking.sendDebris(level, new ClientboundWarheadDebrisPayload(
-			impactId, center.x, center.y, center.z, event.impactServerTick(), entries
+			impactId, center.x, center.y, center.z, event.impactServerTick(),
+			yield.nuclear(), entries
 		), center);
 	}
 

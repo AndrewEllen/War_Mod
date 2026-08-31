@@ -47,10 +47,13 @@ final class GroundVfxOwnershipContractTest {
     }
 
     @Test
-    void cpuSmokeShroudRemainsIndependentOfGpuReplacementGate() throws IOException {
+    void cpuAndGpuSmokeShroudShareComplementaryOpticalEnvelope() throws IOException {
         String world = source("src/client/java/com/andye/warmod/warhead/"
             + "client/render/WarheadWorldRenderer.java");
-        assertTrue(world.contains("SMOKE_SHROUD is deliberately not a replacement gate"));
+        assertTrue(world.contains("float cpuSmokeShroudWeight = cpuImpactLayerWeight("));
+        assertTrue(world.contains("if (cpuSmokeShroudWeight > 0.001F)"));
+        assertTrue(world.contains("OpticalEnvelopeVertexConsumer.scale(buffer,"));
+        assertTrue(world.contains("cpuSmokeShroudWeight"));
         assertTrue(world.contains("ConventionalBlastVisualV5.renderSmokeShroud"));
         assertTrue(world.contains("vfx.submitLayer(VisualLayer.SMOKE_SHROUD"));
     }

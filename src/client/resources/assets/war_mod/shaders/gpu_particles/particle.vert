@@ -34,10 +34,13 @@ void main() {
     float envelope = smoothstep(0.0, 0.08, ageFraction)
         * (1.0 - smoothstep(0.72, 1.0, ageFraction));
     uint type = particle.metadata.x;
+    bool fire = type == 0u || type == 3u;
     float growth = type == 1u || type == 4u || type == 6u
-        ? mix(0.58, 1.62, ageFraction) : mix(0.72, 1.22, ageFraction);
+        ? mix(0.58, 1.62, ageFraction)
+        : fire ? mix(1.10, 0.58, smoothstep(0.08, 1.0, ageFraction))
+        : mix(0.72, 1.22, ageFraction);
     float size = particle.colour_size.w * growth;
-    float verticalScale = type == 0u || type == 3u ? 1.65 : 1.0;
+    float verticalScale = fire ? mix(1.28, 1.82, ageFraction) : 1.0;
     int orientationMode = int(round(particle.orientation_mode.w));
     vec3 right = cameraRight;
     vec3 up = cameraUp * verticalScale;

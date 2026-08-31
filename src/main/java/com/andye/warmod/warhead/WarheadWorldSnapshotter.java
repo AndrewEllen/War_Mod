@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
@@ -22,7 +23,8 @@ import net.minecraft.server.level.ServerLevel;
 final class WarheadWorldSnapshotter {
     private static final int SURFACE_SUPPORT_DESCENT = 8;
     private static final int VERTICAL_SCAN_ABOVE_SURFACE = 64;
-    private static final int HALO_BELOW_SURFACE_TOP = 12;
+    private static final int HALO_BELOW_SURFACE_TOP = SURFACE_SUPPORT_DESCENT
+        + WarheadChunkSnapshot.SURFACE_LAYERS - 1;
     private static final int HALO_ABOVE_SURFACE_TOP = 2;
     private static final Strategy<BlockState> BLOCK_STRATEGY =
         Strategy.createForBlockStates(Block.BLOCK_STATE_REGISTRY);
@@ -59,8 +61,9 @@ final class WarheadWorldSnapshotter {
                 int column = localZ * 16 + localX;
                 motionTopY[column] = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING,
                     localX, localZ) - 1;
-                oceanTopY[column] = chunk.getHeight(Heightmap.Types.OCEAN_FLOOR,
-                    localX, localZ) - 1;
+                oceanTopY[column] = terrainSupportY(chunk, position, localX, localZ,
+                    chunk.getHeight(Heightmap.Types.OCEAN_FLOOR, localX, localZ) - 1,
+                    minimumBuildY, metadata);
                 minimumSurfaceY = Math.min(minimumSurfaceY, oceanTopY[column]);
                 maximumSurfaceY = Math.max(maximumSurfaceY, oceanTopY[column]);
             }
@@ -73,13 +76,11 @@ final class WarheadWorldSnapshotter {
             markSections(level, captureSection, requiredFeaturesBySection,
                 craterMinimumY, craterMaximumY, WarheadSnapshotFeatures.CRATER_VOLUME);
         }
-        boolean needsSurface = (features & (WarheadSnapshotFeatures.SURFACE
-            | WarheadSnapshotFeatures.VERTICAL_FEATURES)) != 0;
-        if (needsSurface) {
+        if ((features & WarheadSnapshotFeatures.SURFACE) != 0) {
             markSections(level, captureSection, requiredFeaturesBySection,
-                minimumSurfaceY - SURFACE_SUPPORT_DESCENT,
-                maximumSurfaceY + 1, features & (WarheadSnapshotFeatures.SURFACE
-                    | WarheadSnapshotFeatures.VERTICAL_FEATURES));
+                minimumSurfaceY - HALO_BELOW_SURFACE_TOP,
+                maximumSurfaceY + HALO_ABOVE_SURFACE_TOP,
+                WarheadSnapshotFeatures.SURFACE);
         }
         if ((features & WarheadSnapshotFeatures.VERTICAL_FEATURES) != 0) {
             int minimumVerticalSection = Math.floorDiv(
@@ -204,6 +205,31 @@ final class WarheadWorldSnapshotter {
                 requiredFeaturesBySection[index] |= requiredFeatures;
             }
         }
+    }
+
+    /**
+     * Captures the oracle's bounded durable support as a primitive column value.
+     * Vertical and biome domains consume this value directly and therefore never
+     * borrow the surface domain's water, exposure, or halo derivation.
+     */
+    private static int terrainSupportY(final LevelChunk chunk, final ChunkPos chunkPos,
+        final int localX, final int localZ, int y, final int minimumBuildY,
+        final WarheadStateMetadata metadata) {
+        int worldX = chunkPos.getMinBlockX() + localX;
+        int worldZ = chunkPos.getMinBlockZ() + localZ;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(worldX, y, worldZ);
+        for (int descent = 0; descent <= SURFACE_SUPPORT_DESCENT && y >= minimumBuildY;
+            descent++, y--) {
+            cursor.setY(y);
+            int flags = metadata.flags(Block.getId(chunk.getBlockState(cursor)));
+            if ((flags & (WarheadSnapshotFlags.AIR | WarheadSnapshotFlags.FLUID
+                | WarheadSnapshotFlags.LEAVES | WarheadSnapshotFlags.LOG
+                | WarheadSnapshotFlags.PLANK | WarheadSnapshotFlags.GLASS
+                | WarheadSnapshotFlags.COBBLE | WarheadSnapshotFlags.FRAGILE)) == 0) {
+                return y;
+            }
+        }
+        return minimumBuildY - 1;
     }
 
     /** Copies only the two-cell X/Z border needed for worker-side exposure and water checks. */

@@ -78,12 +78,20 @@ public final class FireWorldRenderer {
         OCCLUSION.begin(level, cameraPosition, level.getGameTime());
         double gameTime = level.getGameTime()
             + context.deltaTracker().getGameTimeDeltaPartialTick(true);
-        boolean cpuFlames = !GpuParticleEngine.canRender(GpuParticleEngine.VisualLayer.FLAMES);
-        boolean cpuSmoke = !GpuParticleEngine.canRender(GpuParticleEngine.VisualLayer.SMOKE);
-        boolean cpuEmbers = !GpuParticleEngine.canRender(GpuParticleEngine.VisualLayer.EMBERS);
-        boolean gpuFlames = !cpuFlames;
-        boolean gpuSmoke = !cpuSmoke;
-        boolean gpuEmbers = !cpuEmbers;
+        float cpuFlameWeight = GpuParticleEngine.cpuOpticalWeight(
+            GpuParticleEngine.VisualLayer.FLAMES);
+        float cpuSmokeWeight = GpuParticleEngine.cpuOpticalWeight(
+            GpuParticleEngine.VisualLayer.SMOKE);
+        boolean cpuFlames = cpuFlameWeight > 0.001F;
+        boolean cpuSmoke = cpuSmokeWeight > 0.001F;
+        boolean cpuEmbers = GpuParticleEngine.shouldRenderCpu(
+            GpuParticleEngine.VisualLayer.EMBERS);
+        boolean gpuFlames = GpuParticleEngine.shouldSubmitGpu(
+            GpuParticleEngine.VisualLayer.FLAMES);
+        boolean gpuSmoke = GpuParticleEngine.shouldSubmitGpu(
+            GpuParticleEngine.VisualLayer.SMOKE);
+        boolean gpuEmbers = GpuParticleEngine.shouldSubmitGpu(
+            GpuParticleEngine.VisualLayer.EMBERS);
         List<VisualCell> clientCells = ClientFireVisualManager.INSTANCE.snapshot(level);
         GpuParticleEngine.recordClientFirePatches(clientCells.size());
         ArrayList<FireRenderCell> renderCells = new ArrayList<>(clientCells.size());
@@ -106,7 +114,7 @@ public final class FireWorldRenderer {
                     Math.max((float) cell.extents().y, (float) cell.extents().z))));
             double projectedHostDiameter = projection.projectedDiameter(worldPosition, 0.5F);
             int detailLevel = ClientFireVisualManager.INSTANCE.lodLevel(level,
-                cell.id(), projectedHostDiameter);
+                cell, projectedHostDiameter);
             float representationWeight = visual.transitionWeight()
                 * FireVisualLodPolicy.representationWeight(cell.band(), distance, detailLevel);
             if (representationWeight <= 0.001F) continue;
@@ -124,11 +132,13 @@ public final class FireWorldRenderer {
             if (gpuFlames || gpuSmoke) field(gpuFields, worldPosition).cells.add(
                 new FireFieldCell(cell.id(), cell.band(), worldPosition,
                     Vec3.atLowerCornerOf(cell.dominantFace().getUnitVec3i()), wind,
-                    cell.averageIntensity(), cell.maximumHeat(), cell.smokeMass(), boundsRadius,
+                    cell.averageIntensity(), cell.maximumHeat(), cell.smokeMass(),
+                    cell.flameEnvelopeHeight(), boundsRadius,
                     filteredPlan(plan, gpuFlames, gpuSmoke), cell.seed()));
             if (cpuFlames || cpuSmoke || cpuEmbers) {
                 SmokeFlow smokeFlow = smokeFlow(level, cell, centerBlock);
-                renderCells.add(new FireRenderCell(cell, relativePlan(plan, cameraPosition),
+                renderCells.add(new FireRenderCell(cell, relativePlan(plan, cameraPosition,
+                    cpuFlameWeight, cpuSmokeWeight),
                     wind, smokeFlow, distance, projectedCellDiameter));
             }
         }
@@ -194,16 +204,19 @@ public final class FireWorldRenderer {
             source.representationWeight());
     }
 
-    private static CellPlan relativePlan(final CellPlan source, final Vec3 camera) {
-        return new CellPlan(relativeCards(source.flames(), camera),
-            relativeCards(source.smoke(), camera), source.sparkCount(),
-            source.representedFlameArea(), source.representedSmokeOpticalDepth(),
+    private static CellPlan relativePlan(final CellPlan source, final Vec3 camera,
+        final float flameWeight, final float smokeWeight) {
+        return new CellPlan(relativeCards(source.flames(), camera, flameWeight),
+            relativeCards(source.smoke(), camera, smokeWeight), source.sparkCount(),
+            source.representedFlameArea() * flameWeight,
+            source.representedSmokeOpticalDepth() * smokeWeight,
             source.representationWeight());
     }
 
-    private static List<Card> relativeCards(final List<Card> cards, final Vec3 camera) {
+    private static List<Card> relativeCards(final List<Card> cards, final Vec3 camera,
+        final float opticalWeight) {
         return cards.stream().map(card -> new Card(card.position().subtract(camera),
-            card.radius(), card.opacity(), card.seed())).toList();
+            card.radius(), card.opacity() * opticalWeight, card.seed())).toList();
     }
 
     private static void collectSubmits(final LevelRenderContext context) {

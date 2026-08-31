@@ -39,11 +39,11 @@ public final class WarheadPreparationCoordinator {
     private static final int MAX_SNAPSHOTS_PER_LEVEL_TICK = 96;
     private static final long SNAPSHOT_BUDGET_NANOS = 4_000_000L;
     private static final int MAX_COMPILED_RESULTS_PER_LEVEL_TICK = 256;
-    private static final int MAX_COMPILE_RETRIES = 3;
     private static final int FINAL_ACTIVATION_TICK = 15;
     private static final long MINIMUM_LIFETIME_TICKS = 1_200L;
     private static final long CACHE_LIFETIME_TICKS = 1_600L;
-    private static final double TARGET_COMPATIBILITY_SQR = 16.0;
+    /** Collision coordinates, rather than an earlier predicted terrain surface, own impact. */
+    private static final double TARGET_COMPATIBILITY_SQR = 1.0E-6;
     private static final Map<ServerLevel, LevelState> LEVELS = new IdentityHashMap<>();
     private static final ExecutorService COMPILER = Executors.newFixedThreadPool(
         Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() / 2)),
@@ -179,7 +179,8 @@ public final class WarheadPreparationCoordinator {
         double ready = Math.min(1.0, lease.readyChunks()
             / (double)Math.max(1, lease.requiredChunks()));
         double snapshotted = Math.min(1.0, impactSnapshots / (double)required);
-        double compiled = Math.min(1.0, compile.chunks.size() / (double)required);
+        double compiled = Math.min(1.0,
+            (compile.chunks.size() + compile.fallbackChunks.size()) / (double)required);
         return (ready * 0.30 + snapshotted * 0.30 + compiled * 0.40) * 100.0;
     }
 
@@ -202,6 +203,8 @@ public final class WarheadPreparationCoordinator {
             || spec.target().distanceToSqr(actualCenter) > TARGET_COMPATIBILITY_SQR) return null;
         PreparedImpactPlan plan = preparation.readyPlans.remove(impactId);
         if (plan == null) return null;
+        ImpactCompile compile = preparation.compiles.get(impactId);
+        if (compile != null) compile.sealed = true;
         state.byImpact.remove(impactId);
         preparation.consumedImpacts.add(impactId);
         preparation.activeCommits++;
@@ -267,6 +270,65 @@ public final class WarheadPreparationCoordinator {
         drained.sort(Comparator.comparingInt(PreparedChunkPlan::activationTick)
             .thenComparingLong(chunk -> chunk.chunk().pack()));
         return List.copyOf(drained);
+    }
+
+    /**
+     * Compiles terminal fallback-owned chunks from current live state on the server
+     * thread. The caller supplies both a chunk and wall-clock bound; successful
+     * chunks move atomically from fallback ownership into the normal prepared stream.
+     */
+    static synchronized List<PreparedChunkPlan> compileFallbackChunks(
+        final ServerLevel level, final UUID preparationId, final UUID impactId,
+        final int maximumChunks, final long budgetNanos) {
+        if (maximumChunks <= 0 || budgetNanos <= 0L) return List.of();
+        LevelState state = LEVELS.get(level);
+        Preparation preparation = state == null ? null
+            : state.preparations.get(preparationId);
+        ImpactCompile compile = preparation == null ? null
+            : preparation.compiles.get(impactId);
+        WarheadSnapshotRequirement requirement = preparation == null ? null
+            : preparation.requirement(impactId);
+        if (compile == null || requirement == null || !compile.sealed
+            || compile.fallbackChunks.isEmpty()) return List.of();
+
+        ArrayList<Long> ordered = new ArrayList<>(compile.fallbackChunks.size());
+        for (long packed : compile.fallbackChunks) ordered.add(packed);
+        ordered.sort(Comparator.comparingInt((Long packed) ->
+            WarheadPlanCompiler.radialActivationTick(requirement.impact().target(),
+                requirement.footprint().maximumMutationRadius(),
+                ChunkPos.unpack(packed.longValue())))
+            .thenComparingLong(Long::longValue));
+        ArrayList<PreparedChunkPlan> completed = new ArrayList<>();
+        long deadline = System.nanoTime() + budgetNanos;
+        for (long packed : ordered) {
+            if (completed.size() >= maximumChunks || System.nanoTime() >= deadline) break;
+            WarheadChunkSnapshot snapshot = WarheadWorldSnapshotter.capture(level,
+                ChunkPos.unpack(packed), preparation.requirements, preparation.metadata);
+            if (snapshot == null) continue; // Section revision raced this attempt.
+            try {
+                snapshot.preflight();
+                PreparedChunkPlan plan = WarheadPlanCompiler.compile(requirement.impact(),
+                    requirement.footprint(), snapshot, preparation.palette);
+                compile.fallbackChunks.remove(packed);
+                compile.fallbackAttempts.remove(packed);
+                compile.chunks.put(packed, plan);
+                compile.statistics = compile.statistics.add(
+                    WarheadPlanCompiler.statistics(plan));
+                if (compile.deliveredChunks.add(packed)) completed.add(plan);
+                WarheadLifecycleDiagnostics.chunkPrepared(level, impactId);
+                WarMod.LOGGER.info("Warhead impact {} live-fallback compiled chunk {} "
+                    + "({} fallback chunks remain)", impactId, ChunkPos.unpack(packed),
+                    compile.fallbackChunks.size());
+            } catch (Throwable failure) {
+                int attempts = compile.fallbackAttempts.addTo(packed, 1) + 1;
+                if (attempts == 1 || attempts == 8 || attempts % 32 == 0) {
+                    WarMod.LOGGER.error("Warhead impact {} live-fallback compile attempt {} "
+                        + "failed for chunk {}", impactId, attempts,
+                        ChunkPos.unpack(packed), failure);
+                }
+            }
+        }
+        return List.copyOf(completed);
     }
 
     /** True when no further prepared chunks can arrive for this sealed impact. */
@@ -371,6 +433,7 @@ public final class WarheadPreparationCoordinator {
             inspected++;
             if (preparation.snapshots.containsKey(packed)
                 || preparation.publishedRevisions.containsKey(packed)
+                || preparation.coverageFailureChunks.contains(packed)
                 || !WarheadPreparationLeaseManager.chunkReady(level, preparation.id, packed)) continue;
             WarheadChunkSnapshot snapshot = cachedSnapshot(level, levelState, preparation, packed);
             if (snapshot == null) {
@@ -381,6 +444,16 @@ public final class WarheadPreparationCoordinator {
                     WarModPerformanceDiagnostics.Subsystem.WARHEAD_SNAPSHOT_CAPTURE,
                     snapshotStarted);
                 if (snapshot == null) continue;
+                try {
+                    snapshot.preflight();
+                } catch (WarheadSnapshotIncompleteException failure) {
+                    WarMod.LOGGER.error("Warhead snapshot deterministic coverage violation for "
+                        + "chunk {} domain={} section={} coverage={}",
+                        ChunkPos.unpack(packed), failure.feature(), failure.sectionY(),
+                        failure.coverage(), failure);
+                    markCoverageFailure(preparation, packed, failure);
+                    continue;
+                }
                 levelState.snapshotCache.put(packed,
                     new CachedSnapshot(snapshot, level.getGameTime() + CACHE_LIFETIME_TICKS));
                 WarModPerformanceDiagnostics.add(
@@ -419,7 +492,24 @@ public final class WarheadPreparationCoordinator {
         int features = WarheadWorldSnapshotter.requiredFeatures(chunkPosition,
             preparation.requirements);
         if (!cached.snapshot.covers(features, band[0], band[1])) return null;
+        cached.snapshot.preflight();
         return cached.snapshot;
+    }
+
+    private static void markCoverageFailure(final Preparation preparation,
+        final long packed, final WarheadSnapshotIncompleteException failure) {
+        preparation.coverageFailureChunks.add(packed);
+        for (WarheadSnapshotRequirement requirement : preparation.requirements) {
+            if (!requirement.footprint().requiredChunks().contains(packed)) continue;
+            ImpactCompile compile = preparation.compiles.get(requirement.impact().impactId());
+            if (compile == null) continue;
+            compile.fallbackChunks.add(packed);
+            compile.failure = failure;
+            WarheadLifecycleDiagnostics.snapshotDomainFailure(
+                requirement.impact().impactId(),
+                WarheadSnapshotFeatures.name(failure.feature()), failure.sectionY(),
+                failure.coverage().name());
+        }
     }
 
     private static void scheduleCompiles(final Preparation preparation,
@@ -427,7 +517,8 @@ public final class WarheadPreparationCoordinator {
         for (WarheadSnapshotRequirement requirement : preparation.requirements) {
             if (!requirement.footprint().requiredChunks().contains(snapshot.chunk().pack())) continue;
             ImpactCompile compile = preparation.compiles.get(requirement.impact().impactId());
-            if (compile.failed || compile.chunks.containsKey(snapshot.chunk().pack())
+            if (compile.failed || compile.fallbackChunks.contains(snapshot.chunk().pack())
+                || compile.chunks.containsKey(snapshot.chunk().pack())
                 || compile.inFlightChunks.contains(snapshot.chunk().pack())) continue;
             compile.inFlightChunks.add(snapshot.chunk().pack());
             preparation.inFlight++;
@@ -462,24 +553,19 @@ public final class WarheadPreparationCoordinator {
                 if (compile == null) continue;
                 compile.inFlightChunks.remove(result.packedChunk);
                 if (result.failure != null) {
-                    int retry = compile.compileRetries.addTo(result.packedChunk, 1) + 1;
-                    if (retry <= MAX_COMPILE_RETRIES) {
-                        preparation.snapshots.remove(result.packedChunk);
-                        preparation.publishedRevisions.remove(result.packedChunk);
-                        state.snapshotCache.remove(result.packedChunk);
-                        preparation.state = PreparationState.SNAPSHOTTING;
-                        WarMod.LOGGER.warn("Warhead preparation compiler rejected {} chunk {}; "
-                            + "resnapshot retry {}/{}", result.impactId,
-                            ChunkPos.unpack(result.packedChunk), retry,
-                            MAX_COMPILE_RETRIES, result.failure);
+                    if (result.failure instanceof WarheadSnapshotIncompleteException) {
+                        compile.fallbackChunks.add(result.packedChunk);
+                        compile.failure = result.failure;
+                        WarMod.LOGGER.error("Warhead preparation deterministic snapshot "
+                            + "coverage violation for {} chunk {}; no identical resnapshot retry",
+                            result.impactId, ChunkPos.unpack(result.packedChunk), result.failure);
                         continue;
                     }
-                    compile.failed = true;
+                    compile.fallbackChunks.add(result.packedChunk);
                     compile.failure = result.failure;
-                    WarMod.LOGGER.error("Warhead preparation compiler terminal failure for {} "
-                        + "chunk {} after {} retries", result.impactId,
-                        ChunkPos.unpack(result.packedChunk), MAX_COMPILE_RETRIES,
-                        result.failure);
+                    WarMod.LOGGER.error("Warhead preparation compiler assigned {} chunk {} "
+                        + "to live fallback without repeating a deterministic snapshot",
+                        result.impactId, ChunkPos.unpack(result.packedChunk), result.failure);
                     continue;
                 }
                 compile.chunks.put(result.packedChunk, result.plan);
@@ -498,7 +584,7 @@ public final class WarheadPreparationCoordinator {
         for (WarheadSnapshotRequirement requirement : preparation.requirements) {
             ImpactCompile compile = preparation.compiles.get(requirement.impact().impactId());
             boolean complete = !compile.failed && compile.inFlightChunks.isEmpty()
-                && containsAllRequiredChunks(compile, requirement);
+                && containsAllOwnedChunks(compile, requirement);
             allComplete &= complete;
             if (complete && !compile.readyReported) {
                 compile.readyReported = true;
@@ -547,6 +633,13 @@ public final class WarheadPreparationCoordinator {
         final WarheadSnapshotRequirement requirement) {
         return ImpactStreamPolicy.containsAllRequiredChunks(
             requirement.footprint().requiredChunks(), compile.chunks.keySet());
+    }
+
+    private static boolean containsAllOwnedChunks(final ImpactCompile compile,
+        final WarheadSnapshotRequirement requirement) {
+        return ImpactStreamPolicy.containsAllOwnedChunks(
+            requirement.footprint().requiredChunks(), compile.chunks.keySet(),
+            compile.fallbackChunks);
     }
 
     private static void acquireLease(final ServerLevel level,
@@ -731,6 +824,7 @@ public final class WarheadPreparationCoordinator {
             new Long2ObjectOpenHashMap<>();
         private final Long2LongOpenHashMap publishedRevisions =
             new Long2LongOpenHashMap();
+        private final LongOpenHashSet coverageFailureChunks = new LongOpenHashSet();
         private final Map<UUID, ImpactCompile> compiles = new HashMap<>();
         private final Map<UUID, PreparedImpactPlan> readyPlans = new HashMap<>();
         private final Set<UUID> consumedImpacts = new java.util.HashSet<>();
@@ -787,6 +881,7 @@ public final class WarheadPreparationCoordinator {
                     || snapshot.craterMaximumY() < band[1]);
             });
             publishedRevisions.clear();
+            coverageFailureChunks.clear();
             compiles.clear();
             for (WarheadSnapshotRequirement requirement : requirements) {
                 compiles.put(requirement.impact().impactId(), new ImpactCompile());
@@ -829,14 +924,17 @@ public final class WarheadPreparationCoordinator {
                 boolean ready = true;
                 for (WarheadSnapshotRequirement requirement : requirements) {
                     if (!requirement.footprint().requiredChunks().contains(packed)) continue;
-                    if (!compiles.get(requirement.impact().impactId()).chunks.containsKey(packed)) {
+                    ImpactCompile compile = compiles.get(requirement.impact().impactId());
+                    if (!compile.chunks.containsKey(packed)
+                        && !compile.fallbackChunks.contains(packed)) {
                         ready = false;
                         break;
                     }
                 }
                 if (ready) compiled++;
             }
-            int snapshotted = snapshots.size() + publishedRevisions.size();
+            int snapshotted = snapshots.size() + publishedRevisions.size()
+                + coverageFailureChunks.size();
             return new PreparationProgress(state, snapshotOrder.size(),
                 lease.ticketedChunks(), lease.readyChunks(), snapshotted, compiled,
                 readyPlans.size());
@@ -875,7 +973,8 @@ public final class WarheadPreparationCoordinator {
             new Long2ObjectOpenHashMap<>();
         private final LongOpenHashSet inFlightChunks = new LongOpenHashSet();
         private final LongOpenHashSet deliveredChunks = new LongOpenHashSet();
-        private final Long2IntOpenHashMap compileRetries = new Long2IntOpenHashMap();
+        private final LongOpenHashSet fallbackChunks = new LongOpenHashSet();
+        private final Long2IntOpenHashMap fallbackAttempts = new Long2IntOpenHashMap();
         private PlanStatistics statistics = PlanStatistics.empty();
         private boolean sealed;
         private boolean readyReported;

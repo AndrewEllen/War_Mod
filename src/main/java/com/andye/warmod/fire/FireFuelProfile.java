@@ -29,7 +29,7 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
             || state.is(BlockTags.WOODEN_STAIRS) || state.is(BlockTags.WOODEN_SLABS)
             || state.is(BlockTags.WOODEN_FENCES) || state.is(BlockTags.WOODEN_DOORS)
             || state.is(BlockTags.WOODEN_TRAPDOORS)) return MEDIUM;
-        if (state.is(FireFuelTags.LOW)) return LOW;
+        if (state.is(FireFuelTags.LOW) || state.is(BlockTags.DIRT)) return LOW;
 
         String path = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
         return fallbackForPath(path);
@@ -39,7 +39,7 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
         /* Keep non-consumable ground fuels ahead of the broad plant-name
            fallback. This also preserves the intended classification when a
            development data pack has not bound the fire-fuel tags yet. */
-        if (containsAny(path, "grass_block", "moss_block", "podzol", "mycelium"))
+        if (containsAny(path, "grass_block", "moss_block", "podzol", "mycelium", "dirt"))
             return LOW;
         if (containsAny(path, "grass", "fern", "bush", "vine", "bamboo", "sapling",
             "azalea", "cactus", "sugar_cane", "hay_block", "moss", "carpet")) return HIGH;
