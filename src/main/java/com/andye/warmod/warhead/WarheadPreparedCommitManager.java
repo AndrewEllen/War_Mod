@@ -440,7 +440,7 @@ public final class WarheadPreparedCommitManager {
                     fallbackQueue.addLast(packed);
                     continue;
                 }
-                WarheadChunkSnapshot snapshot = WarheadWorldSnapshotter.capture(level,
+                WarheadChunkSnapshot snapshot = WarheadWorldSnapshotter.captureFallback(level,
                     ChunkPos.unpack(packed), fallbackRequirements, fallbackMetadata);
                 if (snapshot == null) {
                     fallbackQueue.addLast(packed);
@@ -502,6 +502,7 @@ public final class WarheadPreparedCommitManager {
             int sectionsBefore = changedSections;
             int blocksBefore = changedBlocks;
             int biomeQuartsBefore = changedBiomeQuarts;
+            int firesBefore = craterFire + treeFire + groundFire;
             int bulkBefore = bulkSafeMutations;
             int specialBefore = specialPathMutations;
             int conflictsBefore = conflictedCells;
@@ -546,7 +547,9 @@ public final class WarheadPreparedCommitManager {
                     changedBiomeQuarts - biomeQuartsBefore,
                     bulkSafeMutations - bulkBefore, specialPathMutations - specialBefore,
                     conflictedCells - conflictsBefore,
-                    categoryDifference(categoriesBefore),
+                    categoryDifference(categoriesBefore,
+                        craterFire + treeFire + groundFire - firesBefore,
+                        changedBiomeQuarts - biomeQuartsBefore),
                     survivalRejections - survivalBefore,
                     semanticRejections - semanticRejectedBefore,
                     alreadyEqualCells - equalBefore, blockChanged, biomeChanged);
@@ -899,7 +902,8 @@ public final class WarheadPreparedCommitManager {
             return count;
         }
 
-        private MutationCategoryCounts categoryDifference(final long[] before) {
+        private MutationCategoryCounts categoryDifference(final long[] before,
+            final long firesApplied, final long biomeQuartsApplied) {
             return new MutationCategoryCounts(
                 appliedByCategory[WarheadMutationCategory.CRATER_EXCAVATION.ordinal()]
                     - before[WarheadMutationCategory.CRATER_EXCAVATION.ordinal()],
@@ -915,7 +919,7 @@ public final class WarheadPreparedCommitManager {
                     - before[WarheadMutationCategory.STRUCTURE.ordinal()],
                 appliedByCategory[WarheadMutationCategory.DECORATION.ordinal()]
                     - before[WarheadMutationCategory.DECORATION.ordinal()],
-                0L, 0L,
+                firesApplied, biomeQuartsApplied,
                 appliedByCategory[WarheadMutationCategory.OTHER.ordinal()]
                     - before[WarheadMutationCategory.OTHER.ordinal()]);
         }

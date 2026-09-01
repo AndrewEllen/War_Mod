@@ -61,7 +61,10 @@ public final class FireSimulationManager {
 	private static final int MAX_EMBERS = 768;
     private static final int NUCLEAR_DYING_EVICTION_BATCH = 128;
     private static final int NUCLEAR_HEALTHY_EVICTION_BATCH = 128;
-    private static final int NETWORK_INTERVAL_TICKS = 10;
+    /* Analytical client particles remain continuous between authoritative states;
+     * a 20-tick cadence halves dense-wildfire snapshot construction and delta
+     * churn without shortening a flame or smoke lifecycle. */
+    private static final int NETWORK_INTERVAL_TICKS = 20;
     private static final int EMBER_NETWORK_INTERVAL_TICKS = NETWORK_INTERVAL_TICKS;
     private static final int MAX_WET_POSITIONS_PER_JET = 512;
     private static final int MAX_EMBER_COLLISION_STEPS = 12;

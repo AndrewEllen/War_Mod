@@ -34,6 +34,23 @@ final class WarheadWorldSnapshotter {
     static WarheadChunkSnapshot capture(final ServerLevel level, final ChunkPos position,
         final List<WarheadSnapshotRequirement> requirements,
         final WarheadStateMetadata metadata) {
+        return capture(level, position, requirements, metadata, false);
+    }
+
+    /**
+     * Main-thread fallback capture. The ordinary path copies only the exact read
+     * domains. A fallback instead packs every in-chunk section so a manifest bug
+     * cannot turn into an endlessly repeated deterministic retry.
+     */
+    static WarheadChunkSnapshot captureFallback(final ServerLevel level,
+        final ChunkPos position, final List<WarheadSnapshotRequirement> requirements,
+        final WarheadStateMetadata metadata) {
+        return capture(level, position, requirements, metadata, true);
+    }
+
+    private static WarheadChunkSnapshot capture(final ServerLevel level,
+        final ChunkPos position, final List<WarheadSnapshotRequirement> requirements,
+        final WarheadStateMetadata metadata, final boolean exhaustive) {
         LevelChunk chunk = level.getChunkSource().getChunkNow(position.x(), position.z());
         if (chunk == null || requirements == null || requirements.isEmpty()
             || metadata == null) return null;
@@ -54,6 +71,8 @@ final class WarheadWorldSnapshotter {
         int craterMaximumY = craterBand[1];
         int[] motionTopY = new int[256];
         int[] oceanTopY = new int[256];
+        int[] surfaceSupportY = (features & WarheadSnapshotFeatures.SURFACE) != 0
+            ? new int[256] : null;
         int minimumSurfaceY = maximumBuildY;
         int maximumSurfaceY = minimumBuildY;
         for (int localZ = 0; localZ < 16; localZ++) {
@@ -61,9 +80,15 @@ final class WarheadWorldSnapshotter {
                 int column = localZ * 16 + localX;
                 motionTopY[column] = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING,
                     localX, localZ) - 1;
-                oceanTopY[column] = terrainSupportY(chunk, position, localX, localZ,
-                    chunk.getHeight(Heightmap.Types.OCEAN_FLOOR, localX, localZ) - 1,
-                    minimumBuildY, metadata);
+                /* Keep the primitive heightmap sample domain-neutral. Surface support
+                 * is derived only by the surface domain on the detached snapshot;
+                 * vertical-only and biome-only work never invokes that derivation. */
+                oceanTopY[column] = chunk.getHeight(Heightmap.Types.OCEAN_FLOOR,
+                    localX, localZ) - 1;
+                if (surfaceSupportY != null) {
+                    surfaceSupportY[column] = terrainSupportY(chunk, localX, localZ,
+                        oceanTopY[column], minimumBuildY, metadata);
+                }
                 minimumSurfaceY = Math.min(minimumSurfaceY, oceanTopY[column]);
                 maximumSurfaceY = Math.max(maximumSurfaceY, oceanTopY[column]);
             }
@@ -81,6 +106,12 @@ final class WarheadWorldSnapshotter {
                 minimumSurfaceY - HALO_BELOW_SURFACE_TOP,
                 maximumSurfaceY + HALO_ABOVE_SURFACE_TOP,
                 WarheadSnapshotFeatures.SURFACE);
+            /* A column made only of excluded surface material can exhaust the
+             * support search and deliberately resolve to minY - 1. Its first
+             * surface/water read is then minY, independent of the heightmap. */
+            markSections(level, captureSection, requiredFeaturesBySection,
+                minimumBuildY, minimumBuildY + 1,
+                WarheadSnapshotFeatures.SURFACE);
         }
         if ((features & WarheadSnapshotFeatures.VERTICAL_FEATURES) != 0) {
             int minimumVerticalSection = Math.floorDiv(
@@ -92,7 +123,10 @@ final class WarheadWorldSnapshotter {
                 int index = level.getSectionIndexFromSectionY(sectionY);
                 if (index < 0 || index >= captureSection.length) continue;
                 requiredFeaturesBySection[index] |= WarheadSnapshotFeatures.VERTICAL_FEATURES;
-                if (captureSection[index]) continue;
+                if (captureSection[index] || exhaustive) {
+                    captureSection[index] = true;
+                    continue;
+                }
                 LevelChunkSection section = chunk.getSection(index);
                 if (section.maybeHas(state -> metadata.relevantVertical(Block.getId(state)))) {
                     captureSection[index] = true;
@@ -100,6 +134,13 @@ final class WarheadWorldSnapshotter {
                     sectionCoverage[index] =
                         WarheadSectionCoverage.PROVEN_IRRELEVANT.wireId();
                 }
+            }
+        }
+        if (exhaustive) {
+            for (int index = 0; index < captureSection.length; index++) {
+                captureSection[index] = true;
+                requiredFeaturesBySection[index] |= features;
+                sectionCoverage[index] = WarheadSectionCoverage.NOT_CAPTURED.wireId();
             }
         }
 
@@ -125,7 +166,9 @@ final class WarheadWorldSnapshotter {
         Long2IntOpenHashMap halo = new Long2IntOpenHashMap();
         halo.defaultReturnValue(-1);
         if ((features & WarheadSnapshotFeatures.SURFACE) != 0) {
-            captureSurfaceHalo(level, position, oceanTopY, metadata.airStateId(), halo);
+            if (!surfaceHaloReady(level, position)) return null;
+            captureSurfaceHalo(level, position, surfaceSupportY,
+                metadata.airStateId(), halo);
         }
         long[] haloPositions = new long[halo.size()];
         int[] haloStateIds = new int[halo.size()];
@@ -207,21 +250,73 @@ final class WarheadWorldSnapshotter {
         }
     }
 
-    /**
-     * Captures the oracle's bounded durable support as a primitive column value.
-     * Vertical and biome domains consume this value directly and therefore never
-     * borrow the surface domain's water, exposure, or halo derivation.
-     */
-    private static int terrainSupportY(final LevelChunk chunk, final ChunkPos chunkPos,
-        final int localX, final int localZ, int y, final int minimumBuildY,
+    /** Copies only the two-cell X/Z border needed for worker-side exposure and water checks. */
+    private static void captureSurfaceHalo(final ServerLevel level, final ChunkPos chunk,
+        final int[] surfaceTopY, final int airStateId,
+        final Long2IntOpenHashMap destination) {
+        int baseX = chunk.getMinBlockX();
+        int baseZ = chunk.getMinBlockZ();
+        for (int localZ = 0; localZ < 16; localZ++) {
+            int row = localZ * 16;
+            copyHaloColumn(level, baseX - 1, baseZ + localZ,
+                airStateId, destination, surfaceTopY[row], surfaceTopY[row + 1]);
+            copyHaloColumn(level, baseX - 2, baseZ + localZ,
+                airStateId, destination, surfaceTopY[row]);
+            copyHaloColumn(level, baseX + 16, baseZ + localZ,
+                airStateId, destination, surfaceTopY[row + 15], surfaceTopY[row + 14]);
+            copyHaloColumn(level, baseX + 17, baseZ + localZ,
+                airStateId, destination, surfaceTopY[row + 15]);
+        }
+        for (int localX = 0; localX < 16; localX++) {
+            copyHaloColumn(level, baseX + localX, baseZ - 1,
+                airStateId, destination, surfaceTopY[localX], surfaceTopY[16 + localX]);
+            copyHaloColumn(level, baseX + localX, baseZ - 2,
+                airStateId, destination, surfaceTopY[localX]);
+            copyHaloColumn(level, baseX + localX, baseZ + 16,
+                airStateId, destination, surfaceTopY[15 * 16 + localX],
+                surfaceTopY[14 * 16 + localX]);
+            copyHaloColumn(level, baseX + localX, baseZ + 17,
+                airStateId, destination, surfaceTopY[15 * 16 + localX]);
+        }
+    }
+
+    private static void copyHaloColumn(final ServerLevel level, final int worldX,
+        final int worldZ, final int airStateId,
+        final Long2IntOpenHashMap destination, final int... surfaceTopY) {
+        LevelChunk neighbour = level.getChunkSource().getChunkNow(
+            Math.floorDiv(worldX, 16), Math.floorDiv(worldZ, 16));
+        if (neighbour == null) return;
+        int minimumBuildY = level.dimensionType().minY();
+        int maximumBuildY = minimumBuildY + level.dimensionType().height() - 1;
+        for (int topY : surfaceTopY) {
+            int minimumY = topY - HALO_BELOW_SURFACE_TOP;
+            int maximumY = topY + HALO_ABOVE_SURFACE_TOP;
+            for (int y = minimumY; y <= maximumY; y++) {
+                int stateId = airStateId;
+                if (y >= minimumBuildY && y <= maximumBuildY) {
+                    int sectionIndex = level.getSectionIndex(y);
+                    if (sectionIndex >= 0 && sectionIndex < neighbour.getSectionsCount()) {
+                        stateId = Block.getId(neighbour.getSection(sectionIndex).getBlockState(
+                            worldX & 15, y & 15, worldZ & 15));
+                    }
+                }
+                destination.put(BlockPos.asLong(worldX, y, worldZ), stateId);
+            }
+        }
+    }
+
+    /** Exact surface-domain support policy. This is intentionally never called
+     * for a vertical-only or biome-only snapshot. */
+    private static int terrainSupportY(final LevelChunk chunk, final int localX,
+        final int localZ, int y, final int minimumBuildY,
         final WarheadStateMetadata metadata) {
-        int worldX = chunkPos.getMinBlockX() + localX;
-        int worldZ = chunkPos.getMinBlockZ() + localZ;
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(worldX, y, worldZ);
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        int worldX = chunk.getPos().getMinBlockX() + localX;
+        int worldZ = chunk.getPos().getMinBlockZ() + localZ;
         for (int descent = 0; descent <= SURFACE_SUPPORT_DESCENT && y >= minimumBuildY;
             descent++, y--) {
-            cursor.setY(y);
-            int flags = metadata.flags(Block.getId(chunk.getBlockState(cursor)));
+            int flags = metadata.flags(Block.getId(chunk.getBlockState(
+                cursor.set(worldX, y, worldZ))));
             if ((flags & (WarheadSnapshotFlags.AIR | WarheadSnapshotFlags.FLUID
                 | WarheadSnapshotFlags.LEAVES | WarheadSnapshotFlags.LOG
                 | WarheadSnapshotFlags.PLANK | WarheadSnapshotFlags.GLASS
@@ -232,58 +327,13 @@ final class WarheadWorldSnapshotter {
         return minimumBuildY - 1;
     }
 
-    /** Copies only the two-cell X/Z border needed for worker-side exposure and water checks. */
-    private static void captureSurfaceHalo(final ServerLevel level, final ChunkPos chunk,
-        final int[] surfaceTopY, final int airStateId,
-        final Long2IntOpenHashMap destination) {
-        int baseX = chunk.getMinBlockX();
-        int baseZ = chunk.getMinBlockZ();
-        for (int localZ = 0; localZ < 16; localZ++) {
-            int leftTop = surfaceTopY[localZ * 16];
-            int rightTop = surfaceTopY[localZ * 16 + 15];
-            copyHaloColumn(level, baseX - 1, baseZ + localZ, leftTop,
-                airStateId, destination);
-            copyHaloColumn(level, baseX - 2, baseZ + localZ, leftTop,
-                airStateId, destination);
-            copyHaloColumn(level, baseX + 16, baseZ + localZ, rightTop,
-                airStateId, destination);
-            copyHaloColumn(level, baseX + 17, baseZ + localZ, rightTop,
-                airStateId, destination);
-        }
-        for (int localX = 0; localX < 16; localX++) {
-            int northTop = surfaceTopY[localX];
-            int southTop = surfaceTopY[15 * 16 + localX];
-            copyHaloColumn(level, baseX + localX, baseZ - 1, northTop,
-                airStateId, destination);
-            copyHaloColumn(level, baseX + localX, baseZ - 2, northTop,
-                airStateId, destination);
-            copyHaloColumn(level, baseX + localX, baseZ + 16, southTop,
-                airStateId, destination);
-            copyHaloColumn(level, baseX + localX, baseZ + 17, southTop,
-                airStateId, destination);
-        }
-    }
-
-    private static void copyHaloColumn(final ServerLevel level, final int worldX,
-        final int worldZ, final int surfaceTopY, final int airStateId,
-        final Long2IntOpenHashMap destination) {
-        LevelChunk neighbour = level.getChunkSource().getChunkNow(
-            Math.floorDiv(worldX, 16), Math.floorDiv(worldZ, 16));
-        if (neighbour == null) return;
-        int minimumBuildY = level.dimensionType().minY();
-        int maximumBuildY = minimumBuildY + level.dimensionType().height() - 1;
-        int minimumY = surfaceTopY - HALO_BELOW_SURFACE_TOP;
-        int maximumY = surfaceTopY + HALO_ABOVE_SURFACE_TOP;
-        for (int y = minimumY; y <= maximumY; y++) {
-            int stateId = airStateId;
-            if (y >= minimumBuildY && y <= maximumBuildY) {
-                int sectionIndex = level.getSectionIndex(y);
-                if (sectionIndex >= 0 && sectionIndex < neighbour.getSectionsCount()) {
-                    stateId = Block.getId(neighbour.getSection(sectionIndex).getBlockState(
-                        worldX & 15, y & 15, worldZ & 15));
-                }
-            }
-            destination.put(net.minecraft.core.BlockPos.asLong(worldX, y, worldZ), stateId);
-        }
+    /** Surface derivation owns a two-cell X/Z read halo. Never compile from a
+     * partial halo: a lease must make every cardinal neighbour resident first. */
+    private static boolean surfaceHaloReady(final ServerLevel level,
+        final ChunkPos chunk) {
+        return level.getChunkSource().getChunkNow(chunk.x() - 1, chunk.z()) != null
+            && level.getChunkSource().getChunkNow(chunk.x() + 1, chunk.z()) != null
+            && level.getChunkSource().getChunkNow(chunk.x(), chunk.z() - 1) != null
+            && level.getChunkSource().getChunkNow(chunk.x(), chunk.z() + 1) != null;
     }
 }

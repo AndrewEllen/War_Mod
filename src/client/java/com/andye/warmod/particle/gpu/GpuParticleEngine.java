@@ -135,6 +135,14 @@ public final class GpuParticleEngine {
         + LAYER_COUNT * LAYER_STATS_UINTS;
     private static final int STATS_RING_SIZE = 6;
     private static final String SHADER_ROOT = "/assets/war_mod/shaders/gpu_particles/";
+    /**
+     * Runtime safety gate. The compute route has repeatedly produced zero-visible
+     * real work while retaining its buffers and has exhausted the shared OpenGL
+     * allocation budget in live clients. Preserve the preference and diagnostics,
+     * but keep CPU authoritative until the compute implementation is replaced and
+     * accepted in an actual game run.
+     */
+    private static final boolean GPU_RUNTIME_QUARANTINED = true;
     private static final Set<VisualLayer> GPU_CAPABLE_LAYERS = Set.copyOf(EnumSet.of(
         VisualLayer.FIREBALL, VisualLayer.MUSHROOM_CLOUD, VisualLayer.SMOKE_SHROUD,
         VisualLayer.STEM,
@@ -155,6 +163,7 @@ public final class GpuParticleEngine {
     private static volatile DiagnosticMode diagnosticMode = DiagnosticMode.OFF;
     private static boolean registered, resetRequested, extensionShaderPath;
     private static boolean backendSwitchRequested, diagnosticStateLogged;
+    private static boolean gpuQuarantineLogged;
     private static int particleBuffer, emitterBuffer, visibleBuffer, indirectBuffer;
     private static int deadListBuffer, dispatchBuffer, vertexArray, statsScratchBuffer;
     private static final int[] aliveBuffers = new int[2];
@@ -325,7 +334,8 @@ public final class GpuParticleEngine {
     }
 
     public static synchronized void submitFireField(final FireFieldSubmission field) {
-        if (field == null || !field.valid() || backendPreference == BackendPreference.CPU) return;
+        if (GPU_RUNTIME_QUARANTINED || field == null || !field.valid()
+            || backendPreference == BackendPreference.CPU) return;
         PENDING_FIRE_FIELDS.merge(field.regionId(), field, FireFieldSubmission::merge);
         fireFieldSubmissions++;
     }
@@ -418,6 +428,7 @@ public final class GpuParticleEngine {
         final VisualLayer layer, final List<EmitterCommand> commands) {
         if (descriptor == null || !descriptor.valid() || layer == null
             || commands == null || commands.isEmpty()
+            || GPU_RUNTIME_QUARANTINED
             || backendPreference == BackendPreference.CPU
             || !GPU_CAPABLE_LAYERS.contains(layer)) return;
         EffectKey key = new EffectKey(descriptor.effectClass(), descriptor.id());
@@ -726,6 +737,18 @@ public final class GpuParticleEngine {
         resetLayerHealth();
         if (backendPreference == BackendPreference.CPU) {
             backend = Backend.CPU_FALLBACK; readiness = Readiness.UNINITIALIZED;
+            return;
+        }
+        if (GPU_RUNTIME_QUARANTINED) {
+            backend = Backend.CPU_FALLBACK;
+            readiness = Readiness.FAILED;
+            if (!gpuQuarantineLogged) {
+                gpuQuarantineLogged = true;
+                WarMod.LOGGER.warn("War Mod GPU VFX preference {} requested, but the compute "
+                    + "route is quarantined after live zero-visible and allocation failures; "
+                    + "actual route is CPU and no GPU particle buffers or probes were created",
+                    backendPreference);
+            }
             return;
         }
         try {

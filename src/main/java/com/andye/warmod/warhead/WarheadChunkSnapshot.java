@@ -34,6 +34,7 @@ final class WarheadChunkSnapshot {
     private final int[] requiredFeaturesBySection;
     private final Long2IntOpenHashMap haloStateIds;
 
+    private volatile boolean surfaceTerrainDerived;
     private volatile boolean surfaceDerived;
     private volatile boolean verticalDerived;
     private int[] terrainSurfaceY;
@@ -99,6 +100,7 @@ final class WarheadChunkSnapshot {
         this.relevantPositions = relevantPositions.clone();
         this.relevantStateIds = relevantStateIds.clone();
         this.relevantFlags = relevantFlags.clone();
+        this.surfaceTerrainDerived = true;
         this.surfaceDerived = true;
         this.verticalDerived = true;
     }
@@ -244,6 +246,7 @@ final class WarheadChunkSnapshot {
         }
         if (hasFeature(WarheadSnapshotFeatures.SURFACE)) {
             requireCoverage(WarheadSnapshotFeatures.SURFACE);
+            ensureTerrainSurfaceDerived();
             requireSurfaceHaloCoverage();
             ensureSurfaceDerived();
         }
@@ -271,31 +274,39 @@ final class WarheadChunkSnapshot {
         int baseX = chunk.getMinBlockX();
         int baseZ = chunk.getMinBlockZ();
         for (int localZ = 0; localZ < 16; localZ++) {
-            requireHaloColumn(baseX - 1, baseZ + localZ, oceanTopY[localZ * 16], belowTop);
-            requireHaloColumn(baseX - 2, baseZ + localZ, oceanTopY[localZ * 16], belowTop);
+            int row = localZ * 16;
+            requireHaloColumn(baseX - 1, baseZ + localZ, belowTop,
+                terrainSurfaceY[row], terrainSurfaceY[row + 1]);
+            requireHaloColumn(baseX - 2, baseZ + localZ, belowTop,
+                terrainSurfaceY[row]);
             requireHaloColumn(baseX + 16, baseZ + localZ,
-                oceanTopY[localZ * 16 + 15], belowTop);
+                belowTop, terrainSurfaceY[row + 15], terrainSurfaceY[row + 14]);
             requireHaloColumn(baseX + 17, baseZ + localZ,
-                oceanTopY[localZ * 16 + 15], belowTop);
+                belowTop, terrainSurfaceY[row + 15]);
         }
         for (int localX = 0; localX < 16; localX++) {
-            requireHaloColumn(baseX + localX, baseZ - 1, oceanTopY[localX], belowTop);
-            requireHaloColumn(baseX + localX, baseZ - 2, oceanTopY[localX], belowTop);
+            requireHaloColumn(baseX + localX, baseZ - 1, belowTop,
+                terrainSurfaceY[localX], terrainSurfaceY[16 + localX]);
+            requireHaloColumn(baseX + localX, baseZ - 2, belowTop,
+                terrainSurfaceY[localX]);
             requireHaloColumn(baseX + localX, baseZ + 16,
-                oceanTopY[15 * 16 + localX], belowTop);
+                belowTop, terrainSurfaceY[15 * 16 + localX],
+                terrainSurfaceY[14 * 16 + localX]);
             requireHaloColumn(baseX + localX, baseZ + 17,
-                oceanTopY[15 * 16 + localX], belowTop);
+                belowTop, terrainSurfaceY[15 * 16 + localX]);
         }
     }
 
     private void requireHaloColumn(final int worldX, final int worldZ,
-        final int surfaceTopY, final int belowTop) {
-        for (int y = surfaceTopY - belowTop; y <= surfaceTopY + 2; y++) {
-            if (y < minimumBuildY || y > maximumBuildY) continue;
-            if (!haloStateIds.containsKey(BlockPos.asLong(worldX, y, worldZ))) {
-                throw new WarheadSnapshotIncompleteException(chunk, Math.floorDiv(y, 16),
-                    WarheadSnapshotFeatures.SURFACE,
-                    WarheadSectionCoverage.NOT_CAPTURED);
+        final int belowTop, final int... surfaceTopY) {
+        for (int topY : surfaceTopY) {
+            for (int y = topY - belowTop; y <= topY + 2; y++) {
+                if (y < minimumBuildY || y > maximumBuildY) continue;
+                if (!haloStateIds.containsKey(BlockPos.asLong(worldX, y, worldZ))) {
+                    throw new WarheadSnapshotIncompleteException(chunk,
+                        Math.floorDiv(y, 16), WarheadSnapshotFeatures.SURFACE,
+                        WarheadSectionCoverage.NOT_CAPTURED);
+                }
             }
         }
     }
@@ -319,9 +330,12 @@ final class WarheadChunkSnapshot {
             + sectionCoverage.length + (long)requiredFeaturesBySection.length * Integer.BYTES
             + (long)haloStateIds.size() * (Long.BYTES + Integer.BYTES);
         for (WarheadPackedSection section : packedSections.values()) bytes += section.estimatedBytes();
+        if (surfaceTerrainDerived) {
+            bytes += (long)terrainSurfaceY.length * Integer.BYTES;
+        }
         if (surfaceDerived) {
-            bytes += (long)(terrainSurfaceY.length + columnFlags.length
-                + surfaceStateIds.length + surfaceFlags.length) * Integer.BYTES;
+            bytes += (long)(columnFlags.length + surfaceStateIds.length
+                + surfaceFlags.length) * Integer.BYTES;
         }
         if (verticalDerived) {
             bytes += (long)(relevantStateIds.length + relevantFlags.length) * Integer.BYTES
@@ -392,22 +406,20 @@ final class WarheadChunkSnapshot {
 
     private void ensureSurfaceDerived() {
         if (surfaceDerived) return;
+        ensureTerrainSurfaceDerived();
         synchronized (this) {
             if (surfaceDerived) return;
             if (!hasFeature(WarheadSnapshotFeatures.SURFACE)) {
                 throw new IllegalStateException("Snapshot does not own the surface domain");
             }
             requireCoverage(WarheadSnapshotFeatures.SURFACE);
-            terrainSurfaceY = new int[256];
             columnFlags = new int[256];
             surfaceStateIds = new int[256 * SURFACE_LAYERS];
             surfaceFlags = new int[surfaceStateIds.length];
             for (int localZ = 0; localZ < 16; localZ++) {
                 for (int localX = 0; localX < 16; localX++) {
                     int column = localZ * 16 + localX;
-                    int terrainY = terrainSupportY(localX, localZ, oceanTopY[column],
-                        WarheadSnapshotFeatures.SURFACE);
-                    terrainSurfaceY[column] = terrainY;
+                    int terrainY = terrainSurfaceY[column];
                     if (touchesWater(localX, terrainY, localZ)) {
                         columnFlags[column] |= WarheadSnapshotFlags.WATER_NEAR;
                     }
@@ -426,6 +438,26 @@ final class WarheadChunkSnapshot {
                 }
             }
             surfaceDerived = true;
+        }
+    }
+
+    private void ensureTerrainSurfaceDerived() {
+        if (surfaceTerrainDerived) return;
+        synchronized (this) {
+            if (surfaceTerrainDerived) return;
+            if (!hasFeature(WarheadSnapshotFeatures.SURFACE)) {
+                throw new IllegalStateException("Snapshot does not own the surface domain");
+            }
+            requireCoverage(WarheadSnapshotFeatures.SURFACE);
+            terrainSurfaceY = new int[256];
+            for (int localZ = 0; localZ < 16; localZ++) {
+                for (int localX = 0; localX < 16; localX++) {
+                    int column = localZ * 16 + localX;
+                    terrainSurfaceY[column] = terrainSupportY(localX, localZ,
+                        oceanTopY[column], WarheadSnapshotFeatures.SURFACE);
+                }
+            }
+            surfaceTerrainDerived = true;
         }
     }
 

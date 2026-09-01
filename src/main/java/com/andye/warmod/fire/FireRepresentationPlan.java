@@ -53,6 +53,9 @@ public final class FireRepresentationPlan {
         double smokeTarget = Mth.clamp(TARGET_SMOKE_PIXELS / Math.sqrt(quality), 36.0, 72.0);
         int baseMinimum = Math.max(1, (int) Math.ceil(occupied / 16.0));
         int detailLevel = Math.max(0, Math.min(4, requestedDetailLevel));
+        double lodParticleScale = FireVisualLodPolicy.particleScaleForLevel(detailLevel);
+        double flameRadiusLimit = maximumFlameRadius(cell) * lodParticleScale;
+        double smokeRadiusLimit = maximumSmokeRadius(cell) * lodParticleScale;
         int flameMinimum = Math.max(baseMinimum, switch (detailLevel) {
             case 0 -> Math.min(8, Math.max(4, (int) Math.ceil(occupied / 4.0)));
             case 1 -> Math.min(4, Math.max(2, (int) Math.ceil(occupied / 8.0)));
@@ -73,7 +76,7 @@ public final class FireRepresentationPlan {
             smokeCount = cell.smokeMass() <= 0.012F ? 0
                 : desiredCount(projectedArea, smokeTarget, smokeMinimum,
                     MAX_SMOKE_CARDS_PER_CELL, smokeArea, smokeDepth,
-                    maximumSmokeRadius(cell), 0.72);
+                    smokeRadiusLimit, 0.72);
         } else if (exactPatch(cell)) {
             double density = FireVisualLodPolicy.density(detailLevel);
             int historicalFlames = Mth.ceil((2.0F + cell.averageIntensity() * 15.0F)
@@ -89,17 +92,17 @@ public final class FireRepresentationPlan {
         } else {
             flameCount = desiredCount(projectedArea, flameTarget, flameMinimum,
                 MAX_FLAME_CARDS_PER_CELL, flameArea, flameDepth,
-                maximumFlameRadius(cell), 0.96);
+                flameRadiusLimit, 0.96);
             smokeCount = cell.smokeMass() <= 0.012F ? 0
                 : desiredCount(projectedArea, smokeTarget, smokeMinimum,
                     MAX_SMOKE_CARDS_PER_CELL, smokeArea, smokeDepth,
-                    maximumSmokeRadius(cell), 0.72);
+                    smokeRadiusLimit, 0.72);
         }
 
         List<Card> flames = cards(cell, flameCount, flameArea, flameDepth,
-            maximumFlameRadius(cell), weight, false);
+            flameRadiusLimit, weight, false);
         List<Card> smoke = cards(cell, smokeCount, smokeArea, smokeDepth,
-            maximumSmokeRadius(cell), weight, true);
+            smokeRadiusLimit, weight, true);
         int sparks = !flameVisible || cell.maximumHeat() < 0.22F ? 0 : Math.min(4,
             Math.max(1, (int) Math.ceil(Math.sqrt(cell.flameEnergy()) * quality)));
         return new CellPlan(flames, smoke, sparks, (float) flameArea,

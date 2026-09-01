@@ -119,8 +119,6 @@ public final class FireWorldRenderer {
                 * FireVisualLodPolicy.representationWeight(cell.band(), distance, detailLevel);
             if (representationWeight <= 0.001F) continue;
             BlockPos centerBlock = BlockPos.containing(worldPosition);
-            if (distance <= 320.0 && level.hasChunkAt(centerBlock)
-                && !OCCLUSION.visible(level, cameraPosition, worldPosition, distance)) continue;
             CellPlan plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,
                 WarheadRenderSettings.qualityScale(), representationWeight, detailLevel);
             if (plan.flames().isEmpty() && plan.smoke().isEmpty()) continue;
@@ -139,7 +137,8 @@ public final class FireWorldRenderer {
                 SmokeFlow smokeFlow = smokeFlow(level, cell, centerBlock);
                 renderCells.add(new FireRenderCell(cell, relativePlan(plan, cameraPosition,
                     cpuFlameWeight, cpuSmokeWeight),
-                    wind, smokeFlow, distance, projectedCellDiameter));
+                    cell.centroid().subtract(cameraPosition), wind, smokeFlow,
+                    distance, projectedCellDiameter));
             }
         }
 
@@ -306,8 +305,9 @@ public final class FireWorldRenderer {
         }
     }
 
-    record FireRenderCell(FireVisualCell cell, CellPlan plan, Vec3 wind,
-        SmokeFlow smokeFlow, double distance, double projectedCellDiameter) { }
+    record FireRenderCell(FireVisualCell cell, CellPlan plan, Vec3 relativeCentroid,
+        Vec3 wind, SmokeFlow smokeFlow, double distance,
+        double projectedCellDiameter) { }
     record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
         long seed, long startGameTime, int lifetime, double distance,
         double projectedDiameter, float lodScale,
@@ -321,21 +321,22 @@ public final class FireWorldRenderer {
     }
 
     private record CameraProjection(Vec3 position, Matrix4f viewProjection,
-        float projectionScale, int viewportHeight) {
+        FrustumIntersection frustum, float projectionScale, int viewportHeight) {
         private static CameraProjection create(final CameraRenderState camera) {
             Matrix4f matrix = camera.projectionMatrix == null || camera.viewRotationMatrix == null
                 ? null : new Matrix4f(camera.projectionMatrix).mul(camera.viewRotationMatrix);
             float scale = camera.projectionMatrix == null ? 1.0F
                 : Math.max(0.01F, Math.abs(camera.projectionMatrix.m11()));
             int height = Math.max(1, Minecraft.getInstance().getWindow().getHeight());
-            return new CameraProjection(camera.pos, matrix, scale, height);
+            return new CameraProjection(camera.pos, matrix,
+                matrix == null ? null : new FrustumIntersection(matrix), scale, height);
         }
 
         private boolean visible(final Vec3 center, final float radius) {
             if (viewProjection == null) return true;
             if (center.distanceToSqr(position) <= (double) radius * radius) return true;
             Vec3 relative = center.subtract(position);
-            return new FrustumIntersection(viewProjection).testSphere(
+            return frustum.testSphere(
                 (float) relative.x, (float) relative.y, (float) relative.z, radius);
         }
 

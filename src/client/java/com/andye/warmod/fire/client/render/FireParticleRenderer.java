@@ -9,7 +9,6 @@ import com.andye.warmod.fire.client.render.FireWorldRenderer.FireRenderEmberTrai
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
-import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -34,10 +33,6 @@ public final class FireParticleRenderer {
             float stage = stageScale(render.cell().phase(), render.cell().coveredArea()
                 / Math.max(1, render.cell().hostCount()));
             double flameHeight = Math.max(0.05, render.cell().flameEnvelopeHeight());
-            double footprint = Math.max(0.06, Math.min(render.cell().cellSize() * 0.48,
-                (0.055 + render.cell().coveredArea()
-                    / Math.max(1, render.cell().hostCount()) * 0.48)
-                    * (1.0 + render.cell().clumpStrength() * 0.18)));
             for (int index = 0; index < render.plan().flames().size(); index++) {
                 Card card = render.plan().flames().get(index);
                 long value = mix(card.seed() ^ FLAME_SEED);
@@ -46,16 +41,17 @@ public final class FireParticleRenderer {
                 double life = 12.0 + unit(value, 1) * 16.0;
                 double particleAge = positiveModulo(age - delay, life);
                 double progress = particleAge / life;
-                double angle = unit(value, 2) * Mth.TWO_PI;
-                double radius = Math.sqrt(unit(value, 3)) * footprint
-                    * (1.0 - progress * 0.48);
-                Vec3 base = surfaceOffset(render.cell().dominantFace(),
-                    Math.cos(angle) * radius, Math.sin(angle) * radius);
+                /* Card positions already are the stable, surface-oriented spatial
+                 * distribution. Applying another random footprint here duplicated
+                 * density and produced the spraying blanket seen in live captures.
+                 * Contract the existing footprint as each old-style tongue rises. */
+                Vec3 base = render.relativeCentroid().add(card.position()
+                    .subtract(render.relativeCentroid()).scale(1.0 - progress * 0.48));
                 double curl = Math.sin(gameTime * (0.16 + unit(value, 4) * 0.13)
                     + unit(value, 5) * Mth.TWO_PI) * (0.035 + progress * 0.12);
                 double windAge = particleAge
                     * (0.075 + render.cell().averageIntensity() * 0.045);
-                Vec3 center = card.position().add(base).add(
+                Vec3 center = base.add(
                     curl + render.wind().x * windAge,
                     0.035 + progress * flameHeight * (0.72 + unit(value, 6) * 0.48),
                     -curl * 0.48 + render.wind().z * windAge);
@@ -226,15 +222,6 @@ public final class FireParticleRenderer {
             case FLAMING -> 1.0F;
             case DECAYING -> 0.68F;
             case SMOLDERING -> 0.0F;
-        };
-    }
-
-    private static Vec3 surfaceOffset(final Direction face, final double a,
-        final double b) {
-        return switch (face) {
-            case UP, DOWN -> new Vec3(a, 0.0, b);
-            case NORTH, SOUTH -> new Vec3(a, b, 0.0);
-            case EAST, WEST -> new Vec3(0.0, b, a);
         };
     }
 

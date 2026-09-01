@@ -144,7 +144,10 @@ public final class WarheadExplosionWorkManager {
 			BlockState state = level.getBlockState(cursor);
 			FluidState fluid = state.getFluidState();
 			if (!state.isAir() || !fluid.isEmpty()) {
-				return descent == 0 ? requested : new Vec3(requested.x, y + 0.98, requested.z);
+				/* The resolved center is the first air point above the live collision
+				 * surface. Using 0.98 floors back into the support block during crater
+				 * planning and makes an otherwise surface impact excavate underground. */
+				return descent == 0 ? requested : new Vec3(requested.x, y + 1.0, requested.z);
 			}
 		}
 		return requested;

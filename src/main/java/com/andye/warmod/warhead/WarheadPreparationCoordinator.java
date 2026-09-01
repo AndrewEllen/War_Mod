@@ -302,7 +302,7 @@ public final class WarheadPreparationCoordinator {
         long deadline = System.nanoTime() + budgetNanos;
         for (long packed : ordered) {
             if (completed.size() >= maximumChunks || System.nanoTime() >= deadline) break;
-            WarheadChunkSnapshot snapshot = WarheadWorldSnapshotter.capture(level,
+            WarheadChunkSnapshot snapshot = WarheadWorldSnapshotter.captureFallback(level,
                 ChunkPos.unpack(packed), preparation.requirements, preparation.metadata);
             if (snapshot == null) continue; // Section revision raced this attempt.
             try {

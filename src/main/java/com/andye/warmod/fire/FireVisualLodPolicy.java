@@ -53,10 +53,10 @@ public final class FireVisualLodPolicy {
     public static double density(final int level) {
         return switch (clampLevel(level)) {
             case 0 -> 1.0;
-            case 1 -> 0.50;
-            case 2 -> 0.10;
-            case 3 -> 0.035;
-            default -> 0.018;
+            case 1 -> 0.55;
+            case 2 -> 0.24;
+            case 3 -> 0.11;
+            default -> 0.055;
         };
     }
 
@@ -110,10 +110,10 @@ public final class FireVisualLodPolicy {
     public static float particleScaleForLevel(final int level) {
         return switch (clampLevel(level)) {
             case 0 -> 1.0F;
-            case 1 -> 1.05F;
-            case 2 -> 1.18F;
-            case 3 -> 1.32F;
-            default -> 1.38F;
+            case 1 -> 1.35F;
+            case 2 -> 2.05F;
+            case 3 -> 3.02F;
+            default -> 4.26F;
         };
     }
 

@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead.client.render;
 
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import com.andye.warmod.fire.client.ClientFireVisualManager;
 import com.andye.warmod.fire.client.render.FireWorldRenderer;
@@ -104,6 +105,8 @@ public final class WarheadClientControlHandler {
     private static void status() {
         GpuParticleEngine.DebugSnapshot gpu = GpuParticleEngine.debugSnapshot();
         GpuParticleEngine.GpuBudgetSnapshot budget = GpuParticleEngine.budgetSnapshot();
+        ClientPerformanceTelemetry.DebugSnapshot performance =
+            ClientPerformanceTelemetry.debugSnapshot();
         FireWorldRenderer.FireRenderStats fire = FireWorldRenderer.debugStats();
         java.util.Map<FireVisualBand, Integer> bands =
             ClientFireVisualManager.INSTANCE.cellCounts(Minecraft.getInstance().level);
@@ -142,6 +145,14 @@ public final class WarheadClientControlHandler {
              + " fireReserve=" + budget.protectedFireSlots()
              + " persistentFree=" + budget.persistentAvailableSlots()
              + " transientFree=" + budget.transientAvailableSlots());
+        ClientPerformanceTelemetry.Percentiles frame = performance.frame();
+        ClientPerformanceTelemetry.Percentiles fireTiming = performance.fireExtraction();
+        feedback("War Mod worldRenderMs p50/p95/p99/max=" + format(frame.p50Millis()) + "/"
+            + format(frame.p95Millis()) + "/" + format(frame.p99Millis()) + "/"
+            + format(frame.maximumMillis()) + " reportedFPS="
+            + Minecraft.getInstance().getFps()
+            + " fireExtractionMs p95/max=" + format(fireTiming.p95Millis()) + "/"
+            + format(fireTiming.maximumMillis()));
     }
 
     private static String layerRoute(final GpuParticleEngine.DebugSnapshot gpu,

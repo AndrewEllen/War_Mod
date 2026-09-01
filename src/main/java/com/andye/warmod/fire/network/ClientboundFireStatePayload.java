@@ -173,16 +173,31 @@ public record ClientboundFireStatePayload(long serverGameTime, long generation,
         public static CellEntry from(final FireVisualCell cell) {
             return new CellEntry(cell.id(), cell.parentId(),
                 (byte) cell.band().wireId(), cell.cellSize(),
-                cell.cellX(), cell.cellY(), cell.cellZ(), cell.centroid().x,
-                cell.centroid().y, cell.centroid().z, (float) cell.extents().x,
-                (float) cell.extents().y, (float) cell.extents().z,
-                cell.occupancyMask(), cell.flameEnergy(), cell.flameEnvelopeHeight(),
-                cell.smokeMass(),
-                cell.maximumHeat(), cell.averageIntensity(), cell.coveredArea(),
-                cell.clumpStrength(),
-                (float) cell.wind().x, (float) cell.wind().y, (float) cell.wind().z,
+                cell.cellX(), cell.cellY(), cell.cellZ(), quantize(cell.centroid().x, 64),
+                quantize(cell.centroid().y, 64), quantize(cell.centroid().z, 64),
+                quantize((float) cell.extents().x, 64),
+                quantize((float) cell.extents().y, 64),
+                quantize((float) cell.extents().z, 64),
+                cell.occupancyMask(), quantize(cell.flameEnergy(), 256),
+                quantize(cell.flameEnvelopeHeight(), 256),
+                quantize(cell.smokeMass(), 256),
+                quantize(cell.maximumHeat(), 256),
+                quantize(cell.averageIntensity(), 256),
+                quantize(cell.coveredArea(), 64),
+                quantize(cell.clumpStrength(), 256),
+                quantize((float) cell.wind().x, 128),
+                quantize((float) cell.wind().y, 128),
+                quantize((float) cell.wind().z, 128),
                 cell.hostCount(), cell.seed(), (byte) cell.dominantFace().ordinal(),
                 (byte) cell.phase().ordinal(), cell.ignitionGameTime());
+        }
+
+        private static double quantize(final double value, final int steps) {
+            return Math.rint(value * steps) / steps;
+        }
+
+        private static float quantize(final float value, final int steps) {
+            return Math.round(value * steps) / (float) steps;
         }
 
         public FireVisualCell toCell() {

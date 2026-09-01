@@ -60,11 +60,12 @@ public final class WarheadPreparationLeaseManager {
         registerLifecycle();
         LevelState state = LEVELS.computeIfAbsent(level, ignored -> new LevelState());
         Lease previous = state.leases.get(leaseId);
-        LongOpenHashSet required = new LongOpenHashSet();
+        LongOpenHashSet owned = new LongOpenHashSet();
         for (WarheadPreparationLeaseTarget target : targets) {
             if (target == null) throw new IllegalArgumentException("Null preparation target");
-            required.addAll(target.footprint().requiredChunks());
+            owned.addAll(target.footprint().requiredChunks());
         }
+        LongOpenHashSet required = withSurfaceHalo(owned);
         if (previous != null) {
             WarheadLeaseDelta delta = WarheadLeaseDelta.between(previous.required, required);
             for (long packed : delta.released()) releaseReference(level, state, packed);
@@ -72,7 +73,7 @@ public final class WarheadPreparationLeaseManager {
         } else {
             for (long packed : required) state.references.acquire(packed);
         }
-        state.leases.put(leaseId, new Lease(required,
+        state.leases.put(leaseId, new Lease(owned, required,
             prioritized(level, targets, required),
             Math.max(level.getGameTime() + 1L, expiresAt)));
     }
@@ -91,12 +92,19 @@ public final class WarheadPreparationLeaseManager {
         if (lease == null) return new LeaseSnapshot(0, 0, 0, false);
         int ticketed = 0;
         int ready = 0;
-        for (long packed : lease.required) {
+        for (long packed : lease.owned) {
             if (state.ticketed.contains(packed)) ticketed++;
             if (fullChunkReady(level, state, packed)) ready++;
         }
-        return new LeaseSnapshot(lease.required.size(), ticketed, ready,
-            ready == lease.required.size() && ready > 0);
+        boolean readDomainReady = true;
+        for (long packed : lease.required) {
+            if (!fullChunkReady(level, state, packed)) {
+                readDomainReady = false;
+                break;
+            }
+        }
+        return new LeaseSnapshot(lease.owned.size(), ticketed, ready,
+            ready == lease.owned.size() && ready > 0 && readDomainReady);
     }
 
     public static synchronized boolean ready(final ServerLevel level,
@@ -108,7 +116,7 @@ public final class WarheadPreparationLeaseManager {
         final UUID leaseId, final long packedChunk) {
         LevelState state = LEVELS.get(level);
         Lease lease = state == null ? null : state.leases.get(leaseId);
-        return lease != null && lease.required.contains(packedChunk)
+        return lease != null && lease.owned.contains(packedChunk)
             && fullChunkReady(level, state, packedChunk);
     }
 
@@ -119,7 +127,7 @@ public final class WarheadPreparationLeaseManager {
         Lease lease = state.leases.remove(leaseId);
         if (lease != null) {
             WarheadLifecycleDiagnostics.leaseReleased(level, leaseId,
-                lease.required.size());
+                lease.owned.size());
             for (long packed : lease.required) releaseReference(level, state, packed);
         }
         if (state.leases.isEmpty()) LEVELS.remove(level);
@@ -144,7 +152,7 @@ public final class WarheadPreparationLeaseManager {
             Lease lease = state.leases.get(leaseId);
             if (lease != null && now >= lease.expiresAt) {
                 WarMod.LOGGER.warn("Warhead preparation lease {} expired with {} of {} chunks ready",
-                    leaseId, snapshot(level, leaseId).readyChunks(), lease.required.size());
+                    leaseId, snapshot(level, leaseId).readyChunks(), lease.owned.size());
                 release(level, leaseId);
             }
         }
@@ -226,6 +234,21 @@ public final class WarheadPreparationLeaseManager {
         return result;
     }
 
+    /** Adds the cardinal load-only neighbours required by the surface read halo.
+     * These chunks receive tickets but never become mutation owners or inflate
+     * the impact's required/prepared/fallback diagnostics. */
+    private static LongOpenHashSet withSurfaceHalo(final LongSet owned) {
+        LongOpenHashSet required = new LongOpenHashSet(owned);
+        for (long packed : owned) {
+            ChunkPos chunk = ChunkPos.unpack(packed);
+            required.add(new ChunkPos(chunk.x() - 1, chunk.z()).pack());
+            required.add(new ChunkPos(chunk.x() + 1, chunk.z()).pack());
+            required.add(new ChunkPos(chunk.x(), chunk.z() - 1).pack());
+            required.add(new ChunkPos(chunk.x(), chunk.z() + 1).pack());
+        }
+        return required;
+    }
+
     private static int priorityBand(final ServerLevel level,
         final List<WarheadPreparationLeaseTarget> targets, final long packed) {
         ChunkPos chunk = ChunkPos.unpack(packed);
@@ -260,7 +283,7 @@ public final class WarheadPreparationLeaseManager {
         if (state == null) return;
         for (Map.Entry<UUID, Lease> entry : state.leases.entrySet()) {
             WarheadLifecycleDiagnostics.leaseReleased(level, entry.getKey(),
-                entry.getValue().required.size());
+                entry.getValue().owned.size());
         }
         for (long packed : state.ticketed) {
             level.getChunkSource().removeTicketWithRadius(
@@ -279,13 +302,15 @@ public final class WarheadPreparationLeaseManager {
         int readyChunks, boolean ready) { }
 
     private static final class Lease {
+        private final LongOpenHashSet owned;
         private final LongOpenHashSet required;
         private final LongArrayList priority;
         private long expiresAt;
         private int nextPriority;
 
-        private Lease(final LongOpenHashSet required, final LongArrayList priority,
-            final long expiresAt) {
+        private Lease(final LongOpenHashSet owned, final LongOpenHashSet required,
+            final LongArrayList priority, final long expiresAt) {
+            this.owned = owned;
             this.required = required;
             this.priority = priority;
             this.expiresAt = expiresAt;
