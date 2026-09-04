@@ -5,8 +5,30 @@ import net.minecraft.util.Mth;
 /** Pure extraction of the 62a89 scorched/fused nuclear surface gradient. */
 final class NuclearSurfacePolicy {
     static final int NO_CHANGE = Integer.MIN_VALUE;
+    private static final double OUTER_FEATHER_SCALE = 1.12;
 
     private NuclearSurfacePolicy() { }
+
+    static double mutationRadius(final double aftermathRadius) {
+        return Math.max(0.0, aftermathRadius) * OUTER_FEATHER_SCALE;
+    }
+
+    /**
+     * Extends the last sparse aftermath columns beyond the nominal radius. The
+     * decision is column-stable so snow, sand and the supporting terrain taper
+     * together instead of exposing a perfectly circular edge.
+     */
+    static boolean survivesOuterFeather(final long seed, final int x, final int z,
+        final double aftermathNormalized) {
+        if (aftermathNormalized <= 1.0) return true;
+        if (aftermathNormalized >= OUTER_FEATHER_SCALE) return false;
+        double progress = Mth.clamp((aftermathNormalized - 1.0)
+            / (OUTER_FEATHER_SCALE - 1.0), 0.0, 1.0);
+        double smooth = progress * progress * (3.0 - 2.0 * progress);
+        long hash = seed ^ ((long)x << 32) ^ (z & 0xFFFF_FFFFL)
+            ^ 0x4F555445525F4645L;
+        return NuclearPolicyHash.unit(hash) < 1.0 - smooth;
+    }
 
     static boolean mudPatch(final long seed, final int x, final int z,
         final double aftermathNormalized) {

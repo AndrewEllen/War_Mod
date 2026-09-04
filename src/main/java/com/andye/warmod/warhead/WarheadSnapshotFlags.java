@@ -50,7 +50,9 @@ final class WarheadSnapshotFlags {
         if (state.getFluidState().is(FluidTags.WATER)) flags |= WATER;
         if (indestructible) flags |= INDESTRUCTIBLE;
         if (state.is(Blocks.TNT)) flags |= TNT;
-        if (state.is(BlockTags.SAND) && !state.is(Blocks.RED_SAND)) {
+        /* Keep vanilla sand explicit so the fused palette does not depend solely
+         * on data-tag availability while a snapshot is being classified. */
+        if (isRegularSand(state)) {
             flags |= SAND | NATURAL_SURFACE;
         }
         if (state.is(Blocks.RED_SAND)) flags |= RED_SAND | NATURAL_SURFACE;
@@ -110,6 +112,11 @@ final class WarheadSnapshotFlags {
     static boolean relevantVertical(final int flags) {
         return (flags & (SNOW | LEAVES | LOG | PLANK | GLASS | COBBLE | FRAGILE
             | SURVIVAL_SENSITIVE)) != 0;
+    }
+
+    static boolean isRegularSand(final BlockState state) {
+        return !state.is(Blocks.RED_SAND)
+            && (state.is(Blocks.SAND) || state.is(BlockTags.SAND));
     }
 
     private static boolean isSoil(final BlockState state) {

@@ -78,13 +78,17 @@ final class WarheadWorldSnapshotter {
         for (int localZ = 0; localZ < 16; localZ++) {
             for (int localX = 0; localX < 16; localX++) {
                 int column = localZ * 16 + localX;
+                /* ChunkAccess#getHeight already returns the highest occupied block
+                 * (Heightmap#getFirstAvailable - 1). Subtracting again excluded the
+                 * actual surface from crater excavation and made surface derivation
+                 * begin in the substrate, leaving one-block caps and untouched sand. */
                 motionTopY[column] = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING,
-                    localX, localZ) - 1;
+                    localX, localZ);
                 /* Keep the primitive heightmap sample domain-neutral. Surface support
                  * is derived only by the surface domain on the detached snapshot;
                  * vertical-only and biome-only work never invokes that derivation. */
                 oceanTopY[column] = chunk.getHeight(Heightmap.Types.OCEAN_FLOOR,
-                    localX, localZ) - 1;
+                    localX, localZ);
                 if (surfaceSupportY != null) {
                     surfaceSupportY[column] = terrainSupportY(chunk, localX, localZ,
                         oceanTopY[column], minimumBuildY, metadata);
@@ -196,7 +200,8 @@ final class WarheadWorldSnapshotter {
             if (intersects(chunk, impact, footprint.craterRadius())) {
                 features |= WarheadSnapshotFeatures.CRATER_VOLUME;
             }
-            if (intersects(chunk, impact, footprint.aftermathRadius())) {
+            if (intersects(chunk, impact, NuclearSurfacePolicy.mutationRadius(
+                footprint.aftermathRadius()))) {
                 features |= WarheadSnapshotFeatures.SURFACE;
             }
             if (intersects(chunk, impact,

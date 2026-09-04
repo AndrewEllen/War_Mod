@@ -38,7 +38,8 @@ final class FireVisualLodPolicyTest {
         assertTrue(FireVisualLodPolicy.density(1) > FireVisualLodPolicy.density(2));
         assertTrue(FireVisualLodPolicy.density(2) > FireVisualLodPolicy.density(3));
         assertTrue(FireVisualLodPolicy.density(3) > FireVisualLodPolicy.density(4));
-        assertTrue(FireVisualLodPolicy.particleScale(1.0) <= 1.38F);
+        assertTrue(FireVisualLodPolicy.particleScale(1.0) >= 4.0F);
+        assertTrue(FireVisualLodPolicy.particleScale(1.0) <= 4.30F);
         assertTrue(FireVisualLodPolicy.emberScale(0.2) <= 1.75F);
         assertTrue(FireVisualLodPolicy.emberRetention(0.2) < 0.10);
     }

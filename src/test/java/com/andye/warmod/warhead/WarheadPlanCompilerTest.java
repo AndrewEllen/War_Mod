@@ -76,6 +76,14 @@ final class WarheadPlanCompilerTest {
     }
 
     @Test
+    void vanillaSandBypassesTagLookupAndExcludesRedSand() {
+        assertTrue(WarheadSnapshotFlags.isRegularSand(
+            Blocks.SAND.defaultBlockState()));
+        assertFalse(WarheadSnapshotFlags.isRegularSand(
+            Blocks.RED_SAND.defaultBlockState()));
+    }
+
+    @Test
     void surfaceCompilerPreservesTheSnapshotSemanticClassification() {
         PreparedImpactSpec impact = impact(0x1122_3344_5566L);
         WarheadFootprint footprint = WarheadFootprintCalculator.calculate(

@@ -271,6 +271,23 @@ public final class WarheadPreparedCommitManager {
             || changedBlocks <= MAX_EXACT_LIGHT_CHECKS);
     }
 
+    /**
+     * Neighbour updates may change a block property between capture and commit
+     * without changing the physical crater material (snowy grass is the common
+     * case). Crater-owned cells may accept that property-only drift; every other
+     * mutation retains exact snapshot conflict protection.
+     */
+    static boolean matchesExpectedState(final BlockState live, final int expectedStateId,
+        final byte categoryId) {
+        if (live == null) return false;
+        if (Block.getId(live) == expectedStateId) return true;
+        WarheadMutationCategory category = WarheadMutationCategory.fromWireId(categoryId);
+        if (category != WarheadMutationCategory.CRATER_EXCAVATION
+            && category != WarheadMutationCategory.CRATER_SHELL
+            && category != WarheadMutationCategory.CRATER_CLEANUP) return false;
+        return live.getBlock() == Block.stateById(expectedStateId).getBlock();
+    }
+
     public record CommitSnapshot(boolean active, int ageTicks, int plannedChunks,
         int appliedChunks, int pendingLightAndPackets, int pendingAcknowledgements,
         int plannedCells, int changedBlocks, int conflictedCells,
@@ -591,7 +608,7 @@ public final class WarheadPreparedCommitManager {
                 BlockState live = section.getBlockState(localX, localY, localZ);
                 if ((validate || semantic.get(index) || survival.get(index)
                     || supportCheck.get(index))
-                    && Block.getId(live) != expected[index]) {
+                    && !matchesExpectedState(live, expected[index], categories[index])) {
                     conflictedCells++;
                     continue;
                 }

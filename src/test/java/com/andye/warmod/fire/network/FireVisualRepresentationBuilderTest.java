@@ -164,6 +164,36 @@ final class FireVisualRepresentationBuilderTest {
         }
     }
 
+    @Test
+    void horizonParentsCoverTheFormerMiddleDistanceGap() {
+        List<FireCellSnapshot> patches = List.of(patch(1L, 390, 0),
+            patch(2L, 410, 0), patch(3L, 470, 0));
+        var result = FireVisualRepresentationBuilder.build(patches,
+            new Vec3(0.0, 64.0, 0.0));
+
+        assertTrue(result.cells().stream().anyMatch(cell ->
+            cell.band() == FireVisualBand.HORIZON));
+        assertTrue(FireVisualBand.HORIZON.weight(448.0) > 0.99F);
+        assertTrue(FireVisualBand.FAR.weight(448.0) > 0.0F,
+            "far and horizon must overlap instead of leaving a visibility hole");
+    }
+
+    @Test
+    void aggregateBandMembershipDoesNotFollowAChangingEnergyCentroid() {
+        var sparse = FireVisualRepresentationBuilder.build(
+            List.of(patch(1L, 224, 224)), new Vec3(0.0, 64.0, 0.0));
+        var reshaped = FireVisualRepresentationBuilder.build(
+            List.of(patch(1L, 224, 224), patch(2L, 255, 255)),
+            new Vec3(0.0, 64.0, 0.0));
+
+        Set<Long> sparseParents = ids(sparse.cells().stream().filter(cell ->
+            cell.band() == FireVisualBand.HORIZON).toList());
+        Set<Long> reshapedParents = ids(reshaped.cells().stream().filter(cell ->
+            cell.band() == FireVisualBand.HORIZON).toList());
+        assertFalse(sparseParents.isEmpty());
+        assertEquals(sparseParents, reshapedParents);
+    }
+
     private static FireCellSnapshot patch(final long id, final int x, final int z) {
         BlockPos host = new BlockPos(x, 63, z);
         return new FireCellSnapshot(id, FireSurfaceAnchor.center(host, Direction.UP),

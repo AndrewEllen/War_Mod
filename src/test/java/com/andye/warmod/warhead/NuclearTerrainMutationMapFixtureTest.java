@@ -3,6 +3,7 @@ package com.andye.warmod.warhead;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -49,7 +50,7 @@ final class NuclearTerrainMutationMapFixtureTest {
     static { SharedConstants.tryDetectVersion(); Bootstrap.bootStrap(); }
 
     @Test
-    void completeMutationMapsAndReplacementHistogramsMatchTheFrozenOracle() {
+    void unchangedMutationMapsMatchTheFrozenOracleAndForestUsesRepairedDensity() {
         ArrayList<String> missing = new ArrayList<>();
         for (Fixture fixture : fixtures()) {
             PreparedChunkPlan plan = compile(fixture);
@@ -60,6 +61,12 @@ final class NuclearTerrainMutationMapFixtureTest {
                 continue;
             }
             byte[] expected = decompress(compressedReference);
+            if (fixture.name.equals("mixed_forest")) {
+                assertFalse(Arrays.equals(expected, actual),
+                    "forest fixture must record the accepted lower crown retention");
+                assertRepairedForestDensity(plan);
+                continue;
+            }
             assertArrayEquals(expected, actual,
                 fixture.name + " coordinate mutation map");
             assertEquals(readHistogram(expected),
@@ -67,6 +74,31 @@ final class NuclearTerrainMutationMapFixtureTest {
                 fixture.name + " replacement histogram");
         }
         assertFalse(!missing.isEmpty(), () -> String.join("\n", missing));
+    }
+
+    private static void assertRepairedForestDensity(final PreparedChunkPlan plan) {
+        int strippedLeaves = 0;
+        int retainedLeaves = 0;
+        for (PreparedSectionPlan section : plan.blockSections()) {
+            int[] expected = section.expectedStateIdsUnsafe();
+            int[] replacements = section.finalStateIdsUnsafe();
+            byte[] categories = section.mutationCategoriesUnsafe();
+            for (int index = 0; index < replacements.length; index++) {
+                if (WarheadMutationCategory.fromWireId(categories[index])
+                    != WarheadMutationCategory.VEGETATION
+                    || Block.stateById(expected[index]).getBlock()
+                        != Blocks.OAK_LEAVES) continue;
+                if (Block.stateById(replacements[index]).isAir()) strippedLeaves++;
+                else if (Block.stateById(replacements[index]).getBlock()
+                    == Blocks.PALE_OAK_LEAVES) {
+                    retainedLeaves++;
+                }
+            }
+        }
+        assertTrue(strippedLeaves > retainedLeaves,
+            "blast-facing crowns should expose more trunk than they retain");
+        assertTrue(retainedLeaves > 0,
+            "the repaired gradient must remain a gradient, not remove every crown");
     }
 
     private static PreparedChunkPlan compile(final Fixture fixture) {

@@ -14,7 +14,9 @@ import org.junit.jupiter.api.Test;
 final class NuclearTerrainPolicyParityTest {
     private static final long REFERENCE_62A89_CRATER = -318957587613413812L;
     private static final long REFERENCE_62A89_SURFACE = 1296543654895764267L;
-    private static final long REFERENCE_62A89_ENVIRONMENT = -554422905070750682L;
+    /* Leaves intentionally diverge from 62a89: retained pale crowns were reduced
+     * after live visual acceptance found they concealed the burning trunks. */
+    private static final long REPAIRED_ENVIRONMENT = 7440744455129200815L;
     private static final long REFERENCE_62A89_FIRE = 3394490952612551973L;
 
     static {
@@ -33,7 +35,7 @@ final class NuclearTerrainPolicyParityTest {
             + ", environment=" + environment + ", fire=" + fire;
         assertEquals(REFERENCE_62A89_CRATER, crater, actual);
         assertEquals(REFERENCE_62A89_SURFACE, surface, actual);
-        assertEquals(REFERENCE_62A89_ENVIRONMENT, environment, actual);
+        assertEquals(REPAIRED_ENVIRONMENT, environment, actual);
         assertEquals(REFERENCE_62A89_FIRE, fire, actual);
     }
 

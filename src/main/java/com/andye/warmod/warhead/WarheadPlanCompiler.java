@@ -155,13 +155,16 @@ final class WarheadPlanCompiler {
                 double dx = worldX + 0.5 - impact.target().x;
                 double dz = worldZ + 0.5 - impact.target().z;
                 double radial = Math.sqrt(dx * dx + dz * dz);
-                if (radial > footprint.aftermathRadius()) continue;
+                if (radial > NuclearSurfacePolicy.mutationRadius(
+                    footprint.aftermathRadius())) continue;
                 NuclearCraterPolicy.Column craterColumn = NuclearCraterPolicy.column(profile,
                     worldX - Mth.floor(impact.target().x),
                     worldZ - Mth.floor(impact.target().z));
                 if (craterColumn != null) continue;
                 double craterNormalized = radial / Math.max(1.0, footprint.craterRadius());
                 double aftermathNormalized = radial / Math.max(1.0, footprint.aftermathRadius());
+                if (!NuclearSurfacePolicy.survivesOuterFeather(impact.seed(), worldX,
+                    worldZ, aftermathNormalized)) continue;
                 int column = localZ * 16 + localX;
                 int surfaceY = snapshot.terrainSurfaceY(column);
                 if (surfaceY < snapshot.minimumBuildY()) continue;
@@ -251,47 +254,51 @@ final class WarheadPlanCompiler {
                 replacement = NuclearStructurePolicy.glass(impact, profile, palette,
                     radial, packed);
             }
-            if (radial <= footprint.aftermathRadius()) {
+            if (radial <= NuclearSurfacePolicy.mutationRadius(
+                footprint.aftermathRadius())) {
                 double normalized = radial / Math.max(1.0, footprint.aftermathRadius());
-                if ((flags & WarheadSnapshotFlags.SNOW) != 0) {
-                    replacement = palette.air();
-                } else if ((flags & WarheadSnapshotFlags.FRAGILE) != 0) {
-                    NuclearVegetationPolicy.Mutation mutation =
-                        NuclearVegetationPolicy.fragile(impact, palette, flags,
-                            snapshot.verticalFlagsAtWorld(x, y - 1, z), normalized,
-                            packed);
-                    if (mutation != null) {
-                        replacement = mutation.replacementStateId();
-                        survival = mutation.requiresSurvivalCheck();
-                    }
-                } else if ((flags & WarheadSnapshotFlags.LEAVES) != 0) {
-                    replacement = NuclearVegetationPolicy.leaves(impact, palette,
-                        normalized, packed);
-                    if (replacement != palette.air() && impact.customFire()) {
-                        addTreeFire(impact, builders, x, y, z, normalized, packed, 0.58);
-                    }
-                } else if ((flags & WarheadSnapshotFlags.LOG) != 0) {
-                    if ((flags & WarheadSnapshotFlags.NATURAL_TREE) != 0) {
-                        int column = (z & 15) * 16 + (x & 15);
+                if (NuclearSurfacePolicy.survivesOuterFeather(impact.seed(), x, z,
+                    normalized)) {
+                    if ((flags & WarheadSnapshotFlags.SNOW) != 0) {
+                        replacement = palette.air();
+                    } else if ((flags & WarheadSnapshotFlags.FRAGILE) != 0) {
+                        NuclearVegetationPolicy.Mutation mutation =
+                            NuclearVegetationPolicy.fragile(impact, palette, flags,
+                                snapshot.verticalFlagsAtWorld(x, y - 1, z), normalized,
+                                packed);
+                        if (mutation != null) {
+                            replacement = mutation.replacementStateId();
+                            survival = mutation.requiresSurvivalCheck();
+                        }
+                    } else if ((flags & WarheadSnapshotFlags.LEAVES) != 0) {
+                        replacement = NuclearVegetationPolicy.leaves(impact, palette,
+                            normalized, packed);
+                        if (replacement != palette.air() && impact.customFire()) {
+                            addTreeFire(impact, builders, x, y, z, normalized, packed, 0.58);
+                        }
+                    } else if ((flags & WarheadSnapshotFlags.LOG) != 0) {
+                        if ((flags & WarheadSnapshotFlags.NATURAL_TREE) != 0) {
+                            int column = (z & 15) * 16 + (x & 15);
                             replacement = NuclearVegetationPolicy.naturalLog(impact,
                                 palette, flags, y, snapshot.verticalSurfaceY(column),
                                 normalized, packed);
-                        if (replacement != Integer.MIN_VALUE
-                            && replacement != palette.air()) {
-                            addTreeFire(impact, builders, x, y, z, normalized, packed, 1.0);
-                            compileTreeRemnants(impact, snapshot, palette, builders,
-                                x, y, z, normalized);
+                            if (replacement != Integer.MIN_VALUE
+                                && replacement != palette.air()) {
+                                addTreeFire(impact, builders, x, y, z, normalized, packed, 1.0);
+                                compileTreeRemnants(impact, snapshot, palette, builders,
+                                    x, y, z, normalized);
+                            }
+                        } else {
+                            replacement = NuclearStructurePolicy.structuralLog(impact,
+                                palette, flags, normalized, packed);
                         }
-                    } else {
-                        replacement = NuclearStructurePolicy.structuralLog(impact,
-                            palette, flags, normalized, packed);
+                    } else if ((flags & WarheadSnapshotFlags.PLANK) != 0) {
+                        replacement = NuclearStructurePolicy.plank(impact, palette,
+                            normalized, packed);
+                    } else if ((flags & WarheadSnapshotFlags.COBBLE) != 0) {
+                        replacement = NuclearStructurePolicy.cobble(impact, palette,
+                            normalized, packed);
                     }
-                } else if ((flags & WarheadSnapshotFlags.PLANK) != 0) {
-                    replacement = NuclearStructurePolicy.plank(impact, palette,
-                        normalized, packed);
-                } else if ((flags & WarheadSnapshotFlags.COBBLE) != 0) {
-                    replacement = NuclearStructurePolicy.cobble(impact, palette,
-                        normalized, packed);
                 }
             }
             if (replacement != Integer.MIN_VALUE && replacement != expected) {

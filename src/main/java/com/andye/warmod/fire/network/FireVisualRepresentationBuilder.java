@@ -85,12 +85,12 @@ public final class FireVisualRepresentationBuilder {
 
     private static BandResult buildAggregateBand(final FireVisualBand band,
         final List<HostSample> hosts, final Vec3 viewer) {
-        ArrayList<HostSample> bandHosts = new ArrayList<>();
-        for (HostSample host : hosts) {
-            if (band.contains(host.position().distanceTo(viewer))) bandHosts.add(host);
-        }
         int cellSize = band.preferredCellSize();
-        Map<CellCoordinate, CellAccumulator> buckets = bucket(bandHosts, cellSize);
+        /* Bucket the complete fixed-grid cell first. Filtering individual hosts by
+         * camera distance changed a cell's energy and extents as the viewer moved,
+         * creating the middle-distance flicker the hierarchy is meant to avoid. */
+        Map<CellCoordinate, CellAccumulator> buckets = bucket(hosts, cellSize,
+            band, viewer);
         ArrayList<FireVisualCell> candidates = new ArrayList<>(buckets.size());
         for (Map.Entry<CellCoordinate, CellAccumulator> entry : buckets.entrySet()) {
             candidates.add(entry.getValue().finish(band, cellSize, entry.getKey()));
@@ -238,14 +238,29 @@ public final class FireVisualRepresentationBuilder {
     }
 
     private static Map<CellCoordinate, CellAccumulator> bucket(
-        final List<HostSample> hosts, final int cellSize) {
+        final List<HostSample> hosts, final int cellSize,
+        final FireVisualBand band, final Vec3 viewer) {
         LinkedHashMap<CellCoordinate, CellAccumulator> result = new LinkedHashMap<>();
         for (HostSample host : hosts) {
             CellCoordinate coordinate = coordinate(host.host(), cellSize);
+            if (!band.contains(cellCenter(coordinate, cellSize).distanceTo(viewer))) continue;
             result.computeIfAbsent(coordinate, ignored -> new CellAccumulator())
                 .add(host, cellSize, coordinate);
         }
         return result;
+    }
+
+    /**
+     * Membership uses the immutable grid center rather than the population-weighted
+     * visual centroid. Fuel changes can reshape a cell without blinking the entire
+     * cell between hierarchy bands.
+     */
+    private static Vec3 cellCenter(final CellCoordinate coordinate,
+        final int cellSize) {
+        int verticalSize = Math.max(1, cellSize / 2);
+        return new Vec3(coordinate.x() * (double)cellSize + cellSize * 0.5,
+            coordinate.y() * (double)verticalSize + verticalSize * 0.5,
+            coordinate.z() * (double)cellSize + cellSize * 0.5);
     }
 
     private static CellCoordinate coordinate(final BlockPos position, final int cellSize) {

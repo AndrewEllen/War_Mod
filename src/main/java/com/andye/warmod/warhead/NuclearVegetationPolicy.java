@@ -14,7 +14,7 @@ final class NuclearVegetationPolicy {
         long hash = impact.seed() ^ packed ^ 0x4C45415645535F4EL;
         if (normalized <= 0.70) {
             double retention = impact.customFire() && normalized > 0.30
-                ? 0.48 + Mth.clamp((normalized - 0.30) / 0.40, 0.0, 1.0) * 0.24
+                ? 0.18 + Mth.clamp((normalized - 0.30) / 0.40, 0.0, 1.0) * 0.16
                 : 0.0;
             return NuclearPolicyHash.unit(hash ^ 0x43524F574E5F4649L) < retention
                 ? palette.paleLeaves() : palette.air();

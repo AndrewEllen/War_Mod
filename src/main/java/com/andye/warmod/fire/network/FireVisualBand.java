@@ -10,8 +10,8 @@ public enum FireVisualBand {
     PATCH(0, 0.0, 80.0, 1, 192),
     HOST(1, 48.0, 192.0, 1, 224),
     LOCAL(2, 160.0, 384.0, 2, 256),
-    FAR(3, 320.0, 800.0, 8, 224),
-    HORIZON(4, 704.0, 1_536.0, 32, 128);
+    FAR(3, 320.0, 512.0, 8, 224),
+    HORIZON(4, 320.0, 1_536.0, 32, 192);
 
     /** Source-compatibility aliases for diagnostics and the untouched simulator. */
     public static final FireVisualBand NEAR = PATCH;
@@ -57,8 +57,8 @@ public enum FireVisualBand {
             case LOCAL -> smoothStep(160.0, 192.0, distance)
                 * (1.0 - smoothStep(320.0, 384.0, distance));
             case FAR -> smoothStep(320.0, 384.0, distance)
-                * (1.0 - smoothStep(704.0, 800.0, distance));
-            case HORIZON -> smoothStep(704.0, 800.0, distance)
+                * (1.0 - smoothStep(384.0, 512.0, distance));
+            case HORIZON -> smoothStep(320.0, 448.0, distance)
                 * (1.0 - smoothStep(1_472.0, 1_536.0, distance));
         };
     }

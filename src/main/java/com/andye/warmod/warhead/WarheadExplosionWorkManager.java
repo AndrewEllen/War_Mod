@@ -145,9 +145,11 @@ public final class WarheadExplosionWorkManager {
 			FluidState fluid = state.getFluidState();
 			if (!state.isAir() || !fluid.isEmpty()) {
 				/* The resolved center is the first air point above the live collision
-				 * surface. Using 0.98 floors back into the support block during crater
-				 * planning and makes an otherwise surface impact excavate underground. */
-				return descent == 0 ? requested : new Vec3(requested.x, y + 1.0, requested.z);
+				 * surface. A nuclear collision frequently arrives a fraction inside the
+				 * support block; preserving that fraction floors crater planning one block
+				 * underground. Conventional impacts retain their exact contact point. */
+				return yield.nuclear() || descent > 0
+					? new Vec3(requested.x, y + 1.0, requested.z) : requested;
 			}
 		}
 		return requested;
