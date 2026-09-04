@@ -29,6 +29,20 @@ public final class FireRepresentationPlan {
     public static CellPlan plan(final FireVisualCell cell,
         final double projectedCellDiameter, final double qualityScale,
         final float representationWeight, final int requestedDetailLevel) {
+        return plan(cell, projectedCellDiameter, qualityScale, representationWeight,
+            requestedDetailLevel, 0.0F);
+    }
+
+    /** Extra overlapping tongues inside fifteen blocks, fading out by thirty. */
+    public static float closeDetailWeight(final double effectiveDistance) {
+        double t = Mth.clamp((30.0 - effectiveDistance) / 15.0, 0.0, 1.0);
+        return (float) (t * t * (3.0 - 2.0 * t));
+    }
+
+    public static CellPlan plan(final FireVisualCell cell,
+        final double projectedCellDiameter, final double qualityScale,
+        final float representationWeight, final int requestedDetailLevel,
+        final float closeDetail) {
         if (cell == null || !cell.valid() || representationWeight <= 0.0F)
             return CellPlan.EMPTY;
         double quality = Mth.clamp(qualityScale, 0.25, 4.0);
@@ -43,6 +57,10 @@ public final class FireRepresentationPlan {
             * (0.32 + Mth.clamp(cell.maximumHeat(), 0.0F, 1.2F) * 0.68)
             * (1.0 + clump * 0.42);
         double flameDepth = Math.max(0.05, cell.flameEnergy() * 0.82);
+        float close = exactPatch(cell) ? Mth.clamp(closeDetail, 0.0F, 1.0F) : 0.0F;
+        // More overlap fills the same physical envelope; it must not make the
+        // distant representation larger, nor shrink every near tongue to a dot.
+        flameArea *= 1.0 + close * 2.2;
         double smokeArea = Math.max(0.08, footprintArea * (0.65
             + Math.sqrt(Math.max(0.0, cell.smokeMass())) * 0.82));
         double smokeDepth = Math.max(0.04, cell.smokeMass() * 0.92);
@@ -77,7 +95,8 @@ public final class FireRepresentationPlan {
                 * (1.0F + (float)clump * 0.42F) * density;
             if (cell.phase() == FirePhase.IGNITION) historicalFlames = Math.min(2,
                 historicalFlames);
-            flameCount = Mth.clamp(historicalFlames, 1, MAX_FLAME_CARDS_PER_CELL);
+            flameCount = Mth.clamp(historicalFlames * (1.0 + close * 0.75),
+                1, MAX_FLAME_CARDS_PER_CELL);
             double historicalSmoke = (2.0F + cell.smokeMass() * 24.0F)
                 * (1.0F + (float)clump * 0.62F) * density;
             smokeCount = cell.smokeMass() <= 0.012F ? 0
@@ -93,9 +112,9 @@ public final class FireRepresentationPlan {
         }
 
         List<Card> flames = cards(cell, flameCount, flameArea, flameDepth,
-            flameRadiusLimit, weight, false);
+            flameRadiusLimit, weight, false, close);
         List<Card> smoke = cards(cell, smokeCount, smokeArea, smokeDepth,
-            smokeRadiusLimit, weight, true);
+            smokeRadiusLimit, weight, true, 0.0F);
         int sparks = !flameVisible || cell.maximumHeat() < 0.22F ? 0 : Math.min(4,
             Math.max(1, (int) Math.ceil(Math.sqrt(cell.flameEnergy()) * quality)));
         return new CellPlan(flames, smoke, sparks, (float) flameArea,
@@ -125,12 +144,13 @@ public final class FireRepresentationPlan {
     private static List<Card> cards(final FireVisualCell cell, final double count,
         final double representedArea, final double opticalDepth,
         final double maximumRadius, final float representationWeight,
-        final boolean smoke) {
+        final boolean smoke, final float close) {
         if (count <= 0) return List.of();
         // Flames keep a readable per-card opacity. Dividing opacity by count
         // cancelled the intended inverse-square-root change in particle size.
         double opacity = smoke ? opacity(opticalDepth, count)
             : Math.min(0.86, 0.48 + opticalDepth * 0.16);
+        if (!smoke) opacity += (0.96 - opacity) * close;
         float radius = (float) Math.min(maximumRadius, Math.max(0.06,
             Math.sqrt(representedArea
                 / (Math.PI * count * Math.max(0.025, opacity)))));

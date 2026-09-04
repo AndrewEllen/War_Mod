@@ -6,6 +6,7 @@ import net.minecraft.world.phys.Vec3;
 public final class WarheadTrajectory {
 	private static final double EASING_POWER = 1.6;
 	private static final double VELOCITY_STEP_TICKS = 0.25;
+	private static final double CLUSTER_GRAVITY_PER_TICK_SQUARED = 0.05;
 
 	private WarheadTrajectory() {
 	}
@@ -35,6 +36,18 @@ public final class WarheadTrajectory {
 		return start.lerp(intendedTarget, easedProgress(elapsedTicks, flightTicks));
 	}
 
+	public static Vec3 position(
+		final Vec3 start,
+		final Vec3 intendedTarget,
+		final double elapsedTicks,
+		final int flightTicks,
+		final int clusterIndex,
+		final int clusterCount
+	) {
+		if (clusterCount != 4) return position(start, intendedTarget, elapsedTicks, flightTicks);
+		return clusterBallisticPosition(start, intendedTarget, elapsedTicks, flightTicks);
+	}
+
 	public static Vec3 velocity(
 		final Vec3 start,
 		final Vec3 intendedTarget,
@@ -44,6 +57,47 @@ public final class WarheadTrajectory {
 		Vec3 current = position(start, intendedTarget, elapsedTicks, flightTicks);
 		Vec3 next = position(start, intendedTarget, elapsedTicks + VELOCITY_STEP_TICKS, flightTicks);
 		return next.subtract(current).scale(1.0 / VELOCITY_STEP_TICKS);
+	}
+
+	public static Vec3 velocity(
+		final Vec3 start,
+		final Vec3 intendedTarget,
+		final double elapsedTicks,
+		final int flightTicks,
+		final int clusterIndex,
+		final int clusterCount
+	) {
+		if (clusterCount != 4) return velocity(start, intendedTarget, elapsedTicks, flightTicks);
+		validateTrajectory(start, intendedTarget, elapsedTicks, flightTicks);
+		double ticks = clamp(elapsedTicks, 0.0, flightTicks);
+		return clusterInitialVelocity(start, intendedTarget, flightTicks)
+			.add(0.0, -CLUSTER_GRAVITY_PER_TICK_SQUARED * ticks, 0.0);
+	}
+
+	private static Vec3 clusterBallisticPosition(final Vec3 start, final Vec3 target,
+		final double elapsedTicks, final int flightTicks) {
+		validateTrajectory(start, target, elapsedTicks, flightTicks);
+		double ticks = clamp(elapsedTicks, 0.0, flightTicks);
+		return start.add(clusterInitialVelocity(start, target, flightTicks).scale(ticks))
+			.add(0.0, -0.5 * CLUSTER_GRAVITY_PER_TICK_SQUARED * ticks * ticks, 0.0);
+	}
+
+	private static Vec3 clusterInitialVelocity(final Vec3 start, final Vec3 target,
+		final int flightTicks) {
+		return target.subtract(start)
+			.add(0.0, 0.5 * CLUSTER_GRAVITY_PER_TICK_SQUARED
+				* flightTicks * flightTicks, 0.0)
+			.scale(1.0 / flightTicks);
+	}
+
+	private static void validateTrajectory(final Vec3 start, final Vec3 target,
+		final double elapsedTicks, final int flightTicks) {
+		Objects.requireNonNull(start, "start");
+		Objects.requireNonNull(target, "intendedTarget");
+		if (!start.isFinite() || !target.isFinite())
+			throw new IllegalArgumentException("trajectory positions must be finite");
+		validateElapsed(elapsedTicks);
+		validateFlightTicks(flightTicks);
 	}
 
 	private static void validateElapsed(final double elapsedTicks) {

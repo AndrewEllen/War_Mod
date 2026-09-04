@@ -5,6 +5,9 @@ import com.andye.warmod.artillery.ArtilleryPayload;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.TooltipDisplay;
+import java.util.function.Consumer;
 
 /** Per-yield silo missile. The silo resolves its payload through MissilePayloadItems. */
 public final class YieldMissileItem extends Item {
@@ -21,9 +24,18 @@ public final class YieldMissileItem extends Item {
 
     @Override
     public Component getName(final ItemStack stack) {
-        return Component.literal(
-                payload.displayName("ICBM")
-                        + " - Tier "
-                        + com.andye.warmod.silo.MissilePayloadItems.guidanceTier(stack));
+        return Component.literal(payload.displayName("ICBM"));
+    }
+
+    @Override
+    public void appendHoverText(
+            final ItemStack stack,
+            final TooltipContext context,
+            final TooltipDisplay display,
+            final Consumer<Component> tooltip,
+            final TooltipFlag flag) {
+        tooltip.accept(Component.literal(
+                "Guidance tier: "
+                        + com.andye.warmod.silo.MissilePayloadItems.guidanceTier(stack)));
     }
 }

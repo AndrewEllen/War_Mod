@@ -1,6 +1,7 @@
 package com.andye.warmod.antiair;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -42,6 +43,19 @@ public final class AntiAirTargetClaimRegistry {
             final Vec3 burnoutPosition,
             final int guidanceTier
         ) {
+        return selectAndClaim(level, interceptorId, launchOrigin, burnoutPosition, guidanceTier,
+            DefenceOwnershipSnapshot.unclaimed());
+    }
+
+    public static synchronized Optional<AntiAirTargetSelectionResult>
+        selectAndClaim(
+            final ServerLevel level,
+            final UUID interceptorId,
+            final Vec3 launchOrigin,
+            final Vec3 burnoutPosition,
+            final int guidanceTier,
+            final DefenceOwnershipSnapshot ownership
+        ) {
         releaseInterceptor(
             level,
             interceptorId,
@@ -60,7 +74,8 @@ public final class AntiAirTargetClaimRegistry {
             AntiAirTargetSelection selection
                 : AntiAirTargetSelector.candidates(
                     level,
-                    launchOrigin
+                    launchOrigin,
+                    ownership
                 )
         ) {
             AntiAirInterceptSolution solution =

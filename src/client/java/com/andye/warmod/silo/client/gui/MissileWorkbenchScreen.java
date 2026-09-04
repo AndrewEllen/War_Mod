@@ -28,8 +28,6 @@ public final class MissileWorkbenchScreen extends AbstractContainerScreen<Missil
         text(graphics, "Head", 96, 28);
         text(graphics, "Missile", 141, 28);
         text(graphics, ">", 130, 45);
-        text(graphics, "Top: body | N/S: chip", 12, 70);
-        text(graphics, "E/W: head | Bottom: output", 12, 82);
         text(graphics, "Inventory", 17, 97);
     }
 

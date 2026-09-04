@@ -10,6 +10,7 @@ import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -36,6 +37,8 @@ public final class ClientFireVisualManager {
     private PendingPageTransaction pendingPages;
     private ClientLevel activeLevel;
     private long highestGeneration = Long.MIN_VALUE;
+    private long snapshotTick = Long.MIN_VALUE;
+    private List<VisualCell> cachedSnapshot = List.of();
 
     private ClientFireVisualManager() {
         for (FireVisualBand band : FireVisualBand.values())
@@ -73,6 +76,7 @@ public final class ClientFireVisualManager {
             pendingPages = null;
         }
         highestGeneration = accepted.generation();
+        snapshotTick = Long.MIN_VALUE;
         long receivedAt = level.getGameTime();
         acceptCells(accepted, receivedAt);
 
@@ -96,14 +100,21 @@ public final class ClientFireVisualManager {
 
     private void acceptCells(final ClientboundFireStatePayload payload,
         final long receivedAt) {
+        RepresentationRelationIndex relationships = RepresentationRelationIndex.from(cells,
+            retiringCells);
         for (long removedId : payload.removedCellIds()) {
             for (FireVisualBand band : FireVisualBand.values()) {
                 CellVisual removed = cells.get(band).remove(removedId);
                 if (removed == null) continue;
                 BandCellKey key = new BandCellKey(band, removedId);
+                relationships.remove(removed.cell);
+                CellVisual previousRetirement = retiringCells.remove(key);
+                if (previousRetirement != null) relationships.remove(previousRetirement.cell);
                 CellVisual smoke = removed.retireSmoke(receivedAt);
-                if (smoke == null) retiringCells.remove(key);
-                else retiringCells.put(key, smoke);
+                if (smoke != null) {
+                    retiringCells.put(key, smoke);
+                    relationships.add(smoke.cell);
+                }
             }
         }
         EnumMap<FireVisualBand, List<FireVisualCell>> incoming =
@@ -122,13 +133,17 @@ public final class ClientFireVisualManager {
             if (!complete) {
                 for (FireVisualCell cell : bandCells) {
                     BandCellKey key = new BandCellKey(band, cell.id());
-                    retiringCells.remove(key);
+                    CellVisual previousRetirement = retiringCells.remove(key);
+                    if (previousRetirement != null) relationships.remove(previousRetirement.cell);
                     CellVisual previous = current.get(cell.id());
-                    current.put(cell.id(), previous == null
-                        ? relatedRepresentation(cell)
+                    CellVisual accepted = previous == null
+                        ? relatedRepresentation(relationships, cell)
                             ? CellVisual.fadeIn(cell, receivedAt)
                             : CellVisual.immediate(cell, receivedAt)
-                        : previous.accept(cell, receivedAt));
+                        : previous.accept(cell, receivedAt);
+                    current.put(cell.id(), accepted);
+                    if (previous != null) relationships.remove(previous.cell);
+                    relationships.add(accepted.cell);
                 }
                 continue;
             }
@@ -139,39 +154,87 @@ public final class ClientFireVisualManager {
             for (CellVisual previous : current.values()) {
                 if (incomingIds.contains(previous.cell.id())) continue;
                 BandCellKey key = new BandCellKey(band, previous.cell.id());
+                CellVisual previousRetirement = retiringCells.remove(key);
+                if (previousRetirement != null) relationships.remove(previousRetirement.cell);
                 CellVisual smoke = previous.retireSmoke(receivedAt);
-                if (smoke == null) retiringCells.remove(key);
-                else retiringCells.put(key, smoke);
+                if (smoke != null) {
+                    retiringCells.put(key, smoke);
+                    relationships.add(smoke.cell);
+                }
             }
             for (FireVisualCell cell : bandCells) {
                 BandCellKey key = new BandCellKey(band, cell.id());
-                retiringCells.remove(key);
+                CellVisual previousRetirement = retiringCells.remove(key);
+                if (previousRetirement != null) relationships.remove(previousRetirement.cell);
                 CellVisual previous = current.get(cell.id());
                 replacement.put(cell.id(), previous != null
                     ? previous.accept(cell, receivedAt)
-                    : relatedRepresentation(cell) ? CellVisual.fadeIn(cell, receivedAt)
+                    : relatedRepresentation(relationships, cell) ? CellVisual.fadeIn(cell, receivedAt)
                         : CellVisual.immediate(cell, receivedAt));
             }
+            for (CellVisual previous : current.values()) relationships.remove(previous.cell);
             current.clear();
             current.putAll(replacement);
+            for (CellVisual accepted : replacement.values()) relationships.add(accepted.cell);
         }
     }
 
-    private boolean relatedRepresentation(final FireVisualCell incoming) {
-        for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) {
-            for (CellVisual existing : bandCells.values()) {
-                if (related(incoming, existing.cell)) return true;
-            }
-        }
-        for (CellVisual existing : retiringCells.values()) {
-            if (related(incoming, existing.cell)) return true;
-        }
-        return false;
+    private static boolean relatedRepresentation(final RepresentationRelationIndex relationships,
+        final FireVisualCell incoming) {
+        return relationships.relatedTo(incoming);
     }
 
-    private static boolean related(final FireVisualCell left, final FireVisualCell right) {
+    static boolean related(final FireVisualCell left, final FireVisualCell right) {
         return left.parentId() == right.id() || right.parentId() == left.id()
             || left.parentId() > 0L && left.parentId() == right.parentId();
+    }
+
+    /**
+     * Tracks the same relationship predicate as the live cell maps while one payload is
+     * accepted. Counts are required because a complete-band replacement temporarily keeps
+     * the outgoing active cell and its retiring smoke representation at the same time.
+     */
+    static final class RepresentationRelationIndex {
+        private final Map<Long, Integer> ids = new HashMap<>();
+        private final Map<Long, Integer> parentIds = new HashMap<>();
+
+        static RepresentationRelationIndex from(
+            final EnumMap<FireVisualBand, LinkedHashMap<Long, CellVisual>> active,
+            final Map<BandCellKey, CellVisual> retiring) {
+            RepresentationRelationIndex result = new RepresentationRelationIndex();
+            for (LinkedHashMap<Long, CellVisual> bandCells : active.values()) {
+                for (CellVisual visual : bandCells.values()) result.add(visual.cell);
+            }
+            for (CellVisual visual : retiring.values()) result.add(visual.cell);
+            return result;
+        }
+
+        void add(final FireVisualCell cell) {
+            increment(ids, cell.id());
+            increment(parentIds, cell.parentId());
+        }
+
+        void remove(final FireVisualCell cell) {
+            decrement(ids, cell.id());
+            decrement(parentIds, cell.parentId());
+        }
+
+        boolean relatedTo(final FireVisualCell incoming) {
+            long parentId = incoming.parentId();
+            return ids.containsKey(parentId) || parentIds.containsKey(incoming.id())
+                || parentId > 0L && parentIds.containsKey(parentId);
+        }
+
+        private static void increment(final Map<Long, Integer> counts, final long key) {
+            counts.merge(key, 1, Integer::sum);
+        }
+
+        private static void decrement(final Map<Long, Integer> counts, final long key) {
+            Integer count = counts.get(key);
+            if (count == null) throw new IllegalStateException("Missing fire relation index key");
+            if (count == 1) counts.remove(key);
+            else counts.put(key, count - 1);
+        }
     }
 
     public synchronized void acceptImpulse(final ClientboundFireWindImpulsePayload payload) {
@@ -183,6 +246,7 @@ public final class ClientFireVisualManager {
 
     public synchronized void tick(final Minecraft client) {
         if (!ensureCurrentLevel(client.level)) return;
+        snapshotTick = Long.MIN_VALUE;
         ClientSmokeFlowField.INSTANCE.tick(client.level);
         long now = client.level.getGameTime();
         windImpulses.removeIf(impulse -> impulse.expired(now));
@@ -213,6 +277,9 @@ public final class ClientFireVisualManager {
     public synchronized List<VisualCell> snapshot(final ClientLevel level) {
         if (level == null || activeLevel != level) return List.of();
         long now = level.getGameTime();
+        // Simulation interpolation and transition weights use integer game ticks.
+        // Reuse their immutable result between ticks, including high-FPS frames.
+        if (snapshotTick == now) return cachedSnapshot;
         ArrayList<VisualCell> result = new ArrayList<>(storedCellCount()
             + retiringCells.size());
         for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) {
@@ -225,7 +292,9 @@ public final class ClientFireVisualManager {
             if (weight > 0.0F) result.add(new VisualCell(cell.displayCell(now), weight,
                 cell.lastSeenClientTick));
         }
-        return List.copyOf(result);
+        cachedSnapshot = List.copyOf(result);
+        snapshotTick = now;
+        return cachedSnapshot;
     }
 
     public synchronized Map<FireVisualBand, Integer> cellCounts(final ClientLevel level) {
@@ -271,6 +340,8 @@ public final class ClientFireVisualManager {
     }
 
     public synchronized void clear() {
+        snapshotTick = Long.MIN_VALUE;
+        cachedSnapshot = List.of();
         for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) bandCells.clear();
         retiringCells.clear(); embers.clear(); windImpulses.clear(); lodLevels.clear();
         pendingPages = null;
@@ -282,6 +353,8 @@ public final class ClientFireVisualManager {
     private boolean ensureCurrentLevel(final ClientLevel level) {
         if (level == null) { clear(); return false; }
         if (activeLevel != level) {
+            snapshotTick = Long.MIN_VALUE;
+            cachedSnapshot = List.of();
             for (LinkedHashMap<Long, CellVisual> bandCells : cells.values()) bandCells.clear();
             retiringCells.clear(); embers.clear(); windImpulses.clear(); lodLevels.clear();
             pendingPages = null;

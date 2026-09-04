@@ -83,6 +83,14 @@ public final class AntiAirFlightController {
         return fallbackStart;
     }
 
+    @Nullable AntiAirRoute lockedRoute() {
+        return route;
+    }
+
+    long routeLockGameTime() {
+        return routeLockTime;
+    }
+
     public boolean completed() {
         return completed;
     }
@@ -115,6 +123,12 @@ public final class AntiAirFlightController {
             RadarRemovalReason.INTERCEPTED
         );
 
+        return true;
+    }
+
+    boolean cancelAsInterceptorTarget(final ServerLevel level) {
+        if (completed) return false;
+        complete(level, RadarRemovalReason.INTERCEPTED);
         return true;
     }
 

@@ -13,6 +13,6 @@ public final class MissileSiloRenderState extends BlockEntityRenderState {
     public Direction facing = Direction.NORTH;
     public boolean visible;
     public boolean large;
-    public double reloadOffsetY;
+    public double missileCenterOffsetY;
     public float doorProgress;
 }

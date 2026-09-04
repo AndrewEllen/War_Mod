@@ -11,7 +11,7 @@ final class FireFuelProfileTest {
         FireFuelProfile profile = FireFuelProfile.fallbackForPath("grass_block");
         assertEquals(FireFuelProfile.LOW, profile);
         assertFalse(profile.consumable());
-        assertEquals(260, profile.burnTicks());
+        assertEquals(600, profile.burnTicks());
     }
 
     @Test

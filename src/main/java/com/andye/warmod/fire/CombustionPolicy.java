@@ -35,8 +35,9 @@ final class CombustionPolicy {
     }
 
     static BlockState scorchedState(final BlockState state) {
-        if (state.is(Blocks.PODZOL) || state.is(Blocks.COARSE_DIRT)) return state;
-        if (state.is(Blocks.GRASS_BLOCK)) return Blocks.PODZOL.defaultBlockState();
+        if (state.is(Blocks.COARSE_DIRT)) return state;
+        if (state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.PODZOL))
+            return Blocks.COARSE_DIRT.defaultBlockState();
         if (state.is(Blocks.MOSS_BLOCK) || state.is(Blocks.MYCELIUM)
             || state.is(Blocks.DIRT) || state.is(Blocks.ROOTED_DIRT)
             || state.is(BlockTags.DIRT)) return Blocks.COARSE_DIRT.defaultBlockState();

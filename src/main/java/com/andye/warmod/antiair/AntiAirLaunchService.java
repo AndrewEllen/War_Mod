@@ -3,6 +3,7 @@ package com.andye.warmod.antiair;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.antiair.network.AntiAirNetworking;
 import com.andye.warmod.antiair.network.ClientboundAntiAirLaunchPayload;
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import com.andye.warmod.radar.RadarInterceptorPlanSnapshot;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.silo.MissileSiloCollisionContext;
@@ -12,7 +13,6 @@ import java.util.UUID;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -30,25 +30,10 @@ public final class AntiAirLaunchService {
         final ServerLevel level,
         final Vec3 origin
     ) {
-        double cloud = origin.y;
-
-        try {
-            cloud =
-                level.environmentAttributes()
-                    .getValue(
-                        EnvironmentAttributes.CLOUD_HEIGHT,
-                        origin
-                    )
-                    .doubleValue();
-        } catch (RuntimeException ignored) {
-        }
-
         return new Vec3(
             origin.x,
-            Math.max(
-                origin.y + 96.0,
-                cloud + 48.0
-            ),
+            Math.max(origin.y, level.getSeaLevel())
+                + AntiAirConstants.VERTICAL_ASCENT_ABOVE_SEA_OR_LAUNCH_BLOCKS,
             origin.z
         );
     }
@@ -63,7 +48,8 @@ public final class AntiAirLaunchService {
         final AntiAirMissileVariant variant,
         final AntiAirLaunchDecision decision,
         final int tier,
-        final MissileSiloCollisionContext collision
+        final MissileSiloCollisionContext collision,
+        final DefenceOwnershipSnapshot ownership
     ) {
         return launch(
             level,
@@ -77,7 +63,8 @@ public final class AntiAirLaunchService {
             decision,
             tier,
             false,
-            collision
+            collision,
+            ownership
         );
     }
 
@@ -126,7 +113,8 @@ public final class AntiAirLaunchService {
                 Set.of(),
                 0.35,
                 2.2
-            )
+            ),
+            DefenceOwnershipSnapshot.unclaimed()
         );
     }
 
@@ -142,7 +130,8 @@ public final class AntiAirLaunchService {
         AntiAirLaunchDecision decision,
         final int tier,
         final boolean debugNoTargetFlight,
-        final MissileSiloCollisionContext collision
+        final MissileSiloCollisionContext collision,
+        final DefenceOwnershipSnapshot ownership
     ) {
         if (
             !decision.valid()
@@ -166,7 +155,8 @@ public final class AntiAirLaunchService {
                     id,
                     origin,
                     nominalBurnout,
-                    tier
+                    tier,
+                    ownership
                 ).orElse(null);
 
             if (selected == null) {
@@ -209,11 +199,7 @@ public final class AntiAirLaunchService {
                 ? noTargetOffset(id, seed)
                 : Vec3.ZERO;
 
-        Vec3 burnout =
-            decision.mode()
-                    == AntiAirLaunchMode.NO_TARGET_ASCENT
-                ? nominalBurnout.add(noTargetOffset)
-                : nominalBurnout;
+        Vec3 burnout = nominalBurnout;
 
         AntiAirTargetLock lock =
             decision.targetSelection() == null

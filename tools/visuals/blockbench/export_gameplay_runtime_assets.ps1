@@ -51,6 +51,107 @@ function Copy-JsonValue {
     return ($Value | ConvertTo-Json -Depth 32 | ConvertFrom-Json)
 }
 
+function Export-DynamicMaterialAtlas {
+    # Pack the nine ImageGen material samples into one neutral detail atlas.
+    # Generated meshes tint these 16px tiles with each Blockbench cube colour.
+    $sourceRoot = Join-Path $PSScriptRoot 'material_sources'
+    $names = @('concrete','gunmetal','olive_paint','shaft_black','brushed_steel','brass','warning_red','radar_cross','soot_metal')
+    $targetDirectory = Join-Path $ResourceRoot 'textures'
+    [IO.Directory]::CreateDirectory($targetDirectory) | Out-Null
+    $targetPath = Join-Path $targetDirectory 'blockbench_material_atlas.png'
+    $atlas = [Drawing.Bitmap]::new(48, 48, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    try {
+        for ($index = 0; $index -lt $names.Count; $index++) {
+            $sourcePath = Join-Path $sourceRoot ($names[$index] + '.png')
+            if (-not (Test-Path -LiteralPath $sourcePath)) { throw "Missing dynamic material source '$sourcePath'." }
+            $source = [Drawing.Bitmap]::FromFile($sourcePath)
+            try {
+                $column = $index % 3; $row = [Math]::Floor($index / 3)
+                [long]$sum = 0
+                for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) {
+                    $pixel = $source.GetPixel($x, $y)
+                    $sum += [int](0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B)
+                } }
+                $mean = [Math]::Max(1.0, $sum / 256.0)
+                for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) {
+                    $pixel = $source.GetPixel($x, $y)
+                    $luma = 0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B
+                    $neutral = [int][Math]::Round([Math]::Clamp(($luma / $mean) * 232.0, 150.0, 255.0))
+                    $atlas.SetPixel($column * 16 + $x, $row * 16 + $y,
+                        [Drawing.Color]::FromArgb($pixel.A, $neutral, $neutral, $neutral))
+                } }
+            } finally { $source.Dispose() }
+        }
+        $atlas.Save($targetPath, [Drawing.Imaging.ImageFormat]::Png)
+    } finally { $atlas.Dispose() }
+}
+
+function Get-DynamicMaterialIndex {
+    param([string]$TextureName)
+    $name = $TextureName.ToLowerInvariant()
+    if ($name -match 'concrete|cement|stone') { return 0 }
+    if ($name -match 'radar|screen|display|scan|cross|glow') { return 7 }
+    if ($name -match 'brass|gold|copper') { return 5 }
+    if ($name -match 'red|warning|stripe|handle') { return 6 }
+    if ($name -match 'soot|burn|exhaust|char') { return 8 }
+    if ($name -match 'black|shaft|shadow|rubber') { return 3 }
+    if ($name -match 'steel|metal|silver|blade|jaw|rail|hinge') { return 4 }
+    if ($name -match 'olive|green|body|shell|casing|warhead|fin') { return 2 }
+    return 1
+}
+
+function Export-TintedMaterialTile {
+    param([string]$SourceName, [string]$Tint, [string]$TargetPath)
+    $sourcePath = Join-Path (Join-Path $PSScriptRoot 'material_sources') ($SourceName + '.png')
+    if (-not (Test-Path -LiteralPath $sourcePath)) { throw "Missing material source '$sourcePath'." }
+    $source = [Drawing.Bitmap]::FromFile($sourcePath)
+    $target = [Drawing.Bitmap]::new(16, 16, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $colour = [Drawing.ColorTranslator]::FromHtml($Tint)
+    try {
+        for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) {
+            $pixel = $source.GetPixel($x, $y)
+            $detail = (0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B) / 255.0
+            $factor = 0.58 + 0.78 * $detail
+            $target.SetPixel($x, $y, [Drawing.Color]::FromArgb(255,
+                [int][Math]::Min(255, [Math]::Round($colour.R * $factor)),
+                [int][Math]::Min(255, [Math]::Round($colour.G * $factor)),
+                [int][Math]::Min(255, [Math]::Round($colour.B * $factor))))
+        } }
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $TargetPath)) | Out-Null
+        $target.Save($TargetPath, [Drawing.Imaging.ImageFormat]::Png)
+    } finally { $target.Dispose(); $source.Dispose() }
+}
+
+function Export-AdditionalMaterialTextures {
+    $blockRoot = Join-Path $ResourceRoot 'textures\block'
+    $itemRoot = Join-Path $ResourceRoot 'textures\item'
+
+    # Placed utility machinery that predates the Blockbench catalogue.
+    Export-TintedMaterialTile gunmetal '#4B575A' (Join-Path $blockRoot 'item_pipe.png')
+    Export-TintedMaterialTile brushed_steel '#3DA7A8' (Join-Path $blockRoot 'item_pipe_input.png')
+    Export-TintedMaterialTile warning_red '#B64B3D' (Join-Path $blockRoot 'item_pipe_output.png')
+    Export-TintedMaterialTile brushed_steel '#3DA7A8' (Join-Path $blockRoot 'item_pipe_mode_input.png')
+    Export-TintedMaterialTile warning_red '#B64B3D' (Join-Path $blockRoot 'item_pipe_mode_output.png')
+    Export-TintedMaterialTile gunmetal '#3B4446' (Join-Path $blockRoot 'phalanx_turret_base.png')
+    Export-TintedMaterialTile olive_paint '#59635A' (Join-Path $blockRoot 'phalanx_turret_side.png')
+    Export-TintedMaterialTile brushed_steel '#687174' (Join-Path $blockRoot 'phalanx_turret_top.png')
+
+    # Legacy component item IDs remain registered alongside the newer missile
+    # warheads. Give every one a proper metallic casing surface.
+    $yieldColours = [ordered]@{
+        high_explosive = '#C85B26'; high_capacity_he = '#D58725'
+        conventional = '#778B55'; heavy_conventional = '#667077'
+        tactical_nuclear = '#B58135'; strategic_nuclear = '#9A7036'
+        heavy_nuclear = '#86626A'
+    }
+    foreach ($entry in $yieldColours.GetEnumerator()) {
+        foreach ($suffix in @('_warhead','_cluster_warhead')) {
+            Export-TintedMaterialTile brushed_steel ([string]$entry.Value) `
+                (Join-Path $itemRoot ($entry.Key + $suffix + '.png'))
+        }
+    }
+}
+
 function Read-BlockbenchModel {
     param([string]$Id)
     $entry = $script:Manifest | Where-Object id -eq $Id | Select-Object -First 1
@@ -95,14 +196,25 @@ function Get-TexturePalette {
         try {
             $bitmap = [Drawing.Bitmap]::FromStream($stream)
             try {
-                $colour = $bitmap.GetPixel(0, 0)
+                [long]$red = 0; [long]$green = 0; [long]$blue = 0; [long]$alpha = 0
+                for ($y = 0; $y -lt $bitmap.Height; $y++) {
+                    for ($x = 0; $x -lt $bitmap.Width; $x++) {
+                        $pixel = $bitmap.GetPixel($x, $y)
+                        $red += $pixel.R; $green += $pixel.G; $blue += $pixel.B; $alpha += $pixel.A
+                    }
+                }
+                $count = [Math]::Max(1, $bitmap.Width * $bitmap.Height)
+                $colour = [Drawing.Color]::FromArgb(
+                    [int]($alpha / $count), [int]($red / $count),
+                    [int]($green / $count), [int]($blue / $count))
             } finally {
                 $bitmap.Dispose()
             }
         } finally {
             $stream.Dispose()
         }
-        $key = '{0:x2}{1:x2}{2:x2}{3:x2}' -f $colour.R, $colour.G, $colour.B, $colour.A
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).Substring(0, 10).ToLowerInvariant()
+        $key = ('{0:x2}{1:x2}{2:x2}{3:x2}_{4}' -f $colour.R, $colour.G, $colour.B, $colour.A, $hash)
         foreach ($directory in @($blockPaletteDirectory, $itemPaletteDirectory)) {
             $palettePath = Join-Path $directory ($key + '.png')
             # Palette filenames are content-addressed by their RGBA value. An
@@ -118,6 +230,7 @@ function Get-TexturePalette {
             red = [int]$colour.R
             green = [int]$colour.G
             blue = [int]$colour.B
+            materialIndex = Get-DynamicMaterialIndex ([string]$texture.name)
             emissive = ([string]$texture.name).EndsWith('_glow', [StringComparison]::OrdinalIgnoreCase)
         }
     }
@@ -316,9 +429,36 @@ function Get-GameplayItemDisplay {
     }
     if ($ItemModelName -eq 'radar') {
         $display=Get-DefaultItemDisplay
-        $display.gui.rotation=@(0,180,0)
+        $display.gui.rotation=@(18,180,0)
         $display.gui.scale=@(0.98,0.98,0.98)
+        $display.fixed.rotation=@(0,180,0)
+        foreach($view in @('firstperson_righthand','firstperson_lefthand')){
+            $display[$view].rotation=@(0,180,0)
+            $display[$view].translation=@(0,1.5,1.5)
+            $display[$view].scale=@(.68,.68,.68)
+        }
         return $display
+    }
+    if ($ItemModelName -eq 'remote_launch_designator') {
+        $display=Get-DefaultItemDisplay
+        $display.gui.rotation=@(18,180,0)
+        $display.fixed.rotation=@(0,180,0)
+        foreach($view in @('firstperson_righthand','firstperson_lefthand')){
+            $display[$view].rotation=@(0,180,0)
+            $display[$view].translation=@(0,1.5,1.5)
+            $display[$view].scale=@(.68,.68,.68)
+        }
+        return $display
+    }
+    if ($ItemModelName -like 'targeting_chip_tier_*') {
+        $display=Get-DefaultItemDisplay
+        $display.gui.rotation=@(22,180,0)
+        $display.gui.scale=@(1.05,1.05,1.05)
+        $display.fixed.rotation=@(0,180,0)
+        return $display
+    }
+    if ($ItemModelName -eq 'target_designator') {
+        return (New-WeaponItemDisplay -FirstPersonScale 0.78 -ThirdPersonScale 0.66 -GuiScale 0.90)
     }
     return $null
 }
@@ -365,7 +505,7 @@ function Export-ItemModelObject {
     $display = Get-GameplayItemDisplay $TargetId
     if ($null -eq $display) { $display = Get-ExistingDisplay $TargetId }
     if ($null -eq $display) { $display = Get-DefaultItemDisplay }
-    if($TargetId -in @('pistol','assault_rifle','sniper_rifle')){
+    if($TargetId -in @('pistol','assault_rifle','sniper_rifle','target_designator')){
         Set-WeaponGripAnchor -Model $model -Fit $fit -Display $display
     }
     $output = New-ModelObject -Model $model -Elements @($model.elements) -Scale $fit.scale -Offset $fit.offset -Display $display -TextureDomain item
@@ -418,6 +558,56 @@ function Export-BlockModel {
     if ($null -eq $Elements) { $Elements = @($model.elements) }
     $output = New-ModelObject -Model $model -Elements @($Elements) -Scale $Scale -Offset $Offset
     Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\$TargetId.json") -Value $output
+}
+
+function Get-WorkbenchHalfElements {
+    param([object]$Model, [ValidateSet('left','right')][string]$Part)
+    $minimumX = if ($Part -eq 'left') { 0.0 } else { 16.0 }
+    $maximumX = if ($Part -eq 'left') { 16.0 } else { 32.0 }
+    $offsetX = if ($Part -eq 'left') { 0.0 } else { -16.0 }
+    $result = [Collections.Generic.List[object]]::new()
+    foreach ($element in @($Model.elements)) {
+        $rotation = @(Get-ElementRotation -Element $element)
+        if (@($rotation | Where-Object { [Math]::Abs([double]$_) -gt 0.001 }).Count -gt 0) {
+            throw "Rotated workbench element '$($element.name)' cannot be safely partitioned."
+        }
+        $fromX = [Math]::Max([double]$element.from[0], $minimumX)
+        $toX = [Math]::Min([double]$element.to[0], $maximumX)
+        if ($toX -le $fromX) { continue }
+        $clone = Copy-JsonValue $element
+        $clone.from = @(($fromX + $offsetX), [double]$element.from[1], [double]$element.from[2])
+        $clone.to = @(($toX + $offsetX), [double]$element.to[1], [double]$element.to[2])
+        # Remove the hidden X=16 interface faces from the two adjoining blocks.
+        if ($Part -eq 'left' -and [Math]::Abs($toX - 16.0) -lt 0.001) {
+            $clone.faces.PSObject.Properties.Remove('east')
+        }
+        if ($Part -eq 'right' -and [Math]::Abs($fromX - 16.0) -lt 0.001) {
+            $clone.faces.PSObject.Properties.Remove('west')
+        }
+        $result.Add($clone)
+    }
+    return @($result)
+}
+
+function Export-WorkbenchBlocks {
+    $model = Read-BlockbenchModel -Id 'missile_workbench'
+    $left = New-ModelObject -Model $model -Elements @(Get-WorkbenchHalfElements -Model $model -Part left) -Scale 1.0 -Offset @(0.0, 0.0, 0.0)
+    $right = New-ModelObject -Model $model -Elements @(Get-WorkbenchHalfElements -Model $model -Part right) -Scale 1.0 -Offset @(0.0, 0.0, 0.0)
+    Write-JsonFile -Path (Join-Path $ResourceRoot 'models\block\missile_workbench_left.json') -Value $left
+    Write-JsonFile -Path (Join-Path $ResourceRoot 'models\block\missile_workbench_right.json') -Value $right
+    # Preserve the historic model ID as a left/controller fallback.
+    Write-JsonFile -Path (Join-Path $ResourceRoot 'models\block\missile_workbench.json') -Value $left
+
+    $variants = [ordered]@{}
+    $facings = [ordered]@{ north = 0; east = 90; south = 180; west = 270 }
+    foreach ($facing in $facings.GetEnumerator()) {
+        foreach ($part in @('left','right')) {
+            $apply = [ordered]@{ model = "war_mod:block/missile_workbench_$part" }
+            if ([int]$facing.Value -ne 0) { $apply.y = [int]$facing.Value }
+            $variants["facing=$($facing.Key),part=$part"] = $apply
+        }
+    }
+    Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\missile_workbench.json') -Value ([ordered]@{ variants = $variants })
 }
 
 function Export-EmptyBlockModel {
@@ -531,7 +721,8 @@ function Get-JavaCubeLine {
     $values += @($Element.origin | ForEach-Object { Format-JavaFloat ([double]$_) })
     $rotation = @(Get-ElementRotation -Element $Element)
     $values += @($rotation | ForEach-Object { Format-JavaFloat ([double]$_) })
-    $values += @([string]$colour.red, [string]$colour.green, [string]$colour.blue, ([string]([bool]$colour.emissive)).ToLowerInvariant())
+    $values += @([string]$colour.red, [string]$colour.green, [string]$colour.blue,
+        [string]$colour.materialIndex, ([string]([bool]$colour.emissive)).ToLowerInvariant())
     return '        new Cube(' + ($values -join ', ') + ')'
 }
 
@@ -560,6 +751,9 @@ function Export-JavaMeshes {
     $silo = Read-BlockbenchModel -Id 'missile_silo'
     $definitions.SILO_DOOR_LEFT = [pscustomobject]@{ model = $silo; elements = @(Get-GroupElements -Model $silo -GroupName 'left_door') }
     $definitions.SILO_DOOR_RIGHT = [pscustomobject]@{ model = $silo; elements = @(Get-GroupElements -Model $silo -GroupName 'right_door') }
+    $largeSilo = Read-BlockbenchModel -Id 'missile_silo_large'
+    $definitions.SILO_LARGE_DOOR_LEFT = [pscustomobject]@{ model = $largeSilo; elements = @(Get-GroupElements -Model $largeSilo -GroupName 'left_door') }
+    $definitions.SILO_LARGE_DOOR_RIGHT = [pscustomobject]@{ model = $largeSilo; elements = @(Get-GroupElements -Model $largeSilo -GroupName 'right_door') }
 
     $builder = [Text.StringBuilder]::new()
     [void]$builder.AppendLine('package com.andye.warmod.client.model;')
@@ -587,6 +781,18 @@ function Export-JavaMeshes {
     [void]$builder.AppendLine('        final Model model, final float scale, final float originX, final float originY,')
     [void]$builder.AppendLine('        final float originZ, final int light) {')
     [void]$builder.AppendLine('        render(pose, buffer, model, scale, originX, originY, originZ, light, 255);')
+    [void]$builder.AppendLine('    }')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine('    public static void renderQuarter(final PoseStack.Pose pose, final VertexConsumer buffer,')
+    [void]$builder.AppendLine('        final Model model, final float scale, final float originX, final float originY,')
+    [void]$builder.AppendLine('        final float originZ, final int light, final int alpha,')
+    [void]$builder.AppendLine('        final float minimumCenterY, final float maximumCenterY, final int quarter) {')
+    [void]$builder.AppendLine('        if (quarter < 0 || quarter > 3) throw new IllegalArgumentException("quarter must be 0..3");')
+    [void]$builder.AppendLine('        for (Cube cube : cubes(model)) {')
+    [void]$builder.AppendLine('            float centerY = (cube.y0 + cube.y1) * 0.5F;')
+    [void]$builder.AppendLine('            if (centerY >= minimumCenterY && centerY <= maximumCenterY)')
+    [void]$builder.AppendLine('                cube.renderQuarter(pose, buffer, scale, originX, originY, originZ, light, alpha, quarter);')
+    [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine('    }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('    public static void render(final PoseStack.Pose pose, final VertexConsumer buffer,')
@@ -618,42 +824,61 @@ function Export-JavaMeshes {
     [void]$builder.AppendLine('    private static final class Cube {')
     [void]$builder.AppendLine('        private final float x0, y0, z0, x1, y1, z1, ox, oy, oz;')
     [void]$builder.AppendLine('        private final float sinX, cosX, sinY, cosY, sinZ, cosZ;')
-    [void]$builder.AppendLine('        private final int red, green, blue;')
+    [void]$builder.AppendLine('        private final int red, green, blue, materialIndex;')
     [void]$builder.AppendLine('        private final boolean emissive;')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private Cube(float x0, float y0, float z0, float x1, float y1, float z1,')
     [void]$builder.AppendLine('            float ox, float oy, float oz, float rotationX, float rotationY, float rotationZ,')
-    [void]$builder.AppendLine('            int red, int green, int blue, boolean emissive) {')
+    [void]$builder.AppendLine('            int red, int green, int blue, int materialIndex, boolean emissive) {')
     [void]$builder.AppendLine('            this.x0=x0; this.y0=y0; this.z0=z0; this.x1=x1; this.y1=y1; this.z1=z1;')
     [void]$builder.AppendLine('            this.ox=ox; this.oy=oy; this.oz=oz;')
     [void]$builder.AppendLine('            float rx=(float)Math.toRadians(rotationX), ry=(float)Math.toRadians(rotationY), rz=(float)Math.toRadians(rotationZ);')
     [void]$builder.AppendLine('            sinX=(float)Math.sin(rx); cosX=(float)Math.cos(rx);')
     [void]$builder.AppendLine('            sinY=(float)Math.sin(ry); cosY=(float)Math.cos(ry);')
     [void]$builder.AppendLine('            sinZ=(float)Math.sin(rz); cosZ=(float)Math.cos(rz);')
-    [void]$builder.AppendLine('            this.red=red; this.green=green; this.blue=blue; this.emissive=emissive;')
+    [void]$builder.AppendLine('            this.red=red; this.green=green; this.blue=blue; this.materialIndex=materialIndex; this.emissive=emissive;')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private void render(PoseStack.Pose pose, VertexConsumer buffer, float scale,')
     [void]$builder.AppendLine('            float originX, float originY, float originZ, int light, int alpha) {')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z0,x1,y0,z0,x1,y1,z0,x0,y1,z0,0,0,-1,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x1,y0,z1,x0,y0,z1,x0,y1,z1,x1,y1,z1,0,0,1,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z1,x0,y0,z0,x0,y1,z0,x0,y1,z1,-1,0,0,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x1,y0,z0,x1,y0,z1,x1,y1,z1,x1,y1,z0,1,0,0,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y1,z0,x1,y1,z0,x1,y1,z1,x0,y1,z1,0,1,0,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            quad(pose,buffer,x0,y0,z1,x1,y0,z1,x1,y0,z0,x0,y0,z0,0,-1,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            renderBounds(pose,buffer,x0,y0,z0,x1,y1,z1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('        }')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine('        private void renderQuarter(PoseStack.Pose pose, VertexConsumer buffer, float scale,')
+    [void]$builder.AppendLine('            float originX, float originY, float originZ, int light, int alpha, int quarter) {')
+    [void]$builder.AppendLine('            boolean positiveX = quarter == 0 || quarter == 3;')
+    [void]$builder.AppendLine('            boolean positiveZ = quarter == 0 || quarter == 1;')
+    [void]$builder.AppendLine('            float qx0=positiveX?Math.max(x0,0):x0, qx1=positiveX?x1:Math.min(x1,0);')
+    [void]$builder.AppendLine('            float qz0=positiveZ?Math.max(z0,0):z0, qz1=positiveZ?z1:Math.min(z1,0);')
+    [void]$builder.AppendLine('            if (qx1 <= qx0 || qz1 <= qz0) return;')
+    [void]$builder.AppendLine('            renderBounds(pose,buffer,qx0,y0,qz0,qx1,y1,qz1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('        }')
+    [void]$builder.AppendLine()
+    [void]$builder.AppendLine('        private void renderBounds(PoseStack.Pose pose, VertexConsumer buffer,')
+    [void]$builder.AppendLine('            float bx0,float by0,float bz0,float bx1,float by1,float bz1,float scale,')
+    [void]$builder.AppendLine('            float originX,float originY,float originZ,int light,int alpha) {')
+    [void]$builder.AppendLine('            quad(pose,buffer,bx0,by0,bz0,bx1,by0,bz0,bx1,by1,bz0,bx0,by1,bz0,0,0,-1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,bx1,by0,bz1,bx0,by0,bz1,bx0,by1,bz1,bx1,by1,bz1,0,0,1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,bx0,by0,bz1,bx0,by0,bz0,bx0,by1,bz0,bx0,by1,bz1,-1,0,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,bx1,by0,bz0,bx1,by0,bz1,bx1,by1,bz1,bx1,by1,bz0,1,0,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,bx0,by1,bz0,bx1,by1,bz0,bx1,by1,bz1,bx0,by1,bz1,0,1,0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            quad(pose,buffer,bx0,by0,bz1,bx1,by0,bz1,bx1,by0,bz0,bx0,by0,bz0,0,-1,0,scale,originX,originY,originZ,light,alpha);')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private void quad(PoseStack.Pose pose, VertexConsumer buffer,')
     [void]$builder.AppendLine('            float ax,float ay,float az,float bx,float by,float bz,float cx,float cy,float cz,float dx,float dy,float dz,')
     [void]$builder.AppendLine('            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light,int alpha) {')
-    [void]$builder.AppendLine('            vertex(pose,buffer,ax,ay,az,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            vertex(pose,buffer,bx,by,bz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            vertex(pose,buffer,cx,cy,cz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
-    [void]$builder.AppendLine('            vertex(pose,buffer,dx,dy,dz,nx,ny,nz,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            float inset=0.004F, tile=1F/3F;')
+    [void]$builder.AppendLine('            float u0=(materialIndex%3)*tile+inset, v0=(materialIndex/3)*tile+inset;')
+    [void]$builder.AppendLine('            float u1=(materialIndex%3+1)*tile-inset, v1=(materialIndex/3+1)*tile-inset;')
+    [void]$builder.AppendLine('            vertex(pose,buffer,ax,ay,az,nx,ny,nz,u0,v1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            vertex(pose,buffer,bx,by,bz,nx,ny,nz,u1,v1,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            vertex(pose,buffer,cx,cy,cz,nx,ny,nz,u1,v0,scale,originX,originY,originZ,light,alpha);')
+    [void]$builder.AppendLine('            vertex(pose,buffer,dx,dy,dz,nx,ny,nz,u0,v0,scale,originX,originY,originZ,light,alpha);')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine()
     [void]$builder.AppendLine('        private void vertex(PoseStack.Pose pose, VertexConsumer buffer, float x,float y,float z,')
-    [void]$builder.AppendLine('            float nx,float ny,float nz,float scale,float originX,float originY,float originZ,int light,int alpha) {')
+    [void]$builder.AppendLine('            float nx,float ny,float nz,float u,float v,float scale,float originX,float originY,float originZ,int light,int alpha) {')
     [void]$builder.AppendLine('            float px=x-ox, py=y-oy, pz=z-oz;')
     [void]$builder.AppendLine('            float py1=py*cosX-pz*sinX, pz1=py*sinX+pz*cosX;')
     [void]$builder.AppendLine('            float px2=px*cosY+pz1*sinY, pz2=-px*sinY+pz1*cosY;')
@@ -662,7 +887,7 @@ function Export-JavaMeshes {
     [void]$builder.AppendLine('            float nnx2=nx*cosY+nnz*sinY, nnz2=-nx*sinY+nnz*cosY;')
     [void]$builder.AppendLine('            float nnx=nnx2*cosZ-nny*sinZ, nny2=nnx2*sinZ+nny*cosZ;')
     [void]$builder.AppendLine('            buffer.addVertex(pose,(px3+ox-originX)*scale,(py3+oy-originY)*scale,(pz2+oz-originZ)*scale)')
-    [void]$builder.AppendLine('                .setColor(red,green,blue,alpha).setUv(0,0).setOverlay(OverlayTexture.NO_OVERLAY)')
+    [void]$builder.AppendLine('                .setColor(red,green,blue,alpha).setUv(u,v).setOverlay(OverlayTexture.NO_OVERLAY)')
     [void]$builder.AppendLine('                .setLight(emissive?0xF000F0:light).setNormal(pose,nnx,nny2,nnz2);')
     [void]$builder.AppendLine('        }')
     [void]$builder.AppendLine('    }')
@@ -818,13 +1043,12 @@ Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\radar_station.json') 
 
 Export-BlockModel -SourceId 'radar_display_panel' -Offset @(8.0, 8.0, 8.0)
 if(@($Manifest | Where-Object id -eq 'missile_workbench').Count -gt 0){
-    Export-BlockModel -SourceId 'missile_workbench' -Offset @(8.0, 0.0, 8.0)
-    Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\missile_workbench.json') -Value ([ordered]@{
-        variants=[ordered]@{''=[ordered]@{model='war_mod:block/missile_workbench'}}
-    })
+    Export-WorkbenchBlocks
 }
 Export-EmptyBlockModel -TargetId 'artillery_cannon'
 Export-SiloBlocks
+Export-AdditionalMaterialTextures
+Export-DynamicMaterialAtlas
 Export-JavaMeshes
 
 Write-Output "Exported $(@($Manifest).Count) gameplay catalogue entries and $(@($MissileManifest).Count) strategic missile entries into runtime models, textures, and generated client meshes."

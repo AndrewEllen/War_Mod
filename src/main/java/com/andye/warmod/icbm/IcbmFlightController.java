@@ -21,7 +21,6 @@ import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.Optional;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -44,20 +43,19 @@ public final class IcbmFlightController {
     public void cancel(ServerLevel level){if(completed)return;IcbmVisualNetworking.sendRemove(level,activeFlightPlan.missileId(),activeFlightPlan.ownerPlayerId(),activeFlightPlan.launchPosition(),activeFlightPlan.intendedTarget());cancelPreparation(level,CancellationReason.EXPLICIT);complete(level);}
     private void separate(final ServerLevel level, final long elapsed) {
         separated = true;
-        ServerPlayer owner = level.getServer().getPlayerList()
-            .getPlayer(activeFlightPlan.ownerPlayerId());
-        if (owner != null && owner.level() != level) owner = null;
         Vec3 velocity = IcbmTrajectory.velocity(activeFlightPlan,
             activeFlightPlan.separationTick());
         var strategic = StrategicMissilePayloadRegistry.get(activeFlightPlan.missileId(),
             activeFlightPlan.payloadType());
         java.util.List<WarheadLaunchService.LaunchResult> terminals =
             strategic.deliveryMode() == WarheadDeliveryMode.CLUSTER_FOUR
-                ? WarheadLaunchService.launchClusterFromCarrier(level, owner,
+                ? WarheadLaunchService.launchClusterFromCarrier(level,
+                    activeFlightPlan.ownerPlayerId(),
                     activeFlightPlan.separationPosition(), activeFlightPlan.intendedTarget(),
                     activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(),
                     activeFlightPlan.missileId())
-                : WarheadLaunchService.launchFromCarrier(level, owner,
+                : WarheadLaunchService.launchFromCarrier(level,
+                    activeFlightPlan.ownerPlayerId(),
                     activeFlightPlan.separationPosition(), activeFlightPlan.intendedTarget(),
                     activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(),
                     activeFlightPlan.missileId()).map(java.util.List::of)

@@ -37,6 +37,7 @@ import com.andye.warmod.radar.network.RadarNetworking;
 import com.andye.warmod.radar.station.RadarStationChunkTicketType;
 import com.andye.warmod.radar.station.RadarStationManager;
 import com.andye.warmod.radar.station.network.RadarStationNetworking;
+import com.andye.warmod.rocket.network.RocketLauncherNetworking;
 import com.andye.warmod.scheduler.WarModServerWorkScheduler;
 import com.andye.warmod.silo.MissileSiloChunkTicketType;
 import com.andye.warmod.silo.MissileSiloManager;
@@ -74,6 +75,7 @@ public final class WarMod implements ModInitializer {
         NuclearTerrainObscurationNetworking.registerPayloadTypes();
         FireNetworking.registerPayloadTypes();
         FirearmNetworking.register();
+        RocketLauncherNetworking.register();
         FireDebugNetworking.register();
         WarModCommand.register();
         WarModPerformanceDiagnostics.registerLifecycle();

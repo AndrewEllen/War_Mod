@@ -2,6 +2,7 @@ package com.andye.warmod.mixin.client;
 
 import com.andye.warmod.firearm.FirearmType;
 import com.andye.warmod.item.FirearmItem;
+import com.andye.warmod.item.RocketLauncherItem;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,8 +16,12 @@ public abstract class FirearmAimFovMixin {
     private void warMod$aimDownFirearmSights(final float partialTick,
         final CallbackInfoReturnable<Float> callback) {
         var player = Minecraft.getInstance().player;
-        if (player == null || !player.isUsingItem()
-            || !(player.getUseItem().getItem() instanceof FirearmItem firearm)) return;
+        if (player == null || !player.isUsingItem()) return;
+        if (player.getUseItem().getItem() instanceof RocketLauncherItem) {
+            callback.setReturnValue(callback.getReturnValue() * 0.78F);
+            return;
+        }
+        if (!(player.getUseItem().getItem() instanceof FirearmItem firearm)) return;
         FirearmType type = firearm.firearmType();
         if (type.scoped()) return;
         callback.setReturnValue(callback.getReturnValue()

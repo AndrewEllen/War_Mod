@@ -1,6 +1,7 @@
 package com.andye.warmod.antiair;
 
 import com.andye.warmod.icbm.IcbmConstants;
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import com.andye.warmod.icbm.IcbmFlightPlan;
 import com.andye.warmod.icbm.IcbmTrajectory;
 import com.andye.warmod.radar.RadarTerminalPlanSnapshot;
@@ -35,7 +36,15 @@ public final class AntiAirTargetSelector {
         final ServerLevel level,
         final Vec3 origin
     ) {
-        return candidates(level, origin).stream()
+        return acquire(level, origin, DefenceOwnershipSnapshot.unclaimed());
+    }
+
+    public static Optional<AntiAirTargetSelection> acquire(
+        final ServerLevel level,
+        final Vec3 origin,
+        final DefenceOwnershipSnapshot ownership
+    ) {
+        return candidates(level, origin, ownership).stream()
             .min(
                 Comparator
                     .comparingLong(
@@ -71,6 +80,14 @@ public final class AntiAirTargetSelector {
         final ServerLevel level,
         final Vec3 origin
     ) {
+        return candidates(level, origin, DefenceOwnershipSnapshot.unclaimed());
+    }
+
+    public static List<AntiAirTargetSelection> candidates(
+        final ServerLevel level,
+        final Vec3 origin,
+        final DefenceOwnershipSnapshot ownership
+    ) {
         long now = level.getGameTime();
 
         List<AntiAirTargetSelection> candidates =
@@ -83,7 +100,8 @@ public final class AntiAirTargetSelector {
             if (telemetry.kind() != RadarTrackKind.ICBM
                 || telemetry.phase() == RadarTrackPhase.IMPACT
                 || telemetry.strategicPayloadType().isEmpty()
-                || telemetry.snapshot().carrierPlan().isEmpty()) {
+                || telemetry.snapshot().carrierPlan().isEmpty()
+                || !ownership.isHostile(telemetry.snapshot().ownerPlayerId(), false)) {
                 continue;
             }
 
@@ -92,6 +110,14 @@ public final class AntiAirTargetSelector {
                 origin,
                 now
             ).ifPresent(candidates::add);
+        }
+
+        for (AntiAirPointDefenceSnapshot interceptor
+                : AntiAirFlightControllerManager.pointDefenceSnapshots(level)) {
+            if (interceptor.active()
+                    && ownership.isHostile(interceptor.ownerPlayerId(), interceptor.forcedHostile())) {
+                projectInterceptor(interceptor, origin, now).ifPresent(candidates::add);
+            }
         }
 
         return List.copyOf(candidates);
@@ -131,6 +157,7 @@ public final class AntiAirTargetSelector {
                     .orElseThrow(),
                 carrier,
                 terminal,
+                null,
                 now,
                 separation,
                 impact
@@ -262,6 +289,51 @@ public final class AntiAirTargetSelector {
         );
     }
 
+    private static Optional<AntiAirTargetSelection> projectInterceptor(
+        final AntiAirPointDefenceSnapshot interceptor,
+        final Vec3 origin,
+        final long now
+    ) {
+        long earliest = now + AntiAirConstants.IGNITION_TICKS + AntiAirConstants.BOOST_TICKS
+            + AntiAirConstants.MINIMUM_INTERCEPT_LEAD_TICKS;
+        long latest = now + AntiAirConstants.IGNITION_TICKS + AntiAirConstants.BOOST_TICKS
+            + AntiAirConstants.MAXIMUM_POWERED_INTERCEPT_TICKS;
+        Vec3 firstEntry = null;
+        long firstEntryTime = Long.MAX_VALUE;
+        Vec3 closest = null;
+        long closestTime = Long.MAX_VALUE;
+        double closestDistance = Double.POSITIVE_INFINITY;
+        for (long time = earliest; ; time = Math.min(latest,
+                time + AntiAirConstants.INTERCEPT_SAMPLE_STEP_TICKS)) {
+            Vec3 position = interceptor.projectedPosition(time - now);
+            if (position.isFinite()) {
+                double distance = horizontal(origin, position);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closest = position;
+                    closestTime = time;
+                }
+                if (firstEntry == null
+                        && distance <= AntiAirConstants.DEFENDED_TRAJECTORY_RADIUS_BLOCKS) {
+                    firstEntry = position;
+                    firstEntryTime = time;
+                }
+            }
+            if (time >= latest) break;
+        }
+        if (firstEntry == null || closest == null) return Optional.empty();
+        AntiAirTargetLock lock = new AntiAirTargetLock(
+            interceptor.interceptorId(), WarheadPayloadType.CONVENTIONAL, null, null,
+            interceptor, now, latest, latest);
+        AntiAirThreatProjection projection = new AntiAirThreatProjection(
+            interceptor.interceptorId(), firstEntry, firstEntryTime, closest, closestTime,
+            closestDistance, interceptor.projectedPosition(latest - now), latest,
+            horizontal(origin, interceptor.currentPosition())
+                <= AntiAirConstants.DEFENDED_TRAJECTORY_RADIUS_BLOCKS,
+            false);
+        return Optional.of(new AntiAirTargetSelection(lock, projection));
+    }
+
     private static IcbmFlightPlan carrierPlan(
         final RadarTrackingService.RadarTrackTelemetry telemetry
     ) {
@@ -305,6 +377,10 @@ public final class AntiAirTargetSelector {
         final AntiAirTargetLock lock,
         final long gameTime
     ) {
+        if (lock.interceptorSnapshot() != null) {
+            return lock.interceptorSnapshot().projectedPosition(
+                gameTime - lock.acquisitionGameTime());
+        }
         long terminalLaunch =
             terminalLaunchGameTime(lock);
 
@@ -343,7 +419,9 @@ public final class AntiAirTargetSelector {
             start,
             target,
             gameTime - terminalLaunch,
-            ticks
+            ticks,
+            terminal == null ? 0 : terminal.clusterIndex(),
+            terminal == null ? 1 : terminal.clusterCount()
         );
     }
 
@@ -351,6 +429,12 @@ public final class AntiAirTargetSelector {
         final AntiAirTargetLock lock,
         final long gameTime
     ) {
+        if (lock.interceptorSnapshot() != null) {
+            double ticks = Math.max(0.0, gameTime - lock.acquisitionGameTime());
+            return lock.interceptorSnapshot().phase() == AntiAirFlightPhase.FALLBACK
+                ? AntiAirFallbackTrajectory.velocityAt(lock.interceptorSnapshot().currentVelocity(), ticks)
+                : lock.interceptorSnapshot().currentVelocity();
+        }
         long terminalLaunch =
             terminalLaunchGameTime(lock);
 
@@ -389,13 +473,18 @@ public final class AntiAirTargetSelector {
             start,
             target,
             gameTime - terminalLaunch,
-            ticks
+            ticks,
+            terminal == null ? 0 : terminal.clusterIndex(),
+            terminal == null ? 1 : terminal.clusterCount()
         );
     }
 
     public static Vec3 predictedImpactPosition(
         final AntiAirTargetLock lock
     ) {
+        if (lock.interceptorSnapshot() != null)
+            return lock.interceptorSnapshot().projectedPosition(
+                lock.estimatedImpactGameTime() - lock.acquisitionGameTime());
         return lock.terminalPlan() == null
             ? lock.carrierPlan().intendedTarget()
             : lock.terminalPlan().targetPosition();

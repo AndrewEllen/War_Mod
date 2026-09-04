@@ -24,6 +24,8 @@ public final class WarheadVisualState {
     private final WarheadPayloadType payloadType;
     private final WarheadYield yield;
     private final WarheadDeliveryMode deliveryMode;
+    private final int clusterIndex;
+    private final int clusterCount;
     private int pausedSimulationTicks;
     private boolean waiting;
     private Vec3 safePosition;
@@ -33,12 +35,20 @@ public final class WarheadVisualState {
     public WarheadVisualState(final UUID id, final Vec3 start, final Vec3 target,
         final long time, final int ticks, final long seed, final WarheadPayloadType payload) {
         this(id, start, target, time, ticks, seed, payload,
-            WarheadYield.defaultFor(payload), WarheadDeliveryMode.SINGLE);
+            WarheadYield.defaultFor(payload), WarheadDeliveryMode.SINGLE, 0, 1);
     }
 
     public WarheadVisualState(final UUID id, final Vec3 start, final Vec3 target,
         final long time, final int ticks, final long seed, final WarheadPayloadType payload,
         final WarheadYield exactYield, final WarheadDeliveryMode exactDeliveryMode) {
+        this(id, start, target, time, ticks, seed, payload, exactYield,
+            exactDeliveryMode, 0, 1);
+    }
+
+    public WarheadVisualState(final UUID id, final Vec3 start, final Vec3 target,
+        final long time, final int ticks, final long seed, final WarheadPayloadType payload,
+        final WarheadYield exactYield, final WarheadDeliveryMode exactDeliveryMode,
+        final int exactClusterIndex, final int exactClusterCount) {
         warheadId = id;
         startPosition = start;
         intendedTarget = target;
@@ -48,6 +58,8 @@ public final class WarheadVisualState {
         payloadType = payload;
         yield = exactYield;
         deliveryMode = exactDeliveryMode;
+        clusterIndex = exactClusterIndex;
+        clusterCount = exactClusterCount;
         safePosition = start;
     }
 
@@ -56,7 +68,8 @@ public final class WarheadVisualState {
             new Vec3(payload.startX(), payload.startY(), payload.startZ()),
             new Vec3(payload.targetX(), payload.targetY(), payload.targetZ()),
             payload.launchGameTime(), payload.flightTicks(), payload.visualSeed(),
-            payload.payloadType(), payload.yield(), payload.deliveryMode());
+            payload.payloadType(), payload.yield(), payload.deliveryMode(),
+            payload.clusterIndex(), payload.clusterCount());
     }
 
     public void applyTimingCorrection(final ClientboundWarheadTimingCorrectionPayload payload) {
@@ -80,6 +93,8 @@ public final class WarheadVisualState {
     public WarheadPayloadType payloadType() { return payloadType; }
     public WarheadYield yield() { return yield; }
     public WarheadDeliveryMode deliveryMode() { return deliveryMode; }
+    public int clusterIndex() { return clusterIndex; }
+    public int clusterCount() { return clusterCount; }
 
     public double elapsedTicks(final long time, final double partial) {
         return Math.max(0.0, time - launchGameTime - pausedSimulationTicks)
@@ -97,7 +112,8 @@ public final class WarheadVisualState {
 
     public Vec3 velocityAt(final long time, final double partial) {
         Vec3 base = waiting ? Vec3.ZERO : WarheadTrajectory.velocity(startPosition,
-            intendedTarget, elapsedTicks(time, partial), flightTicks);
+            intendedTarget, elapsedTicks(time, partial), flightTicks,
+            clusterIndex, clusterCount);
         if (correctionOffset.lengthSqr() <= 1.0E-10
             || correctionStartGameTime == Long.MIN_VALUE) return base;
         double elapsed = Math.max(0.0, time + Math.max(0.0, Math.min(1.0, partial))
@@ -118,7 +134,8 @@ public final class WarheadVisualState {
 
     private Vec3 basePosition(final long time, final double partial) {
         return waiting ? safePosition : WarheadTrajectory.position(startPosition,
-            intendedTarget, elapsedTicks(time, partial), flightTicks);
+            intendedTarget, elapsedTicks(time, partial), flightTicks,
+            clusterIndex, clusterCount);
     }
 
     private static double springPositionFactor(final double elapsed) {

@@ -62,5 +62,5 @@ public final class AntiAirVisualState {
         return fallbackStartPosition == null ? 0.0 : Math.max(0.0, time + partial - fallbackStartGameTime);
     }
     public boolean fallback() { return phase == AntiAirFlightPhase.FALLBACK && fallbackStartPosition != null; }
-    public boolean thrust() { return phase == AntiAirFlightPhase.IGNITION || phase == AntiAirFlightPhase.BOOST || phase == AntiAirFlightPhase.INTERCEPT; }
+    public boolean thrust() { return phase == AntiAirFlightPhase.IGNITION || phase == AntiAirFlightPhase.BOOST; }
 }

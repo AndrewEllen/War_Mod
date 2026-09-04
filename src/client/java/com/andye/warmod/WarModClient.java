@@ -34,6 +34,8 @@ import com.andye.warmod.testtool.client.ClientMasterExplosiveNetworking;
 import net.minecraft.client.gui.screens.MenuScreens;
 import com.andye.warmod.rocket.client.RocketProjectileRenderer;
 import com.andye.warmod.rocket.client.ClientRocketAudioManager;
+import com.andye.warmod.rocket.client.ClientRocketLauncherInput;
+import com.andye.warmod.rocket.client.RocketLauncherReticle;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderers;
 import com.andye.warmod.icbm.client.ClientIcbmNetworking;
 import com.andye.warmod.icbm.client.audio.ClientIcbmAudioManager;
@@ -74,6 +76,8 @@ public final class WarModClient implements ClientModInitializer {
 		ClientTerminalAudioManager.register();
         ClientArtilleryAudioManager.register();
         ClientRocketAudioManager.register();
+        ClientRocketLauncherInput.register();
+        RocketLauncherReticle.register();
 		EntityRendererRegistry.register(ModEntityTypes.WARHEAD_DEBRIS, WarheadDebrisRenderer::new);
 		EntityRendererRegistry.register(ModEntityTypes.ROCKET_PROJECTILE, RocketProjectileRenderer::new);
         EntityRendererRegistry.register(ModEntityTypes.ARTILLERY_WARHEAD, ArtilleryWarheadRenderer::new);

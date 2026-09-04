@@ -107,6 +107,22 @@ final class FireRepresentationPlanTest {
         assertTrue(!plan.smoke().isEmpty());
     }
 
+    @Test
+    void closeDetailAddsOverlapWithoutChangingDistantPlans() {
+        FireVisualCell near = exactNearCell(0.5F);
+        CellPlan baseline = FireRepresentationPlan.plan(near, 80, 1, 1, 0);
+        CellPlan close = FireRepresentationPlan.plan(near, 80, 1, 1, 0, 1);
+        assertTrue(close.flames().size() > baseline.flames().size());
+        assertTrue(close.flames().getFirst().radius() >= baseline.flames().getFirst().radius());
+        assertTrue(close.flames().getFirst().opacity() > baseline.flames().getFirst().opacity());
+        assertEquals(FireRepresentationPlan.plan(cell(), 12, 1, 1, 3),
+            FireRepresentationPlan.plan(cell(), 12, 1, 1, 3, 1));
+        assertEquals(1.0F, FireRepresentationPlan.closeDetailWeight(15));
+        assertEquals(0.0F, FireRepresentationPlan.closeDetailWeight(30));
+        assertTrue(Math.abs(FireRepresentationPlan.closeDetailWeight(22.49)
+            - FireRepresentationPlan.closeDetailWeight(22.51)) < 0.003F);
+    }
+
     private static FireVisualCell cell() {
         return new FireVisualCell(7L, FireVisualBand.FAR, 8, 3, 8, -2,
             new Vec3(28.0, 64.0, -12.0), new Vec3(4.0, 2.0, 4.0),

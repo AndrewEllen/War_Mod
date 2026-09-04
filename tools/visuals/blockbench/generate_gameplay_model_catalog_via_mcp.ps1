@@ -6,6 +6,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:requestId = 1
+$script:materialSourceRoot = Join-Path $PSScriptRoot 'material_sources'
+
+try {
+    Add-Type -AssemblyName System.Drawing.Common -ErrorAction Stop
+} catch {
+    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+}
 
 function New-McpSession {
     $body = @{
@@ -70,13 +77,56 @@ function Cubes([array]$Elements,[string]$Texture,[string]$Group) {
     } | Out-Null
 }
 
+function Get-MaterialTemplate([string]$Name) {
+    $file = switch -Regex ($Name) {
+        'concrete' { 'concrete.png'; break }
+        'shaft|recess|black' { 'shaft_black.png'; break }
+        'warning' { 'warning_red.png'; break }
+        'brass' { 'brass.png'; break }
+        'radar_cross' { 'radar_cross.png'; break }
+        'body|green|paint' { 'olive_paint.png'; break }
+        'accent|blue|steel' { 'brushed_steel.png'; break }
+        'stock|rubber|soot' { 'soot_metal.png'; break }
+        default { 'gunmetal.png' }
+    }
+    $path = Join-Path $script:materialSourceRoot $file
+    if (-not (Test-Path -LiteralPath $path)) { throw "Missing material source: $path" }
+    return $path
+}
+
+function New-TintedTextureData([string]$Name,[string]$Color) {
+    $source = [Drawing.Bitmap]::FromFile((Get-MaterialTemplate $Name))
+    $target = [Drawing.Bitmap]::new(16,16,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $tint = [Drawing.ColorTranslator]::FromHtml($Color)
+    try {
+        for($y=0;$y -lt 16;$y++){
+            for($x=0;$x -lt 16;$x++){
+                $pixel=$source.GetPixel($x,$y)
+                $detail=(0.2126*$pixel.R+0.7152*$pixel.G+0.0722*$pixel.B)/255.0
+                $factor=0.58+0.78*$detail
+                $red=[Math]::Min(255,[Math]::Round($tint.R*$factor))
+                $green=[Math]::Min(255,[Math]::Round($tint.G*$factor))
+                $blue=[Math]::Min(255,[Math]::Round($tint.B*$factor))
+                $target.SetPixel($x,$y,[Drawing.Color]::FromArgb(255,$red,$green,$blue))
+            }
+        }
+        $stream=[IO.MemoryStream]::new()
+        try {
+            $target.Save($stream,[Drawing.Imaging.ImageFormat]::Png)
+            return 'data:image/png;base64,'+[Convert]::ToBase64String($stream.ToArray())
+        } finally { $stream.Dispose() }
+    } finally {
+        $source.Dispose()
+        $target.Dispose()
+    }
+}
+
 function Texture([string]$Name,[string]$Color) {
     Invoke-McpTool create_texture @{
         name       = $Name
-        width      = 32
-        height     = 32
-        fill_color = $Color
-        layer_name = 'base'
+        width      = 16
+        height     = 16
+        data       = New-TintedTextureData $Name $Color
     } | Out-Null
 }
 
@@ -455,8 +505,56 @@ function Build-Radar([hashtable]$T) {
 function Build-Silo([hashtable]$T,[bool]$Large=$false) {
     Add-BbGroup silo_root
     Add-BbGroup foundation silo_root
-    Add-BbGroup left_door silo_root @(-12,5,0)
-    Add-BbGroup right_door silo_root @(12,5,0)
+    $hinge = if($Large){20}else{12}
+    Add-BbGroup left_door silo_root @(-$hinge,5,0)
+    Add-BbGroup right_door silo_root @($hinge,5,0)
+
+    $concrete="$($T.body)_concrete"
+    $doorSteel="$($T.dark)_door_steel"
+    $shaft="$($T.dark)_shaft_black"
+    Texture $concrete '#92928A'
+    Texture $doorSteel '#343A3C'
+    Texture $shaft '#101315'
+
+    if($Large){
+        # Purpose-built five-block emplacement. The outer pad is poured
+        # concrete, while the two independent door meshes meet exactly at x=0.
+        Cubes @(
+            (Box pad_n -40 0 -40 40 4 -21), (Box pad_s -40 0 21 40 4 40),
+            (Box pad_w -40 0 -21 -21 4 21), (Box pad_e 21 0 -21 40 4 21),
+            (Box curb_n -40 4 -40 40 6 -37), (Box curb_s -40 4 37 40 6 40),
+            (Box curb_w -40 4 -37 -37 6 37), (Box curb_e 37 4 -37 40 6 37),
+            (Box footing_n -35 -3 -35 35 0 -24), (Box footing_s -35 -3 24 35 0 35),
+            (Box footing_w -35 -3 -24 -24 0 24), (Box footing_e 24 -3 -24 35 0 24)
+        ) $concrete foundation
+        Cubes @(
+            (Box throat_n -22 -16 -22 22 6 -19), (Box throat_s -22 -16 19 22 6 22),
+            (Box throat_w -22 -16 -19 -19 6 19), (Box throat_e 19 -16 -19 22 6 19),
+            (Box hinge_bed_l -23 4 -20 -19 7 20), (Box hinge_bed_r 19 4 -20 23 7 20),
+            (Box drain_n -16 4.05 -27 16 4.5 -25), (Box drain_s -16 4.05 25 16 4.5 27)
+        ) $doorSteel foundation
+        # Keep the throat visually dark without exposing the terrain block below.
+        # The upper face sits just above the placement surface and remains well
+        # below the closed doors at y=6.
+        Add-Block recessed_floor -19 0.1 -19 19 0.3 19 $shaft foundation
+        Cubes @(
+            (Box left_leaf -20 6 -20 0 8.6 20),
+            (Box left_rib_outer -19.2 8.55 -19.2 -17.7 9.35 19.2),
+            (Box left_rib_n -18.0 8.55 -19.2 -1.0 9.35 -17.7),
+            (Box left_rib_s -18.0 8.55 17.7 -1.0 9.35 19.2),
+            (Box left_hinge -22.1 5.5 -17.5 -19.0 9.7 17.5)
+        ) $doorSteel left_door
+        Cubes @(
+            (Box right_leaf 0 6 -20 20 8.6 20),
+            (Box right_rib_outer 17.7 8.55 -19.2 19.2 9.35 19.2),
+            (Box right_rib_n 1.0 8.55 -19.2 18.0 9.35 -17.7),
+            (Box right_rib_s 1.0 8.55 17.7 18.0 9.35 19.2),
+            (Box right_hinge 19.0 5.5 -17.5 22.1 9.7 17.5)
+        ) $doorSteel right_door
+        Add-Block left_warning -13.5 9.3 -1.0 -3.5 9.65 1.0 $T.warning left_door
+        Add-Block right_warning 3.5 9.3 -1.0 13.5 9.65 1.0 $T.warning right_door
+        return
+    }
 
     # A clean three-block-square military emplacement with a recessed launch
     # throat. The doors are separate groups so the block entity renderer can
@@ -468,47 +566,31 @@ function Build-Silo([hashtable]$T,[bool]$Large=$false) {
         (Box shaft_w -12 -26 -9 -9 4 9), (Box shaft_e 9 -26 -9 12 4 9),
         (Box curb_n -23 4 -23 23 7 -20), (Box curb_s -23 4 20 23 7 23),
         (Box curb_w -23 4 -20 -20 7 20), (Box curb_e 20 4 -20 23 7 20)
-    ) $T.dark foundation
+    ) $concrete foundation
 
     Cubes @(
         (Box throat_n -14 3 -14 14 6 -11), (Box throat_s -14 3 11 14 6 14),
         (Box throat_w -14 3 -11 -11 6 11), (Box throat_e 11 3 -11 14 6 11),
         (Box service_strip_n -19 4 -18 19 4.8 -16),
         (Box service_strip_s -19 4 16 19 4.8 18)
-    ) $T.body foundation
+    ) $doorSteel foundation
+    Add-Block recessed_floor -10.8 0.1 -8.8 10.8 0.3 8.8 $shaft foundation
 
     Cubes @(
-        (Box left_leaf -11.5 5 -11 -.5 7.4 11),
+        (Box left_leaf -11.5 5 -11 0 7.4 11),
         (Box left_rib_a -10.8 7.35 -10.2 -1.2 8.15 -8.8),
         (Box left_rib_b -10.8 7.35 8.8 -1.2 8.15 10.2),
         (Box left_hinge -12.7 4.8 -9.5 -10.9 8.5 9.5)
-    ) $T.body left_door
+    ) $doorSteel left_door
 
     Cubes @(
-        (Box right_leaf .5 5 -11 11.5 7.4 11),
+        (Box right_leaf 0 5 -11 11.5 7.4 11),
         (Box right_rib_a 1.2 7.35 -10.2 10.8 8.15 -8.8),
         (Box right_rib_b 1.2 7.35 8.8 10.8 8.15 10.2),
         (Box right_hinge 10.9 4.8 -9.5 12.7 8.5 9.5)
-    ) $T.body right_door
+    ) $doorSteel right_door
     Add-Block left_warning -9.2 8.1 -1.0 -2.0 8.5 1.0 $T.warning left_door
     Add-Block right_warning 2.0 8.1 -1.0 9.2 8.5 1.0 $T.warning right_door
-    Add-Block bay_light_n -7.0 4.85 -19.9 7.0 5.55 -19.5 $T.glow foundation
-    Add-Block bay_light_s -7.0 4.85 19.5 7.0 5.55 19.9 $T.glow foundation
-    if($Large){
-        # The large launch bay has a genuinely open throat instead of a solid
-        # slab crossing under its doors. Legacy source geometry stays intact.
-        Invoke-McpTool risky_eval @{code="Cube.all.filter(c=>['lower_slab','upper_slab'].includes(c.name)).forEach(c=>c.remove());true"} | Out-Null
-        foreach($slab in @(@{y0=0;y1=2;edge=24},@{y0=2;y1=4;edge=23})){
-            $e=$slab.edge
-            Cubes @(
-                (Box slab_n (-$e) $slab.y0 (-$e) $e $slab.y1 -12),
-                (Box slab_s (-$e) $slab.y0 12 $e $slab.y1 $e),
-                (Box slab_w (-$e) $slab.y0 -12 -12 $slab.y1 12),
-                (Box slab_e 12 $slab.y0 -12 $e $slab.y1 12)
-            ) $T.dark foundation
-        }
-        Invoke-McpTool risky_eval @{code='Cube.all.forEach(c=>{[0,2].forEach(a=>{c.from[a]*=5/3;c.to[a]*=5/3;c.origin[a]*=5/3;});});Group.all.forEach(g=>{g.origin[0]*=5/3;g.origin[2]*=5/3;});Canvas.updateAll();true'} | Out-Null
-    }
 }
 
 function Build-Support([int]$Tier,[hashtable]$T) {
@@ -617,14 +699,18 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block side_grip 5.0 -3.8 -.9 6.4 3.8 .9 $T.stock item_root
         }
         'radar_gun' {
-            Add-Block receiver -5.0 -2.2 -2.0 4.0 3.2 2.0 $T.body item_root
-            Add-Block sensor_bell 3.2 -3.4 -3.3 8.2 4.4 3.3 $T.dark item_root
-            Add-Block sensor_face 7.9 -2.6 -2.5 8.6 3.6 2.5 $T.glow item_root
-            Add-Block hood 2.7 4.0 -3.5 8.7 5.2 3.5 $T.stock item_root
-            Add-Block grip -1.2 -9.0 -1.2 1.4 -2.2 1.2 $T.stock item_root
-            Add-Block trigger 1.0 -5.0 -1.45 2.2 -3.1 -1.1 $T.warning item_root
-            Add-Block top_display -4.2 3.1 -1.4 .8 5.0 1.4 $T.dark item_root
-            Add-Block display_glass -3.7 4.8 -.95 .3 5.15 .95 $T.glow item_root
+            Add-Block receiver -6.2 -2.3 -2.0 3.2 3.0 2.0 $T.body item_root
+            Add-Block rear_battery -8.0 -1.6 -1.65 -6.0 2.4 1.65 $T.dark item_root
+            Add-Block sensor_neck 2.8 -2.0 -2.2 5.0 3.2 2.2 $T.accent item_root
+            Add-Block sensor_bell_mid 4.6 -3.0 -3.0 7.0 4.2 3.0 $T.dark item_root
+            Add-Block sensor_bell_front 6.7 -3.8 -3.8 9.2 5.0 3.8 $T.dark item_root
+            Add-Block sensor_face 8.9 -3.0 -3.0 9.6 4.2 3.0 $T.glow item_root
+            Add-Block sensor_hood 5.8 4.7 -4.0 9.7 5.8 4.0 $T.stock item_root
+            Add-Block pistol_grip -2.4 -9.2 -1.25 .6 -2.0 1.25 $T.stock item_root
+            Add-Block trigger .2 -5.1 -1.48 1.6 -3.0 -1.08 $T.warning item_root
+            Add-Block top_display -5.6 2.8 -1.45 -.3 5.3 1.45 $T.dark item_root
+            Add-Block display_glass -5.1 5.05 -.98 -.8 5.42 .98 $T.glow item_root
+            Add-Block range_antenna -6.7 3.0 -.38 -6.0 8.4 .38 $T.accent item_root
         }
         'linking_tool' {
             Add-Block rugged_handset -3 -6 -1.15 3 5 1.15 $T.dark item_root
@@ -643,8 +729,6 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block screen -6 -3.7 -1.25 5.6 3.7 -1.14 $T.dark item_root
             Add-Block scan_horizontal -5.2 -.12 -1.29 4.9 .12 -1.24 $T.green item_root
             Add-Block scan_vertical -.15 -3.05 -1.29 .15 3.05 -1.24 $T.green item_root
-            Add-Block contact_one -3.3 1.3 -1.31 -2.8 1.8 -1.28 $T.glow item_root
-            Add-Block contact_two 2 -2 -1.31 2.5 -1.5 -1.28 $T.glow item_root
             Add-Block power_key 6 -2.8 -1.3 6.5 -1.9 -1.14 $T.accent item_root
             foreach($x in @(-7.6,6.4)){ foreach($y in @(-5.1,3.9)){
                 Add-Block corner_guard $x $y -1.35 ($x+1.2) ($y+1.2) 1.2 $T.dark item_root
@@ -667,17 +751,18 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block reinforcement -5.4 -2 4.2 5.4 -0.3 4.7 $T.accent item_root
         }
         'wrench' {
-            Add-Block handle -1.15 -9.2 -.75 1.15 3.8 .75 $T.warning item_root
-            Add-Block handle_cap -1.55 -9.8 -1.0 1.55 -8.3 1.0 $T.dark item_root
-            Add-Block slide_bar -1.7 .8 -.9 1.7 6.2 .9 $T.body item_root
-            Add-Block fixed_jaw -1.7 3.2 -1.25 4.2 5.05 1.25 $T.dark item_root
-            Add-Block fixed_tooth 3.4 4.65 -1.35 5.1 6.1 1.35 $T.stock item_root
-            Add-Block hook_spine -4.9 2.2 -1.2 -2.2 9.0 1.2 $T.dark item_root
-            Add-Block hook_top -4.9 8.0 -1.25 5.1 9.7 1.25 $T.dark item_root
-            Add-Block hook_tooth 3.5 6.75 -1.35 5.1 9.2 1.35 $T.stock item_root
-            Add-Block adjust_nut -2.35 1.3 -1.4 2.35 3.1 1.4 $T.brass item_root
-            foreach($x in @(-1.8,-.9,0,.9,1.8)) {
-                Add-Block adjustment_knurl $x 1.45 -1.5 ($x+.25) 2.95 -1.39 $T.dark item_root
+            Add-Block forged_handle -1.25 -9.4 -.8 1.25 3.4 .8 $T.warning item_root
+            Add-Block handle_heel -1.75 -10.0 -1.05 1.75 -8.5 1.05 $T.dark item_root
+            Add-Block slide_rail -1.65 .5 -.95 1.65 6.3 .95 $T.body item_root
+            Add-Block fixed_jaw_base -1.65 3.4 -1.3 4.2 5.15 1.3 $T.dark item_root
+            Add-Block fixed_tooth 3.3 4.7 -1.45 5.2 6.65 1.45 $T.stock item_root
+            Add-Block movable_spine -4.9 2.0 -1.25 -2.25 9.25 1.25 $T.dark item_root
+            Add-Block movable_crown -4.9 8.0 -1.3 3.4 9.8 1.3 $T.dark item_root
+            Add-Block movable_tooth 2.1 6.95 -1.45 4.1 9.2 1.45 $T.stock item_root
+            Add-Block adjuster_axle -2.45 1.1 -1.35 2.45 3.25 1.35 $T.brass item_root
+            Add-Block adjuster_wheel -2.75 1.45 -1.6 2.75 2.95 1.6 $T.brass item_root
+            foreach($x in @(-2.2,-1.1,0,1.1,2.2)) {
+                Add-Block adjustment_knurl $x 1.35 -1.72 ($x+.28) 3.05 -1.58 $T.dark item_root
             }
             foreach($y in @(-7.5,-5.5,-3.5)) {
                 Add-Block handle_rib -1.22 $y -.82 1.22 ($y+.5) .82 $T.dark item_root
@@ -821,15 +906,60 @@ function Build-Component([string]$Kind,[hashtable]$T) {
         foreach($i in 1..$tier){ $x=-4+$i*1.6; Add-Block tier_mark $x 1.9 -.48 ($x+.65) 2.5 -.34 $T.glow component_root }
         Add-Block signal_bus -4.3 -.9 -.45 -2.5 1.3 -.34 $T.accent component_root
     } elseif($Kind -eq 'workbench'){
-        Add-Block cabinet -7 0 -7 7 12 7 $T.body component_root
-        Add-Block worktop -8 12 -8 8 14 8 $T.dark component_root
-        Add-Block mounting_rail_l -6 14 -6 -4.5 15 6 $T.accent component_root
-        Add-Block mounting_rail_r 4.5 14 -6 6 15 6 $T.accent component_root
-        Add-Block component_tray -3 14 -4 3 14.6 4 $T.stock component_root
-        Add-Block output_hatch -4 2 -7.12 4 6 -7 $T.dark component_root
-        Add-Block handle -2 5.8 -7.3 2 6.4 -7.1 $T.brass component_root
-        foreach($x in @(-7.1,6.8)){ Add-Block input_port $x 5 -2 ($x+.3) 9 2 $T.dark component_root }
-        Add-Block bottom_output -3 -.1 -3 3 .1 3 $T.dark component_root
+        # Two-block industrial assembly bench. The editable source is deliberately
+        # authored in block coordinates X=0..32, Y=0..16, Z=0..16 so runtime
+        # export can produce exact left/right halves without scaling either one.
+        $benchPaint="$($T.body)_bench_paint"; Texture $benchPaint '#4E594B'
+        $benchSteel="$($T.accent)_bench_steel"; Texture $benchSteel '#747B7A'
+        $benchTop="$($T.accent)_worktop_steel"; Texture $benchTop '#858B88'
+        $benchRubber="$($T.dark)_cradle_rubber"; Texture $benchRubber '#202424'
+        $benchWarning="$($T.warning)_warning_stripe"; Texture $benchWarning '#A94632'
+
+        # One continuous slab and cabinet shell make both placed halves opaque
+        # from below. Detail plates sit proud of the shell rather than sharing a
+        # face, avoiding the coplanar flicker visible in the review screenshot.
+        Add-Block sealed_floor 0 0 0 32 2 16 $benchSteel component_root
+        Add-Block cabinet_shell .6 2 .8 31.4 9.65 15.2 $benchPaint component_root
+        Add-Block toe_kick .6 2 .18 31.4 2.6 .8 $T.dark component_root
+        Add-Block worktop 0 9.65 0 32 11.15 16 $benchTop component_root
+        Add-Block front_lip 0 9.25 .25 32 10.15 1.05 $benchSteel component_root
+
+        # Front storage and service access. Faces are offset from the cabinet by
+        # 0.25 model units and handles project farther, so none are coplanar.
+        foreach($x in @(1.35,22.65)){
+            foreach($y in @(2.45,5.55)){
+                Add-Block drawer_face $x $y .52 ($x+8) ($y+2.55) .82 $benchSteel component_root
+                Add-Block drawer_handle ($x+2.45) ($y+1.02) .18 ($x+5.55) ($y+1.48) .52 $T.brass component_root
+            }
+        }
+        Add-Block service_door_left 10.05 2.35 .5 15.75 8.75 .82 $T.dark component_root
+        Add-Block service_door_right 16.25 2.35 .5 21.95 8.75 .82 $T.dark component_root
+        Add-Block service_handle_left 14.55 4.65 .16 15.15 6.5 .5 $T.brass component_root
+        Add-Block service_handle_right 16.85 4.65 .16 17.45 6.5 .5 $T.brass component_root
+        Add-Block warning_bar 10.8 7.85 .14 21.2 8.35 .5 $benchWarning component_root
+
+        # Recessed, rubber-lined longitudinal bed for a missile body. Three
+        # spaced U cradles support it across the full two-block assembly length.
+        Add-Block assembly_bed 1.4 11.15 3.15 30.6 11.55 12.85 $benchRubber component_root
+        Add-Block guide_rail_front 1.8 11.55 3.25 30.2 12.05 4.1 $benchSteel component_root
+        Add-Block guide_rail_rear 1.8 11.55 11.9 30.2 12.05 12.75 $benchSteel component_root
+        foreach($centre in @(5.3,16,26.7)){
+            $x0=$centre-1.15; $x1=$centre+1.15
+            Add-Block cradle_bridge $x0 12.05 4.05 $x1 12.55 11.95 $benchSteel component_root
+            Add-Block cradle_front $x0 12.55 4.05 $x1 14.65 5.25 $benchSteel component_root
+            Add-Block cradle_rear $x0 12.55 10.75 $x1 14.65 11.95 $benchSteel component_root
+            Add-Block cradle_pad_front $x0 14.65 4.15 $x1 15.05 5.45 $benchRubber component_root
+            Add-Block cradle_pad_rear $x0 14.65 10.55 $x1 15.05 11.85 $benchRubber component_root
+        }
+
+        # Low rear service rail and a keyed component tray keep the work surface
+        # readable without turning the bench into a tall machine cabinet.
+        Add-Block rear_service_rail .8 11.15 14.35 31.2 12.55 15.45 $benchPaint component_root
+        Add-Block keyed_parts_tray 2.1 11.55 1.25 9.25 12.15 2.75 $T.stock component_root
+        foreach($x in @(3.0,5.1,7.2)){ Add-Block keyed_slot $x 12.15 1.45 ($x+1.1) 12.45 2.55 $T.dark component_root }
+        Add-Block control_panel 23 11.55 1.2 29.8 12.35 2.8 $benchSteel component_root
+        Add-Block control_screen 24.05 12.35 1.48 27.25 12.62 2.52 $T.green component_root
+        Add-Block emergency_stop 28.2 12.35 1.62 29.15 12.85 2.38 $benchWarning component_root
     }
 }
 
@@ -1024,6 +1154,16 @@ foreach($spec in $specs){
     $previewTemporary=$previewPath+'.pending'
     [IO.File]::WriteAllBytes($previewTemporary,[Convert]::FromBase64String($image.data))
     [IO.File]::Move($previewTemporary,$previewPath,$true)
+    if($spec.id -eq 'missile_silo_large'){
+        Invoke-McpTool risky_eval @{code="Group.all.find(g=>g.name==='left_door').rotation[2]=82;Group.all.find(g=>g.name==='right_door').rotation[2]=-82;Canvas.updateAll();true"} | Out-Null
+        $openShot=Invoke-McpTool capture_screenshot @{}
+        $openImage=$openShot | Where-Object type -eq image | Select-Object -First 1
+        if(-not $openImage){throw 'No open-door preview for missile_silo_large'}
+        $openPath=Join-Path $previewDir 'missile_silo_large_open.png'
+        $openTemporary=$openPath+'.pending'
+        [IO.File]::WriteAllBytes($openTemporary,[Convert]::FromBase64String($openImage.data))
+        [IO.File]::Move($openTemporary,$openPath,$true)
+    }
 
     $manifest += [pscustomobject]@{
         id       = $spec.id

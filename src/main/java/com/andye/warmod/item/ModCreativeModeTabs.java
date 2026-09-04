@@ -55,14 +55,25 @@ public final class ModCreativeModeTabs {
                     output.accept(ModItems.artilleryWarhead(yield, false));
                     output.accept(ModItems.artilleryWarhead(yield, true));
                 }
+                // Keep every ICBM family together: regular yield progression,
+                // then cluster yield progression. Guidance tiers are adjacent
+                // variants of the same missile rather than separate families.
                 for (WarheadYield yield : WarheadYield.values()) {
-                    output.accept(ModItems.missileWarhead(yield, false));
-                    output.accept(ModItems.missileWarhead(yield, true));
                     for (int tier = 1; tier <= 3; tier++) {
                         output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.yieldMissile(yield, false), tier));
+                    }
+                }
+                for (WarheadYield yield : WarheadYield.values()) {
+                    for (int tier = 1; tier <= 3; tier++) {
                         output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.yieldMissile(yield, true), tier));
                     }
                 }
+                // Warhead parts follow the completed missile families, again
+                // keeping regular and cluster variants in separate runs.
+                for (WarheadYield yield : WarheadYield.values())
+                    output.accept(ModItems.missileWarhead(yield, false));
+                for (WarheadYield yield : WarheadYield.values())
+                    output.accept(ModItems.missileWarhead(yield, true));
                 for (int tier = 1; tier <= 3; tier++) {
                     output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.ANTI_AIR_MISSILE_MK1, tier));
                     output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.ANTI_AIR_MISSILE_MK2, tier));

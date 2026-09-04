@@ -55,7 +55,9 @@ public final class ClientRadarBlip {
                     terminal.startPosition(),
                     terminal.targetPosition(),
                     elapsed,
-                    terminal.flightTicks()
+                    terminal.flightTicks(),
+                    terminal.clusterIndex(),
+                    terminal.clusterCount()
                 ));
             }
             rendered.add(new TerminalRender(
@@ -66,7 +68,9 @@ public final class ClientRadarBlip {
                     terminal.startPosition(),
                     terminal.targetPosition(),
                     current,
-                    terminal.flightTicks()
+                    terminal.flightTicks(),
+                    terminal.clusterIndex(),
+                    terminal.clusterCount()
                 )
             ));
         }

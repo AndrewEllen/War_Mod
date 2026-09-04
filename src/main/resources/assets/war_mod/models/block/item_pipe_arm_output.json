@@ -1,7 +1,7 @@
 {
   "textures": {
     "pipe": "war_mod:block/item_pipe",
-    "mode": "war_mod:block/blockbench_palette/d6523cff",
+    "mode": "war_mod:block/item_pipe_mode_output",
     "port": "war_mod:block/item_pipe_output",
     "particle": "#pipe"
   },

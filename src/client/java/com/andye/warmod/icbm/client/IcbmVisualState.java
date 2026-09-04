@@ -2,6 +2,7 @@ package com.andye.warmod.icbm.client;
 
 import com.andye.warmod.icbm.IcbmFlightPlan;
 import com.andye.warmod.icbm.IcbmTrajectory;
+import com.andye.warmod.icbm.client.render.IcbmVisualGeometry;
 import com.andye.warmod.icbm.network.ClientboundIcbmGuidanceUpdatePayload;
 import com.andye.warmod.icbm.network.ClientboundIcbmLaunchPayload;
 import com.andye.warmod.warhead.WarheadDeliveryMode;
@@ -54,7 +55,13 @@ public record IcbmVisualState(IcbmFlightPlan flightPlan, WarheadYield yield,
             if (age > 140) continue;
             SplittableRandom random = new SplittableRandom(flightPlan.visualSeed()
                 ^ (long) (sampleTime * 31));
-            samples.add(new IcbmTrailSample(IcbmTrajectory.position(flightPlan, sampleTime), age,
+            Vec3 center = IcbmTrajectory.position(flightPlan, sampleTime);
+            Vec3 velocity = IcbmTrajectory.velocity(flightPlan, sampleTime);
+            Vec3 axis = velocity.lengthSqr() < 1.0E-8
+                ? new Vec3(0.0, 1.0, 0.0) : velocity.normalize();
+            Vec3 nozzle = center.subtract(
+                axis.scale(IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT * 0.5));
+            samples.add(new IcbmTrailSample(nozzle, age,
                 (float) random.nextDouble(.45, 1.25),
                 new Vec3(random.nextDouble(-.012, .012), random.nextDouble(.006, .02),
                     random.nextDouble(-.012, .012)),

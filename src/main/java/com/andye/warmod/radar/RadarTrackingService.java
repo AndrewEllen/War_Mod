@@ -515,17 +515,25 @@ public final class RadarTrackingService {
                     0,
                     time - track.terminalLaunchGameTime
                 );
+                RadarTerminalPlanSnapshot terminal =
+                    track.terminalPlans.get(track.terminalWarheadId);
+                int clusterIndex = terminal == null ? 0 : terminal.clusterIndex();
+                int clusterCount = terminal == null ? 1 : terminal.clusterCount();
                 position = WarheadTrajectory.position(
                     track.terminalStartPosition,
                     track.terminalTargetPosition,
                     elapsed,
-                    track.terminalFlightTicks
+                    track.terminalFlightTicks,
+                    clusterIndex,
+                    clusterCount
                 );
                 velocity = WarheadTrajectory.velocity(
                     track.terminalStartPosition,
                     track.terminalTargetPosition,
                     elapsed,
-                    track.terminalFlightTicks
+                    track.terminalFlightTicks,
+                    clusterIndex,
+                    clusterCount
                 );
                 target = track.terminalTargetPosition;
             } else if (track.carrierFlightPlan != null) {

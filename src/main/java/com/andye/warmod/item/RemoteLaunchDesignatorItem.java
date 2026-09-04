@@ -84,7 +84,6 @@ public final class RemoteLaunchDesignatorItem extends Item {
         player.sendSystemMessage(Component.literal(result.message()));
     }
 
-    @Override public boolean isFoil(final ItemStack stack) { return stack.has(ModDataComponents.LINKED_SILO); }
     @Override public void appendHoverText(final ItemStack stack, final TooltipContext context,
         final TooltipDisplay display, final Consumer<Component> builder, final TooltipFlag flag) {
         LinkedSilo link = stack.get(ModDataComponents.LINKED_SILO);

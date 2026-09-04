@@ -28,6 +28,7 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 public final class IcbmLaunchService {
+	private static final UUID UNOWNED = new UUID(0L, 0L);
 	private IcbmLaunchService() { }
 
 	/** Stick launch: retains the existing 1,000-block loaded-target contract. */
@@ -47,7 +48,23 @@ public final class IcbmLaunchService {
 		final WarheadDeliveryMode deliveryMode, final boolean customFire) {
 		if (yield == null || deliveryMode == null) return Optional.empty();
 		Optional<LaunchResult> result = launchInternal(level, player, target, null,
-			yield.payloadType(), true, true, yield, deliveryMode);
+			yield.payloadType(), true, true, yield, deliveryMode, player.getUUID());
+		result.ifPresent(launch -> {
+			UUID missileId = launch.flightPlan().missileId();
+			StrategicMissilePayloadRegistry.put(missileId,
+				new StrategicMissilePayload(yield.payloadType(), deliveryMode));
+			WarheadYieldRegistry.put(level, missileId, yield, customFire);
+		});
+		return result;
+	}
+
+	/** Debug-stick launch whose missile is hostile to every owned defence. */
+	public static Optional<LaunchResult> launchUnowned(final ServerLevel level,
+		final ServerPlayer operator, final Vec3 target, final WarheadYield yield,
+		final WarheadDeliveryMode deliveryMode, final boolean customFire) {
+		if (yield == null || deliveryMode == null) return Optional.empty();
+		Optional<LaunchResult> result = launchInternal(level, operator, target, null,
+			yield.payloadType(), true, true, yield, deliveryMode, UNOWNED);
 		result.ifPresent(launch -> {
 			UUID missileId = launch.flightPlan().missileId();
 			StrategicMissilePayloadRegistry.put(missileId,
@@ -98,7 +115,7 @@ public final class IcbmLaunchService {
 		if (player == null || player.level() != level || !player.getUUID().equals(request.playerId())
 			|| !pendingRequestStillValid(level, request) || !targetChunkLoaded(level, request.launchPosition())) return Optional.empty();
 		IcbmFlightPlan plan = createFlightPlan(level, player, request.target(), request.launchPosition(),
-			request.payloadType(), request.requestId(), request.visualSeed(), false).orElse(null);
+			request.payloadType(), request.requestId(), request.visualSeed(), false, player.getUUID()).orElse(null);
 		Optional<LaunchResult> result = acceptPlan(level, plan, request.yield(),
 			request.deliveryMode());
 		result.ifPresent(launch -> {
@@ -113,7 +130,7 @@ public final class IcbmLaunchService {
 	private static Optional<LaunchResult> launchInternal(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
 		final boolean enforceStickRange, final boolean groundLevelTestingOrigin,
-		final WarheadYield yield, final WarheadDeliveryMode deliveryMode) {
+		final WarheadYield yield, final WarheadDeliveryMode deliveryMode, final UUID ownerPlayerId) {
 		if (level == null || player == null || target == null || payloadType == null || player.level() != level
 			|| !validTargetCoordinate(level, target) || (enforceStickRange
 			&& (!targetChunkLoaded(level, target)
@@ -123,7 +140,7 @@ public final class IcbmLaunchService {
 		UUID id = UUID.randomUUID();
 		long seed = mix(id.getMostSignificantBits() ^ Long.rotateLeft(id.getLeastSignificantBits(), 17) ^ payloadType.ordinal());
 		IcbmFlightPlan plan = createFlightPlan(level, player, target, requestedLaunch, payloadType, id, seed,
-			groundLevelTestingOrigin).orElse(null);
+			groundLevelTestingOrigin, ownerPlayerId).orElse(null);
 		return acceptPlan(level, plan, yield, deliveryMode);
 	}
 
@@ -181,7 +198,7 @@ public final class IcbmLaunchService {
 	}
 	private static Optional<IcbmFlightPlan> createFlightPlan(final ServerLevel level, final ServerPlayer player,
 		final Vec3 target, final @Nullable Vec3 requestedLaunch, final WarheadPayloadType payloadType,
-		final UUID id, final long seed, final boolean groundLevelTestingOrigin) {
+		final UUID id, final long seed, final boolean groundLevelTestingOrigin, final UUID ownerPlayerId) {
 		double cloudHeight = cloudHeight(level, target);
 		Vec3 launch = requestedLaunch == null
 			? virtualLaunchPosition(level, player, target, cloudHeight, seed, groundLevelTestingOrigin)
@@ -224,7 +241,7 @@ public final class IcbmLaunchService {
 			minimumHorizontalSpeed);
 		if (coastTicks < 0) return Optional.empty();
 		try {
-			return Optional.of(new IcbmFlightPlan(id, player.getUUID(), launch, burnout, separation, target,
+			return Optional.of(new IcbmFlightPlan(id, ownerPlayerId, launch, burnout, separation, target,
 				level.getGameTime(), IcbmConstants.IGNITION_TICKS, IcbmConstants.BOOST_TICKS, coastTicks, seed, payloadType));
 		} catch (IllegalArgumentException ignored) {
 			return Optional.empty();

@@ -17,10 +17,13 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
         0.34F, 1_250, 1.00F, 0.58F, 0.82F);
     /** Organic ground supports a spreading surface burn but must not become a terrain hole. */
     public static final FireFuelProfile LOW = new FireFuelProfile(true, false,
-        0.40F, 260, 0.68F, 0.34F, 0.86F);
+        0.40F, 600, 0.68F, 0.34F, 0.86F);
 
     public static FireFuelProfile of(final BlockState state) {
-        if (state.isAir() || state.is(FireFuelTags.IMMUNE)) return NONE;
+        if (state.isAir()) return NONE;
+        // Burned ground is still a solid terrain block, but its surface fuel is spent.
+        if (state.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)) return NONE;
+        if (state.is(FireFuelTags.IMMUNE)) return NONE;
         if (state.is(FireFuelTags.HIGH) || state.is(BlockTags.LEAVES)
             || state.is(BlockTags.FLOWERS) || state.is(BlockTags.CROPS)
             || state.is(BlockTags.WOOL) || state.is(BlockTags.WOOL_CARPETS)) return HIGH;
@@ -36,6 +39,7 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
     }
 
     static FireFuelProfile fallbackForPath(final String path) {
+        if (path.equals("coarse_dirt")) return NONE;
         /* Keep non-consumable ground fuels ahead of the broad plant-name
            fallback. This also preserves the intended classification when a
            development data pack has not bound the fire-fuel tags yet. */

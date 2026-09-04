@@ -3,6 +3,8 @@ package com.andye.warmod.block.entity;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.block.MissileSiloBlock;
 import com.andye.warmod.block.MissileSiloState;
+import com.andye.warmod.defence.DefenceAlly;
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import com.andye.warmod.item.component.TargetCoordinates;
 import com.andye.warmod.silo.MissilePayloadItems;
 import com.andye.warmod.silo.MissileSiloConstants;
@@ -16,8 +18,11 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Container;
 import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Player;
@@ -30,6 +35,8 @@ import net.minecraft.world.level.storage.ValueOutput;
 
 import org.jspecify.annotations.Nullable;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.UUID;
 
 public final class MissileSiloBlockEntity extends BlockEntity implements WorldlyContainer {
@@ -39,6 +46,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
     private Direction facing = Direction.NORTH;
     private @Nullable UUID ownerPlayerId;
     private String ownerDisplayName = "SERVER";
+    private final LinkedHashMap<UUID, String> allies = new LinkedHashMap<>();
     private final MissileSiloInventory inventory = new MissileSiloInventory(this::inventoryChanged);
     private @Nullable TargetCoordinates storedTarget;
     private MissileSiloState siloState = MissileSiloState.EMPTY;
@@ -73,6 +81,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.facing = facing;
         this.ownerPlayerId = owner == null ? null : owner.getUUID();
         this.ownerDisplayName = owner == null ? "SERVER" : owner.getGameProfile().name();
+        this.allies.clear();
         this.recalculateIdleState();
         this.sync();
     }
@@ -93,6 +102,31 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         if (silo.siloState == MissileSiloState.PREPARING
                 && !MissileSiloLaunchService.isPending(server, silo.pendingLaunchRequestId))
             silo.restoreReserved();
+        long launchElapsed = Math.max(0L, level.getGameTime() - silo.animationStartGameTime);
+        boolean preparingVentTick = silo.siloState == MissileSiloState.PREPARING
+                && (level.getGameTime() & 1L) == 0L;
+        boolean emergingVentTick = silo.siloState == MissileSiloState.LAUNCHING
+                && launchElapsed <= MissileSiloConstants.DOOR_CLOSE_DELAY_TICKS;
+        if (preparingVentTick || emergingVentTick) {
+            // This plume is fixed to the throat rather than either door. During
+            // emergence it fades as the moving nozzle trail clears the opening;
+            // the already-spawned clouds provide a short, natural overlap.
+            double remaining = emergingVentTick
+                    ? 1.0 - launchElapsed
+                            / (double) MissileSiloConstants.DOOR_CLOSE_DELAY_TICKS
+                    : 0.5;
+            int count = Math.max(1, (int) Math.ceil(1.0 + remaining * 4.0));
+            server.sendParticles(
+                    ParticleTypes.CLOUD,
+                    pos.getX() + 0.5,
+                    pos.getY() + 0.42,
+                    pos.getZ() + 0.5,
+                    count,
+                    0.42,
+                    0.06,
+                    0.42,
+                    0.018);
+        }
         int signal =
                 MissileSiloBlock.maximumIncomingSignal(
                         server, pos, state.getValue(MissileSiloBlock.FACING));
@@ -224,6 +258,57 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         return this.ownerDisplayName;
     }
 
+    public List<DefenceAlly> allies() {
+        return this.allies.entrySet().stream()
+                .map(entry -> new DefenceAlly(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    public DefenceOwnershipSnapshot ownership() {
+        return new DefenceOwnershipSnapshot(this.ownerPlayerId, this.ownerDisplayName, allies());
+    }
+
+    public boolean claimOwnership(final ServerPlayer actor) {
+        if (this.ownerPlayerId != null) return false;
+        this.ownerPlayerId = actor.getUUID();
+        this.ownerDisplayName = actor.getGameProfile().name();
+        this.allies.clear();
+        this.sync();
+        return true;
+    }
+
+    public boolean unclaimOwnership(final ServerPlayer actor) {
+        if (!actor.getUUID().equals(this.ownerPlayerId)) return false;
+        this.ownerPlayerId = null;
+        this.ownerDisplayName = "SERVER";
+        this.allies.clear();
+        this.sync();
+        return true;
+    }
+
+    public boolean addAlly(final ServerPlayer actor, final UUID playerId, final String playerName) {
+        if (!actor.getUUID().equals(this.ownerPlayerId)
+                || playerId.equals(this.ownerPlayerId)
+                || this.allies.containsKey(playerId)) return false;
+        this.allies.put(playerId, playerName);
+        this.sync();
+        return true;
+    }
+
+    public boolean removeAlly(final ServerPlayer actor, final UUID playerId) {
+        if (!actor.getUUID().equals(this.ownerPlayerId)
+                || this.allies.remove(playerId) == null) return false;
+        this.sync();
+        return true;
+    }
+
+    public @Nullable DefenceAlly allyByName(final String playerName) {
+        return allies().stream()
+                .filter(ally -> ally.playerName().equalsIgnoreCase(playerName))
+                .findFirst()
+                .orElse(null);
+    }
+
     public ItemStack missileStack() {
         return this.inventory.getItem(0);
     }
@@ -311,6 +396,15 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.pendingLaunchRequestId = requestId;
         this.enterState(MissileSiloState.PREPARING);
         this.animationStartGameTime = this.level == null ? 0 : this.level.getGameTime();
+        if (this.level instanceof ServerLevel server) {
+            server.playSound(
+                    null,
+                    this.worldPosition,
+                    com.andye.warmod.acoustics.ModSoundEvents.MISSILE_ENGINE_IGNITION_NEAR,
+                    SoundSource.BLOCKS,
+                    0.9F,
+                    0.72F);
+        }
         this.sync();
         return this.reservedMissile;
     }
@@ -409,6 +503,7 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         output.putString("facing", this.facing.getSerializedName());
         output.storeNullable("owner_id", UUIDUtil.CODEC, this.ownerPlayerId);
         output.putString("owner_name", this.ownerDisplayName);
+        output.store("allies", DefenceAlly.CODEC.listOf(), allies());
         output.store("missile", ItemStack.OPTIONAL_CODEC, this.missileStack());
         output.storeNullable("target", TargetCoordinates.CODEC, this.storedTarget);
         output.putString("state", this.siloState.name());
@@ -440,6 +535,11 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
             this.facing = Direction.NORTH;
         this.ownerPlayerId = input.read("owner_id", UUIDUtil.CODEC).orElse(null);
         this.ownerDisplayName = input.getStringOr("owner_name", "SERVER");
+        this.allies.clear();
+        for (DefenceAlly ally : input.read("allies", DefenceAlly.CODEC.listOf()).orElse(List.of())) {
+            if (!ally.playerId().equals(this.ownerPlayerId))
+                this.allies.putIfAbsent(ally.playerId(), ally.playerName());
+        }
         ItemStack loaded = input.read("missile", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
         this.inventory.setItem(
                 0,

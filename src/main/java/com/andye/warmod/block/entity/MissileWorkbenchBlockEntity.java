@@ -1,6 +1,9 @@
 package com.andye.warmod.block.entity;
 
 import com.andye.warmod.silo.MissileAssembly;
+import com.andye.warmod.block.MissileWorkbenchBlock;
+import com.andye.warmod.block.MissileWorkbenchPart;
+import com.andye.warmod.block.ModBlocks;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -10,6 +13,7 @@ import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
@@ -18,6 +22,12 @@ import net.minecraft.world.level.storage.ValueOutput;
 import org.jspecify.annotations.Nullable;
 
 public final class MissileWorkbenchBlockEntity extends BlockEntity implements WorldlyContainer {
+    /**
+     * Legacy one-block benches get exactly one opportunity to grow their missing
+     * companion. Persisting the attempt prevents a manually removed half from
+     * coming back after later chunk loads.
+     */
+    private boolean companionMigrationChecked;
     private final SimpleContainer inventory =
             new SimpleContainer(4) {
                 @Override
@@ -33,6 +43,7 @@ public final class MissileWorkbenchBlockEntity extends BlockEntity implements Wo
 
     public static void serverTick(
             Level level, BlockPos pos, BlockState state, MissileWorkbenchBlockEntity bench) {
+        bench.migrateLegacyCompanion(level, pos, state);
         if (level.getGameTime() % 10 != 0) return;
         ItemStack result =
                 MissileAssembly.assemble(bench.getItem(0), bench.getItem(1), bench.getItem(2));
@@ -52,22 +63,40 @@ public final class MissileWorkbenchBlockEntity extends BlockEntity implements Wo
 
     @Override
     public int[] getSlotsForFace(Direction side) {
-        return switch (side) {
-            case UP -> new int[] {0};
-            case DOWN -> new int[] {3};
-            case NORTH, SOUTH -> new int[] {1};
-            case EAST, WEST -> new int[] {2};
-        };
+        // Components are typed, so an automation face is not a meaningful part
+        // of the assembly contract. Expose every input on every face and let
+        // canPlaceItem decide whether the supplied body, chip, or head fits.
+        // The finished missile is deliberately the only extractable slot.
+        return new int[] {0, 1, 2, 3};
+    }
+
+    private void migrateLegacyCompanion(
+            final Level level, final BlockPos pos, final BlockState state) {
+        if (companionMigrationChecked || level.isClientSide()
+                || !state.is(ModBlocks.MISSILE_WORKBENCH)
+                || state.getValue(MissileWorkbenchBlock.PART) != MissileWorkbenchPart.LEFT) return;
+
+        // Mark before changing the world so both a blocked legacy position and
+        // a successfully migrated bench remain stable across all later loads.
+        companionMigrationChecked = true;
+        BlockPos companion = pos.relative(state.getValue(MissileWorkbenchBlock.FACING).getClockWise());
+        if (!level.isOutsideBuildHeight(companion)
+                && level.getBlockEntity(companion) == null
+                && level.getBlockState(companion).canBeReplaced()) {
+            level.setBlock(companion, state.setValue(MissileWorkbenchBlock.PART,
+                    MissileWorkbenchPart.RIGHT), Block.UPDATE_ALL);
+        }
+        setChanged();
     }
 
     @Override
     public boolean canPlaceItemThroughFace(int slot, ItemStack stack, @Nullable Direction side) {
-        return side != null && getSlotsForFace(side)[0] == slot && canPlaceItem(slot, stack);
+        return slot < 3 && canPlaceItem(slot, stack);
     }
 
     @Override
-    public boolean canTakeItemThroughFace(int slot, ItemStack stack, Direction side) {
-        return side == Direction.DOWN && slot == 3;
+    public boolean canTakeItemThroughFace(int slot, ItemStack stack, @Nullable Direction side) {
+        return slot == 3;
     }
 
     @Override
@@ -124,12 +153,14 @@ public final class MissileWorkbenchBlockEntity extends BlockEntity implements Wo
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
+        output.putBoolean("companion_migration_checked", companionMigrationChecked);
         for (int i = 0; i < 4; i++) output.store("slot_" + i, ItemStack.OPTIONAL_CODEC, getItem(i));
     }
 
     @Override
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
+        companionMigrationChecked = input.getBooleanOr("companion_migration_checked", false);
         for (int i = 0; i < 4; i++)
             inventory.setItem(
                     i, input.read("slot_" + i, ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY));

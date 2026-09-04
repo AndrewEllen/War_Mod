@@ -12,7 +12,7 @@ final class SurfaceBurnPolicy {
     private SurfaceBurnPolicy() { }
 
     static int initialLifetimeTicks(final int burnTicks) {
-        return Mth.clamp(burnTicks, 120, 520);
+        return Mth.clamp(burnTicks, 120, 900);
     }
 
     static float initialExternalHeatBudget(final int lifetimeTicks) {

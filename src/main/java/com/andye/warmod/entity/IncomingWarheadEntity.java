@@ -147,13 +147,17 @@ public final class IncomingWarheadEntity extends Entity {
             startPosition,
             intendedTarget,
             Math.max(0, elapsed - 1),
-            flightTicks
+            flightTicks,
+            clusterIndex,
+            clusterCount
         );
         Vec3 next = WarheadTrajectory.position(
             startPosition,
             intendedTarget,
             elapsed,
-            flightTicks
+            flightTicks,
+            clusterIndex,
+            clusterCount
         );
 
         if (!next.isFinite() || !previous.isFinite()) {
@@ -234,7 +238,9 @@ public final class IncomingWarheadEntity extends Entity {
                 startPosition,
                 intendedTarget,
                 elapsed,
-                flightTicks
+                flightTicks,
+                clusterIndex,
+                clusterCount
             );
             setPos(next);
             setDeltaMovement(velocity);
@@ -657,13 +663,17 @@ public final class IncomingWarheadEntity extends Entity {
             startPosition,
             intendedTarget,
             elapsed,
-            flightTicks
+            flightTicks,
+            clusterIndex,
+            clusterCount
         );
         Vec3 lookahead = WarheadTrajectory.position(
             startPosition,
             intendedTarget,
             future,
-            flightTicks
+            flightTicks,
+            clusterIndex,
+            clusterCount
         );
 
         IcbmChunkTicketRegistry.addSegmentWindow(

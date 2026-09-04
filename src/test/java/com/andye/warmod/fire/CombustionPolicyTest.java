@@ -37,7 +37,7 @@ final class CombustionPolicyTest {
     void organicGroundScorchesWithoutExcavation() {
         assertSame(FireFuelProfile.LOW, FireFuelProfile.fallbackForPath("dirt"));
         assertSame(FireFuelProfile.LOW, FireFuelProfile.fallbackForPath("rooted_dirt"));
-        assertSame(Blocks.PODZOL,
+        assertSame(Blocks.COARSE_DIRT,
             CombustionPolicy.scorchedState(Blocks.GRASS_BLOCK.defaultBlockState()).getBlock());
         assertSame(Blocks.COARSE_DIRT,
             CombustionPolicy.scorchedState(Blocks.DIRT.defaultBlockState()).getBlock());
@@ -47,7 +47,11 @@ final class CombustionPolicyTest {
             CombustionPolicy.scorchedState(Blocks.MOSS_BLOCK.defaultBlockState()).getBlock());
         assertSame(Blocks.COARSE_DIRT,
             CombustionPolicy.scorchedState(Blocks.MYCELIUM.defaultBlockState()).getBlock());
-        assertSame(Blocks.PODZOL.defaultBlockState(),
+        assertSame(Blocks.COARSE_DIRT.defaultBlockState(),
             CombustionPolicy.scorchedState(Blocks.PODZOL.defaultBlockState()));
+        assertFalse(FireFuelProfile.of(CombustionPolicy.scorchedState(
+            Blocks.GRASS_BLOCK.defaultBlockState())).flammable(),
+            "spent surface fuel must not restart a grass-fire loop");
+        assertFalse(FireFuelProfile.fallbackForPath("coarse_dirt").flammable());
     }
 }

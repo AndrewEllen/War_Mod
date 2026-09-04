@@ -109,8 +109,8 @@ public final class WarheadWorldRenderer {
             warheads.add(new WarheadFrame(position, velocity,
                 (float) state.progressAt(gameTime, partialTick), (float) elapsed,
                 (float) Math.max(0.0, state.flightTicks() - elapsed), state.flightTicks(),
-                state.visualSeed(), state.yield(), state.deliveryMode(), lod(distance),
-                sampledLight(level, position)));
+                state.visualSeed(), state.yield(), state.deliveryMode(), state.clusterIndex(),
+                state.clusterCount(), lod(distance), sampledLight(level, position)));
         }
 
         List<ImpactFrame> impacts = new ArrayList<>();
@@ -250,7 +250,8 @@ public final class WarheadWorldRenderer {
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             BlockbenchModelRenderType.SOLID,
             (pose, buffer) -> IcbmMissileMesh.renderWarhead(pose, buffer,
-                warhead.yield(), warhead.deliveryMode(), warhead.packedLight()));
+                warhead.yield(), warhead.deliveryMode(), warhead.clusterIndex(),
+                warhead.clusterCount(), warhead.packedLight()));
         context.submitNodeCollector().submitCustomGeometry(poseStack,
             WarheadRenderPipelines.CONE,
             (pose, buffer) -> ShockConeMesh.render(pose, buffer, warhead.lod(),
@@ -950,7 +951,8 @@ public final class WarheadWorldRenderer {
 
     private record WarheadFrame(Vec3 position, Vec3 velocity, float progress,
         float elapsedTicks, float remainingTicks, int flightTicks, long visualSeed,
-        WarheadYield yield, WarheadDeliveryMode deliveryMode,
+        WarheadYield yield, WarheadDeliveryMode deliveryMode, int clusterIndex,
+        int clusterCount,
         WarheadMesh.Lod lod, int packedLight) { }
 
     private record ImpactFrame(UUID id, Vec3 position, double ageTicks,

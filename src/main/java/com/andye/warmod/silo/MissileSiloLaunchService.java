@@ -204,7 +204,8 @@ public final class MissileSiloLaunchService {
                         AntiAirLaunchPlanner.plan(
                                         level,
                                         origin,
-                                        AntiAirLaunchService.estimatedBurnout(level, origin))
+                                        AntiAirLaunchService.estimatedBurnout(level, origin),
+                                        silo.ownership())
                                 .orElse(null);
                 var launch =
                         decision == null
@@ -220,7 +221,8 @@ public final class MissileSiloLaunchService {
                                         request.missileType().antiAirVariant().orElseThrow(),
                                         decision,
                                         tier,
-                                        collision(silo));
+                                        collision(silo),
+                                        silo.ownership());
                 release(level, request);
                 iterator.remove();
                 if (launch.isPresent()) {
@@ -305,7 +307,10 @@ public final class MissileSiloLaunchService {
     private static Vec3 origin(MissileSiloBlockEntity silo) {
         return new Vec3(
                 silo.getBlockPos().getX() + .5,
-                silo.getBlockPos().getY() + 1.4,
+                // This is the rendered model centre. It exactly matches the
+                // reserved model and keeps the nose behind the dark throat.
+                silo.getBlockPos().getY()
+                        + MissileSiloConstants.MISSILE_HIDDEN_CENTER_OFFSET_Y,
                 silo.getBlockPos().getZ() + .5);
     }
 
@@ -319,6 +324,13 @@ public final class MissileSiloLaunchService {
         if (!silo.getBlockState().getValue(MissileSiloBlock.LARGE)) {
             ignored.addAll(
                     MissileSiloGuidanceFrameStructure.positions(silo.getBlockPos(), silo.facing()));
+        }
+        // The shaft is virtual: ignore only the centre column occupied by the
+        // initially hidden model. No terrain blocks are removed or changed.
+        for (int depth = 1;
+                depth <= MissileSiloConstants.VIRTUAL_LAUNCH_SHAFT_DEPTH_BLOCKS;
+                depth++) {
+            ignored.add(silo.getBlockPos().below(depth));
         }
         return new MissileSiloCollisionContext(
                 silo.siloId(),

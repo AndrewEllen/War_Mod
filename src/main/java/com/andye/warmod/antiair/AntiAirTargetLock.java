@@ -10,8 +10,9 @@ import org.jspecify.annotations.Nullable;
 public record AntiAirTargetLock(
     UUID rootTrackId,
     WarheadPayloadType payloadType,
-    IcbmFlightPlan carrierPlan,
+    @Nullable IcbmFlightPlan carrierPlan,
     @Nullable RadarTerminalPlanSnapshot terminalPlan,
+    @Nullable AntiAirPointDefenceSnapshot interceptorSnapshot,
     long acquisitionGameTime,
     long separationGameTime,
     long estimatedImpactGameTime

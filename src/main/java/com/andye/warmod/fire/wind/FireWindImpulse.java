@@ -17,8 +17,8 @@ public record FireWindImpulse(Vec3 center, double radius, double strength,
 
     public long effectiveDuration() {
         double travelTicks = radius / 17.15;
-        double pulseWidth = Math.max(5.0, Math.min(14.0, durationTicks * 0.13));
-        double returnStart = Math.max(travelTicks + 6.0, durationTicks * 0.56);
+        double pulseWidth = Math.max(35.0, Math.min(70.0, durationTicks * 0.45));
+        double returnStart = Math.max(travelTicks + pulseWidth, durationTicks * 0.62);
         return (long) Math.ceil(Math.max(durationTicks,
             returnStart + travelTicks + pulseWidth * 1.18));
     }
@@ -31,10 +31,10 @@ public record FireWindImpulse(Vec3 center, double radius, double strength,
         double elapsed = now - startTick;
         double shockSpeed = 17.15;
         double travelTicks = radius / shockSpeed;
-        double pulseWidth = Math.max(5.0, Math.min(14.0, durationTicks * 0.13));
+        double pulseWidth = Math.max(35.0, Math.min(70.0, durationTicks * 0.45));
         double outwardAge = elapsed - distance / shockSpeed;
         double temporal = pulse(outwardAge, pulseWidth);
-        double returnStart = Math.max(travelTicks + 6.0, durationTicks * 0.56);
+        double returnStart = Math.max(travelTicks + pulseWidth, durationTicks * 0.62);
         double returnAge = elapsed - returnStart - (radius - distance) / shockSpeed;
         temporal -= pulse(returnAge, pulseWidth * 1.18) * 0.42;
         if (Math.abs(temporal) < 1.0E-5) return Vec3.ZERO;

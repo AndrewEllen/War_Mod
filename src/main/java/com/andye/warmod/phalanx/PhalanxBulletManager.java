@@ -77,6 +77,7 @@ public final class PhalanxBulletManager {
                 bulletId,
                 turret.turretId(),
                 target,
+                turret.ownership(),
                 origin,
                 velocity,
                 maximumAge,
@@ -231,6 +232,7 @@ public final class PhalanxBulletManager {
                 targets.get(bullet.targetId);
 
             if (target != null
+                && bullet.ownership.isHostile(target.ownerPlayerId(), target.forcedHostile())
                 && PhalanxBulletCollision.intersects(
                     bullet.previousPosition,
                     bullet.position,
@@ -249,7 +251,8 @@ public final class PhalanxBulletManager {
                         level,
                         target,
                         bullet.bulletId,
-                        target.position()
+                        target.position(),
+                        bullet.ownership
                     );
 
                     PhalanxNetworking.send(

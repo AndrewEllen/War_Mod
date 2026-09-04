@@ -5,6 +5,40 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:requestId = 1
+$script:materialSourceRoot = Join-Path $PSScriptRoot 'material_sources'
+
+try { Add-Type -AssemblyName System.Drawing.Common -ErrorAction Stop }
+catch { Add-Type -AssemblyName System.Drawing -ErrorAction Stop }
+
+function Get-MissileMaterialTemplate([string]$Name) {
+    $file = switch -Regex ($Name) {
+        'warning|nuclear_marker' { 'warning_red.png'; break }
+        'accent' { 'brushed_steel.png'; break }
+        'body_shadow|dark|tip' { 'gunmetal.png'; break }
+        default { 'olive_paint.png' }
+    }
+    return Join-Path $script:materialSourceRoot $file
+}
+
+function New-MissileTextureData([string]$Name,[string]$Color) {
+    $source=[Drawing.Bitmap]::FromFile((Get-MissileMaterialTemplate $Name))
+    $target=[Drawing.Bitmap]::new(16,16,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $tint=[Drawing.ColorTranslator]::FromHtml($Color)
+    try {
+        for($y=0;$y -lt 16;$y++){for($x=0;$x -lt 16;$x++){
+            $pixel=$source.GetPixel($x,$y)
+            $detail=(.2126*$pixel.R+.7152*$pixel.G+.0722*$pixel.B)/255.0
+            $factor=.58+.78*$detail
+            $target.SetPixel($x,$y,[Drawing.Color]::FromArgb(255,
+                [Math]::Min(255,[Math]::Round($tint.R*$factor)),
+                [Math]::Min(255,[Math]::Round($tint.G*$factor)),
+                [Math]::Min(255,[Math]::Round($tint.B*$factor))))
+        }}
+        $stream=[IO.MemoryStream]::new()
+        try {$target.Save($stream,[Drawing.Imaging.ImageFormat]::Png);return 'data:image/png;base64,'+[Convert]::ToBase64String($stream.ToArray())}
+        finally {$stream.Dispose()}
+    } finally {$source.Dispose();$target.Dispose()}
+}
 
 function New-McpSession {
     $initialize = @{
@@ -141,7 +175,7 @@ foreach ($spec in $specs) {
             @{name=$tipTexture;color=($(if ($spec.tier -ge 4) {'#A52523'} else {'#3B4140'}))}
         )) {
             Invoke-McpTool 'create_texture' @{
-                name=$texture.name; width=32; height=32; fill_color=$texture.color; layer_name='base'
+                name=$texture.name; width=16; height=16; data=(New-MissileTextureData $texture.name $texture.color)
             } | Out-Null
         }
 

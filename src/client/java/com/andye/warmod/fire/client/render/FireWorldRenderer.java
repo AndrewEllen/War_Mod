@@ -12,6 +12,7 @@ import com.andye.warmod.fire.client.ClientFireVisualManager.VisualEmber;
 import com.andye.warmod.fire.client.ClientSmokeFlowField;
 import com.andye.warmod.fire.client.ClientSmokeFlowField.SmokeFlow;
 import com.andye.warmod.fire.network.FireVisualCell;
+import com.andye.warmod.fire.network.FireVisualBand;
 import com.andye.warmod.particle.gpu.GpuParticleEngine;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldCell;
 import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldEmber;
@@ -24,6 +25,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.EnumMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
@@ -49,6 +52,10 @@ public final class FireWorldRenderer {
     private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
     private static volatile FireRenderStats lastStats = FireRenderStats.EMPTY;
     private static boolean registered;
+    private static ClientLevel planLevel;
+    private static final Map<FireVisualBand, Long2ObjectOpenHashMap<CachedPlan>> PLANS =
+        new EnumMap<>(FireVisualBand.class);
+    private static long planPruneTick = Long.MIN_VALUE;
 
     private FireWorldRenderer() { }
 
@@ -72,6 +79,18 @@ public final class FireWorldRenderer {
             return;
         }
         Vec3 cameraPosition = camera.pos;
+        if (planLevel != level) {
+            PLANS.clear();
+            for (FireVisualBand band : FireVisualBand.values())
+                PLANS.put(band, new Long2ObjectOpenHashMap<>());
+            planLevel = level;
+            planPruneTick = Long.MIN_VALUE;
+        }
+        long tick = level.getGameTime();
+        if (planPruneTick == Long.MIN_VALUE || tick - planPruneTick >= 20) {
+            for (var cache : PLANS.values()) cache.values().removeIf(entry -> tick - entry.lastUsed > 20);
+            planPruneTick = tick;
+        }
         Quaternionf orientation = camera.orientation == null
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         CameraProjection projection = CameraProjection.create(camera);
@@ -100,19 +119,25 @@ public final class FireWorldRenderer {
         int representedCells = 0;
         int cpuFlameCards = 0;
         int cpuSmokeCards = 0;
+        int reusedPlans = 0;
+        double quality = WarheadRenderSettings.qualityScale();
 
         for (VisualCell visual : clientCells) {
             FireVisualCell cell = visual.cell();
             sourceHosts += Math.max(1, cell.hostCount());
             Vec3 worldPosition = cell.centroid();
-            double distance = worldPosition.distanceTo(cameraPosition);
+            double dx = worldPosition.x - cameraPosition.x;
+            double dy = worldPosition.y - cameraPosition.y;
+            double dz = worldPosition.z - cameraPosition.z;
+            double distanceSquared = dx * dx + dy * dy + dz * dz;
+            double distance = Math.sqrt(distanceSquared);
             float boundsRadius = cell.boundingRadius();
             if (!Double.isFinite(distance)
-                || !projection.visible(worldPosition, boundsRadius)) continue;
-            double projectedCellDiameter = projection.projectedDiameter(worldPosition,
+                || !projection.visible(dx, dy, dz, distanceSquared, boundsRadius)) continue;
+            double projectedCellDiameter = projection.projectedDiameter(distance,
                 Math.max(0.5F, Math.max((float) cell.extents().x,
                     Math.max((float) cell.extents().y, (float) cell.extents().z))));
-            double projectedHostDiameter = projection.projectedDiameter(worldPosition, 0.5F);
+            double projectedHostDiameter = projection.projectedDiameter(distance, 0.5F);
             int detailLevel = ClientFireVisualManager.INSTANCE.lodLevel(level,
                 cell, projectedHostDiameter);
             double continuousDetail = Math.max(0.0, Math.min(4.0,
@@ -122,8 +147,24 @@ public final class FireWorldRenderer {
                 * FireVisualLodPolicy.representationWeight(cell.band(), distance, continuousDetail);
             if (representationWeight <= 0.001F) continue;
             BlockPos centerBlock = BlockPos.containing(worldPosition);
-            CellPlan plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,
-                WarheadRenderSettings.qualityScale(), representationWeight, detailLevel);
+            float closeDetail = cell.band().exactPatch() ? FireRepresentationPlan.closeDetailWeight(
+                distance / projection.projectionScale()) : 0.0F;
+            var cache = PLANS.get(cell.band());
+            CachedPlan previous = cache.get(cell.id());
+            CellPlan plan;
+            if (previous != null && previous.cell == cell
+                && previous.projected == projectedCellDiameter && previous.quality == quality
+                && previous.weight == representationWeight && previous.close == closeDetail) {
+                plan = previous.plan;
+                previous.lastUsed = tick;
+                reusedPlans++;
+            } else {
+                plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,
+                    quality, representationWeight, detailLevel, closeDetail);
+                if (cache.size() >= 32768) cache.clear();
+                cache.put(cell.id(), new CachedPlan(cell, projectedCellDiameter, quality,
+                    representationWeight, closeDetail, plan, tick));
+            }
             if (plan.flames().isEmpty() && plan.smoke().isEmpty()) continue;
             representedCells++;
             if (cpuFlames) cpuFlameCards += plan.flames().size();
@@ -138,22 +179,27 @@ public final class FireWorldRenderer {
                     filteredPlan(plan, gpuFlames, gpuSmoke), cell.seed()));
             if (cpuFlames || cpuSmoke || cpuEmbers) {
                 SmokeFlow smokeFlow = smokeFlow(level, cell, centerBlock);
-                renderCells.add(new FireRenderCell(cell, relativePlan(plan, cameraPosition,
-                    cpuFlameWeight, cpuSmokeWeight),
-                    cell.centroid().subtract(cameraPosition), wind, smokeFlow,
-                    distance, projectedCellDiameter));
+                renderCells.add(new FireRenderCell(cell, plan,
+                    new Vec3(dx, dy, dz), wind, smokeFlow,
+                    distance, projectedCellDiameter, cameraPosition,
+                    cpuFlameWeight, cpuSmokeWeight,
+                    closeDetail));
             }
         }
 
         List<FireRenderEmber> embers = new ArrayList<>();
         for (VisualEmber ember : ClientFireVisualManager.INSTANCE.emberSnapshot(level)) {
             Vec3 worldPosition = ember.position();
-            double distance = worldPosition.distanceTo(cameraPosition);
+            double dx = worldPosition.x - cameraPosition.x;
+            double dy = worldPosition.y - cameraPosition.y;
+            double dz = worldPosition.z - cameraPosition.z;
+            double distanceSquared = dx * dx + dy * dy + dz * dz;
+            double distance = Math.sqrt(distanceSquared);
             if (!Double.isFinite(distance) || distance > MAX_EMBER_DISTANCE
-                || !projection.visible(worldPosition, EMBER_VISIBILITY_RADIUS)
+                || !projection.visible(dx, dy, dz, distanceSquared, EMBER_VISIBILITY_RADIUS)
                 || (level.hasChunkAt(BlockPos.containing(worldPosition))
                     && !OCCLUSION.visible(level, cameraPosition, worldPosition, distance))) continue;
-            double projectedEmberDiameter = projection.projectedDiameter(worldPosition, 0.10F);
+            double projectedEmberDiameter = projection.projectedDiameter(distance, 0.10F);
             if (stableUnit(ember.id() ^ ember.seed())
                 > FireVisualLodPolicy.emberRetention(projectedEmberDiameter)) continue;
             float emberLodScale = FireVisualLodPolicy.emberScale(projectedEmberDiameter);
@@ -170,7 +216,7 @@ public final class FireWorldRenderer {
                     ClientFireVisualManager.INSTANCE.effectiveWind(sample.position(),
                         sample.wind(), gameTime), sample.gameTime()))
                 .toList();
-            embers.add(new FireRenderEmber(worldPosition.subtract(cameraPosition),
+            embers.add(new FireRenderEmber(new Vec3(dx, dy, dz),
                 ember.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
                 ember.lifetime(), distance, projectedEmberDiameter, emberLodScale, trail));
         }
@@ -184,7 +230,7 @@ public final class FireWorldRenderer {
             if (submission != null) GpuParticleEngine.submitFireField(submission);
         }
         lastStats = new FireRenderStats(sourceHosts, clientCells.size(), representedCells,
-            cpuFlameCards, cpuSmokeCards);
+            cpuFlameCards, cpuSmokeCards, reusedPlans);
         ClientPerformanceTelemetry.recordFireNanos(
             Math.max(0L, System.nanoTime() - extractionStarted));
     }
@@ -206,21 +252,6 @@ public final class FireWorldRenderer {
             source.representationWeight());
     }
 
-    private static CellPlan relativePlan(final CellPlan source, final Vec3 camera,
-        final float flameWeight, final float smokeWeight) {
-        return new CellPlan(relativeCards(source.flames(), camera, flameWeight),
-            relativeCards(source.smoke(), camera, smokeWeight), source.sparkCount(),
-            source.representedFlameArea() * flameWeight,
-            source.representedSmokeOpticalDepth() * smokeWeight,
-            source.representationWeight());
-    }
-
-    private static List<Card> relativeCards(final List<Card> cards, final Vec3 camera,
-        final float opticalWeight) {
-        return cards.stream().map(card -> new Card(card.position().subtract(camera),
-            card.radius(), card.opacity() * opticalWeight, card.seed())).toList();
-    }
-
     private static void collectSubmits(final LevelRenderContext context) {
         RenderFrame frame = currentFrame;
         if (frame == RenderFrame.EMPTY || (frame.cells().isEmpty() && frame.embers().isEmpty()))
@@ -231,6 +262,10 @@ public final class FireWorldRenderer {
             WarheadRenderPipelines.FIREBALL_HOT,
             (pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
                 frame.gameTime(), frame.cells(), frame.cameraOrientation()));
+        if (frame.cpuFlames()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+            SurfaceFireRenderPipelines.FLAMES,
+            (pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
+                frame.gameTime(), frame.cells(), frame.cameraOrientation(), true));
         if (frame.cpuEmbers() && !frame.embers().isEmpty())
             context.submitNodeCollector().submitCustomGeometry(poseStack,
                 WarheadRenderPipelines.FIREBALL_HOT,
@@ -266,8 +301,21 @@ public final class FireWorldRenderer {
     public static FireRenderStats debugStats() { return lastStats; }
 
     public record FireRenderStats(int sourceHosts, int aggregatedCells,
-        int visibleCells, int cpuFlameCards, int cpuSmokeCards) {
-        private static final FireRenderStats EMPTY = new FireRenderStats(0, 0, 0, 0, 0);
+        int visibleCells, int cpuFlameCards, int cpuSmokeCards, int reusedPlans) {
+        private static final FireRenderStats EMPTY = new FireRenderStats(0, 0, 0, 0, 0, 0);
+    }
+
+    private static final class CachedPlan {
+        final FireVisualCell cell;
+        final double projected, quality;
+        final float weight, close;
+        final CellPlan plan;
+        long lastUsed;
+        CachedPlan(FireVisualCell cell, double projected, double quality, float weight,
+            float close, CellPlan plan, long tick) {
+            this.cell = cell; this.projected = projected; this.quality = quality;
+            this.weight = weight; this.close = close; this.plan = plan; this.lastUsed = tick;
+        }
     }
 
     private static long mix(long value) {
@@ -310,7 +358,8 @@ public final class FireWorldRenderer {
 
     record FireRenderCell(FireVisualCell cell, CellPlan plan, Vec3 relativeCentroid,
         Vec3 wind, SmokeFlow smokeFlow, double distance,
-        double projectedCellDiameter) { }
+        double projectedCellDiameter, Vec3 cameraPosition,
+        float flameWeight, float smokeWeight, float closeDetail) { }
     record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
         long seed, long startGameTime, int lifetime, double distance,
         double projectedDiameter, float lodScale,
@@ -335,16 +384,15 @@ public final class FireWorldRenderer {
                 matrix == null ? null : new FrustumIntersection(matrix), scale, height);
         }
 
-        private boolean visible(final Vec3 center, final float radius) {
+        private boolean visible(final double dx, final double dy, final double dz,
+            final double distanceSquared, final float radius) {
             if (viewProjection == null) return true;
-            if (center.distanceToSqr(position) <= (double) radius * radius) return true;
-            Vec3 relative = center.subtract(position);
-            return frustum.testSphere(
-                (float) relative.x, (float) relative.y, (float) relative.z, radius);
+            if (distanceSquared <= (double) radius * radius) return true;
+            return frustum.testSphere((float)dx, (float)dy, (float)dz, radius);
         }
 
-        private double projectedDiameter(final Vec3 center, final float radius) {
-            double distance = Math.max(0.25, center.distanceTo(position));
+        private double projectedDiameter(final double cameraDistance, final float radius) {
+            double distance = Math.max(0.25, cameraDistance);
             return Math.max(0.0, radius * 2.0 * projectionScale
                 * viewportHeight * 0.5 / distance);
         }

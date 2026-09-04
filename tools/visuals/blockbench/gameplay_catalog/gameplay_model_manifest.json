@@ -3,7 +3,7 @@
     "id": "missile_workbench",
     "category": "machines",
     "kind": "component",
-    "cubes": 10,
+    "cubes": 44,
     "meshes": 0,
     "model": "machines/missile_workbench.bbmodel",
     "preview": "previews/machines/missile_workbench.png"
@@ -183,7 +183,7 @@
     "id": "missile_silo",
     "category": "machines",
     "kind": "silo",
-    "cubes": 28,
+    "cubes": 27,
     "meshes": 0,
     "model": "machines/missile_silo.bbmodel",
     "preview": "previews/machines/missile_silo.png"
@@ -192,7 +192,7 @@
     "id": "missile_silo_large",
     "category": "machines",
     "kind": "silo_large",
-    "cubes": 34,
+    "cubes": 33,
     "meshes": 0,
     "model": "machines/missile_silo_large.bbmodel",
     "preview": "previews/machines/missile_silo_large.png"
@@ -246,7 +246,7 @@
     "id": "radar",
     "category": "equipment",
     "kind": "utility",
-    "cubes": 12,
+    "cubes": 10,
     "meshes": 0,
     "model": "equipment/radar.bbmodel",
     "preview": "previews/equipment/radar.png"
@@ -255,7 +255,7 @@
     "id": "target_designator",
     "category": "equipment",
     "kind": "utility",
-    "cubes": 8,
+    "cubes": 12,
     "meshes": 0,
     "model": "equipment/target_designator.bbmodel",
     "preview": "previews/equipment/target_designator.png"
@@ -345,7 +345,7 @@
     "id": "pipe_wrench",
     "category": "equipment",
     "kind": "utility",
-    "cubes": 17,
+    "cubes": 18,
     "meshes": 0,
     "model": "equipment/pipe_wrench.bbmodel",
     "preview": "previews/equipment/pipe_wrench.png"

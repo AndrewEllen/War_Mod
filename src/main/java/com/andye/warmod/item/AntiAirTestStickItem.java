@@ -73,8 +73,8 @@ public final class AntiAirTestStickItem extends Item {
         var launched =
                 AntiAirLaunchService.launchDebug(
                         server,
-                        serverPlayer.getUUID(),
-                        serverPlayer.getGameProfile().name(),
+                        null,
+                        "SERVER",
                         origin,
                         variant(stack),
                         decision);

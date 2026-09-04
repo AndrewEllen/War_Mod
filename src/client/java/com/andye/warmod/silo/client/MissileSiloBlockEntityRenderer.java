@@ -44,7 +44,7 @@ public final class MissileSiloBlockEntityRenderer
         state.missileType = MissilePayloadItems.missileType(silo.reservedMissile()).orElse(null);
         state.availableCount = silo.reservedMissile().getCount();
         state.visible = state.siloState == MissileSiloState.PREPARING && state.missileType != null;
-        state.reloadOffsetY = MissileSiloConstants.RELOAD_START_OFFSET_Y;
+        state.missileCenterOffsetY = MissileSiloConstants.MISSILE_HIDDEN_CENTER_OFFSET_Y;
         state.doorProgress = 0;
         double elapsed =
                 silo.getLevel() == null
@@ -55,14 +55,15 @@ public final class MissileSiloBlockEntityRenderer
         if (state.siloState == MissileSiloState.PREPARING) {
             double door = Mth.clamp(elapsed / 12.0, 0, 1);
             state.doorProgress = (float) (door * door * (3 - 2 * door));
-            double rise = Mth.clamp((elapsed - 12) / 12.0, 0, 1);
-            state.reloadOffsetY =
-                    Mth.lerp(
-                            rise * rise * (3 - 2 * rise),
-                            MissileSiloConstants.RELOAD_START_OFFSET_Y,
-                            0);
+            // Keep the reserved model below the throat. The launched entity now
+            // supplies the powered emergence after the doors and ignition delay.
+            state.missileCenterOffsetY = MissileSiloConstants.MISSILE_HIDDEN_CENTER_OFFSET_Y;
         } else if (state.siloState == MissileSiloState.LAUNCHING) {
-            double close = Mth.clamp((elapsed - 10) / 20.0, 0, 1);
+            double close = Mth.clamp(
+                    (elapsed - MissileSiloConstants.DOOR_CLOSE_DELAY_TICKS)
+                            / MissileSiloConstants.DOOR_CLOSE_ANIMATION_TICKS,
+                    0,
+                    1);
             state.doorProgress = (float) (1 - close * close * (3 - 2 * close));
         }
     }
@@ -85,13 +86,15 @@ public final class MissileSiloBlockEntityRenderer
             final boolean left) {
         poseStack.pushPose();
         poseStack.translate(0.5, 0.0, 0.5);
-        float widthScale = state.large ? 5.0F / 3.0F : 1.0F;
-        float hingeX = (left ? -0.75F : 0.75F) * widthScale;
+        float hingeX = left
+                ? (state.large ? -1.25F : -0.75F)
+                : (state.large ? 1.25F : 0.75F);
         poseStack.translate(hingeX, 5.0F / 16.0F, 0.0F);
         poseStack.mulPose(Axis.ZP.rotationDegrees((left ? 82.0F : -82.0F) * state.doorProgress));
         poseStack.translate(-hingeX, -5.0F / 16.0F, 0.0F);
-        poseStack.scale(widthScale, 1.0F, widthScale);
-        Model model = left ? Model.SILO_DOOR_LEFT : Model.SILO_DOOR_RIGHT;
+        Model model = state.large
+                ? (left ? Model.SILO_LARGE_DOOR_LEFT : Model.SILO_LARGE_DOOR_RIGHT)
+                : (left ? Model.SILO_DOOR_LEFT : Model.SILO_DOOR_RIGHT);
         collector.submitCustomGeometry(
                 poseStack,
                 BlockbenchModelRenderType.SOLID,

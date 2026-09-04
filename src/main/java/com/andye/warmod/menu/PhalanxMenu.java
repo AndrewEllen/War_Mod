@@ -138,4 +138,12 @@ public final class PhalanxMenu extends AbstractContainerMenu {
     public @Nullable PhalanxBlockEntity turret() {
         return turret;
     }
+
+    public BlockPos centre() {
+        return centre;
+    }
+
+    public java.util.UUID turretId() {
+        return turret == null ? new java.util.UUID(0L, 0L) : turret.turretId();
+    }
 }

@@ -80,13 +80,23 @@ public final class RocketProjectileEntity extends Entity {
         }
         setPos(destination);
         Vec3 wind = FireWindEngine.windAt(server, destination);
-        // Exhaust drives the first part of flight. Once the motor burns out, coast
-        // continuously from the same velocity instead of dropping from the muzzle.
-        Vec3 nextVelocity = tickCount <= RocketConstants.MOTOR_BURN_TICKS ? velocity
-            : velocity.scale(RocketConstants.DRAG_PER_TICK)
-            .add(wind.x * RocketConstants.WIND_RESPONSE_PER_TICK,
-                -RocketConstants.GRAVITY_PER_TICK,
-                wind.z * RocketConstants.WIND_RESPONSE_PER_TICK);
+        Vec3 nextVelocity;
+        if (tickCount <= RocketConstants.MOTOR_BURN_TICKS) {
+            // Build momentum along the actual flight direction while the motor
+            // is lit. This replaces the former instantaneous muzzle speed.
+            Vec3 heading = velocity.lengthSqr() < 1.0E-8
+                ? new Vec3(0.0, 1.0, 0.0) : velocity.normalize();
+            double acceleration = (payloadType().speed() - payloadType().launchSpeed())
+                / RocketConstants.MOTOR_BURN_TICKS;
+            nextVelocity = velocity.add(heading.scale(acceleration));
+        } else {
+            // Motor-off flight keeps the burnout vector and then naturally
+            // descends under gravity; wind affects only the free-flight path.
+            nextVelocity = velocity.scale(RocketConstants.DRAG_PER_TICK)
+                .add(wind.x * RocketConstants.WIND_RESPONSE_PER_TICK,
+                    -RocketConstants.GRAVITY_PER_TICK,
+                    wind.z * RocketConstants.WIND_RESPONSE_PER_TICK);
+        }
         setDeltaMovement(nextVelocity);
     }
 

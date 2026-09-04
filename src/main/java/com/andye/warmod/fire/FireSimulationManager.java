@@ -446,6 +446,15 @@ public final class FireSimulationManager {
         boolean water = level.getFluidState(host).is(FluidTags.WATER)
             || level.getFluidState(host.relative(patch.anchor.face())).is(FluidTags.WATER);
         float wetness = state.wetness.getOrDefault(host.asLong(), 0.0F);
+        double blowout = FireWindEngine.blowoutAt(level, patch.anchor.position());
+        if (blowout > 0.65 && !patch.surfaceBurnLocked) {
+            patch.heat = Math.max(0.0F, patch.heat - (float)(blowout * elapsed * 0.055));
+            if (patch.heat < 0.18F) {
+                patch.phase = FirePhase.SMOLDERING;
+                patch.targetIntensity = Math.min(patch.targetIntensity, 0.08F);
+                if (patch.surfaceFlame) lockSurfaceBurn(state, patch, now);
+            }
+        }
 		float clump = clumpFactor(state, patch);
 		float combustionPressure = 0.35F + patch.targetIntensity * patch.targetIntensity * 1.65F
 			+ clump * 0.22F;
@@ -549,6 +558,12 @@ public final class FireSimulationManager {
             }
         } else if (patch.heat <= 0.018F
             || (patch.fuel <= 0.0F && patch.phase == FirePhase.SMOLDERING)) {
+            // Fuel/heat can finish before the hard maximum lifetime. Persist
+            // that depletion too, or neighbours immediately relight fresh grass.
+            if (patch.surfaceFlame && !water && wetness <= 0.40F) {
+                lockSurfaceBurn(state, patch, now);
+                applyPendingScorch(level, patch);
+            }
             removePatch(state, patch);
             return;
         }
@@ -1478,7 +1493,7 @@ public final class FireSimulationManager {
             || patch.lastVisualUpdateTick != Long.MIN_VALUE
                 && now - patch.lastVisualUpdateTick < 4L) return;
         float smoke = smokeProduction(patch, profile);
-        Vec3 wind = FireWindEngine.windAt(level, patch.anchor.position()).scale(
+        Vec3 wind = FireWindEngine.ambientWindAt(level, patch.anchor.position()).scale(
             ventilationFactor(level, state, patch.anchor.host(), now));
         state.visualIndex.upsert(new FireCellSnapshot(patch.id, patch.anchor,
             patch.targetIntensity,
@@ -1491,7 +1506,7 @@ public final class FireSimulationManager {
         final LevelState state) {
 		List<FireEmberSnapshot> snapshots = new ArrayList<>(state.embers.size());
 		for (Ember ember : state.embers) snapshots.add(new FireEmberSnapshot(ember.id,
-			ember.position, ember.velocity, FireWindEngine.windAt(level, ember.position),
+			ember.position, ember.velocity, FireWindEngine.ambientWindAt(level, ember.position),
             ember.intensity, ember.seed, ember.startTick, ember.lifetime));
         return snapshots;
     }

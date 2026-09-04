@@ -34,7 +34,7 @@ The mod is built around battles that feel dramatic and dangerous. Missiles trave
 ### Artillery and handheld weapons
 
 - Target coordinates and fire long-range artillery shells in a high arc.
-- Use the rocket launcher with high-explosive, conventional, or nuclear ammunition.
+- Hold right-click to aim the rocket launcher, then left-click to fire one HE Rocket.
 - Fire visible warheads that use the same impact systems as larger strategic weapons.
 
 ### Radar and defence
@@ -42,7 +42,7 @@ The mod is built around battles that feel dramatic and dangerous. Missiles trave
 - Build radar stations to detect and track incoming missiles.
 - Link physical radar display panels to a station and monitor contacts in the world.
 - Deploy Anti-Air Missile Mk I and Mk II interceptors.
-- Build Phalanx Anti-Air Turrets with ammunition for close-range automatic defence.
+- Build Anti-Air Turrets with ammunition for close-range automatic defence.
 
 ### Logistics
 

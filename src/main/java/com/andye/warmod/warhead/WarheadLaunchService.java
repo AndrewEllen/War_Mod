@@ -76,7 +76,7 @@ public final class WarheadLaunchService {
 
         Optional<LaunchResult> result = spawn(
             level,
-            owner,
+            owner.getUUID(),
             id,
             start,
             intendedTarget,
@@ -101,7 +101,7 @@ public final class WarheadLaunchService {
 
     public static Optional<LaunchResult> launchFromCarrier(
         final ServerLevel level,
-        final @Nullable ServerPlayer owner,
+        final UUID ownerPlayerId,
         final Vec3 separationPosition,
         final Vec3 intendedTarget,
         final long parentVisualSeed,
@@ -117,7 +117,7 @@ public final class WarheadLaunchService {
 
         Optional<LaunchResult> result = spawn(
             level,
-            owner,
+            ownerPlayerId,
             id,
             separationPosition,
             intendedTarget,
@@ -138,7 +138,7 @@ public final class WarheadLaunchService {
 
     public static List<LaunchResult> launchClusterFromCarrier(
         final ServerLevel level,
-        final @Nullable ServerPlayer owner,
+        final UUID ownerPlayerId,
         final Vec3 separationPosition,
         final Vec3 intendedTarget,
         final long parentVisualSeed,
@@ -153,8 +153,10 @@ public final class WarheadLaunchService {
 
         for (int index = 0; index < 4; index++) {
             double angle = rotation + index * Math.PI * 0.5;
-            double radius = 7.0
-                + ((parentVisualSeed >>> (index * 7)) & 7) * 0.55;
+            // Four separated quarter sections cover a materially wider footprint
+            // while retaining the existing four authoritative detonations/yields.
+            double radius = 32.0
+                + ((parentVisualSeed >>> (index * 7)) & 15) * 1.05;
             Vec3 target = new Vec3(
                 intendedTarget.x + Math.cos(angle) * radius,
                 intendedTarget.y,
@@ -187,7 +189,7 @@ public final class WarheadLaunchService {
 
             spawn(
                 level,
-                owner,
+                ownerPlayerId,
                 id,
                 start,
                 target,
@@ -249,7 +251,7 @@ public final class WarheadLaunchService {
 
     private static Optional<LaunchResult> spawn(
         final ServerLevel level,
-        final @Nullable ServerPlayer owner,
+        final @Nullable UUID ownerPlayerId,
         final UUID id,
         final Vec3 start,
         final Vec3 target,
@@ -298,7 +300,7 @@ public final class WarheadLaunchService {
             ModEntityTypes.INCOMING_WARHEAD,
             level,
             id,
-            owner == null ? null : owner.getUUID(),
+            ownerPlayerId,
             start,
             target,
             gameTime,
@@ -352,7 +354,9 @@ public final class WarheadLaunchService {
                 seed,
                 payloadType,
                 exactYield,
-                exactDelivery
+                exactDelivery,
+                clusterIndex,
+                clusterCount
             ),
             target
         );

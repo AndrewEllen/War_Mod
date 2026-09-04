@@ -14,6 +14,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.level.Level;
@@ -25,28 +26,38 @@ public final class RocketLauncherItem extends Item {
     @Override
     public InteractionResult use(final Level level, final Player player,
         final InteractionHand hand) {
-        ItemStack launcher = player.getItemInHand(hand);
-        if (!(level instanceof ServerLevel server)
-            || !(player instanceof ServerPlayer shooter)) return InteractionResult.SUCCESS;
+        // Right-click is deliberately aim-only. The attack key is routed through
+        // RocketLauncherNetworking while this held-use state is active.
+        player.startUsingItem(hand);
+        // Consumes right-click without vanilla's success/punch arm swing.
+        return InteractionResult.CONSUME;
+    }
+
+    /** Server-authoritative held-aim firing path used by the client attack key. */
+    public static boolean fireHeld(final ServerPlayer shooter) {
+        ItemStack launcher = shooter.getMainHandItem();
+        if (!(launcher.getItem() instanceof RocketLauncherItem)
+            || !shooter.isUsingItem()
+            || shooter.getUseItem() != launcher
+            || shooter.getCooldowns().isOnCooldown(launcher)) return false;
         // Old stacks may retain the previous mode component; it can never select a payload.
         launcher.remove(ModDataComponents.ROCKET_LAUNCHER_MODE);
-        if (shooter.getCooldowns().isOnCooldown(launcher)) return InteractionResult.PASS;
         ItemStack ammunition = findAmmunition(shooter);
         if (ammunition.isEmpty() && !shooter.hasInfiniteMaterials()) {
             shooter.sendSystemMessage(Component.literal("Rocket Launcher requires HE Rockets"));
-            return InteractionResult.SUCCESS_SERVER;
+            return false;
         }
-        if (!RocketLaunchService.launch(server, shooter, RocketPayloadType.HE)) {
+        if (!(shooter.level() instanceof ServerLevel server)
+            || !RocketLaunchService.launch(server, shooter, RocketPayloadType.HE)) {
             shooter.sendSystemMessage(Component.literal("Rocket launch failed"));
-            return InteractionResult.SUCCESS_SERVER;
+            return false;
         }
         if (!shooter.hasInfiniteMaterials()) ammunition.shrink(1);
         shooter.getCooldowns().addCooldown(launcher, RocketPayloadType.HE.cooldown());
         server.playSound(null, shooter.blockPosition(), ModSoundEvents.MISSILE_ENGINE_IGNITION_NEAR,
             SoundSource.PLAYERS, 1.0F, 1.05F);
         shooter.setDeltaMovement(shooter.getDeltaMovement().add(shooter.getLookAngle().scale(-0.12)));
-        shooter.swing(hand);
-        return InteractionResult.SUCCESS_SERVER;
+        return true;
     }
 
     private static ItemStack findAmmunition(final ServerPlayer player) {
@@ -58,8 +69,25 @@ public final class RocketLauncherItem extends Item {
     }
 
     @Override
+    public int getUseDuration(final ItemStack stack, final net.minecraft.world.entity.LivingEntity user) {
+        return 72_000;
+    }
+
+    @Override
+    public ItemUseAnimation getUseAnimation(final ItemStack stack) {
+        return ItemUseAnimation.CROSSBOW;
+    }
+
+    @Override
+    public boolean releaseUsing(final ItemStack stack, final Level level,
+        final net.minecraft.world.entity.LivingEntity entity, final int remainingTime) {
+        return true;
+    }
+
+    @Override
     public void appendHoverText(final ItemStack stack, final TooltipContext context,
         final TooltipDisplay display, final Consumer<Component> builder, final TooltipFlag flag) {
         builder.accept(Component.literal("Ammunition: HE Rockets"));
+        builder.accept(Component.literal("Hold right-click to aim; left-click to fire"));
     }
 }

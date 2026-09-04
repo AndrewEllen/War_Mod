@@ -108,12 +108,13 @@ public final class PhalanxTurretMesh {
         final float x1, final float y1, final float z1,
         final float x2, final float y2, final float z2,
         final int red, final int green, final int blue, final int light) {
-        quad(pose,buffer,x1,y1,z1,x2,y1,z1,x2,y2,z1,x1,y2,z1,red,green,blue,light);
-        quad(pose,buffer,x2,y1,z2,x1,y1,z2,x1,y2,z2,x2,y2,z2,red,green,blue,light);
-        quad(pose,buffer,x1,y1,z2,x1,y1,z1,x1,y2,z1,x1,y2,z2,red,green,blue,light);
-        quad(pose,buffer,x2,y1,z1,x2,y1,z2,x2,y2,z2,x2,y2,z1,red,green,blue,light);
-        quad(pose,buffer,x1,y1,z2,x2,y1,z2,x2,y1,z1,x1,y1,z1,red,green,blue,light);
-        quad(pose,buffer,x1,y2,z1,x2,y2,z1,x2,y2,z2,x1,y2,z2,red,green,blue,light);
+        int material = materialFor(red, green, blue);
+        quad(pose,buffer,x1,y1,z1,x2,y1,z1,x2,y2,z1,x1,y2,z1,0,0,-1,material,red,green,blue,light);
+        quad(pose,buffer,x2,y1,z2,x1,y1,z2,x1,y2,z2,x2,y2,z2,0,0,1,material,red,green,blue,light);
+        quad(pose,buffer,x1,y1,z2,x1,y1,z1,x1,y2,z1,x1,y2,z2,-1,0,0,material,red,green,blue,light);
+        quad(pose,buffer,x2,y1,z1,x2,y1,z2,x2,y2,z2,x2,y2,z1,1,0,0,material,red,green,blue,light);
+        quad(pose,buffer,x1,y1,z2,x2,y1,z2,x2,y1,z1,x1,y1,z1,0,-1,0,material,red,green,blue,light);
+        quad(pose,buffer,x1,y2,z1,x2,y2,z1,x2,y2,z2,x1,y2,z2,0,1,0,material,red,green,blue,light);
     }
 
     private static void quad(final PoseStack.Pose pose, final VertexConsumer buffer,
@@ -121,21 +122,33 @@ public final class PhalanxTurretMesh {
         final float bx, final float by, final float bz,
         final float cx, final float cy, final float cz,
         final float dx, final float dy, final float dz,
+        final float nx, final float ny, final float nz, final int material,
         final int red, final int green, final int blue, final int light) {
-        vertex(pose,buffer,ax,ay,az,red,green,blue,light);
-        vertex(pose,buffer,bx,by,bz,red,green,blue,light);
-        vertex(pose,buffer,cx,cy,cz,red,green,blue,light);
-        vertex(pose,buffer,dx,dy,dz,red,green,blue,light);
+        float inset=.004F, tile=1F/3F;
+        float u0=(material%3)*tile+inset, v0=(material/3)*tile+inset;
+        float u1=(material%3+1)*tile-inset, v1=(material/3+1)*tile-inset;
+        vertex(pose,buffer,ax,ay,az,u0,v1,nx,ny,nz,red,green,blue,light);
+        vertex(pose,buffer,bx,by,bz,u1,v1,nx,ny,nz,red,green,blue,light);
+        vertex(pose,buffer,cx,cy,cz,u1,v0,nx,ny,nz,red,green,blue,light);
+        vertex(pose,buffer,dx,dy,dz,u0,v0,nx,ny,nz,red,green,blue,light);
     }
 
     private static void vertex(final PoseStack.Pose pose, final VertexConsumer buffer,
-        final float x, final float y, final float z,
+        final float x, final float y, final float z, final float u, final float v,
+        final float nx, final float ny, final float nz,
         final int red, final int green, final int blue, final int light) {
         buffer.addVertex(pose,x,y,z)
             .setColor(red,green,blue,255)
-            .setUv(0,0)
+            .setUv(u,v)
             .setOverlay(OverlayTexture.NO_OVERLAY)
             .setLight(light)
-            .setNormal(pose,0,1,0);
+            .setNormal(pose,nx,ny,nz);
+    }
+
+    private static int materialFor(final int red, final int green, final int blue) {
+        if (red > 145 && green < 155) return 6; // warning paint
+        if (green > red + 18) return 2; // olive paint / indicator
+        if (red > 130 && green > 95 && blue < 75) return 5; // brass/ochre
+        return red + green + blue > 205 ? 4 : 1; // brushed steel or gunmetal
     }
 }

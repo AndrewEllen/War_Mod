@@ -38,4 +38,18 @@ final class WarheadTrajectoryTest {
 		assertEquals(0.0, WarheadTrajectory.progress(-10.0, 50));
 		assertEquals(1.0, WarheadTrajectory.progress(100.0, 50));
 	}
+
+	@Test
+	void clusterQuarterUsesGravityAndStillHitsItsAuthoritativeTarget() {
+		Vec3 start = new Vec3(0.0, 480.0, 0.0);
+		Vec3 target = new Vec3(48.0, 64.0, -36.0);
+		int ticks = 100;
+		assertEquals(start, WarheadTrajectory.position(start, target, 0.0, ticks, 2, 4));
+		assertEquals(target, WarheadTrajectory.position(start, target, ticks, ticks, 2, 4));
+		double startVertical = WarheadTrajectory.velocity(start, target, 0.0, ticks, 2, 4).y;
+		double endVertical = WarheadTrajectory.velocity(start, target, ticks, ticks, 2, 4).y;
+		assertTrue(endVertical < startVertical);
+		assertTrue(WarheadTrajectory.position(start, target, 50.0, ticks, 2, 4).y
+			> start.lerp(target, 0.5).y);
+	}
 }

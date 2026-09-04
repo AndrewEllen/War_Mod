@@ -1,6 +1,7 @@
 package com.andye.warmod.phalanx;
 
 import com.andye.warmod.antiair.AntiAirFlightControllerManager;
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import com.andye.warmod.icbm.IcbmFlightControllerManager;
 import com.andye.warmod.testtool.TestExplosionService;
 import com.andye.warmod.warhead.IncomingWarheadRegistry;
@@ -19,7 +20,8 @@ public final class PointDefenceInterceptionService {
         final ServerLevel level,
         final PhalanxTargetSnapshot target,
         final UUID bulletId,
-        final Vec3 hitPosition
+        final Vec3 hitPosition,
+        final DefenceOwnershipSnapshot ownership
     ) {
         boolean intercepted =
             interceptTarget(
@@ -52,6 +54,7 @@ public final class PointDefenceInterceptionService {
             if (
                 nearby.targetId()
                     .equals(target.targetId())
+                || !ownership.isHostile(nearby.ownerPlayerId(), nearby.forcedHostile())
                 || nearby.position()
                     .distanceToSqr(hitPosition)
                     > chainRadiusSquared
@@ -122,6 +125,15 @@ public final class PointDefenceInterceptionService {
             case MK_I_FALLBACK ->
                 AntiAirFlightControllerManager
                     .cancelForPointDefence(
+                        level,
+                        target.targetId(),
+                        bulletId,
+                        hitPosition
+                    );
+
+            case ACTIVE_ANTI_AIR ->
+                AntiAirFlightControllerManager
+                    .cancelAsInterceptorTarget(
                         level,
                         target.targetId(),
                         bulletId,

@@ -8,7 +8,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 
 /** Tier-distinct interceptor meshes exported from the saved Blockbench sources. */
 public final class AntiAirMissileMesh {
-    public static final float MODEL_SCALE = 0.105F;
+    public static final float MODEL_SCALE = 0.135F;
 
     public static float nozzleY(final AntiAirMissileVariant variant) {
         return (variant == AntiAirMissileVariant.MK_II ? -16.2F : -13.7F) * MODEL_SCALE;

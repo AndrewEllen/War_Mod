@@ -110,7 +110,7 @@ public final class MasterExplosiveStickItem extends Item {
 		WarheadDeliveryMode delivery = config.cluster()
 			? WarheadDeliveryMode.CLUSTER_FOUR
 			: WarheadDeliveryMode.SINGLE;
-		IcbmLaunchService.LaunchResult result = IcbmLaunchService.launch(
+		IcbmLaunchService.LaunchResult result = IcbmLaunchService.launchUnowned(
 			level,
 			player,
 			intended,

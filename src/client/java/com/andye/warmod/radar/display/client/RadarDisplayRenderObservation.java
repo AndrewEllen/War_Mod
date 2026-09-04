@@ -91,7 +91,9 @@ public record RadarDisplayRenderObservation(
                     terminal.startPosition(),
                     terminal.targetPosition(),
                     elapsed,
-                    terminal.flightTicks()
+                    terminal.flightTicks(),
+                    terminal.clusterIndex(),
+                    terminal.clusterCount()
                 ));
             }
 

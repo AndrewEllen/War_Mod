@@ -21,6 +21,9 @@ public final class ClientPerformanceTelemetry {
     private static final Samples DEBRIS_SNAPSHOT = new Samples();
     private static final Samples MOVING_BLOCK_STATE_CONSTRUCTION = new Samples();
     private static final Samples FIRE = new Samples();
+    private static final Samples FIRE_FLAME_GEOMETRY = new Samples();
+    private static final Samples FIRE_CLOSE_GEOMETRY = new Samples();
+    private static final Samples FIRE_SMOKE_GEOMETRY = new Samples();
     private static final Samples GPU_ENGINE_CPU = new Samples();
     private static final Samples GPU_EXTRACTION_CPU = new Samples();
     private static final Samples GPU_SCHEDULER_CPU = new Samples();
@@ -84,6 +87,13 @@ public final class ClientPerformanceTelemetry {
         MOVING_BLOCK_STATE_CONSTRUCTION.add(nanos);
     }
     public static synchronized void recordFireNanos(final long nanos) { FIRE.add(nanos); }
+    public static synchronized void recordFireFlameGeometryNanos(final long nanos,
+        final boolean close) {
+        (close ? FIRE_CLOSE_GEOMETRY : FIRE_FLAME_GEOMETRY).add(nanos);
+    }
+    public static synchronized void recordFireSmokeGeometryNanos(final long nanos) {
+        FIRE_SMOKE_GEOMETRY.add(nanos);
+    }
     public static synchronized void recordGpuEngineCpuNanos(final long nanos) {
         GPU_ENGINE_CPU.add(nanos);
     }
@@ -147,6 +157,8 @@ public final class ClientPerformanceTelemetry {
             FIREBALL_LOBE_PREPARATION.snapshot(), CLOUD_LOBE_PREPARATION.snapshot(),
             DUST_NODE_SELECTION.snapshot(), DEBRIS_SNAPSHOT.snapshot(),
             MOVING_BLOCK_STATE_CONSTRUCTION.snapshot(), FIRE.snapshot(),
+            FIRE_FLAME_GEOMETRY.snapshot(), FIRE_CLOSE_GEOMETRY.snapshot(),
+            FIRE_SMOKE_GEOMETRY.snapshot(),
             GPU_ENGINE_CPU.snapshot(), GPU_EXTRACTION_CPU.snapshot(),
             GPU_SCHEDULER_CPU.snapshot(), GPU_EMITTER_UPLOAD_CPU.snapshot(),
             GPU_STATS_READBACK_CPU.snapshot(), TERRAIN_SHOCKFRONT_CPU.snapshot(),
@@ -164,7 +176,8 @@ public final class ClientPerformanceTelemetry {
         Percentiles fireballLobePreparation, Percentiles cloudLobePreparation,
         Percentiles dustNodeSelection, Percentiles debrisSnapshot,
         Percentiles movingBlockStateConstruction,
-        Percentiles fireExtraction, Percentiles gpuEngineCpu,
+        Percentiles fireExtraction, Percentiles fireFlameGeometry,
+        Percentiles fireCloseGeometry, Percentiles fireSmokeGeometry, Percentiles gpuEngineCpu,
         Percentiles gpuExtractionCpu, Percentiles gpuSchedulerCpu,
         Percentiles gpuEmitterUploadCpu, Percentiles gpuStatsReadbackCpu,
         Percentiles terrainShockfrontCpu, long vanillaParticleCount,

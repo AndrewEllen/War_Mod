@@ -238,11 +238,44 @@ public final class MissileSiloBlock extends BaseEntityBlock implements WorldlyCo
             final net.minecraft.world.level.BlockGetter level,
             final BlockPos pos,
             final CollisionContext context) {
+        // The large model leaves the middle visually open. Keep the controller block
+        // selectable so a player can still break the structure from its centre.
+        if (state.getValue(PART).isCenter()) return Shapes.block();
         if (state.getValue(LARGE)) {
             BlockPos offset = state.getValue(PART).rotatedOffset(state.getValue(FACING));
             return LARGE_SHAPES[offset.getX() + 2][offset.getZ() + 2];
         }
-        return state.getValue(PART).isCenter() ? CENTRE_SHAPE : Shapes.block();
+        return Shapes.block();
+    }
+
+    @Override
+    protected VoxelShape getCollisionShape(
+            final BlockState state,
+            final net.minecraft.world.level.BlockGetter level,
+            final BlockPos pos,
+            final CollisionContext context) {
+        if (!state.getValue(LARGE)) {
+            return state.getValue(PART).isCenter() ? CENTRE_SHAPE : Shapes.block();
+        }
+
+        BlockPos offset = state.getValue(PART).rotatedOffset(state.getValue(FACING));
+        VoxelShape surface = LARGE_SHAPES[offset.getX() + 2][offset.getZ() + 2];
+        if (Math.abs(offset.getX()) > 1 || Math.abs(offset.getZ()) > 1
+                || largeDoorsOpen(level, pos, state)) return surface;
+
+        // The two closed leaves span the central 3x3 throat at curb height. This
+        // supports players while the silo is idle without filling the open throat.
+        return Shapes.or(surface, Block.box(0, 0, 0, 16, 6, 16));
+    }
+
+    private static boolean largeDoorsOpen(
+            final net.minecraft.world.level.BlockGetter level,
+            final BlockPos pos,
+            final BlockState state) {
+        BlockPos centre = state.getValue(PART).resolveCenter(pos, state.getValue(FACING));
+        if (!(level.getBlockEntity(centre) instanceof MissileSiloBlockEntity silo)) return false;
+        return silo.siloState() == MissileSiloState.PREPARING
+                || silo.siloState() == MissileSiloState.LAUNCHING;
     }
 
     @Override

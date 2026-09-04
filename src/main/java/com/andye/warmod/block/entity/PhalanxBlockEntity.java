@@ -2,6 +2,8 @@ package com.andye.warmod.block.entity;
 
 import com.andye.warmod.block.PhalanxStructure;
 import com.andye.warmod.block.PhalanxTurretBlock;
+import com.andye.warmod.defence.DefenceAlly;
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import com.andye.warmod.item.ModItems;
 import com.andye.warmod.phalanx.PhalanxBulletManager;
 import com.andye.warmod.phalanx.PhalanxConstants;
@@ -12,6 +14,7 @@ import com.andye.warmod.phalanx.PhalanxTargetSelector;
 import com.andye.warmod.phalanx.PhalanxTargetService;
 import com.andye.warmod.phalanx.PhalanxTargetSnapshot;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
@@ -21,6 +24,7 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Player;
@@ -46,6 +50,7 @@ public final class PhalanxBlockEntity
         UUID.randomUUID();
 
     private @Nullable UUID ownerId;
+    private final LinkedHashMap<UUID, String> allies = new LinkedHashMap<>();
     private @Nullable UUID currentTarget;
 
     private String ownerName =
@@ -126,6 +131,8 @@ public final class PhalanxBlockEntity
                 : owner.getGameProfile()
                     .name();
 
+        allies.clear();
+
         this.facing =
             facing;
 
@@ -146,6 +153,63 @@ public final class PhalanxBlockEntity
 
     public UUID turretId() {
         return turretId;
+    }
+
+    public @Nullable UUID ownerPlayerId() {
+        return ownerId;
+    }
+
+    public String ownerDisplayName() {
+        return ownerName;
+    }
+
+    public List<DefenceAlly> allies() {
+        return allies.entrySet().stream()
+            .map(entry -> new DefenceAlly(entry.getKey(), entry.getValue()))
+            .toList();
+    }
+
+    public DefenceOwnershipSnapshot ownership() {
+        return new DefenceOwnershipSnapshot(ownerId, ownerName, allies());
+    }
+
+    public boolean claimOwnership(final ServerPlayer actor) {
+        if (ownerId != null) return false;
+        ownerId = actor.getUUID();
+        ownerName = actor.getGameProfile().name();
+        allies.clear();
+        sync();
+        return true;
+    }
+
+    public boolean unclaimOwnership(final ServerPlayer actor) {
+        if (!actor.getUUID().equals(ownerId)) return false;
+        ownerId = null;
+        ownerName = "SERVER";
+        allies.clear();
+        sync();
+        return true;
+    }
+
+    public boolean addAlly(final ServerPlayer actor, final UUID playerId, final String playerName) {
+        if (!actor.getUUID().equals(ownerId) || playerId.equals(ownerId) || allies.containsKey(playerId))
+            return false;
+        allies.put(playerId, playerName);
+        sync();
+        return true;
+    }
+
+    public boolean removeAlly(final ServerPlayer actor, final UUID playerId) {
+        if (!actor.getUUID().equals(ownerId) || allies.remove(playerId) == null) return false;
+        sync();
+        return true;
+    }
+
+    public @Nullable DefenceAlly allyByName(final String playerName) {
+        return allies().stream()
+            .filter(ally -> ally.playerName().equalsIgnoreCase(playerName))
+            .findFirst()
+            .orElse(null);
     }
 
     public boolean enabled() {
@@ -288,7 +352,10 @@ public final class PhalanxBlockEntity
         List<PhalanxTargetSnapshot> candidates =
             PhalanxTargetService.snapshot(
                 level
-            );
+            ).stream()
+                .filter(candidate -> ownership().isHostile(
+                    candidate.ownerPlayerId(), candidate.forcedHostile()))
+                .toList();
 
         PhalanxTargetSnapshot target =
             PhalanxTargetSelector.select(
@@ -1063,6 +1130,8 @@ public final class PhalanxBlockEntity
             ownerName
         );
 
+        output.store("allies", DefenceAlly.CODEC.listOf(), allies());
+
         output.putString(
             "facing",
             facing.getSerializedName()
@@ -1096,7 +1165,7 @@ public final class PhalanxBlockEntity
         for (int index = 0; index < ammo.length; index++) {
             output.store(
                 "ammo_" + index,
-                ItemStack.CODEC,
+                ItemStack.OPTIONAL_CODEC,
                 ammo[index]
             );
         }
@@ -1127,6 +1196,12 @@ public final class PhalanxBlockEntity
                 "owner_name",
                 "SERVER"
             );
+
+        allies.clear();
+        for (DefenceAlly ally : input.read("allies", DefenceAlly.CODEC.listOf()).orElse(List.of())) {
+            if (!ally.playerId().equals(ownerId))
+                allies.putIfAbsent(ally.playerId(), ally.playerName());
+        }
 
         facing =
             Direction.byName(
@@ -1181,7 +1256,7 @@ public final class PhalanxBlockEntity
             ammo[index] =
                 input.read(
                     "ammo_" + index,
-                    ItemStack.CODEC
+                    ItemStack.OPTIONAL_CODEC
                 ).orElse(
                     ItemStack.EMPTY
                 );

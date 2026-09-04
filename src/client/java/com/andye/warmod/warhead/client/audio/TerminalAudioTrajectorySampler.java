@@ -16,13 +16,16 @@ public final class TerminalAudioTrajectorySampler {
 		double sourceTick = Mth.clamp(currentClientGameTime, minimum, maximum);
 		for (int iteration = 0; iteration < 3; iteration++) {
 			double elapsed = sourceTick - state.launchGameTime();
-			Vec3 position = WarheadTrajectory.position(state.startPosition(), state.intendedTarget(), elapsed, state.flightTicks());
+			Vec3 position = WarheadTrajectory.position(state.startPosition(), state.intendedTarget(), elapsed,
+				state.flightTicks(), state.clusterIndex(), state.clusterCount());
 			double delay = listener.distanceTo(position) / PROPAGATION_SPEED_BLOCKS_PER_SECOND * 20.0;
 			sourceTick = Mth.clamp(currentClientGameTime - delay, minimum, maximum);
 		}
 		double elapsed = sourceTick - state.launchGameTime();
-		Vec3 position = WarheadTrajectory.position(state.startPosition(), state.intendedTarget(), elapsed, state.flightTicks());
-		Vec3 velocity = WarheadTrajectory.velocity(state.startPosition(), state.intendedTarget(), elapsed, state.flightTicks());
+		Vec3 position = WarheadTrajectory.position(state.startPosition(), state.intendedTarget(), elapsed,
+			state.flightTicks(), state.clusterIndex(), state.clusterCount());
+		Vec3 velocity = WarheadTrajectory.velocity(state.startPosition(), state.intendedTarget(), elapsed,
+			state.flightTicks(), state.clusterIndex(), state.clusterCount());
 		double normalizedSpeed = WarheadVisualMath.normalizedSpeed(velocity,
 			WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK * 1.65);
 		return new Sample(sourceTick, elapsed, position, listener.distanceTo(position), normalizedSpeed,

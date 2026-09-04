@@ -1,5 +1,6 @@
 package com.andye.warmod.phalanx;
 
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 
@@ -7,6 +8,7 @@ public final class PhalanxBullet {
     public final UUID bulletId;
     public final UUID turretId;
     public final UUID targetId;
+    public final DefenceOwnershipSnapshot ownership;
 
     public Vec3 position;
     public Vec3 previousPosition;
@@ -25,6 +27,7 @@ public final class PhalanxBullet {
         final UUID bulletId,
         final UUID turretId,
         final UUID targetId,
+        final DefenceOwnershipSnapshot ownership,
         final Vec3 position,
         final Vec3 velocity,
         final int maximumAge,
@@ -33,6 +36,7 @@ public final class PhalanxBullet {
         this.bulletId = bulletId;
         this.turretId = turretId;
         this.targetId = targetId;
+        this.ownership = ownership;
 
         this.position = position;
         this.previousPosition = position;

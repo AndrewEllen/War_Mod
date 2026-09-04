@@ -90,7 +90,7 @@ public final class ModBlocks {
             .pushReaction(PushReaction.BLOCK));
 
     public static final ResourceKey<Block> MISSILE_WORKBENCH_KEY = key("missile_workbench");
-    public static final MissileWorkbenchBlock MISSILE_WORKBENCH = new MissileWorkbenchBlock(BlockBehaviour.Properties.of().setId(MISSILE_WORKBENCH_KEY).strength(4.0F).sound(SoundType.METAL).pushReaction(PushReaction.BLOCK));
+    public static final MissileWorkbenchBlock MISSILE_WORKBENCH = new MissileWorkbenchBlock(BlockBehaviour.Properties.of().setId(MISSILE_WORKBENCH_KEY).strength(4.0F).sound(SoundType.METAL).pushReaction(PushReaction.BLOCK).noOcclusion());
     private static boolean registered;
 
     private ModBlocks() {

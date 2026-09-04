@@ -52,11 +52,41 @@ public final class IcbmMissileMesh {
         renderSection(pose, buffer, yield, deliveryMode, Section.WARHEAD, light, 255);
     }
 
+    /** Renders one physical quarter of a four-way cluster nose after separation. */
+    public static void renderWarhead(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
+        final int clusterIndex, final int clusterCount, final int light) {
+        if (deliveryMode != WarheadDeliveryMode.CLUSTER_FOUR || clusterCount != 4
+                || clusterIndex < 0 || clusterIndex >= clusterCount) {
+            renderWarhead(pose, buffer, yield, deliveryMode, light);
+            return;
+        }
+        Model full = model(yield, deliveryMode);
+        BlockbenchGameplayMeshes.renderQuarter(pose, buffer, full,
+            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight(yield),
+            0.0F, originY(yield, Section.WARHEAD), 0.0F, light, 255,
+            separationY(yield), Float.POSITIVE_INFINITY, clusterIndex);
+    }
+
     private static void renderSection(final PoseStack.Pose pose, final VertexConsumer buffer,
         final WarheadYield yield, final WarheadDeliveryMode deliveryMode,
         final Section section, final int light, final int alpha) {
+        Model full = model(yield, deliveryMode);
+        float separationY = separationY(yield);
+        float minimumY = section == Section.WARHEAD
+            ? separationY : Float.NEGATIVE_INFINITY;
+        float maximumY = section == Section.STAGE
+            ? separationY : Float.POSITIVE_INFINITY;
+        BlockbenchGameplayMeshes.render(pose, buffer, full,
+            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight(yield),
+            0.0F, originY(yield, section), 0.0F, light, alpha,
+            minimumY, maximumY);
+    }
+
+    private static Model model(final WarheadYield yield,
+        final WarheadDeliveryMode deliveryMode) {
         boolean cluster = deliveryMode == WarheadDeliveryMode.CLUSTER_FOUR;
-        Model full = switch (yield) {
+        return switch (yield) {
             case HIGH_EXPLOSIVE -> cluster
                 ? Model.HIGH_EXPLOSIVE_CLUSTER_MISSILE : Model.HIGH_EXPLOSIVE_MISSILE;
             case HIGH_CAPACITY_HE -> cluster
@@ -72,15 +102,6 @@ public final class IcbmMissileMesh {
             case HEAVY_NUCLEAR -> cluster
                 ? Model.HEAVY_NUCLEAR_CLUSTER_MISSILE : Model.HEAVY_NUCLEAR_MISSILE;
         };
-        float separationY = separationY(yield);
-        float minimumY = section == Section.WARHEAD
-            ? separationY : Float.NEGATIVE_INFINITY;
-        float maximumY = section == Section.STAGE
-            ? separationY : Float.POSITIVE_INFINITY;
-        BlockbenchGameplayMeshes.render(pose, buffer, full,
-            IcbmVisualGeometry.TOTAL_VISUAL_HEIGHT / sourceHeight(yield),
-            0.0F, originY(yield, section), 0.0F, light, alpha,
-            minimumY, maximumY);
     }
 
     private static float separationY(final WarheadYield yield) {

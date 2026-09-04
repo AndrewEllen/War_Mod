@@ -56,6 +56,19 @@ public final class FireWindEngine {
 
     public static synchronized Vec3 windAt(final ServerLevel level, final Vec3 position) {
         if (level == null || position == null || !position.isFinite()) return Vec3.ZERO;
+        Vec3 result = ambientWindAt(level, position);
+        ArrayDeque<FireWindImpulse> impulses = IMPULSES.get(level);
+        if (impulses != null) {
+            long now = level.getGameTime();
+            for (FireWindImpulse impulse : impulses) result = result.add(impulse.sample(position, now));
+        }
+        double length = result.length();
+        return length > 2.5 ? result.scale(2.5 / length) : result;
+    }
+
+    /** Snapshots carry ambient wind; timestamped impulses are applied once at the client. */
+    public static Vec3 ambientWindAt(final ServerLevel level, final Vec3 position) {
+        if (level == null || position == null || !position.isFinite()) return Vec3.ZERO;
         /* Wind is spatially local rather than one world-wide rotating vector.
            Each broad cell owns a persistent direction, blending gently into its
            next random state only every ninety seconds.  Bilinear interpolation
@@ -66,15 +79,21 @@ public final class FireWindEngine {
             MACRO_WIND_CELL_SIZE, MACRO_WIND_EPOCH_TICKS, 0x4D4143524F5F5749L);
         Vec3 local = temporalField(level.getSeed(), position, time,
             LOCAL_WIND_CELL_SIZE, LOCAL_WIND_EPOCH_TICKS, 0x4C4F43414C5F5749L);
-        Vec3 result = macro.scale(0.72).add(local.scale(0.58));
+        return macro.scale(0.72).add(local.scale(0.58));
+    }
 
+    /** Only the inner outward blast can strip a flame from its fuel surface. */
+    public static synchronized double blowoutAt(final ServerLevel level, final Vec3 position) {
         ArrayDeque<FireWindImpulse> impulses = IMPULSES.get(level);
-        if (impulses != null) {
-            long now = level.getGameTime();
-            for (FireWindImpulse impulse : impulses) result = result.add(impulse.sample(position, now));
+        if (impulses == null) return 0.0;
+        double exposure = 0.0;
+        for (FireWindImpulse impulse : impulses) {
+            Vec3 delta = position.subtract(impulse.center());
+            if (delta.lengthSqr() > impulse.radius() * impulse.radius() * 0.0225) continue;
+            Vec3 pressure = impulse.sample(position, level.getGameTime());
+            if (pressure.dot(delta) > 0.0) exposure = Math.max(exposure, pressure.length());
         }
-        double length = result.length();
-        return length > 2.5 ? result.scale(2.5 / length) : result;
+        return exposure;
     }
 
     private static Vec3 temporalField(final long levelSeed, final Vec3 position,
