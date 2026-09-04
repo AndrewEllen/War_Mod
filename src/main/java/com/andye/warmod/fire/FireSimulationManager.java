@@ -117,7 +117,7 @@ public final class FireSimulationManager {
         return igniteSurface(level, primary, config, seed, false, false);
     }
 
-    /** Debug placement may displace one dying patch when the global cap is full. */
+    /** Debug placement reserves enough capacity for the requested brush stroke. */
     public static synchronized int igniteSurfacePrioritized(final ServerLevel level,
         final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
         return igniteSurface(level, primary, config, seed, true, false);
@@ -125,8 +125,8 @@ public final class FireSimulationManager {
 
     /**
      * Nuclear seeding is allowed to replace one dying patch for every requested
-     * seed. This remains under the global 4,096-patch cap; unlike the debug
-     * stick it is not artificially restricted to one eviction per game tick.
+     * seed. This remains under the active-patch cap; unlike the debug stick,
+     * it is not restricted to one eviction batch per game tick.
      */
     public static synchronized int igniteSurfaceNuclear(final ServerLevel level,
         final FireSurfaceAnchor primary, final FireDebugConfig config, final long seed) {
@@ -142,6 +142,18 @@ public final class FireSimulationManager {
         if (state.wetness.getOrDefault(primary.host().asLong(), 0.0F) > 0.40F) return 0;
         long now = level.getGameTime();
         if (surfaceCoolingDown(state, primary.key(), now)) return 0;
+        int maximum = Math.min(384, config.size() == 1 ? 1
+            : 1 + config.size() * config.size() * 2);
+        if (prioritizeAtCapacity && !unrestrictedEvictions
+            && state.activePatchCount + maximum > MAX_ACTIVE_PATCHES
+            && state.lastPriorityEvictionTick != now) {
+            // Reserve the requested brush stroke in one bounded scan, instead
+            // of evicting one patch then silently discarding the larger brush.
+            int needed = state.activePatchCount + maximum - MAX_ACTIVE_PATCHES;
+            for (Patch patch : lowestPriorityPatches(state, needed, false))
+                removePatch(state, patch);
+            state.lastPriorityEvictionTick = now;
+        }
         if (!state.surfaceIndex.containsKey(primary.key())
             && state.activePatchCount >= MAX_ACTIVE_PATCHES) {
             if (!prioritizeAtCapacity) return 0;
@@ -157,7 +169,6 @@ public final class FireSimulationManager {
             true, true) ? 1 : 0;
         if (config.size() <= 1 || placed == 0) return placed;
 
-        int maximum = Math.min(384, 1 + config.size() * config.size() * 2);
         double faceRadius = Math.min(0.82, 0.18 + (config.size() - 1) * 0.18);
         for (int u = 0; u < 4 && placed < maximum; u++) {
             for (int v = 0; v < 4 && placed < maximum; v++) {

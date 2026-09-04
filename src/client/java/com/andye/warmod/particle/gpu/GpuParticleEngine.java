@@ -124,10 +124,13 @@ public final class GpuParticleEngine {
     private static final int PARTICLE_CAPACITY = 262_144;
     private static final int TYPE_COUNT = ParticleType.values().length;
     private static final int MAX_EMITTERS_PER_FRAME = GpuVfxScheduler.MAX_SCHEDULED_EMITTERS;
+    private static final SurfaceFireCadence SURFACE_FIRE_CADENCE =
+        new SurfaceFireCadence(MAX_EMITTERS_PER_FRAME * 2);
     private static final int PARTICLE_STRIDE = 80;
     private static final int EMITTER_STRIDE = 96;
     private static final int INDIRECT_COMMAND_STRIDE = 16;
     private static final int LAYER_COUNT = VisualLayer.values().length;
+    private static final long[] fireCoverageLossFrame = new long[LAYER_COUNT];
     private static final int TYPE_STATS_UINTS = TYPE_COUNT * 4 + 4;
     private static final int LAYER_STATS_UINTS = 8;
     static final int SYNTHETIC_PROBE_FLAG = 1 << 15;
@@ -356,6 +359,7 @@ public final class GpuParticleEngine {
     }
 
     public static synchronized void clearLevel() {
+        SURFACE_FIRE_CADENCE.clear();
         PENDING_EFFECTS.clear(); PENDING_FIRE_FIELDS.clear();
         GpuVfxScheduler.clear(); resetRequested = true;
         Arrays.fill(activeByType, 0L); Arrays.fill(visibleByType, 0L);
@@ -661,7 +665,8 @@ public final class GpuParticleEngine {
                 completed.depthCulledByLayer()[layerId],
                 schedule.capacityCulled()
                     + Integer.toUnsignedLong(completed.rejectedByLayer()[layerId]),
-                actualRoute(layer)));
+                actualRoute(layer), schedule.fireLocationsRequested(),
+                schedule.fireLocationsScheduled(), schedule.fireCoverageComplete()));
         });
         return Map.copyOf(snapshots);
     }
@@ -675,7 +680,9 @@ public final class GpuParticleEngine {
             identity = mix64(identity ^ entry.getKey().ordinal() * 0x9E3779B97F4A7C15L
                 ^ layer.commandsSubmitted() * 0xD1B54A32D192ED03L
                 ^ layer.emittersScheduled() * 0x94D049BB133111EBL
-                ^ layer.particlesAccepted());
+                ^ layer.particlesAccepted()
+                ^ ((long)layer.fireLocationsRequested() << 32)
+                ^ layer.fireLocationsScheduled());
         }
         return identity;
     }
@@ -700,7 +707,10 @@ public final class GpuParticleEngine {
                 source.commandsSubmitted(), source.emittersRequested(), routedCount,
                 source.particlesRequested(), routedParticles,
                 Math.max(0L, source.particlesRequested() - routedParticles),
-                source.frustumCulled(), source.capacityCulled()));
+                source.frustumCulled(), source.capacityCulled(),
+                source.fireLocationsRequested(),
+                routedCount == source.emittersScheduled()
+                    ? source.fireLocationsScheduled() : 0));
         });
         return Map.copyOf(result);
     }
@@ -883,6 +893,7 @@ public final class GpuParticleEngine {
     }
 
     private static void clearParticleStorage() {
+        SURFACE_FIRE_CADENCE.clear();
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer zero = stack.calloc(16);
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleBuffer);
@@ -929,6 +940,7 @@ public final class GpuParticleEngine {
     private static int uploadEmitters(final List<EmitterCommand> emitters,
         final float deltaSeconds) {
         Arrays.fill(requestedByType, 0);
+        SURFACE_FIRE_CADENCE.prune(frameSequence);
         if (emitters.isEmpty()) return 0;
         EMITTER_STAGING.clear(); int totalSpawned = 0;
         for (EmitterCommand emitter : emitters) {
@@ -957,12 +969,63 @@ public final class GpuParticleEngine {
 
     private static int frameSpawnCount(final EmitterCommand emitter,
         final float deltaSeconds) {
+        if ((emitter.flags() & 1) != 0
+            && (emitter.type() == ParticleType.FIRE || emitter.type() == ParticleType.SMOKE)) {
+            long key = (Integer.toUnsignedLong(emitter.seed()) << 8)
+                | emitter.semanticLayer().ordinal();
+            return SURFACE_FIRE_CADENCE.sample(key, emitter.spawnCount(),
+                deltaSeconds, frameSequence);
+        }
         double expected = Math.min(64.0, emitter.spawnCount() * deltaSeconds);
         int whole = (int) Math.floor(expected); double fraction = expected - whole;
         long mixed = Integer.toUnsignedLong(emitter.seed()) * 0x9E3779B97F4A7C15L
             ^ frameSequence * 0xD1B54A32D192ED03L;
         double unit = (mix64(mixed) >>> 11) * 0x1.0p-53;
         return whole + (unit < fraction ? 1 : 0);
+    }
+
+    /** Fixed-rate surface streams, independent of draw-list ordering and FPS. */
+    static final class SurfaceFireCadence {
+        private final int capacity;
+        private final LinkedHashMap<Long, CadenceState> streams =
+            new LinkedHashMap<>(128, 0.75F, true);
+
+        SurfaceFireCadence(final int capacity) {
+            this.capacity = Math.max(1, capacity);
+        }
+
+        int sample(final long key, final int rate, final double deltaSeconds,
+            final long frame) {
+            CadenceState state = streams.get(key);
+            if (state == null || frame - state.lastSeen > 2L) {
+                if (state == null && streams.size() >= capacity)
+                    streams.remove(streams.keySet().iterator().next());
+                state = new CadenceState();
+                // Represent newly visible surfaces immediately, then maintain a
+                // fractional phase instead of independent random spawn trials.
+                state.remainder = 1.0;
+                streams.put(key, state);
+            }
+            state.lastSeen = frame;
+            state.remainder += Math.min(64.0, Math.max(0, rate)
+                * Math.max(0.0, Math.min(0.10, deltaSeconds)));
+            int count = Math.min(64, (int)Math.floor(state.remainder + 1.0E-9));
+            state.remainder = Math.max(0.0, state.remainder - count);
+            return count;
+        }
+
+        void prune(final long frame) {
+            if ((frame & 63L) == 0L)
+                streams.values().removeIf(state -> frame - state.lastSeen > 120L);
+        }
+
+        void clear() { streams.clear(); }
+        int size() { return streams.size(); }
+
+        private static final class CadenceState {
+            private double remainder;
+            private long lastSeen;
+        }
     }
 
     private static void putVec4(final ByteBuffer buffer, final double x, final double y,
@@ -1060,6 +1123,13 @@ public final class GpuParticleEngine {
         glDepthFunc(state.depthFunction()); glDepthMask(false); glDisable(GL_CULL_FACE);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
         for (ParticleType type : ParticleType.values()) {
+            // Old particles can outlive an authority loss. Do not overlay them
+            // on the CPU fallback; keep diagnostic probes drawable.
+            if (readiness == Readiness.READY
+                && (type == ParticleType.FIRE || type == ParticleType.SMOKE)
+                && semanticProbeLayer != type.defaultLayer
+                && frameSequence > fireCoverageLossFrame[type.defaultLayer.ordinal()]
+                && gpuOpticalWeight(type.defaultLayer) < 0.001F) continue;
             if (type == ParticleType.FIRE || type == ParticleType.EMBER
                 || type == ParticleType.EXPLOSION_FIRE) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
             else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1246,7 +1316,7 @@ public final class GpuParticleEngine {
                 continue;
             }
             boolean realDemand = schedule != null && schedule.commandsSubmitted() > 0
-                && schedule.particlesAccepted() > 0L;
+                && (schedule.particlesAccepted() > 0L || schedule.fireLocationsRequested() > 0);
             long outputPopulation = completed.activeByLayer()[index]
                 + Integer.toUnsignedLong(completed.spawnedByLayer()[index]);
             long culledPopulation = completed.distanceCulledByLayer()[index]
@@ -1258,8 +1328,17 @@ public final class GpuParticleEngine {
                 layer, new GpuLayerHealthPolicy.MatchedFrame(completed.frameSequence(),
                     completed.scheduleIdentity(), completed.scheduleIdentity(), false,
                     realDemand, expectedVisibility, outputPopulation > 0L,
-                    completed.visibleByLayer()[index]));
-            if (evaluation == GpuLayerHealthPolicy.Evaluation.DEGRADED) {
+                    completed.visibleByLayer()[index],
+                    schedule == null || schedule.fireCoverageComplete()));
+            if (evaluation == GpuLayerHealthPolicy.Evaluation.COVERAGE_LOST) {
+                // This frame's CPU render plan was extracted before the async
+                // result arrived. Keep old GPU particles until the next plan.
+                fireCoverageLossFrame[index] = frameSequence;
+                WarMod.LOGGER.warn("GPU semantic layer {} retained {} of {} fire locations; "
+                    + "actual route is now CPU until full coverage can be verified",
+                    layer.name().toLowerCase(java.util.Locale.ROOT),
+                    schedule.fireLocationsScheduled(), schedule.fireLocationsRequested());
+            } else if (evaluation == GpuLayerHealthPolicy.Evaluation.DEGRADED) {
                 WarMod.LOGGER.warn("GPU semantic layer {} produced zero visible instances for "
                     + "eight matched real-work frames; actual route is now CPU",
                     layer.name().toLowerCase(java.util.Locale.ROOT));
@@ -1782,7 +1861,8 @@ public final class GpuParticleEngine {
         long particlesRejectedByDeadList, long aliveParticles,
         long visibleInstances, long distanceCulled, long projectedSizeCulled,
         long frustumCulled, long depthCulled, long capacityCulled,
-        String actualRoute) { }
+        String actualRoute, int fireLocationsRequested,
+        int fireLocationsScheduled, boolean fireCoverageComplete) { }
     public record GpuStageTimings(GpuTiming update, GpuTiming spawn,
         GpuTiming cull, GpuTiming raster) { }
     public record GpuTiming(double p50Millis, double p95Millis,

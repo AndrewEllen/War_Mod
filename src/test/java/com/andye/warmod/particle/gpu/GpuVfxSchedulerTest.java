@@ -306,6 +306,25 @@ final class GpuVfxSchedulerTest {
         return List.copyOf(commands);
     }
 
+    @Test
+    void fireCapacityLossIsReportedAsMissingWorldLocations() {
+        ArrayList<EmitterCommand> sources = new ArrayList<>();
+        for (int index = 0; index < 4_200; index++) {
+            sources.add(new EmitterCommand(new Vec3(index + 0.5, 0.5, 0.5), Vec3.ZERO,
+                1.0F, 2.0F, 1.0F, 0.4F, 0.1F, 0.8F,
+                0.2F, 0.0F, 0.0F, 2, index, ParticleType.FIRE, 1, 1.0F));
+        }
+        EffectSubmission fire = new EffectSubmission(new EffectDescriptor(
+            EffectClass.FIRE_FIELD, 811L, Vec3.ZERO, 10_000.0F, 1.0F),
+            Map.of(VisualLayer.FLAMES, sources));
+        var result = schedule(frame(fire), 100.0, 81L);
+        var flames = result.layerSchedules().get(VisualLayer.FLAMES);
+        assertEquals(4_200, flames.fireLocationsRequested());
+        assertEquals(4_096, flames.fireLocationsScheduled());
+        assertFalse(flames.fireCoverageComplete());
+        assertEquals(104, flames.capacityCulled());
+    }
+
     private static List<Card> cards(final int count, final float radius,
         final float opacity) {
         ArrayList<Card> cards = new ArrayList<>(count);

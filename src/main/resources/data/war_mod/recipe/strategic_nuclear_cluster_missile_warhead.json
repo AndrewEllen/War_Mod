@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "war_mod:strategic_nuclear_missile_warhead",
+    "minecraft:tnt",
+    "minecraft:iron_ingot"
+  ],
+  "result": {
+    "id": "war_mod:strategic_nuclear_cluster_missile_warhead"
+  }
+}

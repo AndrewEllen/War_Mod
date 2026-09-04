@@ -12,6 +12,7 @@ public final class MissileSiloRenderState extends BlockEntityRenderState {
     public MissileSiloState siloState = MissileSiloState.EMPTY;
     public Direction facing = Direction.NORTH;
     public boolean visible;
+    public boolean large;
     public double reloadOffsetY;
     public float doorProgress;
 }

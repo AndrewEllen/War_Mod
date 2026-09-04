@@ -109,11 +109,11 @@ public final class MasterExplosiveScreen extends Screen {
 		WarModUiText.frame(graphics, left, top, PANEL_WIDTH, PANEL_HEIGHT);
 		WarModUiText.section(graphics, left + 12, top + 38, PANEL_WIDTH - 24, 140);
 		WarModUiText.section(graphics, left + 12, top + 184, PANEL_WIDTH - 24, 28);
-		graphics.text(font, title, left + 14, top + 9, WarModUiText.ACCENT);
-		graphics.text(font, Component.literal("YIELD"), left + 20, top + 136, 0xFF8299A2);
+		WarModUiText.text(graphics, font, title, left + 14, top + 9, WarModUiText.ACCENT);
+		WarModUiText.text(graphics, font, Component.literal("YIELD"), left + 20, top + 136, WarModUiText.TEXT_MUTED);
 		String yieldName = config.yield().displayName();
-		graphics.text(font, Component.literal(yieldName),
-			left + (PANEL_WIDTH - font.width(yieldName)) / 2, top + 153, 0xFFFFD27A);
+		WarModUiText.text(graphics, font, Component.literal(yieldName),
+			left + (PANEL_WIDTH - font.width(yieldName)) / 2, top + 153, WarModUiText.ACCENT);
 		StrategicExplosionProfile profile = StrategicExplosionProfiles.get(config.yield());
 		String dimensions = String.format(
 			java.util.Locale.ROOT,
@@ -122,8 +122,8 @@ public final class MasterExplosiveScreen extends Screen {
 			profile.downwardRadius(),
 			profile.entityBlastRadius() * 2.0F
 		);
-		graphics.text(font, Component.literal(dimensions),
-			left + (PANEL_WIDTH - font.width(dimensions)) / 2, top + 191, 0xFFC8D7DD);
+		WarModUiText.text(graphics, font, Component.literal(dimensions),
+			left + (PANEL_WIDTH - font.width(dimensions)) / 2, top + 191, WarModUiText.TEXT);
 		super.extractRenderState(graphics, mouseX, mouseY, partialTick);
 	}
 

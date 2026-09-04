@@ -21,7 +21,7 @@ import net.minecraft.world.phys.Vec3;
  * alter the spatial grid and therefore never churn surviving identities.
  */
 public final class FireVisualRepresentationBuilder {
-    private static final int ANGULAR_COVERAGE_SECTORS = 32;
+
 
     private FireVisualRepresentationBuilder() { }
 
@@ -80,7 +80,10 @@ public final class FireVisualRepresentationBuilder {
             if (!FireVisualBand.HOST.contains(host.position().distanceTo(viewer))) continue;
             candidates.add(hostCell(host, clumpStrength(host.host(), hostEnergy)));
         }
-        return bounded(FireVisualBand.HOST, candidates, viewer);
+        // Packet capacity is handled by FireNetworking's atomic pages. Dropping
+        // hosts here removes burning ground; particle LOD owns the draw cost.
+        candidates.sort(Comparator.comparingLong(FireVisualCell::id));
+        return new BandResult(List.copyOf(candidates), 0);
     }
 
     private static BandResult buildAggregateBand(final FireVisualBand band,
@@ -95,59 +98,8 @@ public final class FireVisualRepresentationBuilder {
         for (Map.Entry<CellCoordinate, CellAccumulator> entry : buckets.entrySet()) {
             candidates.add(entry.getValue().finish(band, cellSize, entry.getKey()));
         }
-        return bounded(band, candidates, viewer);
-    }
-
-    private static BandResult bounded(final FireVisualBand band,
-        final List<FireVisualCell> candidates, final Vec3 viewer) {
-        if (candidates.size() <= band.cellBudget()) {
-            ArrayList<FireVisualCell> ordered = new ArrayList<>(candidates);
-            ordered.sort(Comparator.comparingLong(FireVisualCell::id));
-            return new BandResult(List.copyOf(ordered), 0);
-        }
-
-        LinkedHashMap<Long, FireVisualCell> selected = new LinkedHashMap<>();
-        FireVisualCell[] sectorBest = new FireVisualCell[ANGULAR_COVERAGE_SECTORS];
-        Comparator<FireVisualCell> ranking = representativeOrder(viewer);
-        for (FireVisualCell candidate : candidates) {
-            int sector = angularSector(viewer, candidate.centroid());
-            FireVisualCell incumbent = sectorBest[sector];
-            if (incumbent == null || ranking.compare(candidate, incumbent) < 0)
-                sectorBest[sector] = candidate;
-        }
-        for (FireVisualCell candidate : sectorBest) {
-            if (candidate != null && selected.size() < band.cellBudget())
-                selected.put(candidate.id(), candidate);
-        }
-        ArrayList<FireVisualCell> ranked = new ArrayList<>(candidates);
-        ranked.sort(ranking);
-        for (FireVisualCell candidate : ranked) {
-            if (selected.size() >= band.cellBudget()) break;
-            selected.putIfAbsent(candidate.id(), candidate);
-        }
-        ArrayList<FireVisualCell> result = new ArrayList<>(selected.values());
-        result.sort(Comparator.comparingLong(FireVisualCell::id));
-        return new BandResult(List.copyOf(result), candidates.size() - result.size());
-    }
-
-    private static Comparator<FireVisualCell> representativeOrder(final Vec3 viewer) {
-        return Comparator.comparingDouble((FireVisualCell cell) ->
-            -representativeImportance(cell, viewer)).thenComparingLong(FireVisualCell::id);
-    }
-
-    private static double representativeImportance(final FireVisualCell cell,
-        final Vec3 viewer) {
-        double energy = cell.flameEnergy() + cell.smokeMass() * 0.42
-            + cell.coveredArea() * 0.06;
-        double distance = Math.max(1.0, cell.centroid().distanceTo(viewer));
-        return energy * (0.72 + 96.0 / (96.0 + distance));
-    }
-
-    private static int angularSector(final Vec3 viewer, final Vec3 position) {
-        double angle = Math.atan2(position.z - viewer.z, position.x - viewer.x);
-        if (angle < 0.0) angle += Math.PI * 2.0;
-        return Math.min(ANGULAR_COVERAGE_SECTORS - 1,
-            (int)Math.floor(angle / (Math.PI * 2.0) * ANGULAR_COVERAGE_SECTORS));
+        candidates.sort(Comparator.comparingLong(FireVisualCell::id));
+        return new BandResult(List.copyOf(candidates), 0);
     }
 
     private static FireVisualCell patchCell(final FireCellSnapshot patch,
@@ -257,14 +209,14 @@ public final class FireVisualRepresentationBuilder {
      */
     private static Vec3 cellCenter(final CellCoordinate coordinate,
         final int cellSize) {
-        int verticalSize = Math.max(1, cellSize / 2);
+        int verticalSize = 1;
         return new Vec3(coordinate.x() * (double)cellSize + cellSize * 0.5,
             coordinate.y() * (double)verticalSize + verticalSize * 0.5,
             coordinate.z() * (double)cellSize + cellSize * 0.5);
     }
 
     private static CellCoordinate coordinate(final BlockPos position, final int cellSize) {
-        int verticalSize = Math.max(1, cellSize / 2);
+        int verticalSize = 1;
         return new CellCoordinate(Math.floorDiv(position.getX(), cellSize),
             Math.floorDiv(position.getY(), verticalSize),
             Math.floorDiv(position.getZ(), cellSize));
@@ -272,8 +224,8 @@ public final class FireVisualRepresentationBuilder {
 
     private static CellCoordinate parentCoordinate(final CellCoordinate coordinate,
         final int cellSize, final int parentSize) {
-        int verticalSize = Math.max(1, cellSize / 2);
-        int parentVerticalSize = Math.max(1, parentSize / 2);
+        int verticalSize = 1;
+        int parentVerticalSize = 1;
         return new CellCoordinate(Math.floorDiv(coordinate.x() * cellSize, parentSize),
             Math.floorDiv(coordinate.y() * verticalSize, parentVerticalSize),
             Math.floorDiv(coordinate.z() * cellSize, parentSize));
@@ -369,8 +321,9 @@ public final class FireVisualRepresentationBuilder {
             windX += patch.wind().x * sampleWeight;
             windY += patch.wind().y * sampleWeight;
             windZ += patch.wind().z * sampleWeight;
-            double sampleFlame = Math.max(0.0,
-                patch.intensity() * patch.coverage() * (0.25 + patch.heat() * 0.75));
+            double sampleFlame = patch.phase() == FirePhase.SMOLDERING ? 0.0
+                : Math.max(0.0,
+                    patch.intensity() * patch.coverage() * (0.25 + patch.heat() * 0.75));
             double sampleSmoke = Math.max(0.0, patch.smoke() * patch.coverage());
             flameEnergy += sampleFlame; smokeMass += sampleSmoke;
             flameEnvelopeHeight = Math.max(flameEnvelopeHeight,
@@ -382,8 +335,10 @@ public final class FireVisualRepresentationBuilder {
             faceEnergy[patch.anchor().face().ordinal()] += sampleFlame + sampleSmoke * 0.25;
             seed ^= mix(patch.seed() ^ patch.id());
             ignitionGameTime = Math.min(ignitionGameTime, patch.ignitionGameTime());
-            if (sampleFlame + sampleSmoke > phaseEnergy) {
-                phaseEnergy = sampleFlame + sampleSmoke;
+            double phaseScore = sampleFlame > 0.012 ? 1_000_000.0 + sampleFlame
+                : sampleSmoke;
+            if (phaseScore > phaseEnergy) {
+                phaseEnergy = phaseScore;
                 phase = patch.phase();
             }
         }
@@ -398,7 +353,7 @@ public final class FireVisualRepresentationBuilder {
                 (float)flameEnergy, flameEnvelopeHeight, (float)smokeMass, maximumHeat,
                 (float)(intensity / safe), (float)coveredArea,
                 new Vec3(windX / safe, windY / safe, windZ / safe),
-                seed == 0L ? mix(host.asLong()) : seed, Direction.values()[face], phase,
+                mix(host.asLong()), Direction.values()[face], phase,
                 ignitionGameTime == Long.MAX_VALUE ? 0L : ignitionGameTime);
         }
     }
@@ -453,8 +408,11 @@ public final class FireVisualRepresentationBuilder {
             seed ^= mix(host.seed() ^ host.host().asLong());
             hosts++;
             ignitionGameTime = Math.min(ignitionGameTime, host.ignitionGameTime());
-            if (host.flameEnergy() + host.smokeMass() > phaseEnergy) {
-                phaseEnergy = host.flameEnergy() + host.smokeMass();
+            double phaseScore = host.flameEnergy() > 0.012
+                && host.phase() != FirePhase.SMOLDERING
+                ? 1_000_000.0 + host.flameEnergy() : host.smokeMass();
+            if (phaseScore > phaseEnergy) {
+                phaseEnergy = phaseScore;
                 phase = host.phase();
             }
         }
@@ -485,7 +443,7 @@ public final class FireVisualRepresentationBuilder {
                 (float)flameEnergy, flameEnvelopeHeight, (float)smokeMass, maximumHeat,
                 (float)(intensity / safe), (float)coveredArea, 0.0F,
                 new Vec3(windX / safe, windY / safe, windZ / safe), hosts,
-                seed == 0L ? id : seed, Direction.values()[face], phase,
+                id, Direction.values()[face], phase,
                 ignitionGameTime == Long.MAX_VALUE ? 0L : ignitionGameTime);
         }
     }

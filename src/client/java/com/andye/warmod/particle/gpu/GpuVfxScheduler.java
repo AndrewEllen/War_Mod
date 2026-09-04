@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import net.minecraft.util.Mth;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
@@ -136,8 +137,14 @@ final class GpuVfxScheduler {
             layerSchedule.emittersRequested += demand.commands.size();
             layerSchedule.particlesRequested += Math.round(demand.requestedRate);
             layerSchedule.particlesAccepted += Math.round(demand.allocatedRate);
+            if (demand.surfaceFire())
+                layerSchedule.fireLocationsRequested += topologyBuckets(demand).size();
             if (demand.allocatedRate <= 0.0 || demand.allocatedSlots <= 0) continue;
             List<EmitterCommand> represented = represent(demand);
+            if (demand.surfaceFire())
+                layerSchedule.fireLocationsScheduled += (int)represented.stream()
+                    .filter(command -> command.spawnCount() * command.lifetimeSeconds() * 0.75F >= 1.0F)
+                    .mapToLong(command -> topologyKey(demand, command)).distinct().count();
             scheduled.addAll(represented);
             scheduledByLayer.merge(demand.layer, represented.size(), Integer::sum);
             layerSchedule.emittersScheduled += represented.size();
@@ -180,10 +187,8 @@ final class GpuVfxScheduler {
             Vec3 normal = cell.surfaceNormal().normalize();
             boolean exactPatch = cell.representation().exactPatch();
             if (!cell.plan().flames().isEmpty()) {
-                int cardIndex = 0;
                 for (Card card : cell.plan().flames()) {
-                    long tongueSeed = mix64(cell.seed() ^ card.seed()
-                        ^ cardIndex++ * 0x9E3779B97F4A7C15L);
+                    long tongueSeed = mix64(cell.seed() ^ card.seed());
                     float lifetime = 0.60F + (float) unit(tongueSeed, 0) * 0.80F;
                     float envelope = Math.max(card.radius() * 1.6F,
                         cell.flameEnvelopeHeight());
@@ -194,19 +199,17 @@ final class GpuVfxScheduler {
                     flames.add(new EmitterCommand(position, velocity, 1.0F,
                         lifetime, 1.0F, 0.18F + cell.heat() * 0.42F, 0.018F,
                         Math.min(0.98F, card.opacity()), card.radius(),
-                        Math.max(0.025F, card.radius() * (exactPatch ? 0.34F : 0.52F)),
+                        0.0F,
                         0.08F + cell.heat() * 0.08F,
-                        exactPatch ? 2 : 1,
+                        Math.max(exactPatch ? 2 : 1, (int)Math.ceil(1.0 / (lifetime * 0.75))),
                         mix32(tongueSeed), ParticleType.FIRE,
                         FIRE_SURFACE_DISTRIBUTION_FLAG,
                         1.0F + cell.heat(), VisualLayer.FLAMES, normal, 2));
                 }
             }
             if (!cell.plan().smoke().isEmpty()) {
-                int cardIndex = 0;
                 for (Card card : cell.plan().smoke()) {
-                    long smokeSeed = mix64(cell.seed() ^ card.seed()
-                        ^ cardIndex++ * 0xD1B54A32D192ED03L);
+                    long smokeSeed = mix64(cell.seed() ^ card.seed());
                     float lifetime = 3.5F + (float) unit(smokeSeed, 1) * 1.7F;
                     smoke.add(new EmitterCommand(card.position().add(normal.scale(0.06))
                         .add(0.0, Math.max(0.12, cell.flameEnvelopeHeight() * 0.18), 0.0),
@@ -214,7 +217,7 @@ final class GpuVfxScheduler {
                             .add(0.0, 0.46 + cell.heat() * 0.24, 0.0), 1.0F,
                         lifetime, 0.15F, 0.16F, 0.15F,
                         Math.min(0.72F, card.opacity()), card.radius(),
-                        Math.max(0.08F, card.radius() * 0.52F), 0.12F,
+                        0.0F, 0.12F,
                         exactPatch ? 1 : 1, mix32(smokeSeed), ParticleType.SMOKE,
                         FIRE_SURFACE_DISTRIBUTION_FLAG,
                         0.74F + cell.plan().representedSmokeOpticalDepth(),
@@ -601,6 +604,9 @@ final class GpuVfxScheduler {
     }
 
     private static long topologyKey(final LayerDemand demand, final EmitterCommand command) {
+        // Preserve actual burning locations. Polar bins around a changing region
+        // centroid grouped unrelated fires together and could erase whole hosts.
+        if (demand.surfaceFire()) return BlockPos.containing(command.position()).asLong();
         Vec3 relative = command.position().subtract(demand.descriptor.position());
         double angle = Math.atan2(relative.z, relative.x);
         if (angle < 0.0) angle += Math.PI * 2.0;
@@ -818,7 +824,12 @@ final class GpuVfxScheduler {
     record LayerSchedule(int commandsSubmitted, int emittersRequested,
         int emittersScheduled, long particlesRequested,
         long particlesAccepted, long particlesRejected,
-        int frustumCulled, int capacityCulled) { }
+        int frustumCulled, int capacityCulled,
+        int fireLocationsRequested, int fireLocationsScheduled) {
+        boolean fireCoverageComplete() {
+            return fireLocationsScheduled >= fireLocationsRequested;
+        }
+    }
 
     record BudgetLimits(double spawnRatePerSecond,
         double fragmentCostPerSecond, int emitterCapacity,
@@ -921,9 +932,16 @@ final class GpuVfxScheduler {
 
         private int topologyFloor() {
             if (commands.isEmpty()) return 0;
-            if (cachedTopologyFloor < 0) cachedTopologyFloor = Math.min(commands.size(),
-                Math.min(topologyMinimum(layer), topologyBuckets(this).size()));
+            if (cachedTopologyFloor < 0) cachedTopologyFloor = surfaceFire()
+                ? topologyBuckets(this).size()
+                : Math.min(commands.size(),
+                    Math.min(topologyMinimum(layer), topologyBuckets(this).size()));
             return cachedTopologyFloor;
+        }
+
+        private boolean surfaceFire() {
+            return descriptor.effectClass() == EffectClass.FIRE_FIELD
+                && (layer == VisualLayer.FLAMES || layer == VisualLayer.SMOKE);
         }
     }
 
@@ -1051,12 +1069,15 @@ final class GpuVfxScheduler {
         private long particlesRequested;
         private long particlesAccepted;
         private int frustumCulled;
+        private int fireLocationsRequested;
+        private int fireLocationsScheduled;
 
         private LayerSchedule snapshot() {
             return new LayerSchedule(commandsSubmitted, emittersRequested,
                 emittersScheduled, particlesRequested, particlesAccepted,
                 Math.max(0L, particlesRequested - particlesAccepted),
-                frustumCulled, Math.max(0, emittersRequested - emittersScheduled));
+                frustumCulled, Math.max(0, emittersRequested - frustumCulled - emittersScheduled),
+                fireLocationsRequested, fireLocationsScheduled);
         }
     }
 

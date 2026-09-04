@@ -15,6 +15,7 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
@@ -31,7 +32,7 @@ public final class ArtilleryCannonScreen extends AbstractContainerScreen<Artille
 
     public ArtilleryCannonScreen(final ArtilleryCannonMenu menu, final Inventory inventory,
         final Component title) {
-        super(menu, inventory, title, 336, 272);
+        super(menu, inventory, title, 336, 296);
         titleLabelX = -10_000;
         inventoryLabelX = -10_000;
     }
@@ -78,44 +79,52 @@ public final class ArtilleryCannonScreen extends AbstractContainerScreen<Artille
         drawMap(graphics, mouseX, mouseY);
         WarModUiText.section(graphics, leftPos + PANEL_X - 6, topPos + 30,
             PANEL_WIDTH + 12, 144);
+        for (Slot slot : menu.slots) {
+            int x = leftPos + slot.x - 1;
+            int y = topPos + slot.y - 1;
+            WarModUiText.slot(graphics, x, y,
+                mouseX >= x && mouseX < x + 18 && mouseY >= y && mouseY < y + 18, false);
+        }
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        WarModUiText.text(graphics, font, Component.literal("Inventory"), leftPos + 87, topPos + 207,
+            WarModUiText.TEXT);
 
         ArtilleryCannonBlockEntity cannon = menu.cannon();
-        graphics.text(font, Component.literal("ARTILLERY FIRE CONTROL"),
+        WarModUiText.text(graphics, font, Component.literal("ARTILLERY FIRE CONTROL"),
             leftPos + 8, topPos + 8, WarModUiText.ACCENT);
-        graphics.text(font, Component.literal("MAX RANGE 1,000 BLOCKS"),
+        WarModUiText.text(graphics, font, Component.literal("MAX RANGE 1,000 BLOCKS"),
             leftPos + 18, topPos + 184, WarModUiText.TEXT_MUTED);
-        graphics.text(font, Component.literal("AMMUNITION"),
-            leftPos + PANEL_X, topPos + 36, 0xFF9DB4BD);
+        WarModUiText.text(graphics, font, Component.literal("AMMUNITION"),
+            leftPos + PANEL_X, topPos + 36, WarModUiText.TEXT_MUTED);
         if (cannon != null) {
             String ammo = cannon.ammunition().isEmpty()
                 ? "EMPTY" : cannon.ammunition().getHoverName().getString();
-            graphics.text(font, Component.literal(ammo),
-                leftPos + PANEL_X, topPos + 72, 0xFFE6EDF0);
-            graphics.text(font, Component.literal("COUNT " + cannon.ammunition().getCount() + " / 16"),
-                leftPos + PANEL_X, topPos + 84, 0xFFC7D8DD);
-            graphics.text(font, Component.literal(cannon.cooldown() > 0
+            WarModUiText.text(graphics, font, WarModUiText.ellipsize(font, Component.literal(ammo), PANEL_WIDTH),
+                leftPos + PANEL_X, topPos + 72, WarModUiText.TEXT);
+            WarModUiText.text(graphics, font, Component.literal("COUNT " + cannon.ammunition().getCount() + " / 16"),
+                leftPos + PANEL_X, topPos + 84, WarModUiText.TEXT);
+            WarModUiText.text(graphics, font, Component.literal(cannon.cooldown() > 0
                     ? "CYCLING " + cannon.cooldown() : "READY"),
                 leftPos + PANEL_X, topPos + 104,
-                cannon.cooldown() > 0 ? 0xFFFFB65C : 0xFF72D69B);
+                cannon.cooldown() > 0 ? WarModUiText.WARNING : WarModUiText.SUCCESS);
             if (!cannon.lastError().isBlank()) {
-                graphics.text(font, Component.literal(cannon.lastError()),
-                    leftPos + PANEL_X, topPos + 124, 0xFFFF7568);
+                WarModUiText.text(graphics, font, WarModUiText.ellipsize(font, Component.literal(cannon.lastError()), PANEL_WIDTH),
+                    leftPos + PANEL_X, topPos + 124, WarModUiText.ERROR);
             }
         }
 
         Vec3 hovered = insideMap(mouseX, mouseY) ? mapToWorld(mouseX, mouseY) : null;
         if (hovered != null) {
-            graphics.text(font, Component.literal("HOVER " + coordinates(hovered)),
+            WarModUiText.text(graphics, font, WarModUiText.ellipsize(font, Component.literal("Hover " + coordinates(hovered)), imageWidth - 36),
                 leftPos + 18, topPos + 194, insideRange(mouseX, mouseY)
-                    ? 0xFFFFFFFF : 0xFFFF7568);
+                    ? WarModUiText.TEXT : WarModUiText.ERROR);
         }
         if (selectedTarget != null) {
-            graphics.text(font, Component.literal("TARGET " + coordinates(selectedTarget)),
-                leftPos + PANEL_X, topPos + 116, 0xFFFFD879);
+            WarModUiText.text(graphics, font, WarModUiText.ellipsize(font, Component.literal("Target " + coordinates(selectedTarget)), PANEL_WIDTH),
+                leftPos + PANEL_X, topPos + 116, WarModUiText.WARNING);
         }
-        graphics.text(font, Component.literal("Click map to select target"),
-            leftPos + 18, topPos + 16 + MAP_Y + MAP_SIZE, 0xFFB7CBD2);
+        if (hovered == null) WarModUiText.text(graphics, font, Component.literal("Click map to select target"),
+            leftPos + 18, topPos + 194, WarModUiText.TEXT_MUTED);
     }
 
     private void drawMap(final GuiGraphicsExtractor graphics, final int mouseX,

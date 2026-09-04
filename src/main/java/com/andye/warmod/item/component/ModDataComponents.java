@@ -26,6 +26,8 @@ public final class ModDataComponents {
         .<FireIntensity>builder().persistent(FireIntensity.CODEC).build();
     public static final DataComponentType<FireDebugConfig> FIRE_DEBUG_CONFIG = DataComponentType
         .<FireDebugConfig>builder().persistent(FireDebugConfig.CODEC).build();
+    public static final DataComponentType<Integer> MISSILE_GUIDANCE_TIER = DataComponentType
+        .<Integer>builder().persistent(com.mojang.serialization.Codec.intRange(1, 3)).build();
     private static boolean registered;
 
     private ModDataComponents() {
@@ -42,6 +44,7 @@ public final class ModDataComponents {
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("master_explosive_config"), MASTER_EXPLOSIVE_CONFIG);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_intensity"), FIRE_DEBUG_INTENSITY);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_config"), FIRE_DEBUG_CONFIG);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("missile_guidance_tier"), MISSILE_GUIDANCE_TIER);
         registered = true;
     }
 

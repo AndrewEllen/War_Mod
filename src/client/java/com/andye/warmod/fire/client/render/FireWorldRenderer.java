@@ -115,8 +115,11 @@ public final class FireWorldRenderer {
             double projectedHostDiameter = projection.projectedDiameter(worldPosition, 0.5F);
             int detailLevel = ClientFireVisualManager.INSTANCE.lodLevel(level,
                 cell, projectedHostDiameter);
+            double continuousDetail = Math.max(0.0, Math.min(4.0,
+                Math.log(FireVisualLodPolicy.FULL_DETAIL_PIXELS
+                    / Math.max(0.01, projectedHostDiameter)) / Math.log(2.6)));
             float representationWeight = visual.transitionWeight()
-                * FireVisualLodPolicy.representationWeight(cell.band(), distance, detailLevel);
+                * FireVisualLodPolicy.representationWeight(cell.band(), distance, continuousDetail);
             if (representationWeight <= 0.001F) continue;
             BlockPos centerBlock = BlockPos.containing(worldPosition);
             CellPlan plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,

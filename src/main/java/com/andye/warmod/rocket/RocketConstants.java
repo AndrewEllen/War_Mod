@@ -12,5 +12,7 @@ public final class RocketConstants {
     public static final double GRAVITY_PER_TICK = 0.012;
     public static final double DRAG_PER_TICK = 0.998;
     public static final double WIND_RESPONSE_PER_TICK = 0.006;
+    /** Motor holds the initial heading for one second before a gentle ballistic coast. */
+    public static final int MOTOR_BURN_TICKS = 20;
     private RocketConstants() { }
 }

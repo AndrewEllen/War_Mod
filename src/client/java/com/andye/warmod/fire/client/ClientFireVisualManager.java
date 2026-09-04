@@ -314,8 +314,8 @@ public final class ClientFireVisualManager {
     private record HierarchyLodKey(int x, int y, int z) {
         private static HierarchyLodKey of(final FireVisualCell cell) {
             int rootSize = FireVisualBand.HORIZON.preferredCellSize();
-            int cellVerticalSize = Math.max(1, cell.cellSize() / 2);
-            int rootVerticalSize = Math.max(1, rootSize / 2);
+            int cellVerticalSize = 1;
+            int rootVerticalSize = 1;
             int worldX = cell.cellX() * cell.cellSize();
             int worldY = cell.cellY() * cellVerticalSize;
             int worldZ = cell.cellZ() * cell.cellSize();

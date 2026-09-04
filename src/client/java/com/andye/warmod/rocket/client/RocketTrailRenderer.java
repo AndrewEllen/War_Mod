@@ -1,5 +1,6 @@
 package com.andye.warmod.rocket.client;
 
+import com.andye.warmod.rocket.RocketConstants;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -10,6 +11,7 @@ public final class RocketTrailRenderer {
 
     public static void renderFlame(final PoseStack.Pose pose, final VertexConsumer buffer,
         final RocketProjectileRenderState state) {
+        if (state.ageInTicks > RocketConstants.MOTOR_BURN_TICKS) return;
         float pulse = 0.85F + 0.35F * (0.5F + 0.5F * (float) Math.sin(
             state.ageInTicks * 0.93 + state.visualSeed * 0.0001));
         float base = -(float) state.payloadType.length() / 2.0F;
@@ -26,6 +28,7 @@ public final class RocketTrailRenderer {
 
     public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
         final RocketProjectileRenderState state) {
+        if (state.ageInTicks > RocketConstants.MOTOR_BURN_TICKS) return;
         float base = -(float) state.payloadType.length() / 2.0F;
         int samples = switch (state.lod) { case NEAR -> 14; case MEDIUM -> 8; case FAR -> 4; };
         float spacing = switch (state.lod) { case NEAR -> 0.27F; case MEDIUM -> 0.36F; case FAR -> 0.52F; };

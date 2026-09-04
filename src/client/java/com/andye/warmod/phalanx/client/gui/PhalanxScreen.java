@@ -16,7 +16,7 @@ import net.minecraft.world.inventory.Slot;
 public final class PhalanxScreen
     extends AbstractContainerScreen<PhalanxMenu> {
 
-    private static final int SCREEN_WIDTH = 196;
+    private static final int SCREEN_WIDTH = 220;
     private static final int SCREEN_HEIGHT = 252;
 
     public PhalanxScreen(
@@ -74,35 +74,35 @@ public final class PhalanxScreen
             ? network.bloom()
             : turret.bloom();
 
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal("PHALANX POINT DEFENCE"),
             leftPos + 8,
             topPos + 8,
             WarModUiText.ACCENT
         );
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
-            Component.literal(
+            WarModUiText.ellipsize(font, Component.literal(
                 "Status: " + status.name().replace('_', ' ')
-            ),
+            ), imageWidth - 28),
             leftPos + 14,
             topPos + 31,
             status == PhalanxGunStatus.OUT_OF_AMMO
-                ? 0xFFFF7568
-                : 0xFF8FD5B5
+                ? WarModUiText.ERROR
+                : WarModUiText.SUCCESS
         );
 
         String enabledText = enabled ? "ENABLED" : "DISABLED";
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(enabledText),
             leftPos + imageWidth - font.width(enabledText) - 14,
-            topPos + 31,
-            enabled ? 0xFF8FD5B5 : 0xFFFF7568
+            topPos + 19,
+            enabled ? WarModUiText.SUCCESS : WarModUiText.ERROR
         );
 
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(
                 "Ammunition: " + rounds + " / "
@@ -110,9 +110,9 @@ public final class PhalanxScreen
             ),
             leftPos + 14,
             topPos + 90,
-            0xFFE2EAED
+            WarModUiText.TEXT
         );
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(
                 "Tracking: "
@@ -121,9 +121,9 @@ public final class PhalanxScreen
             ),
             leftPos + 14,
             topPos + 104,
-            0xFFC5D5DC
+            WarModUiText.TEXT_MUTED
         );
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(
                 "Firing: "
@@ -132,36 +132,34 @@ public final class PhalanxScreen
             ),
             leftPos + 14,
             topPos + 118,
-            0xFFC5D5DC
+            WarModUiText.TEXT_MUTED
         );
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal("Azimuth: 360 degrees"),
             leftPos + 14,
             topPos + 132,
-            0xFFC5D5DC
+            WarModUiText.TEXT_MUTED
         );
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(
                 String.format(
                     Locale.ROOT,
-                    "Elevation %.0f to +%.0f | Spread %.2f",
-                    PhalanxConstants.MIN_ELEVATION_DEGREES,
-                    PhalanxConstants.MAX_ELEVATION_DEGREES,
+                    "Full elevation | Spread %.2f",
                     PhalanxConstants.BASE_SPREAD_DEGREES + bloom
                 )
             ),
             leftPos + 14,
             topPos + 146,
-            0xFFC5D5DC
+            WarModUiText.TEXT_MUTED
         );
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal("Inventory"),
-            leftPos + 10,
-            topPos + 158,
-            0xFFC5D5DC
+            leftPos + 29,
+            topPos + 155,
+            WarModUiText.TEXT_MUTED
         );
     }
 

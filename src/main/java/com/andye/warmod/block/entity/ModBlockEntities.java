@@ -34,6 +34,8 @@ public final class ModBlockEntities {
     public static final BlockEntityType<ItemPipeBlockEntity> ITEM_PIPE =
         new BlockEntityType<>(ItemPipeBlockEntity::new, Set.of(ModBlocks.ITEM_PIPE));
 
+    public static final ResourceKey<BlockEntityType<?>> MISSILE_WORKBENCH_KEY = key("missile_workbench");
+    public static final BlockEntityType<MissileWorkbenchBlockEntity> MISSILE_WORKBENCH = new BlockEntityType<>(MissileWorkbenchBlockEntity::new, Set.of(ModBlocks.MISSILE_WORKBENCH));
     private static boolean registered;
 
     private ModBlockEntities() {
@@ -50,6 +52,7 @@ public final class ModBlockEntities {
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, PHALANX_TURRET_KEY, PHALANX_TURRET);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, ITEM_PIPE_KEY, ITEM_PIPE);
+        Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, MISSILE_WORKBENCH_KEY, MISSILE_WORKBENCH);
         registered = true;
     }
 

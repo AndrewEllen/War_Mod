@@ -2,6 +2,7 @@ package com.andye.warmod.rocket.client;
 
 import com.andye.warmod.acoustics.ModSoundEvents;
 import com.andye.warmod.entity.RocketProjectileEntity;
+import com.andye.warmod.rocket.RocketConstants;
 import com.andye.warmod.icbm.client.audio.IcbmEngineLoopSound;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -47,6 +48,7 @@ public final class ClientRocketAudioManager {
         Set<UUID> seen = new HashSet<>();
         for (RocketProjectileEntity rocket : client.level.getEntitiesOfClass(
             RocketProjectileEntity.class, search, Entity -> Entity.isAlive())) {
+            if (rocket.age() > RocketConstants.MOTOR_BURN_TICKS) continue;
             UUID id = rocket.getUUID();
             seen.add(id);
             double distance = listener.distanceTo(rocket.position());

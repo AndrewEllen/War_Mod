@@ -1026,38 +1026,27 @@ public final class BlockbenchGameplayMeshes {
     };
 
     private static final Cube[] ARTILLERY_FIXED = {
-        new Cube(-16F, 0F, -13F, -10F, 4F, 13F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(10F, 0F, -13F, 16F, 4F, 13F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(-15F, 4F, -10F, -11F, 6F, 10F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(11F, 4F, -10F, 15F, 6F, 10F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(-10F, 4F, -12F, 10F, 7F, -7F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(-10F, 4F, 5F, 10F, 7F, 12F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(-11F, 3F, -8F, 11F, 8F, 8F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
+        new Cube(-8F, 0F, -8F, 8F, 2F, 8F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
+        new Cube(-5F, 2F, -5F, 5F, 7F, 5F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
         new Cube(-7F, 7F, -7F, 7F, 9F, 7F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(-14F, 1F, -14F, -11F, 3F, -12F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(11F, 1F, -14F, 14F, 3F, -12F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
-        new Cube(-16.3F, 0.7F, -10.5F, -9.7F, 3.6F, -6.5F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(-16.3F, 0.7F, -4.3F, -9.7F, 3.6F, -0.3F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(-16.3F, 0.7F, 2F, -9.7F, 3.6F, 6F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(-16.3F, 0.7F, 8F, -9.7F, 3.6F, 12F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(9.7F, 0.7F, -10.5F, 16.3F, 3.6F, -6.5F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(9.7F, 0.7F, -4.3F, 16.3F, 3.6F, -0.3F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(9.7F, 0.7F, 2F, 16.3F, 3.6F, 6F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(9.7F, 0.7F, 8F, 16.3F, 3.6F, 12F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
-        new Cube(-19F, -1F, 7F, -14F, 1.2F, 14F, 0F, 0F, 0F, 0F, 0F, 0F, 166, 138, 91, false),
-        new Cube(14F, -1F, 7F, 19F, 1.2F, 14F, 0F, 0F, 0F, 0F, 0F, 0F, 166, 138, 91, false),
-        new Cube(-14F, 1F, 9F, -10F, 3.2F, 18F, 0F, 0F, 0F, 0F, 0F, 0F, 166, 138, 91, false),
-        new Cube(10F, 1F, 9F, 14F, 3.2F, 18F, 0F, 0F, 0F, 0F, 0F, 0F, 166, 138, 91, false)
+        new Cube(-18F, 0F, -2F, -7F, 2F, 2F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
+        new Cube(7F, 0F, -2F, 18F, 2F, 2F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
+        new Cube(-6F, 0F, 6F, -3F, 2F, 18F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
+        new Cube(3F, 0F, 6F, 6F, 2F, 18F, 0F, 0F, 0F, 0F, 0F, 0F, 32, 41, 43, false),
+        new Cube(-20F, -0.5F, -4F, -15F, 1F, 4F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
+        new Cube(15F, -0.5F, -4F, 20F, 1F, 4F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
+        new Cube(-8F, -0.5F, 16F, -2F, 1F, 20F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
+        new Cube(2F, -0.5F, 16F, 8F, 1F, 20F, 0F, 0F, 0F, 0F, 0F, 0F, 96, 71, 53, false),
+        new Cube(-10.5F, 9F, 0F, -9.5F, 14F, 5F, 0F, 0F, 0F, 0F, 0F, 0F, 166, 138, 91, false),
+        new Cube(-10F, 6F, 6F, -5F, 7F, 11F, 0F, 0F, 0F, 0F, 0F, 0F, 166, 138, 91, false)
     };
 
     private static final Cube[] ARTILLERY_YAW = {
-        new Cube(-9F, 8F, -8F, 9F, 11F, 8F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
-        new Cube(-8F, 10F, -7F, 8F, 16F, 7F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
-        new Cube(-7F, 11F, -10F, 7F, 15F, -6F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
-        new Cube(-7F, 11F, 6F, 7F, 15F, 11F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(-6F, 8F, -5F, 6F, 10F, 5F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(-11F, 9F, -7F, -4F, 18F, -6F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
+        new Cube(4F, 9F, -7F, 11F, 18F, -6F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
         new Cube(-10F, 12F, -5F, -6F, 17F, 3F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
         new Cube(6F, 12F, -5F, 10F, 17F, 3F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
-        new Cube(-3F, 16F, 1F, 3F, 17F, 6F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
         new Cube(4F, 15F, -6F, 7F, 20F, -2F, 0F, 0F, 0F, 0F, 0F, 0F, 89, 99, 79, false),
         new Cube(4.4F, 16.2F, -6.3F, 6.6F, 18.7F, -6F, 0F, 0F, 0F, 0F, 0F, 0F, 69, 199, 196, true),
         new Cube(-8.2F, 11.7F, 3F, -8F, 14.2F, 6.5F, 0F, 0F, 0F, 0F, 0F, 0F, 214, 82, 60, false)

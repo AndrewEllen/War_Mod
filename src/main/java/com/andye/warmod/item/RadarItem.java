@@ -91,7 +91,7 @@ public final class RadarItem extends Item {
 
         context.getItemInHand().set(ModDataComponents.LINKED_RADAR_STATION, link);
         serverPlayer.sendSystemMessage(Component.literal(
-            "Missile Radar linked to station "
+            "Remote Display linked to station "
                 + link.radarId().toString().substring(0, 8)
         ));
         return InteractionResult.SUCCESS_SERVER;

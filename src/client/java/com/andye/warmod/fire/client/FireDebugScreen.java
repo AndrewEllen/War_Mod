@@ -88,15 +88,15 @@ public final class FireDebugScreen extends Screen {
         WarModUiText.frame(graphics, left, top, PANEL_WIDTH, PANEL_HEIGHT);
         WarModUiText.section(graphics, left + 12, top + 40, PANEL_WIDTH - 24, 110);
         WarModUiText.section(graphics, left + 12, top + 154, PANEL_WIDTH - 24, 16);
-        graphics.text(font, title, left + 14, top + 9, WarModUiText.ACCENT);
-        graphics.text(font, Component.literal("HEAT RELEASE / GROWTH CEILING"),
+        WarModUiText.text(graphics, font, title, left + 14, top + 9, WarModUiText.ACCENT);
+        WarModUiText.text(graphics, font, Component.literal("HEAT RELEASE / GROWTH CEILING"),
             left + 22, top + 47, WarModUiText.TEXT_MUTED);
-        graphics.text(font, Component.literal("INITIAL SURFACE RADIUS"),
+        WarModUiText.text(graphics, font, Component.literal("INITIAL SURFACE RADIUS"),
             left + 22, top + 101, WarModUiText.TEXT_MUTED);
         String help = draft.size() == 1
             ? "Size 1 attaches one fire patch at the exact hit point"
             : "Larger sizes seed exposed fuel surfaces around the hit point";
-        graphics.text(font, Component.literal(help),
+        WarModUiText.text(graphics, font, Component.literal(help),
             left + (PANEL_WIDTH - font.width(help)) / 2, top + 157, WarModUiText.TEXT);
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
     }

@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "war_mod:anti_air_controller_ballistic",
+    "minecraft:observer"
+  ],
+  "result": {
+    "id": "war_mod:anti_air_controller_self_destruct"
+  }
+}

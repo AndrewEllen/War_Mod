@@ -43,6 +43,10 @@ public final class RocketProjectileRenderer
     @Override
     public void submit(final RocketProjectileRenderState state, final PoseStack poseStack,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
+        // The spawn packet can precede movement by several client ticks. Keep
+        // collision at the muzzle, but hide the rear cap while it intersects the
+        // viewer's near field, regardless of how long that first update takes.
+        if (state.distanceToCameraSq < 4.0D) return;
         poseStack.pushPose();
         Vector3f direction = new Vector3f((float)state.velocity.x,
             (float)state.velocity.y, (float)state.velocity.z);

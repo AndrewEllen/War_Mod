@@ -92,6 +92,25 @@ final class GpuLayerHealthPolicyTest {
         return new GpuLayerHealthPolicy(Set.of(VisualLayer.FLAMES));
     }
 
+    @Test
+    void visibleParticlesCannotGrantAuthorityWithMissingFireLocations() {
+        GpuLayerHealthPolicy policy = verifyingPolicy();
+        assertEquals(GpuLayerHealthPolicy.Evaluation.COVERAGE_LOST,
+            policy.evaluate(VisualLayer.FLAMES, new MatchedFrame(3L, 9L, 9L,
+                false, true, true, true, 500L, false)));
+        assertEquals(LayerHealth.DEGRADED, policy.health(VisualLayer.FLAMES));
+        assertEquals(1.0F, policy.cpuOpticalWeight(VisualLayer.FLAMES));
+        assertFalse(policy.canStartProbe(VisualLayer.FLAMES, 4L));
+    }
+
+    @Test
+    void zeroAdmissionStillFallsBackWhenRequestedFireLocationsExist() {
+        GpuLayerHealthPolicy policy = verifyingPolicy();
+        assertEquals(GpuLayerHealthPolicy.Evaluation.COVERAGE_LOST,
+            policy.evaluate(VisualLayer.FLAMES, new MatchedFrame(3L, 9L, 9L,
+                false, true, false, false, 0L, false)));
+    }
+
     private static GpuLayerHealthPolicy verifyingPolicy() {
         GpuLayerHealthPolicy policy = policy();
         policy.startProbe(VisualLayer.FLAMES, 1L);

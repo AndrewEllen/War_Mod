@@ -67,7 +67,7 @@ public final class PhalanxMenu extends AbstractContainerMenu {
             addSlot(new Slot(
                 container,
                 slot,
-                44 + column * 24,
+                66 + column * 24,
                 44 + row * 22
             ) {
                 @Override
@@ -77,7 +77,7 @@ public final class PhalanxMenu extends AbstractContainerMenu {
             });
         }
 
-        addStandardInventorySlots(inventory, 10, 166);
+        addStandardInventorySlots(inventory, 29, 166);
     }
 
     @Override

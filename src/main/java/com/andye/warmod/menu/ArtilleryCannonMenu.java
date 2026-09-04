@@ -20,8 +20,8 @@ public final class ArtilleryCannonMenu extends AbstractContainerMenu {
         super(ModMenus.ARTILLERY_CANNON, id); this.position = position; this.cannon = cannon;
         var container = cannon == null ? new SimpleContainer(1) : cannon;
         addSlot(new Slot(container, 0, 234, 54) { @Override public boolean mayPlace(final ItemStack stack) { return ArtilleryPayloadItems.isWarhead(stack) && container.canPlaceItem(0, stack); } @Override public int getMaxStackSize() { return 16; } });
-        for (int row = 0; row < 3; row++) for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column + row * 9 + 9, 87 + column * 18, 202 + row * 18));
-        for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column, 87 + column * 18, 254));
+        for (int row = 0; row < 3; row++) for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column + row * 9 + 9, 87 + column * 18, 218 + row * 18));
+        for (int column = 0; column < 9; column++) addSlot(new Slot(inventory, column, 87 + column * 18, 276));
     }
     public BlockPos position() { return position; } public @Nullable ArtilleryCannonBlockEntity cannon() { return cannon; }
     @Override public boolean stillValid(final Player player) { return cannon != null && cannon.stillValid(player); }

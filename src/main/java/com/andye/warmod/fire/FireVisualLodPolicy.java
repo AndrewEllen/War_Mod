@@ -68,8 +68,13 @@ public final class FireVisualLodPolicy {
      */
     public static float representationWeight(final FireVisualBand band,
         final double distance, final int selectedLevel) {
+        return representationWeight(band, distance, (double)clampLevel(selectedLevel));
+    }
+
+    public static float representationWeight(final FireVisualBand band,
+        final double distance, final double selectedLevel) {
         if (band == null || !Double.isFinite(distance)) return 0.0F;
-        int selected = clampLevel(selectedLevel);
+        double selected = clamp(selectedLevel, 0.0, 4.0);
         double numerator = representationScore(band, distance, selected);
         if (numerator <= 0.0) return 0.0F;
         double denominator = 0.0;
@@ -82,10 +87,10 @@ public final class FireVisualLodPolicy {
     }
 
     private static double representationScore(final FireVisualBand band,
-        final double distance, final int selectedLevel) {
+        final double distance, final double selectedLevel) {
         double availability = band.weight(distance);
         if (availability <= 0.0) return 0.0;
-        int levelDistance = Math.abs(band.wireId() - selectedLevel);
+        double levelDistance = Math.abs(band.wireId() - selectedLevel);
         return availability / (1.0 + levelDistance * 0.78);
     }
 

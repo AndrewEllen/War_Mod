@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 
 final class FireVisualRepresentationBuilderTest {
     @Test
-    void tenThousandHostsRetainEveryOccupiedAngularSectorWithinPacketCapacity() {
+    void tenThousandHostsRetainCoverageAcrossPagedSnapshots() {
         ArrayList<FireCellSnapshot> patches = new ArrayList<>(10_000);
         for (int sector = 0; sector < 100; sector++) {
             double angle = sector / 100.0 * Math.PI * 2.0;
@@ -34,7 +34,8 @@ final class FireVisualRepresentationBuilderTest {
             FireVisualRepresentationBuilder.build(patches, new Vec3(0.0, 64.0, 0.0));
 
         assertEquals(10_000, result.uniqueHostCount());
-        assertTrue(result.cells().size() <= ClientboundFireStatePayload.MAX_CELLS);
+        assertTrue(result.cells().size() > ClientboundFireStatePayload.MAX_CELLS,
+            "complete coverage must use pages instead of deleting occupied cells");
         assertEquals(FireVisualBand.COMPLETE_MASK, result.completeBandMask());
         Set<Integer> representedSectors = new HashSet<>();
         for (FireVisualCell cell : result.cells()) {
@@ -45,7 +46,24 @@ final class FireVisualRepresentationBuilderTest {
         }
         assertEquals(32, representedSectors.size());
         for (FireVisualBand band : FireVisualBand.values())
-            assertTrue(result.cellsByBand().get(band) <= band.cellBudget());
+            assertEquals(0, result.omittedCellsByBand().get(band));
+    }
+
+    @Test
+    void middleDistanceRetainsEveryHostBeyondFormerCellLimits() {
+        for (int origin : List.of(100, 240)) {
+            ArrayList<FireCellSnapshot> patches = new ArrayList<>();
+            for (int x = 0; x < 32; x++)
+                for (int z = 0; z < 32; z++)
+                    patches.add(patch(1L + x * 32L + z, x * 2, origin + z * 2));
+            var result = FireVisualRepresentationBuilder.build(patches,
+                new Vec3(0.0, 64.0, 0.0));
+            FireVisualBand band = origin == 100 ? FireVisualBand.HOST : FireVisualBand.LOCAL;
+            var cells = result.cells().stream().filter(cell -> cell.band() == band).toList();
+            assertEquals(1024, cells.stream().mapToInt(FireVisualCell::hostCount).sum());
+            assertEquals(1024 * 0.74,
+                cells.stream().mapToDouble(FireVisualCell::flameEnergy).sum(), 0.01);
+        }
     }
 
     @Test
@@ -55,9 +73,11 @@ final class FireVisualRepresentationBuilderTest {
             for (int z = 220; z <= 260; z += 4)
                 patches.add(patch(((long) x << 32) ^ z, x, z));
         Set<Long> first = ids(FireVisualRepresentationBuilder.build(patches,
-            new Vec3(0.0, 64.0, 0.0)).cells());
+            new Vec3(0.0, 64.0, 0.0)).cells().stream()
+                .filter(cell -> cell.band() == FireVisualBand.LOCAL).toList());
         Set<Long> moved = ids(FireVisualRepresentationBuilder.build(patches,
-            new Vec3(1.0, 64.0, 1.0)).cells());
+            new Vec3(1.0, 64.0, 1.0)).cells().stream()
+                .filter(cell -> cell.band() == FireVisualBand.LOCAL).toList());
         assertEquals(first, moved);
     }
 

@@ -1,3 +1,31 @@
 package com.andye.warmod.antiair;
+
 import com.mojang.serialization.Codec;
-public enum AntiAirMissileVariant {MK_I("mk_i","Anti-Air Missile Mk I",true),MK_II("mk_ii","Anti-Air Missile Mk II",false);public static final Codec<AntiAirMissileVariant> CODEC=Codec.STRING.xmap(n->"mk_ii".equals(n)?MK_II:MK_I,AntiAirMissileVariant::serializedName);private final String name,display;private final boolean fallback;AntiAirMissileVariant(String n,String d,boolean f){name=n;display=d;fallback=f;}public String serializedName(){return name;}public String displayName(){return display;}public boolean ballisticFallback(){return fallback;}}
+
+public enum AntiAirMissileVariant {
+    MK_I("mk_i", "Anti-Air Missile (Ballistic Fallback)", true),
+    MK_II("mk_ii", "Anti-Air Missile (Self-Destruct)", false);
+    public static final Codec<AntiAirMissileVariant> CODEC =
+            Codec.STRING.xmap(
+                    n -> "mk_ii".equals(n) ? MK_II : MK_I, AntiAirMissileVariant::serializedName);
+    private final String name, display;
+    private final boolean fallback;
+
+    AntiAirMissileVariant(String n, String d, boolean f) {
+        name = n;
+        display = d;
+        fallback = f;
+    }
+
+    public String serializedName() {
+        return name;
+    }
+
+    public String displayName() {
+        return display;
+    }
+
+    public boolean ballisticFallback() {
+        return fallback;
+    }
+}

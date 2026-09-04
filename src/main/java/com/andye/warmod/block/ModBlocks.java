@@ -89,6 +89,8 @@ public final class ModBlocks {
             .sound(SoundType.METAL)
             .pushReaction(PushReaction.BLOCK));
 
+    public static final ResourceKey<Block> MISSILE_WORKBENCH_KEY = key("missile_workbench");
+    public static final MissileWorkbenchBlock MISSILE_WORKBENCH = new MissileWorkbenchBlock(BlockBehaviour.Properties.of().setId(MISSILE_WORKBENCH_KEY).strength(4.0F).sound(SoundType.METAL).pushReaction(PushReaction.BLOCK));
     private static boolean registered;
 
     private ModBlocks() {
@@ -112,6 +114,7 @@ public final class ModBlocks {
             Registry.register(BuiltInRegistries.BLOCK, key(tntPath(yield, true)),
                 timedTnt(yield, true));
         }
+        Registry.register(BuiltInRegistries.BLOCK, MISSILE_WORKBENCH_KEY, MISSILE_WORKBENCH);
         registered = true;
     }
 

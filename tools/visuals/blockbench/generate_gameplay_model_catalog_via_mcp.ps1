@@ -334,30 +334,26 @@ function Build-Artillery([hashtable]$T) {
     Add-BbGroup pitch_barrel yaw_turret @(0,14,-3)
 
     Cubes @(
-        (Box track_l -16 0 -13 -10 4 13), (Box track_r 10 0 -13 16 4 13),
-        (Box track_l_top -15 4 -10 -11 6 10), (Box track_r_top 11 4 -10 15 6 10),
-        (Box glacis -10 4 -12 10 7 -7), (Box engine_deck -10 4 5 10 7 12),
-        (Box hull_center -11 3 -8 11 8 8), (Box turret_race -7 7 -7 7 9 7),
-        (Box tow_eye_l -14 1 -14 -11 3 -12), (Box tow_eye_r 11 1 -14 14 3 -12)
+        (Box ground_plate -8 0 -8 8 2 8), (Box pedestal -5 2 -5 5 7 5),
+        (Box turret_race -7 7 -7 7 9 7),
+        (Box outrigger_left -18 0 -2 -7 2 2), (Box outrigger_right 7 0 -2 18 2 2),
+        (Box trail_left -6 0 6 -3 2 18), (Box trail_right 3 0 6 6 2 18)
     ) $T.dark fixed_base
 
     Cubes @(
-        (Box wheel_l_1 -16.3 .7 -10.5 -9.7 3.6 -6.5), (Box wheel_l_2 -16.3 .7 -4.3 -9.7 3.6 -.3),
-        (Box wheel_l_3 -16.3 .7 2.0 -9.7 3.6 6.0), (Box wheel_l_4 -16.3 .7 8.0 -9.7 3.6 12.0),
-        (Box wheel_r_1 9.7 .7 -10.5 16.3 3.6 -6.5), (Box wheel_r_2 9.7 .7 -4.3 16.3 3.6 -.3),
-        (Box wheel_r_3 9.7 .7 2.0 16.3 3.6 6.0), (Box wheel_r_4 9.7 .7 8.0 16.3 3.6 12.0)
+        (Box ground_pad_l -20 -.5 -4 -15 1 4), (Box ground_pad_r 15 -.5 -4 20 1 4),
+        (Box trail_spade_l -8 -.5 16 -2 1 20), (Box trail_spade_r 2 -.5 16 8 1 20)
     ) $T.stock fixed_base
 
     Cubes @(
-        (Box spade_l -19 -1 7 -14 1.2 14), (Box spade_r 14 -1 7 19 1.2 14),
-        (Box stabiliser_l -14 1 9 -10 3.2 18), (Box stabiliser_r 10 1 9 14 3.2 18)
+        (Box elevation_wheel -10.5 9 0 -9.5 14 5), (Box operator_seat -10 6 6 -5 7 11)
     ) $T.accent fixed_base
 
     Cubes @(
-        (Box turret_skirt -9 8 -8 9 11 8), (Box turret_body -8 10 -7 8 16 7),
-        (Box turret_front -7 11 -10 7 15 -6), (Box bustle -7 11 6 7 15 11),
+        (Box carriage -6 8 -5 6 10 5),
+        (Box shield_left -11 9 -7 -4 18 -6), (Box shield_right 4 9 -7 11 18 -6),
         (Box trunnion_block_l -10 12 -5 -6 17 3), (Box trunnion_block_r 6 12 -5 10 17 3),
-        (Box commander_hatch -3 16 1 3 17 6), (Box sight_housing 4 15 -6 7 20 -2)
+        (Box sight_housing 4 15 -6 7 20 -2)
     ) $T.body yaw_turret
     Add-Block optic_glass 4.4 16.2 -6.3 6.6 18.7 -6.0 $T.glow yaw_turret
     Add-Block warning_panel -8.2 11.7 3.0 -8.0 14.2 6.5 $T.warning yaw_turret
@@ -456,7 +452,7 @@ function Build-Radar([hashtable]$T) {
     Add-Block feed_glass -.45 24.55 -10.25 .45 25.45 -10.06 $T.glow pitch_dish
 }
 
-function Build-Silo([hashtable]$T) {
+function Build-Silo([hashtable]$T,[bool]$Large=$false) {
     Add-BbGroup silo_root
     Add-BbGroup foundation silo_root
     Add-BbGroup left_door silo_root @(-12,5,0)
@@ -498,6 +494,21 @@ function Build-Silo([hashtable]$T) {
     Add-Block right_warning 2.0 8.1 -1.0 9.2 8.5 1.0 $T.warning right_door
     Add-Block bay_light_n -7.0 4.85 -19.9 7.0 5.55 -19.5 $T.glow foundation
     Add-Block bay_light_s -7.0 4.85 19.5 7.0 5.55 19.9 $T.glow foundation
+    if($Large){
+        # The large launch bay has a genuinely open throat instead of a solid
+        # slab crossing under its doors. Legacy source geometry stays intact.
+        Invoke-McpTool risky_eval @{code="Cube.all.filter(c=>['lower_slab','upper_slab'].includes(c.name)).forEach(c=>c.remove());true"} | Out-Null
+        foreach($slab in @(@{y0=0;y1=2;edge=24},@{y0=2;y1=4;edge=23})){
+            $e=$slab.edge
+            Cubes @(
+                (Box slab_n (-$e) $slab.y0 (-$e) $e $slab.y1 -12),
+                (Box slab_s (-$e) $slab.y0 12 $e $slab.y1 $e),
+                (Box slab_w (-$e) $slab.y0 -12 -12 $slab.y1 12),
+                (Box slab_e 12 $slab.y0 -12 $e $slab.y1 12)
+            ) $T.dark foundation
+        }
+        Invoke-McpTool risky_eval @{code='Cube.all.forEach(c=>{[0,2].forEach(a=>{c.from[a]*=5/3;c.to[a]*=5/3;c.origin[a]*=5/3;});});Group.all.forEach(g=>{g.origin[0]*=5/3;g.origin[2]*=5/3;});Canvas.updateAll();true'} | Out-Null
+    }
 }
 
 function Build-Support([int]$Tier,[hashtable]$T) {
@@ -616,13 +627,28 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block display_glass -3.7 4.8 -.95 .3 5.15 .95 $T.glow item_root
         }
         'linking_tool' {
-            Add-Block body -3.6 -6 -1.8 3.6 5.0 1.8 $T.dark item_root
-            Add-Block grip -1.4 -9.4 -1.1 1.4 -5.6 1.1 $T.stock item_root
-            Add-Block screen -2.6 -.5 -2.05 2.6 3.8 -1.8 $T.glow item_root
-            Add-Block port_l -4.3 -4.8 -1.0 -3.4 -2.0 1.0 $T.blue item_root
-            Add-Block port_r 3.4 -4.8 -1.0 4.3 -2.0 1.0 $T.green item_root
-            Add-Block coil -2.5 5.0 -2.5 2.5 7.4 2.5 $T.accent item_root
-            Add-Block aerial -.45 7.4 -.45 .45 11.2 .45 $T.glow item_root
+            Add-Block rugged_handset -3 -6 -1.15 3 5 1.15 $T.dark item_root
+            Add-Block faceplate -2.65 -5.6 -1.3 2.65 4.6 -1.14 $T.body item_root
+            Add-Block readout -2.1 .1 -1.42 2.1 3.8 -1.29 $T.dark item_root
+            Add-Block signal_trace -1.7 1.7 -1.47 1.5 2.05 -1.41 $T.glow item_root
+            Add-Block source_button -1.9 -2.2 -1.55 -.3 -.7 -1.3 $T.blue item_root
+            Add-Block destination_button .3 -2.2 -1.55 1.9 -.7 -1.3 $T.green item_root
+            Add-Block link_button -1.7 -4.5 -1.55 1.7 -3.2 -1.3 $T.accent item_root
+            Add-Block antenna -2.3 5 -.35 -1.65 9 .35 $T.dark item_root
+            Add-Block antenna_ring -2.45 5 -.5 -1.5 5.6 .5 $T.brass item_root
+        }
+        'tablet' {
+            Add-Block rugged_case -7.5 -5 -1 7.5 5 1 $T.dark item_root
+            Add-Block front_bezel -7.1 -4.6 -1.15 7.1 4.6 -.99 $T.body item_root
+            Add-Block screen -6 -3.7 -1.25 5.6 3.7 -1.14 $T.dark item_root
+            Add-Block scan_horizontal -5.2 -.12 -1.29 4.9 .12 -1.24 $T.green item_root
+            Add-Block scan_vertical -.15 -3.05 -1.29 .15 3.05 -1.24 $T.green item_root
+            Add-Block contact_one -3.3 1.3 -1.31 -2.8 1.8 -1.28 $T.glow item_root
+            Add-Block contact_two 2 -2 -1.31 2.5 -1.5 -1.28 $T.glow item_root
+            Add-Block power_key 6 -2.8 -1.3 6.5 -1.9 -1.14 $T.accent item_root
+            foreach($x in @(-7.6,6.4)){ foreach($y in @(-5.1,3.9)){
+                Add-Block corner_guard $x $y -1.35 ($x+1.2) ($y+1.2) 1.2 $T.dark item_root
+            }}
         }
         {$_ -in @('pistol_mag','rifle_mag','sniper_mag')} {
             $w=if($Kind -eq 'pistol_mag'){1.7}elseif($Kind -eq 'sniper_mag'){2.7}else{2.3}
@@ -649,8 +675,13 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block hook_spine -4.9 2.2 -1.2 -2.2 9.0 1.2 $T.dark item_root
             Add-Block hook_top -4.9 8.0 -1.25 5.1 9.7 1.25 $T.dark item_root
             Add-Block hook_tooth 3.5 6.75 -1.35 5.1 9.2 1.35 $T.stock item_root
-            Add-Block adjust_nut -2.35 1.3 -1.35 2.35 3.1 1.35 $T.brass item_root
-            Add-Block adjust_notch -2.5 2.0 -1.5 2.5 2.4 1.5 $T.accent item_root
+            Add-Block adjust_nut -2.35 1.3 -1.4 2.35 3.1 1.4 $T.brass item_root
+            foreach($x in @(-1.8,-.9,0,.9,1.8)) {
+                Add-Block adjustment_knurl $x 1.45 -1.5 ($x+.25) 2.95 -1.39 $T.dark item_root
+            }
+            foreach($y in @(-7.5,-5.5,-3.5)) {
+                Add-Block handle_rib -1.22 $y -.82 1.22 ($y+.5) .82 $T.dark item_root
+            }
         }
         'hose' {
             Add-Block nozzle -8.4 -0.8 -0.85 5.4 0.8 0.85 $T.body item_root
@@ -666,13 +697,14 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
             Add-Block decal -2.0 0.5 -2.9 2.0 3.8 -2.5 $T.glow item_root
         }
         'panel' {
-            Add-Block full_cabinet -8 -8 -8 8 8 8 $T.dark item_root
-            Add-Block front_recess -6.7 -5.8 -8.25 6.7 5.8 -7.85 $T.body item_root
-            Add-Block status_glass -5.8 -4.8 -8.42 5.8 3.9 -8.20 $T.glow item_root
-            Add-Block lower_console -6.2 -6.8 -8.35 6.2 -5.1 -7.8 $T.stock item_root
-            Add-Block warning_strip -5.6 -6.35 -8.48 1.8 -5.75 -8.30 $T.warning item_root
-            Add-Block side_vent_l -8.25 -3.8 -5.5 -7.85 4.2 5.5 $T.accent item_root
-            Add-Block side_vent_r 7.85 -3.8 -5.5 8.25 4.2 5.5 $T.accent item_root
+            Texture panel_black '#060809'
+            Add-Block cabinet -8 -8 -7.75 8 8 8 $T.dark item_root
+            Add-Block blank_screen -7.35 -7.35 -7.94 7.35 7.35 -7.75 panel_black item_root
+            Add-Block bezel_top -8 7.35 -8 8 8 -7.7 $T.dark item_root
+            Add-Block bezel_bottom -8 -8 -8 8 -7.35 -7.7 $T.dark item_root
+            Add-Block bezel_left -8 -7.35 -8 -7.35 7.35 -7.7 $T.dark item_root
+            Add-Block bezel_right 7.35 -7.35 -8 8 7.35 -7.7 $T.dark item_root
+            Add-Block invalid_status 6.35 6.35 -7.98 6.85 6.85 -7.93 $T.warning item_root
         }
         'pipe' {
             Add-Block pipe -2.2 -8.2 -2.2 2.2 8.2 2.2 $T.body item_root
@@ -742,6 +774,92 @@ function Build-Tnt([string]$Id,[string]$Accent,[bool]$Cluster,[hashtable]$T) {
     Add-Block handle -3.8 8.5 -1.0 3.8 10.6 1.0 $T.stock strap
 }
 
+function Build-Phalanx([hashtable]$T) {
+    # Import the actual deployed turret's boxes at zero yaw/elevation. The
+    # inventory silhouette stays coupled to the existing animated renderer.
+    Add-BbGroup turret_root
+    $source = Get-Content -Raw (Join-Path $PSScriptRoot '../../../src/client/java/com/andye/warmod/phalanx/client/PhalanxTurretMesh.java')
+    $methods = @(
+        @{name='renderStaticBase';offset=@(-.5,0,-.5)},
+        @{name='renderYawHousing';offset=@(0,1.02,0)},
+        @{name='renderCradle';offset=@(0,1.26,0)},
+        @{name='renderBarrels';offset=@(0,1.26,0)}
+    )
+    $index=0
+    foreach($method in $methods){
+        $body = [regex]::Match($source, '(?s)public static void '+$method.name+'\(.*?(?=public static void|private static void)').Value
+        foreach($match in [regex]::Matches($body,'(?s)box\(pose, buffer,\s*((?:-?[.\d]+F,\s*){6})(\d+),\s*(\d+),\s*(\d+),')){
+            $coordinates=@($match.Groups[1].Value -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [double]($_.Trim() -replace 'F','') })
+            $color='#{0:x2}{1:x2}{2:x2}' -f [int]$match.Groups[2].Value,[int]$match.Groups[3].Value,[int]$match.Groups[4].Value
+            $texture='turret_'+$color.Substring(1)
+            if(-not $script:turretTextures.ContainsKey($texture)){ Texture $texture $color; $script:turretTextures[$texture]=$true }
+            $from=@();$to=@()
+            for($axis=0;$axis -lt 3;$axis++){
+                $from+=16*($coordinates[$axis]+$method.offset[$axis]);$to+=16*($coordinates[$axis+3]+$method.offset[$axis])
+            }
+            Cubes @((Add-Cube ('turret_part_'+$index++) $from $to)) $texture turret_root
+        }
+    }
+    foreach($column in 0..3){
+        $x=(-.245+$column*.16)*16
+        Add-Block sensor_cell $x 21.52 -11.136 ($x+1.28) 22.8 -10.8 $T.body turret_root
+    }
+    foreach($barrel in 0..5){
+        $angle=$barrel*[Math]::PI/3; $x=[Math]::Cos($angle)*1.84; $y=20.16+[Math]::Sin($angle)*1.84
+        Add-Block ('barrel_'+$barrel) ($x-.4) ($y-.4) 9.6 ($x+.4) ($y+.4) 27.52 $T.dark turret_root
+    }
+    Add-Block standby_lamp 3.2 8.8 6.448 4.16 9.76 6.8 $T.green turret_root
+}
+
+function Build-Component([string]$Kind,[hashtable]$T) {
+    Add-BbGroup component_root
+    if($Kind -like 'chip_*'){
+        $tier=[int]$Kind.Substring(5)
+        Add-Block circuit_board -5 -3 -.35 5 3 .35 $T.green component_root
+        Add-Block processor -1.8 -1.6 -.65 1.8 1.6 -.34 $T.dark component_root
+        foreach($i in 0..6){ $x=-4.1+$i*1.2; Add-Block edge_contact $x -3.7 -.4 ($x+.6) -2.4 .4 $T.brass component_root }
+        foreach($i in 1..$tier){ $x=-4+$i*1.6; Add-Block tier_mark $x 1.9 -.48 ($x+.65) 2.5 -.34 $T.glow component_root }
+        Add-Block signal_bus -4.3 -.9 -.45 -2.5 1.3 -.34 $T.accent component_root
+    } elseif($Kind -eq 'workbench'){
+        Add-Block cabinet -7 0 -7 7 12 7 $T.body component_root
+        Add-Block worktop -8 12 -8 8 14 8 $T.dark component_root
+        Add-Block mounting_rail_l -6 14 -6 -4.5 15 6 $T.accent component_root
+        Add-Block mounting_rail_r 4.5 14 -6 6 15 6 $T.accent component_root
+        Add-Block component_tray -3 14 -4 3 14.6 4 $T.stock component_root
+        Add-Block output_hatch -4 2 -7.12 4 6 -7 $T.dark component_root
+        Add-Block handle -2 5.8 -7.3 2 6.4 -7.1 $T.brass component_root
+        foreach($x in @(-7.1,6.8)){ Add-Block input_port $x 5 -2 ($x+.3) 9 2 $T.dark component_root }
+        Add-Block bottom_output -3 -.1 -3 3 .1 3 $T.dark component_root
+    }
+}
+
+function Build-DerivedComponent([string]$Kind,[string]$Id) {
+    $sourceId=$Kind
+    $sourcePath=if($Kind -eq 'icbm_body'){Join-Path $PSScriptRoot 'missiles/single/conventional_missile.bbmodel'}
+        elseif($Kind -in @('anti_air_body','anti_air_controller_ballistic','anti_air_controller_self_destruct')){
+            $variant=if($Kind -eq 'anti_air_controller_self_destruct'){'mk2'}else{'mk1'}
+            Join-Path $OutputRoot "missiles/anti_air/anti_air_missile_$variant.bbmodel"
+        }else{
+            $variant=if($Kind -like '*cluster*'){'cluster'}else{'single'}
+            Join-Path $PSScriptRoot "missiles/$variant/$Kind.bbmodel"
+        }
+    $model=Get-Content -Raw $sourcePath | ConvertFrom-Json
+    $groupName=if($Kind -like 'anti_air*'){'payload'}else{'payload_cone'}
+    $group=$model.groups | Where-Object name -eq $groupName | Select-Object -First 1
+    function Find-ComponentNode($nodes,$id){ foreach($n in $nodes){if($n -is [string]){continue};if($n.uuid -eq $id){return $n};$found=Find-ComponentNode $n.children $id;if($found){return $found}} }
+    function Component-Ids($node){foreach($c in $node.children){if($c -is [string]){$c}else{Component-Ids $c}}}
+    $payloadIds=@(Component-Ids (Find-ComponentNode $model.outliner $group.uuid))
+    if($Kind -like 'anti_air*'){
+        $payloadIds+=@($model.elements | Where-Object name -eq 'forward_ident' | ForEach-Object uuid)
+    }
+    $body=$Kind -in @('icbm_body','anti_air_body')
+    $model.elements=@($model.elements | Where-Object {if($body){$payloadIds -notcontains $_.uuid}else{$payloadIds -contains $_.uuid -or ($_.name -match 'cluster|warhead|payload' -and $_.from[1] -ge 6)}})
+    if($model.elements.Count -eq 0){throw "Empty derived component $Id"}
+    $model.name=$Id; $model.groups=@();$model.outliner=@($model.elements | ForEach-Object uuid)
+    $json=($model | ConvertTo-Json -Depth 80 -Compress).Replace('/', '\u002f')
+    Invoke-McpTool risky_eval @{code="Codecs.project.parse($json);Project.name='$Id';Canvas.updateAll();true"} | Out-Null
+}
+
 $palette=@{
     body='catalog_body'; dark='catalog_dark'; accent='catalog_accent'; stock='catalog_stock'; brass='catalog_brass';
     glow='catalog_glow'; green='catalog_green'; blue='catalog_blue'; warning='catalog_warning'
@@ -753,6 +871,14 @@ $colors=@{
 }
 
 $specs=@(
+    @{id='missile_workbench';category='machines';build='component';arg='workbench'},
+    @{id='icbm_body';category='components';build='derived';arg='icbm_body'},
+    @{id='anti_air_body';category='components';build='derived';arg='anti_air_body'},
+    @{id='targeting_chip_tier_1';category='components';build='component';arg='chip_1'},
+    @{id='targeting_chip_tier_2';category='components';build='component';arg='chip_2'},
+    @{id='targeting_chip_tier_3';category='components';build='component';arg='chip_3'},
+    @{id='anti_air_controller_ballistic';category='components';build='derived';arg='anti_air_controller_ballistic'},
+    @{id='anti_air_controller_self_destruct';category='components';build='derived';arg='anti_air_controller_self_destruct'},
     @{id='pistol';category='firearms';build='gun';arg='pistol'},
     @{id='assault_rifle';category='firearms';build='gun';arg='rifle'},
     @{id='sniper_rifle';category='firearms';build='gun';arg='sniper'},
@@ -766,20 +892,21 @@ $specs=@(
     @{id='artillery_cannon';category='machines';build='artillery'},
     @{id='radar_station';category='machines';build='radar'},
     @{id='missile_silo';category='machines';build='silo'},
+    @{id='missile_silo_large';category='machines';build='silo_large'},
     @{id='missile_silo_guidance_support_tier_1';category='machines/supports';build='support';arg=1},
     @{id='missile_silo_guidance_support_tier_2';category='machines/supports';build='support';arg=2},
     @{id='missile_silo_guidance_support_tier_3';category='machines/supports';build='support';arg=3},
     @{id='rocket_launcher';category='firearms';build='launcher'},
     @{id='he_rocket';category='projectiles';build='missile';arg='he_rocket'},
-    @{id='radar';category='equipment';build='utility';arg='radar_gun'},
-    @{id='target_designator';category='equipment';build='utility';arg='target_designator'},
+    @{id='radar';category='equipment';build='utility';arg='tablet'},
+    @{id='target_designator';category='equipment';build='utility';arg='radar_gun'},
     @{id='remote_launch_designator';category='equipment';build='utility';arg='remote_designator'},
     @{id='radar_linking_tool';category='equipment';build='utility';arg='linking_tool'},
     @{id='pistol_ammo';category='ammunition';build='utility';arg='pistol_mag'},
     @{id='rifle_ammo';category='ammunition';build='utility';arg='rifle_mag'},
     @{id='sniper_ammo';category='ammunition';build='utility';arg='sniper_mag'},
     @{id='anti_air_gun_ammo';category='ammunition';build='utility';arg='ammo_box'},
-    @{id='phalanx_turret';category='machines';build='utility';arg='turret'},
+    @{id='phalanx_turret';category='machines';build='phalanx'},
     @{id='radar_display_panel';category='machines';build='utility';arg='panel'},
     @{id='item_pipe';category='equipment';build='utility';arg='pipe'},
     @{id='pipe_wrench';category='equipment';build='utility';arg='wrench'},
@@ -804,6 +931,8 @@ foreach($yield in $yieldSpecs){
     foreach($cluster in @($false,$true)){
         $suffix = if($cluster){'_cluster_tnt'} else {'_tnt'}
         $specs += @{id=$yield.id + $suffix; category='explosives/tnt'; build='tnt'; accent=$yield.accent; cluster=$cluster}
+        $missileSuffix=if($cluster){'_cluster_missile'}else{'_missile'}
+        $specs += @{id=$yield.id + $missileSuffix + '_warhead'; category='components/warheads'; build='derived'; arg=$yield.id + $missileSuffix}
     }
 }
 
@@ -816,6 +945,7 @@ if($OnlyIds.Count -gt 0){
 }
 
 New-McpSession
+Invoke-McpTool list_export_formats @{} | Out-Null
 $manifest = @()
 
 foreach($spec in $specs){
@@ -841,6 +971,7 @@ foreach($spec in $specs){
 
     $local = @{}
     foreach($key in $palette.Keys){
+        if($spec.build -eq 'derived'){ continue }
         $name = "$($spec.id)_$key"
         $local[$key] = $name
         Texture $name $colors[$palette[$key]]
@@ -854,10 +985,14 @@ foreach($spec in $specs){
         artillery { Build-Artillery $local }
         radar { Build-Radar $local }
         silo { Build-Silo $local }
+        silo_large { Build-Silo $local $true }
         support { Build-Support $spec.arg $local }
         launcher { Build-Launcher $local }
         utility { Build-Utility $spec.arg $local }
         tnt { Build-Tnt $spec.id $spec.accent $spec.cluster $local }
+        phalanx { $script:turretTextures=@{}; Build-Phalanx $local }
+        component { Build-Component $spec.arg $local }
+        derived { Build-DerivedComponent $spec.arg $spec.id }
     }
 
     Invoke-McpTool save_checkpoint @{name="Completed $($spec.id)"} | Out-Null
@@ -872,12 +1007,23 @@ foreach($spec in $specs){
     Invoke-McpTool select_all_of_type @{type='cube'} | Out-Null
     Invoke-McpTool trigger_action @{action='focus_on_selection'; confirmDialog = $false} | Out-Null
     Invoke-McpTool risky_eval @{code='Outliner.selected.length=0;true'} | Out-Null
+    $previewModel=Get-Content -Raw $modelPath | ConvertFrom-Json
+    $minimum=@();$maximum=@();$centre=@()
+    foreach($axis in 0..2){
+        $minimum+=($previewModel.elements | ForEach-Object {$_.from[$axis]} | Measure-Object -Minimum).Minimum
+        $maximum+=($previewModel.elements | ForEach-Object {$_.to[$axis]} | Measure-Object -Maximum).Maximum
+        $centre+=($minimum[$axis]+$maximum[$axis])*.5
+    }
+    $span=([double[]]@(0..2 | ForEach-Object {$maximum[$_]-$minimum[$_]}) | Measure-Object -Maximum).Maximum
+    Invoke-McpTool set_camera_angle @{projection='perspective';position=@(($centre[0]+$span*1.15),($centre[1]+$span*.75),($centre[2]-$span*1.15));target=$centre} | Out-Null
     $shot = Invoke-McpTool capture_screenshot @{}
     $image = $shot | Where-Object type -eq image | Select-Object -First 1
     if(-not $image){
         throw "No preview for $($spec.id)"
     }
-    [IO.File]::WriteAllBytes($previewPath,[Convert]::FromBase64String($image.data))
+    $previewTemporary=$previewPath+'.pending'
+    [IO.File]::WriteAllBytes($previewTemporary,[Convert]::FromBase64String($image.data))
+    [IO.File]::Move($previewTemporary,$previewPath,$true)
 
     $manifest += [pscustomobject]@{
         id       = $spec.id

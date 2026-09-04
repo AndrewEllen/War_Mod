@@ -43,8 +43,10 @@ public enum FireVisualBand {
     public int cellBudget() { return cellBudget; }
 
     public boolean contains(final double distance) {
-        return Double.isFinite(distance) && distance >= minimumDistance
-            && distance <= maximumDistance;
+        // Preload overlap before its optical weight becomes nonzero. Snapshots
+        // arrive once a second; walking across a band must not outrun its cells.
+        return Double.isFinite(distance) && distance >= Math.max(0.0, minimumDistance - 32.0)
+            && distance <= maximumDistance + 32.0;
     }
 
     /** Complementary overlap weights prevent hard hierarchy boundaries. */

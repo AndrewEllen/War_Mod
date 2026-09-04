@@ -28,7 +28,7 @@ public final class FireParticleRenderer {
         Basis basis = Basis.from(camera);
         for (FireRenderCell render : cells) {
             if (render.cell().phase() == FirePhase.SMOLDERING
-                || render.cell().maximumHeat() < 0.075F) continue;
+                || render.cell().maximumHeat() <= 0.04F) continue;
             double age = Math.max(0.0, gameTime - render.cell().ignitionGameTime());
             float stage = stageScale(render.cell().phase(), render.cell().coveredArea()
                 / Math.max(1, render.cell().hostCount()));
@@ -36,7 +36,7 @@ public final class FireParticleRenderer {
             for (int index = 0; index < render.plan().flames().size(); index++) {
                 Card card = render.plan().flames().get(index);
                 long value = mix(card.seed() ^ FLAME_SEED);
-                double delay = index * 1.55 + unit(value, 0) * 5.0;
+                double delay = unit(value, 0) * 5.0;
                 if (age < delay) continue;
                 double life = 12.0 + unit(value, 1) * 16.0;
                 double particleAge = positiveModulo(age - delay, life);
@@ -45,8 +45,10 @@ public final class FireParticleRenderer {
                  * distribution. Applying another random footprint here duplicated
                  * density and produced the spraying blanket seen in live captures.
                  * Contract the existing footprint as each old-style tongue rises. */
-                Vec3 base = render.relativeCentroid().add(card.position()
-                    .subtract(render.relativeCentroid()).scale(1.0 - progress * 0.48));
+                Vec3 base = render.cell().band().exactPatch()
+                    ? render.relativeCentroid().add(card.position()
+                        .subtract(render.relativeCentroid()).scale(1.0 - progress * 0.48))
+                    : card.position();
                 double curl = Math.sin(gameTime * (0.16 + unit(value, 4) * 0.13)
                     + unit(value, 5) * Mth.TWO_PI) * (0.035 + progress * 0.12);
                 double windAge = particleAge
@@ -79,7 +81,7 @@ public final class FireParticleRenderer {
             for (int index = 0; index < render.plan().smoke().size(); index++) {
                 Card card = render.plan().smoke().get(index);
                 long value = mix(card.seed() ^ SMOKE_SEED);
-                double delay = 4.0 + index * 1.7 + unit(value, 0) * 6.0;
+                double delay = 4.0 + unit(value, 0) * 6.0;
                 if (age < delay) continue;
                 double life = 78.0 + unit(value, 1) * 92.0;
                 double particleAge = positiveModulo(age - delay, life);

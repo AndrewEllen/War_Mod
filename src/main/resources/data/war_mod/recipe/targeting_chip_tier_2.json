@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "war_mod:targeting_chip_tier_1",
+    "minecraft:gold_ingot",
+    "minecraft:comparator"
+  ],
+  "result": {
+    "id": "war_mod:targeting_chip_tier_2"
+  }
+}

@@ -86,6 +86,7 @@ public final class WarModClient implements ClientModInitializer {
 		MenuScreens.register(ModMenus.MISSILE_SILO, MissileSiloScreen::new);
 		MenuScreens.register(ModMenus.PHALANX, PhalanxScreen::new);
         MenuScreens.register(ModMenus.ARTILLERY_CANNON, ArtilleryCannonScreen::new);
+        MenuScreens.register(ModMenus.MISSILE_WORKBENCH, com.andye.warmod.silo.client.gui.MissileWorkbenchScreen::new);
 		WarheadParticleClient.register();
 		GpuParticleEngine.register();
 		ClientPerformanceTelemetry.register();

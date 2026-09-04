@@ -17,7 +17,7 @@ public final class ModCreativeModeTabs {
         Registries.CREATIVE_MODE_TAB,
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
     );
-    private static final int ENTRY_COUNT = 72;
+    private static final int ENTRY_COUNT = 123;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
@@ -32,9 +32,14 @@ public final class ModCreativeModeTabs {
             .displayItems((parameters, output) -> {
                 output.accept(ModItems.MISSILE_SILO);
                 output.accept(ModItems.ARTILLERY_CANNON);
-                output.accept(ModItems.GUIDANCE_TIER_1);
-                output.accept(ModItems.GUIDANCE_TIER_2);
-                output.accept(ModItems.GUIDANCE_TIER_3);
+                output.accept(ModItems.ICBM_BODY);
+                output.accept(ModItems.ANTI_AIR_BODY);
+                output.accept(ModItems.TARGETING_CHIP_TIER_1);
+                output.accept(ModItems.TARGETING_CHIP_TIER_2);
+                output.accept(ModItems.TARGETING_CHIP_TIER_3);
+                output.accept(ModItems.ANTI_AIR_CONTROLLER_BALLISTIC);
+                output.accept(ModItems.ANTI_AIR_CONTROLLER_SELF_DESTRUCT);
+                output.accept(ModItems.MISSILE_WORKBENCH);
                 output.accept(ModItems.RADAR_STATION);
                 output.accept(ModItems.RADAR_DISPLAY_PANEL);
                 output.accept(ModItems.PHALANX_TURRET);
@@ -51,11 +56,17 @@ public final class ModCreativeModeTabs {
                     output.accept(ModItems.artilleryWarhead(yield, true));
                 }
                 for (WarheadYield yield : WarheadYield.values()) {
-                    output.accept(ModItems.yieldMissile(yield, false));
-                    output.accept(ModItems.yieldMissile(yield, true));
+                    output.accept(ModItems.missileWarhead(yield, false));
+                    output.accept(ModItems.missileWarhead(yield, true));
+                    for (int tier = 1; tier <= 3; tier++) {
+                        output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.yieldMissile(yield, false), tier));
+                        output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.yieldMissile(yield, true), tier));
+                    }
                 }
-                output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
-                output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
+                for (int tier = 1; tier <= 3; tier++) {
+                    output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.ANTI_AIR_MISSILE_MK1, tier));
+                    output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.ANTI_AIR_MISSILE_MK2, tier));
+                }
                 output.accept(ModItems.ROCKET_LAUNCHER);
                 output.accept(ModItems.HE_ROCKET);
                 output.accept(ModItems.ANTI_AIR_GUN_AMMO);

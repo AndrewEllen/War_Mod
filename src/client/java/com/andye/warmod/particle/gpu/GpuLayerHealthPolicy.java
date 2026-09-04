@@ -95,13 +95,26 @@ final class GpuLayerHealthPolicy {
             || sample.scheduleIdentity() != sample.statsScheduleIdentity())
             return Evaluation.IGNORED;
         lastEvaluatedFrame[index] = sample.frameSequence();
-        if (sample.syntheticProbe() || !sample.realDemand()
-            || !sample.expectedVisibility() || !sample.expectedOutput())
+        if (sample.syntheticProbe() || !sample.realDemand())
             return Evaluation.IGNORED;
 
         LayerHealth before = health(layer);
         if (before != LayerHealth.VERIFYING && before != LayerHealth.CROSSFADE
             && before != LayerHealth.HEALTHY) return Evaluation.IGNORED;
+        // A few visible particles do not prove that all burning locations were
+        // admitted. Revert to CPU on a matched coverage failure, even if the GPU
+        // produced other output or accepted no work for the omitted locations.
+        if ((layer == VisualLayer.FLAMES || layer == VisualLayer.SMOKE)
+            && !sample.fireCoverageComplete()) {
+            realSuccessStreak[index] = 0;
+            zeroVisibleStreak[index] = 0;
+            crossfadeProgress[index] = 0;
+            health.put(layer, LayerHealth.DEGRADED);
+            retryAfterFrame[index] = sample.frameSequence() + RETRY_DELAY_FRAMES;
+            return Evaluation.COVERAGE_LOST;
+        }
+        if (!sample.expectedVisibility() || !sample.expectedOutput())
+            return Evaluation.IGNORED;
         if (sample.visibleInstances() <= 0L) {
             realSuccessStreak[index] = 0;
             if (++zeroVisibleStreak[index] < REQUIRED_ZERO_VISIBLE_FAILURES)
@@ -175,11 +188,19 @@ final class GpuLayerHealthPolicy {
     enum ProbeResult { IGNORED, PENDING, PASSED_DIAGNOSTIC, FAILED }
     enum Evaluation {
         IGNORED, REAL_SUCCESS, REAL_FAILURE, CROSSFADE_STARTED,
-        CROSSFADE_ADVANCED, AUTHORITY_GRANTED, DEGRADED
+        CROSSFADE_ADVANCED, AUTHORITY_GRANTED, DEGRADED, COVERAGE_LOST
     }
 
     record MatchedFrame(long frameSequence, long scheduleIdentity,
         long statsScheduleIdentity, boolean syntheticProbe,
         boolean realDemand, boolean expectedVisibility,
-        boolean expectedOutput, long visibleInstances) { }
+        boolean expectedOutput, long visibleInstances, boolean fireCoverageComplete) {
+        MatchedFrame(final long frameSequence, final long scheduleIdentity,
+            final long statsScheduleIdentity, final boolean syntheticProbe,
+            final boolean realDemand, final boolean expectedVisibility,
+            final boolean expectedOutput, final long visibleInstances) {
+            this(frameSequence, scheduleIdentity, statsScheduleIdentity, syntheticProbe,
+                realDemand, expectedVisibility, expectedOutput, visibleInstances, true);
+        }
+    }
 }

@@ -2,8 +2,7 @@ package com.andye.warmod.block;
 
 import com.andye.warmod.block.entity.MissileSiloBlockEntity;
 import com.andye.warmod.silo.MissileSiloManager;
-import java.util.ArrayList;
-import java.util.List;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -16,6 +15,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public final class MissileSiloBlockItem extends BlockItem {
     public MissileSiloBlockItem(final Properties properties) {
@@ -30,33 +32,62 @@ public final class MissileSiloBlockItem extends BlockItem {
         Player player = context.getPlayer();
         BlockPos centre = context.getClickedPos();
         Direction facing = player == null ? Direction.NORTH : player.getDirection().getOpposite();
-        if (!MissileSiloManager.canPlace(server)) return fail(player, "Missile silo limit reached for this dimension");
+        if (!MissileSiloManager.canPlace(server))
+            return fail(player, "Missile silo limit reached for this dimension");
         List<BlockPos> positions = new ArrayList<>();
         for (MissileSiloPart part : MissileSiloPart.values()) {
             BlockPos pos = MissileSiloStructure.position(centre, part, facing);
             positions.add(pos);
-            if (server.isOutsideBuildHeight(pos) || !server.getWorldBorder().isWithinBounds(pos)
-                || server.getBlockEntity(pos) != null || !server.getBlockState(pos).canBeReplaced()
-                || (player != null && !server.mayInteract(player, pos))
-                || !server.getEntities(null, new AABB(pos)).isEmpty()) return fail(player, "Cannot place complete 3x3 missile silo here");
+            if (server.isOutsideBuildHeight(pos)
+                    || !server.getWorldBorder().isWithinBounds(pos)
+                    || server.getBlockEntity(pos) != null
+                    || !server.getBlockState(pos).canBeReplaced()
+                    || (player != null && !server.mayInteract(player, pos))
+                    || !server.getEntities(null, new AABB(pos)).isEmpty())
+                return fail(player, "Cannot place complete 5x5 missile silo here");
         }
+        for (int x = -1; x <= 1; x++)
+            for (int z = -1; z <= 1; z++) {
+                int height = x == 0 && z == 0 ? 4 : 2;
+                for (int y = 1; y <= height; y++) {
+                    BlockPos clearance = centre.offset(x, y, z);
+                    if (server.isOutsideBuildHeight(clearance)
+                            || !server.getBlockState(clearance)
+                                    .getCollisionShape(server, clearance)
+                                    .isEmpty()) {
+                        return fail(
+                                player,
+                                "Silo doors and missile need clear space above the opening");
+                    }
+                }
+            }
         List<BlockPos> placed = new ArrayList<>();
         try {
             for (MissileSiloPart part : MissileSiloPart.values()) {
                 BlockPos pos = MissileSiloStructure.position(centre, part, facing);
-                BlockState state = ModBlocks.MISSILE_SILO.defaultBlockState().setValue(MissileSiloBlock.PART, part)
-                    .setValue(MissileSiloBlock.FACING, facing);
-                if (!server.setBlock(pos, state, Block.UPDATE_ALL)) throw new IllegalStateException("placement rejected");
+                BlockState state =
+                        ModBlocks.MISSILE_SILO
+                                .defaultBlockState()
+                                .setValue(MissileSiloBlock.PART, part)
+                                .setValue(MissileSiloBlock.FACING, facing)
+                                .setValue(MissileSiloBlock.LARGE, true);
+                if (!server.setBlock(pos, state, Block.UPDATE_ALL))
+                    throw new IllegalStateException("placement rejected");
                 placed.add(pos);
             }
-            if (!(server.getBlockEntity(centre) instanceof MissileSiloBlockEntity silo)) throw new IllegalStateException("missing centre block entity");
+            if (!(server.getBlockEntity(centre) instanceof MissileSiloBlockEntity silo))
+                throw new IllegalStateException("missing centre block entity");
             silo.initialize(server, facing, player);
-            if (!MissileSiloManager.register(server, silo)) throw new IllegalStateException("silo registration rejected");
+            if (!MissileSiloManager.register(server, silo))
+                throw new IllegalStateException("silo registration rejected");
             context.getItemInHand().consume(1, player);
             return InteractionResult.SUCCESS_SERVER;
         } catch (RuntimeException exception) {
-            for (BlockPos pos : placed) server.setBlock(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(),
-                Block.UPDATE_ALL);
+            for (BlockPos pos : placed)
+                server.setBlock(
+                        pos,
+                        net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(),
+                        Block.UPDATE_ALL);
             return fail(player, "Missile silo placement failed atomically");
         }
     }

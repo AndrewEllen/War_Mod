@@ -6,57 +6,50 @@ import net.minecraft.network.chat.Component;
 
 public final class WarModUiText {
     private static final String ELLIPSIS = "...";
-    public static final int BACKGROUND = 0xFF0C1113;
-    public static final int SURFACE = 0xFF151D21;
-    public static final int SURFACE_RAISED = 0xFF202A2E;
-    public static final int BORDER = 0xFF4D5A5E;
-    public static final int BORDER_DARK = 0xFF252E31;
-    public static final int ACCENT = 0xFFC58B2D;
-    public static final int TEXT = 0xFFE2EAED;
-    public static final int TEXT_MUTED = 0xFF91A5AC;
+    public static final int BACKGROUND = 0xFFC6C6C6;
+    public static final int SURFACE = 0xFFB8B8B8;
+    public static final int SURFACE_RAISED = 0xFFC6C6C6;
+    public static final int BORDER = 0xFFFFFFFF;
+    public static final int BORDER_DARK = 0xFF555555;
+    public static final int ACCENT = 0xFF303030;
+    public static final int TEXT = 0xFF404040;
+    public static final int TEXT_MUTED = 0xFF505050;
+    public static final int SUCCESS = 0xFF246C24;
+    public static final int WARNING = 0xFF805000;
+    public static final int ERROR = 0xFF9B2525;
     private WarModUiText() { }
+
+    public static void text(final GuiGraphicsExtractor graphics, final Font font,
+        final Component text, final int x, final int y, final int color) {
+        graphics.text(font, text, x, y, color, false);
+    }
 
     public static void frame(final GuiGraphicsExtractor graphics,
         final int x, final int y, final int width, final int height) {
-        graphics.fill(x, y, x + width, y + height, BACKGROUND);
-        graphics.fill(x, y, x + width, y + 1, BORDER);
-        graphics.fill(x, y + height - 1, x + width, y + height, BORDER);
-        graphics.fill(x, y, x + 1, y + height, BORDER);
-        graphics.fill(x + width - 1, y, x + width, y + height, BORDER);
-        graphics.fill(x + 1, y + 1, x + width - 1, y + 24, SURFACE_RAISED);
-        hazardRule(graphics, x + 1, y + 23, width - 2);
-        graphics.fill(x + 4, y + 4, x + 6, y + 6, 0xFF8C989A);
-        graphics.fill(x + width - 6, y + 4, x + width - 4, y + 6, 0xFF8C989A);
-        graphics.fill(x + 4, y + height - 6, x + 6, y + height - 4, 0xFF8C989A);
-        graphics.fill(x + width - 6, y + height - 6,
-            x + width - 4, y + height - 4, 0xFF8C989A);
+        // Vanilla container bevel, drawn only inside our own screens.
+        graphics.fill(x, y, x + width, y + height, 0xFF000000);
+        graphics.fill(x + 1, y + 1, x + width - 1, y + height - 1, BORDER_DARK);
+        graphics.fill(x + 1, y + 1, x + width - 2, y + 3, BORDER);
+        graphics.fill(x + 1, y + 1, x + 3, y + height - 2, BORDER);
+        graphics.fill(x + 3, y + 3, x + width - 3, y + height - 3, BACKGROUND);
     }
 
     public static void section(final GuiGraphicsExtractor graphics,
         final int x, final int y, final int width, final int height) {
         graphics.fill(x, y, x + width, y + height, SURFACE);
-        graphics.fill(x, y, x + width, y + 1, BORDER_DARK);
-        graphics.fill(x, y, x + 1, y + height, BORDER_DARK);
-        graphics.fill(x + width - 1, y, x + width, y + height, 0xFF0A0E10);
-        graphics.fill(x, y + height - 1, x + width, y + height, 0xFF0A0E10);
-        graphics.fill(x + 1, y + 1, x + 3, y + height - 1, ACCENT);
-    }
-
-    private static void hazardRule(final GuiGraphicsExtractor graphics,
-        final int x, final int y, final int width) {
-        for (int offset = 0; offset < width; offset += 8) {
-            int end = Math.min(width, offset + 4);
-            graphics.fill(x + offset, y, x + end, y + 2, ACCENT);
-            graphics.fill(x + end, y, x + Math.min(width, offset + 8), y + 2,
-                0xFF171B1D);
-        }
+        graphics.fill(x, y, x + width, y + 1, 0xFF8B8B8B);
+        graphics.fill(x, y, x + 1, y + height, 0xFF8B8B8B);
+        graphics.fill(x + width - 1, y, x + width, y + height, BORDER);
+        graphics.fill(x, y + height - 1, x + width, y + height, BORDER);
     }
 
     public static void slot(final GuiGraphicsExtractor graphics,
         final int x, final int y, final boolean hovered, final boolean locked) {
         graphics.fill(x, y, x + 18, y + 18, BORDER);
+        graphics.fill(x, y, x + 17, y + 1, 0xFF373737);
+        graphics.fill(x, y, x + 1, y + 17, 0xFF373737);
         graphics.fill(x + 1, y + 1, x + 17, y + 17,
-            locked ? 0xFF382326 : BACKGROUND);
+            locked ? 0xFFAA8888 : 0xFF8B8B8B);
         if (hovered) graphics.fill(x + 1, y + 1, x + 17, y + 17, 0x55FFFFFF);
     }
 

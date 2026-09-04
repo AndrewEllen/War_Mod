@@ -14,7 +14,7 @@ import net.minecraft.world.phys.Vec3;
 public final class FireRepresentationPlan {
     public static final double TARGET_FLAME_PIXELS = 23.0;
     public static final double TARGET_SMOKE_PIXELS = 50.0;
-    private static final int MAX_FLAME_CARDS_PER_CELL = 48;
+    private static final int MAX_FLAME_CARDS_PER_CELL = 64;
     private static final int MAX_SMOKE_CARDS_PER_CELL = 32;
 
     private FireRepresentationPlan() { }
@@ -51,23 +51,15 @@ public final class FireRepresentationPlan {
             projectedCellDiameter * projectedCellDiameter);
         double flameTarget = Mth.clamp(TARGET_FLAME_PIXELS / Math.sqrt(quality), 18.0, 32.0);
         double smokeTarget = Mth.clamp(TARGET_SMOKE_PIXELS / Math.sqrt(quality), 36.0, 72.0);
-        int baseMinimum = Math.max(1, (int) Math.ceil(occupied / 16.0));
-        int detailLevel = Math.max(0, Math.min(4, requestedDetailLevel));
-        double lodParticleScale = FireVisualLodPolicy.particleScaleForLevel(detailLevel);
-        double flameRadiusLimit = maximumFlameRadius(cell) * lodParticleScale;
-        double smokeRadiusLimit = maximumSmokeRadius(cell) * lodParticleScale;
-        int flameMinimum = Math.max(baseMinimum, switch (detailLevel) {
-            case 0 -> Math.min(8, Math.max(4, (int) Math.ceil(occupied / 4.0)));
-            case 1 -> Math.min(4, Math.max(2, (int) Math.ceil(occupied / 8.0)));
-            default -> 1;
-        });
-        int smokeMinimum = Math.max(baseMinimum, switch (detailLevel) {
-            case 0 -> Math.min(6, Math.max(3, (int) Math.ceil(occupied / 5.0)));
-            case 1 -> Math.min(3, Math.max(2, (int) Math.ceil(occupied / 10.0)));
-            default -> 1;
-        });
-        int flameCount;
-        int smokeCount;
+        int baseMinimum = Math.min(MAX_FLAME_CARDS_PER_CELL, occupied);
+        // The physical envelope never grows with camera distance. Fewer cards
+        // share its area; their radius is solved from count below.
+        double flameRadiusLimit = maximumFlameRadius(cell);
+        double smokeRadiusLimit = maximumSmokeRadius(cell);
+        int flameMinimum = baseMinimum;
+        int smokeMinimum = Math.min(MAX_SMOKE_CARDS_PER_CELL, baseMinimum);
+        double flameCount;
+        double smokeCount;
         boolean flameVisible = cell.flameEnergy() > 0.012F
             && cell.averageIntensity() > 0.01F && cell.maximumHeat() > 0.04F
             && cell.phase() != FirePhase.SMOLDERING;
@@ -78,15 +70,16 @@ public final class FireRepresentationPlan {
                     MAX_SMOKE_CARDS_PER_CELL, smokeArea, smokeDepth,
                     smokeRadiusLimit, 0.72);
         } else if (exactPatch(cell)) {
-            double density = FireVisualLodPolicy.density(detailLevel);
-            int historicalFlames = Mth.ceil((2.0F + cell.averageIntensity() * 15.0F)
+            double density = Mth.clamp(Math.pow(projectedCellDiameter
+                / FireVisualLodPolicy.FULL_DETAIL_PIXELS, 1.25), 0.055, 1.0);
+            double historicalFlames = (2.0F + cell.averageIntensity() * 15.0F)
                 * (0.18F + cell.coveredArea() * 0.82F)
-                * (1.0F + (float)clump * 0.42F) * density);
+                * (1.0F + (float)clump * 0.42F) * density;
             if (cell.phase() == FirePhase.IGNITION) historicalFlames = Math.min(2,
                 historicalFlames);
             flameCount = Mth.clamp(historicalFlames, 1, MAX_FLAME_CARDS_PER_CELL);
-            int historicalSmoke = Mth.ceil((2.0F + cell.smokeMass() * 24.0F)
-                * (1.0F + (float)clump * 0.62F) * density);
+            double historicalSmoke = (2.0F + cell.smokeMass() * 24.0F)
+                * (1.0F + (float)clump * 0.62F) * density;
             smokeCount = cell.smokeMass() <= 0.012F ? 0
                 : Mth.clamp(historicalSmoke, 1, MAX_SMOKE_CARDS_PER_CELL);
         } else {
@@ -109,38 +102,48 @@ public final class FireRepresentationPlan {
             (float) smokeDepth, weight);
     }
 
-    private static int desiredCount(final double projectedArea,
+    private static double desiredCount(final double projectedArea,
         final double targetDiameter, final int minimum, final int maximum,
         final double representedArea, final double opticalDepth,
         final double maximumRadius, final double maximumOpacity) {
         double targetArea = Math.PI * 0.25 * targetDiameter * targetDiameter;
-        int count = Mth.clamp((int) Math.ceil(projectedArea / Math.max(1.0, targetArea)),
+        double count = Mth.clamp(projectedArea / Math.max(1.0, targetArea),
             minimum, maximum);
-        while (count < maximum) {
-            double opacity = opacity(opticalDepth, count);
-            double radius = Math.sqrt(representedArea
-                / (Math.PI * count * Math.max(0.025, opacity)));
-            if (radius <= maximumRadius && opacity <= maximumOpacity) break;
-            count = Math.min(maximum, count * 2);
+        if (maximumOpacity < 0.9) {
+            // Optically thin smoke does not get smaller when its mass is split
+            // into more transparent cards. Chasing the radius cap here always
+            // escalated faint, distant cells to the maximum particle count.
+            double opacityMinimum = opticalDepth / -Math.log(1.0 - maximumOpacity);
+            return Mth.clamp(Math.max(count, opacityMinimum), minimum, maximum);
         }
-        return count;
+        double opacity = Math.min(0.86, 0.48 + opticalDepth * 0.16);
+        double coverageMinimum = representedArea
+            / (Math.PI * maximumRadius * maximumRadius * opacity);
+        return Mth.clamp(Math.max(count, coverageMinimum), minimum, maximum);
     }
 
-    private static List<Card> cards(final FireVisualCell cell, final int count,
+    private static List<Card> cards(final FireVisualCell cell, final double count,
         final double representedArea, final double opticalDepth,
         final double maximumRadius, final float representationWeight,
         final boolean smoke) {
         if (count <= 0) return List.of();
-        double opacity = opacity(opticalDepth, count);
+        // Flames keep a readable per-card opacity. Dividing opacity by count
+        // cancelled the intended inverse-square-root change in particle size.
+        double opacity = smoke ? opacity(opticalDepth, count)
+            : Math.min(0.86, 0.48 + opticalDepth * 0.16);
         float radius = (float) Math.min(maximumRadius, Math.max(0.06,
             Math.sqrt(representedArea
                 / (Math.PI * count * Math.max(0.025, opacity)))));
         float alpha = Mth.clamp((float) opacity * representationWeight,
             0.0F, smoke ? 0.72F : 0.96F);
-        ArrayList<Card> cards = new ArrayList<>(count);
+        int occupied = Math.max(1, Long.bitCount(cell.occupancyMask()));
+        ArrayList<Card> cards = new ArrayList<>((int)Math.ceil(count));
         for (int index = 0; index < count; index++) {
+            long identity = exactPatch(cell) || cell.cellSize() == 1 ? index
+                : nthSetBit(cell.occupancyMask(), index % occupied)
+                    + (long)(index / occupied) * 64;
             long seed = mix(cell.seed() ^ (smoke ? 0x534D4F4B455F4344L
-                : 0x464C414D455F4344L) ^ (long) index * 0x9E3779B97F4A7C15L);
+                : 0x464C414D455F4344L) ^ identity * 0x9E3779B97F4A7C15L);
             Vec3 position = occupiedPosition(cell, index, seed);
             if (smoke) {
                 position = position.add(0.0, 0.30 + maximumRadius * 0.34, 0.0);
@@ -150,7 +153,15 @@ public final class FireRepresentationPlan {
             } else {
                 position = position.add(0.0, 0.05 + maximumRadius * 0.12, 0.0);
             }
-            cards.add(new Card(position, radius, alpha, seed));
+            // A fractional final card fades in continuously at count boundaries;
+            // existing radii shrink continuously to conserve the covered area.
+            double fraction = Math.min(1.0, count - index);
+            float cardAlpha = smoke
+                ? (float)(1.0 - Math.exp(-opticalDepth * fraction / count))
+                    * representationWeight
+                : alpha * (float)fraction;
+            cards.add(new Card(position, radius, Math.min(smoke ? 0.72F : 0.96F,
+                cardAlpha), seed));
         }
         return List.copyOf(cards);
     }
@@ -169,20 +180,43 @@ public final class FireRepresentationPlan {
                 case EAST, WEST -> cell.centroid().add(0.0, tangentB, tangentA);
             };
         }
+        if (cell.cellSize() == 1) {
+            // A HOST combines several patches from a solid block. Its weighted
+            // centroid can lie inside that block, especially on opposite faces.
+            // Keep the representative on the exposed dominant face.
+            Vec3 c = cell.centroid();
+            double a = (radicalInverse(index + 1, 2) - 0.5) * 0.46;
+            double b = (radicalInverse(index + 1, 3) - 0.5) * 0.46;
+            return switch (cell.dominantFace()) {
+                case UP -> new Vec3(c.x + a, cell.cellY() + 1.035, c.z + b);
+                case DOWN -> new Vec3(c.x + a, cell.cellY() - 0.035, c.z + b);
+                case NORTH -> new Vec3(c.x + a, c.y + b, cell.cellZ() - 0.035);
+                case SOUTH -> new Vec3(c.x + a, c.y + b, cell.cellZ() + 1.035);
+                case EAST -> new Vec3(cell.cellX() + 1.035, c.y + b, c.z + a);
+                case WEST -> new Vec3(cell.cellX() - 0.035, c.y + b, c.z + a);
+            };
+        }
         int occupiedCount = Math.max(1, Long.bitCount(cell.occupancyMask()));
-        int rank = Math.floorMod(index * 37 + (int) mix(seed), occupiedCount);
+        // Use a permutation, not a fresh hash for each card: every occupied
+        // subcell gets a representative before any subcell gets a second one.
+        int rank = index % occupiedCount;
         int bit = nthSetBit(cell.occupancyMask(), rank);
         int subX = bit & 7;
         int subZ = bit >>> 3;
         double subcellSize = cell.cellSize() / 8.0;
-        double jitterX = (radicalInverse(index + 1, 2) - 0.5) * subcellSize * 0.62;
-        double jitterZ = (radicalInverse(index + 1, 3) - 0.5) * subcellSize * 0.62;
+        int layer = index / occupiedCount;
+        double jitterX = (radicalInverse(layer + 1, 2) - 0.5) * subcellSize * 0.62;
+        double jitterZ = (radicalInverse(layer + 1, 3) - 0.5) * subcellSize * 0.62;
         double x = cell.cellX() * (double) cell.cellSize()
             + (subX + 0.5) * subcellSize + jitterX;
         double z = cell.cellZ() * (double) cell.cellSize()
             + (subZ + 0.5) * subcellSize + jitterZ;
-        double y = cell.centroid().y + (radicalInverse(index + 1, 5) - 0.5)
-            * Math.min(1.0, cell.extents().y);
+        // These anchors represent exposed surfaces. Random downward jitter can
+        // bury all cards in a one-block host in the middle LOD.
+        double y = cell.dominantFace() == net.minecraft.core.Direction.UP
+            ? Math.max(cell.centroid().y,
+                cell.cellY() + 1.035)
+            : cell.centroid().y;
         return new Vec3(x, y, z);
     }
 
@@ -214,14 +248,14 @@ public final class FireRepresentationPlan {
         return result;
     }
 
-    private static double opacity(final double opticalDepth, final int count) {
+    private static double opacity(final double opticalDepth, final double count) {
         return 1.0 - Math.exp(-Math.max(0.0, opticalDepth) / Math.max(1, count));
     }
 
     private static double maximumFlameRadius(final FireVisualCell cell) {
-        if (exactPatch(cell)) return 0.30;
+        if (exactPatch(cell)) return 0.42;
         double extent = Math.max(cell.extents().x, cell.extents().z);
-        return Math.max(0.48, Math.min(cell.cellSize() * 0.56, extent * 0.86 + 0.28));
+        return Math.max(0.42, Math.min(1.35, extent * 0.65 + 0.20));
     }
 
     private static double maximumSmokeRadius(final FireVisualCell cell) {

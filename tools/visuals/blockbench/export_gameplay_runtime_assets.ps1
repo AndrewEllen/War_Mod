@@ -3,7 +3,8 @@ param(
     [string]$CatalogRoot = (Join-Path $PSScriptRoot 'gameplay_catalog'),
     [string]$MissileCatalogRoot = (Join-Path $PSScriptRoot 'missiles'),
     [string]$ResourceRoot = (Join-Path $PSScriptRoot '..\..\..\src\main\resources\assets\war_mod'),
-    [string]$ClientSourceRoot = (Join-Path $PSScriptRoot '..\..\..\src\client\java')
+    [string]$ClientSourceRoot = (Join-Path $PSScriptRoot '..\..\..\src\client\java'),
+    [switch]$LegacySupportsOnly
 )
 
 Set-StrictMode -Version Latest
@@ -277,7 +278,7 @@ function New-WeaponItemDisplay {
 
 function Get-MissileItemDisplay {
     return [ordered]@{
-        gui = [ordered]@{ rotation = @(18, 35, -15); translation = @(0, 0, 0); scale = @(0.94, 0.94, 0.94) }
+        gui = [ordered]@{ rotation = @(18, 35, -15); translation = @(0, 0, 0); scale = @(1.02, 1.02, 1.02) }
         ground = [ordered]@{ rotation = @(0, 0, 90); translation = @(0, 2, 0); scale = @(0.52, 0.52, 0.52) }
         fixed = [ordered]@{ rotation = @(0, 0, 0); translation = @(0, 0, 0); scale = @(0.82, 0.82, 0.82) }
         firstperson_righthand = [ordered]@{ rotation = @(0, 0, -25); translation = @(1.0, 1.2, 0); scale = @(1.0, 1.0, 1.0) }
@@ -290,21 +291,65 @@ function Get-MissileItemDisplay {
 function Get-GameplayItemDisplay {
     param([string]$ItemModelName)
     if ($ItemModelName -eq 'pistol') {
-        return (New-WeaponItemDisplay -FirstPersonScale 1.12 -ThirdPersonScale 1.16 -GuiScale 1.0)
+        return (New-WeaponItemDisplay -FirstPersonScale 0.60 -ThirdPersonScale 0.48 -GuiScale 0.90)
     }
     if ($ItemModelName -eq 'assault_rifle') {
-        return (New-WeaponItemDisplay -FirstPersonScale 1.28 -ThirdPersonScale 1.46)
+        return (New-WeaponItemDisplay -FirstPersonScale 1.34 -ThirdPersonScale 1.54)
     }
     if ($ItemModelName -eq 'sniper_rifle') {
-        return (New-WeaponItemDisplay -FirstPersonScale 1.30 -ThirdPersonScale 1.52)
+        return (New-WeaponItemDisplay -FirstPersonScale 1.36 -ThirdPersonScale 1.60)
     }
     if ($ItemModelName -eq 'rocket_launcher') {
         return (New-WeaponItemDisplay -FirstPersonScale 1.34 -ThirdPersonScale 1.50)
     }
-    if ($ItemModelName -like '*_missile' -or $ItemModelName -like '*_icbm' -or $ItemModelName -eq 'he_rocket') {
+    if ($ItemModelName -like '*_missile' -or $ItemModelName -like '*_icbm' -or $ItemModelName -like 'anti_air_missile_*' -or $ItemModelName -eq 'he_rocket') {
         return (Get-MissileItemDisplay)
     }
+    if ($ItemModelName -in @('pistol_ammo','rifle_ammo','sniper_ammo')) {
+        $display=Get-DefaultItemDisplay
+        $size=if($ItemModelName -eq 'pistol_ammo'){0.20}elseif($ItemModelName -eq 'rifle_ammo'){0.28}else{0.25}
+        foreach($view in @('firstperson_righthand','firstperson_lefthand','thirdperson_righthand','thirdperson_lefthand')){
+            $display[$view].scale=@($size,$size,$size)
+            $display[$view].translation=@(0,1,0)
+        }
+        return $display
+    }
+    if ($ItemModelName -eq 'radar') {
+        $display=Get-DefaultItemDisplay
+        $display.gui.rotation=@(0,180,0)
+        $display.gui.scale=@(0.98,0.98,0.98)
+        return $display
+    }
     return $null
+}
+
+function Set-WeaponGripAnchor {
+    param([object]$Model,[object]$Fit,[object]$Display)
+    $grip=$Model.elements | Where-Object { $_.name -in @('grip_core','grip','pistol_grip') } | Select-Object -First 1
+    if($null -eq $grip){return}
+    # Locate the palm on the upper grip, using the same snapped element rotation
+    # as the exported Java item model. Auto-fit centres the silhouette, not the hand.
+    $x=([double]$grip.from[0]+[double]$grip.to[0])*0.5
+    $y=[double]$grip.from[1]+([double]$grip.to[1]-[double]$grip.from[1])*0.62
+    $z=([double]$grip.from[2]+[double]$grip.to[2])*0.5
+    $rotation=@(Get-ElementRotation $grip)
+    $angle=(Snap-BlockModelAngle $rotation[2])*[Math]::PI/180
+    $px=$x-$grip.origin[0]; $py=$y-$grip.origin[1]
+    $x=$grip.origin[0]+$px*[Math]::Cos($angle)-$py*[Math]::Sin($angle)
+    $y=$grip.origin[1]+$px*[Math]::Sin($angle)+$py*[Math]::Cos($angle)
+    $anchor=@(($x*$Fit.scale+$Fit.offset[0]-8),($y*$Fit.scale+$Fit.offset[1]-8),($z*$Fit.scale+$Fit.offset[2]-8))
+    foreach($view in @('firstperson_righthand','firstperson_lefthand','thirdperson_righthand','thirdperson_lefthand')) {
+        $transform=$Display[$view]
+        $handSign=if($view.EndsWith('lefthand')){-1}else{1}
+        $angleY=$transform.rotation[1]*$handSign*[Math]::PI/180
+        $angleZ=$transform.rotation[2]*$handSign*[Math]::PI/180
+        $scale=$transform.scale[0]
+        # ItemTransform uses rotationXYZ, so Z acts before Y on the point.
+        $x=($anchor[0]*[Math]::Cos($angleZ)-$anchor[1]*[Math]::Sin($angleZ))*$scale
+        $y=($anchor[0]*[Math]::Sin($angleZ)+$anchor[1]*[Math]::Cos($angleZ))*$scale
+        $z=$anchor[2]*$scale
+        $transform.translation=@([Math]::Round(-($x*[Math]::Cos($angleY)+$z*[Math]::Sin($angleY))*$handSign,4),[Math]::Round(-$y,4),[Math]::Round(-(-$x*[Math]::Sin($angleY)+$z*[Math]::Cos($angleY)),4))
+    }
 }
 
 function Export-ItemModel {
@@ -320,6 +365,9 @@ function Export-ItemModelObject {
     $display = Get-GameplayItemDisplay $TargetId
     if ($null -eq $display) { $display = Get-ExistingDisplay $TargetId }
     if ($null -eq $display) { $display = Get-DefaultItemDisplay }
+    if($TargetId -in @('pistol','assault_rifle','sniper_rifle')){
+        Set-WeaponGripAnchor -Model $model -Fit $fit -Display $display
+    }
     $output = New-ModelObject -Model $model -Elements @($model.elements) -Scale $fit.scale -Offset $fit.offset -Display $display -TextureDomain item
     Write-JsonFile -Path (Join-Path $ResourceRoot "models\item\$TargetId.json") -Value $output
 }
@@ -418,6 +466,12 @@ function Export-SiloBlocks {
         west = @(-1, 0); center = @(0, 0); east = @(1, 0)
         south_west = @(-1, 1); south = @(0, 1); south_east = @(1, 1)
     }
+    $outerParts = [ordered]@{
+        outer_north_west=@(-2,-2);outer_north_inner_west=@(-1,-2);outer_north=@(0,-2);outer_north_inner_east=@(1,-2);outer_north_east=@(2,-2)
+        outer_west_north=@(-2,-1);outer_east_north=@(2,-1);outer_west=@(-2,0);outer_east=@(2,0)
+        outer_west_south=@(-2,1);outer_east_south=@(2,1)
+        outer_south_west=@(-2,2);outer_south_inner_west=@(-1,2);outer_south=@(0,2);outer_south_inner_east=@(1,2);outer_south_east=@(2,2)
+    }
     foreach ($entry in $parts.GetEnumerator()) {
         $cellX = [int]$entry.Value[0]
         $cellZ = [int]$entry.Value[1]
@@ -429,11 +483,33 @@ function Export-SiloBlocks {
 
     $variants = [ordered]@{}
     $facings = [ordered]@{ north = 0; east = 90; south = 180; west = 270 }
+    $largeModel=Read-BlockbenchModel -Id 'missile_silo_large'
+    $largeStatic=Copy-JsonValue $largeModel
+    $largeStatic.elements=@(Get-GroupElements -Model $largeModel -GroupName 'foundation')
+    $allParts=[ordered]@{}
+    foreach($entry in $parts.GetEnumerator()){$allParts[$entry.Key]=$entry.Value}
+    foreach($entry in $outerParts.GetEnumerator()){$allParts[$entry.Key]=$entry.Value}
+    Export-EmptyBlockModel -TargetId 'missile_silo_unused'
+    foreach($entry in $allParts.GetEnumerator()){
+        $cellX=[int]$entry.Value[0];$cellZ=[int]$entry.Value[1]
+        $elements=@(Clip-SiloElements -Model $largeStatic -CellX $cellX -CellZ $cellZ)
+        $offset=@((8.0-$cellX*16.0),0.0,(8.0-$cellZ*16.0))
+        $output=New-ModelObject -Model $largeModel -Elements $elements -Scale 1.0 -Offset $offset
+        Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\missile_silo_large_$($entry.Key).json") -Value $output
+        foreach($facing in $facings.GetEnumerator()){
+            $apply=[ordered]@{model="war_mod:block/missile_silo_large_$($entry.Key)"}
+            if($facing.Value -ne 0){$apply.y=$facing.Value}
+            $variants["part=$($entry.Key),facing=$($facing.Key),large=true"]=$apply
+            if($outerParts.Contains($entry.Key)){
+                $variants["part=$($entry.Key),facing=$($facing.Key),large=false"]=[ordered]@{model='war_mod:block/missile_silo_unused'}
+            }
+        }
+    }
     foreach ($part in $parts.Keys) {
         foreach ($facing in $facings.GetEnumerator()) {
             $apply = [ordered]@{ model = "war_mod:block/missile_silo_$part" }
             if ($facing.Value -ne 0) { $apply.y = $facing.Value }
-            $variants["part=$part,facing=$($facing.Key)"] = $apply
+            $variants["part=$part,facing=$($facing.Key),large=false"] = $apply
         }
     }
     Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\missile_silo.json') -Value ([ordered]@{ variants = $variants })
@@ -596,16 +672,73 @@ function Export-JavaMeshes {
     Write-TextFile -Path $target -Content $builder.ToString().TrimEnd()
 }
 
+function Export-LegacySupportBlocks {
+    foreach ($tier in 1..3) {
+        $id = "missile_silo_guidance_support_tier_$tier"
+        $model = Read-BlockbenchModel -Id $id
+        $lowerElements = [Collections.Generic.List[object]]::new()
+        $upperElements = [Collections.Generic.List[object]]::new()
+        foreach ($element in @($model.elements)) {
+            if ([double]$element.to[1] -le 32.0) {
+                $lowerElements.Add($element)
+                continue
+            }
+            # Preserve the old tower silhouette: vanilla rejects coordinates
+            # above 32, so overflow is drawn from the existing upper block.
+            $rotation = @(Get-ElementRotation -Element $element)
+            if (@($rotation | Where-Object { [Math]::Abs([double]$_) -gt 0.001 }).Count -gt 0) {
+                throw "Rotated legacy support element '$($element.name)' needs a geometric split."
+            }
+            if ([double]$element.from[1] -lt 32.0) {
+                $lower = Copy-JsonValue $element
+                $lower.to[1] = 32.0
+                $lowerElements.Add($lower)
+            }
+            $upper = Copy-JsonValue $element
+            $upper.from[1] = [Math]::Max([double]$upper.from[1], 32.0)
+            if ([double]$upper.to[1] -gt 48.0) {
+                throw "Legacy support '$id' extends beyond its two retained blocks."
+            }
+            $upperElements.Add($upper)
+        }
+        $lower = New-ModelObject -Model $model -Elements @($lowerElements) -Scale 1.0 -Offset @(16.0, 0.0, 16.0)
+        # The upper support block sits exactly one block above the lower one.
+        $upper = New-ModelObject -Model $model -Elements @($upperElements) -Scale 1.0 -Offset @(16.0, -16.0, 16.0)
+        foreach ($part in @('front_lower', 'rear_lower')) {
+            Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\guidance_tier_${tier}_$part.json") -Value $lower
+        }
+        foreach ($part in @('front_upper', 'rear_upper')) {
+            if ($upperElements.Count -eq 0) {
+                Export-EmptyBlockModel -TargetId "guidance_tier_${tier}_$part"
+            } else {
+                Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\guidance_tier_${tier}_$part.json") -Value $upper
+            }
+        }
+    }
+}
+
 $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
 $MissileManifest = Get-Content -Raw -LiteralPath $MissileManifestPath | ConvertFrom-Json
+if ($LegacySupportsOnly) {
+    Export-LegacySupportBlocks
+    Write-Output 'Exported legacy guidance support blocks with bounded upper overflow.'
+    return
+}
 
 $dynamicOnly = @('pistol_bullet', 'rifle_bullet', 'sniper_bullet', 'falling_warhead', 'artillery_shell')
 foreach ($entry in @($Manifest)) {
     $id = [string]$entry.id
     if ($dynamicOnly -contains $id) { continue }
     if ($id -like '*_tnt') { continue }
+    if ($id -eq 'missile_silo_large') { continue }
+    if ($id -eq 'missile_silo') { Export-ItemModel -SourceId 'missile_silo_large' -TargetId 'missile_silo'; continue }
     if ($id -eq 'artillery_cannon') { Export-ItemModel -SourceId $id -TargetId 'artillery_cannon_inventory' }
     else { Export-ItemModel -SourceId $id }
+    if(([string]$entry.category).StartsWith('components') -or $id -eq 'missile_workbench'){
+        Write-JsonFile -Path (Join-Path $ResourceRoot "items\$id.json") -Value ([ordered]@{
+            model=[ordered]@{type='minecraft:model';model="war_mod:item/$id"}
+        })
+    }
 }
 
 foreach ($entry in @($MissileManifest)) {
@@ -626,26 +759,12 @@ foreach ($alias in $legacyMissileAliases.GetEnumerator()) {
 foreach ($entry in @($Manifest | Where-Object { ([string]$_.id) -like '*_tnt' })) {
     $id = [string]$entry.id
     Export-BlockModel -SourceId $id -Offset @(8.0, 8.0, 8.0)
-    Write-JsonFile -Path (Join-Path $ResourceRoot "models\item\$id.json") -Value ([ordered]@{
-        parent = "war_mod:block/$id"
-        display = (Get-DefaultItemDisplay)
-    })
+    # Fit the complete detonator/cluster profile inside an inventory cell,
+    # independently of the full-sized placed block.
+    Export-ItemModel -SourceId $id
 }
 
-foreach ($tier in 1..3) {
-    $id = "missile_silo_guidance_support_tier_$tier"
-    $model = Read-BlockbenchModel -Id $id
-    # The physical support blocks occupy the four diagonal cells around the
-    # silo. Render the towers at each cell's inward corner so the four masts
-    # converge around the missile inside the centre block.
-    $lower = New-ModelObject -Model $model -Elements @($model.elements) -Scale 1.0 -Offset @(16.0, 0.0, 16.0)
-    foreach ($part in @('front_lower', 'rear_lower')) {
-        Write-JsonFile -Path (Join-Path $ResourceRoot "models\block\guidance_tier_${tier}_$part.json") -Value $lower
-    }
-    foreach ($part in @('front_upper', 'rear_upper')) {
-        Export-EmptyBlockModel -TargetId "guidance_tier_${tier}_$part"
-    }
-}
+Export-LegacySupportBlocks
 
 $supportRotations = [ordered]@{
     front = [ordered]@{
@@ -698,6 +817,12 @@ Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\radar_station.json') 
 })
 
 Export-BlockModel -SourceId 'radar_display_panel' -Offset @(8.0, 8.0, 8.0)
+if(@($Manifest | Where-Object id -eq 'missile_workbench').Count -gt 0){
+    Export-BlockModel -SourceId 'missile_workbench' -Offset @(8.0, 0.0, 8.0)
+    Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\missile_workbench.json') -Value ([ordered]@{
+        variants=[ordered]@{''=[ordered]@{model='war_mod:block/missile_workbench'}}
+    })
+}
 Export-EmptyBlockModel -TargetId 'artillery_cannon'
 Export-SiloBlocks
 Export-JavaMeshes

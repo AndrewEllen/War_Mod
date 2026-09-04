@@ -10,6 +10,7 @@ import com.andye.warmod.warhead.WarheadPreparationCoordinator;
 import java.util.UUID;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -17,6 +18,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.InterpolationHandler;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
@@ -31,6 +33,8 @@ public final class RocketProjectileEntity extends Entity {
         RocketProjectileEntity.class, EntityDataSerializers.LONG);
     private @Nullable UUID ownerId;
     private boolean impactHandled;
+    private @Nullable Vec3 lastSmokePosition;
+    private final InterpolationHandler interpolation = new InterpolationHandler(this, 2);
 
     public RocketProjectileEntity(final EntityType<? extends RocketProjectileEntity> type,
         final Level level) { super(type, level); }
@@ -50,7 +54,12 @@ public final class RocketProjectileEntity extends Entity {
 
     @Override public void tick() {
         super.tick();
-        if (level().isClientSide() || !(level() instanceof ServerLevel server)) return;
+        if (level().isClientSide()) {
+            interpolation.interpolate();
+            emitSmokeTrail();
+            return;
+        }
+        if (!(level() instanceof ServerLevel server)) return;
         if (tickCount >= RocketConstants.LIFETIME_TICKS || !position().isFinite()) {
             discard(); return;
         }
@@ -71,11 +80,35 @@ public final class RocketProjectileEntity extends Entity {
         }
         setPos(destination);
         Vec3 wind = FireWindEngine.windAt(server, destination);
-        Vec3 nextVelocity = velocity.scale(RocketConstants.DRAG_PER_TICK)
+        // Exhaust drives the first part of flight. Once the motor burns out, coast
+        // continuously from the same velocity instead of dropping from the muzzle.
+        Vec3 nextVelocity = tickCount <= RocketConstants.MOTOR_BURN_TICKS ? velocity
+            : velocity.scale(RocketConstants.DRAG_PER_TICK)
             .add(wind.x * RocketConstants.WIND_RESPONSE_PER_TICK,
                 -RocketConstants.GRAVITY_PER_TICK,
                 wind.z * RocketConstants.WIND_RESPONSE_PER_TICK);
         setDeltaMovement(nextVelocity);
+    }
+
+    private void emitSmokeTrail() {
+        if (tickCount > RocketConstants.MOTOR_BURN_TICKS) return;
+        Vec3 direction = getDeltaMovement().normalize();
+        Vec3 nozzle = position().subtract(direction.scale(payloadType().length() * 0.5));
+        if (lastSmokePosition != null) {
+            Vec3 segment = nozzle.subtract(lastSmokePosition);
+            double distance = segment.length();
+            // A bounded, world-space ribbon remains behind the moving rocket.
+            // Ignore discontinuities from teleports rather than drawing across the map.
+            if (distance > 0.01 && distance < 16.0) {
+                int samples = Math.min(10, Math.max(1, (int)Math.ceil(distance / 0.45)));
+                for (int index = 1; index <= samples; index++) {
+                    Vec3 point = lastSmokePosition.add(segment.scale(index / (double)samples));
+                    level().addAlwaysVisibleParticle(ParticleTypes.SMOKE, true, point.x, point.y, point.z,
+                        0.0, 0.015, 0.0);
+                }
+            }
+        }
+        lastSmokePosition = nozzle;
     }
 
     public RocketPayloadType payloadType() {
@@ -87,6 +120,7 @@ public final class RocketProjectileEntity extends Entity {
     public long visualSeed() { return getEntityData().get(VISUAL_SEED); }
     public @Nullable UUID ownerId() { return ownerId; }
     public int age() { return tickCount; }
+    @Override public InterpolationHandler getInterpolation() { return interpolation; }
 
     @Override protected void readAdditionalSaveData(final ValueInput input) {
         ownerId = input.read("owner", UUIDUtil.CODEC).orElse(null);

@@ -100,6 +100,28 @@ public final class ModItems {
         FirearmType.SNIPER_RIFLE.magazineCapacity()));
     private static final Map<WarheadYield, Map<PayloadKind, Item>> YIELD_ITEMS = createYieldItems();
 
+    public static final Item ICBM_BODY = new Item(properties(key("icbm_body"), 64));
+    public static final Item ANTI_AIR_BODY = new Item(properties(key("anti_air_body"), 64));
+    public static final Item TARGETING_CHIP_TIER_1 = new Item(properties(key("targeting_chip_tier_1"), 64));
+    public static final Item TARGETING_CHIP_TIER_2 = new Item(properties(key("targeting_chip_tier_2"), 64));
+    public static final Item TARGETING_CHIP_TIER_3 = new Item(properties(key("targeting_chip_tier_3"), 64));
+    public static final Item ANTI_AIR_CONTROLLER_BALLISTIC = new Item(properties(key("anti_air_controller_ballistic"), 64));
+    public static final Item ANTI_AIR_CONTROLLER_SELF_DESTRUCT = new Item(properties(key("anti_air_controller_self_destruct"), 64));
+    public static final Item MISSILE_WORKBENCH = new BlockItem(ModBlocks.MISSILE_WORKBENCH, properties(key("missile_workbench"), 64));
+    public static final Item HIGH_EXPLOSIVE_MISSILE_WARHEAD = new Item(properties(key("high_explosive_missile_warhead"), 64));
+    public static final Item HIGH_EXPLOSIVE_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("high_explosive_cluster_missile_warhead"), 64));
+    public static final Item HIGH_CAPACITY_HE_MISSILE_WARHEAD = new Item(properties(key("high_capacity_he_missile_warhead"), 64));
+    public static final Item HIGH_CAPACITY_HE_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("high_capacity_he_cluster_missile_warhead"), 64));
+    public static final Item CONVENTIONAL_MISSILE_WARHEAD = new Item(properties(key("conventional_missile_warhead"), 64));
+    public static final Item CONVENTIONAL_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("conventional_cluster_missile_warhead"), 64));
+    public static final Item HEAVY_CONVENTIONAL_MISSILE_WARHEAD = new Item(properties(key("heavy_conventional_missile_warhead"), 64));
+    public static final Item HEAVY_CONVENTIONAL_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("heavy_conventional_cluster_missile_warhead"), 64));
+    public static final Item TACTICAL_NUCLEAR_MISSILE_WARHEAD = new Item(properties(key("tactical_nuclear_missile_warhead"), 64));
+    public static final Item TACTICAL_NUCLEAR_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("tactical_nuclear_cluster_missile_warhead"), 64));
+    public static final Item STRATEGIC_NUCLEAR_MISSILE_WARHEAD = new Item(properties(key("strategic_nuclear_missile_warhead"), 64));
+    public static final Item STRATEGIC_NUCLEAR_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("strategic_nuclear_cluster_missile_warhead"), 64));
+    public static final Item HEAVY_NUCLEAR_MISSILE_WARHEAD = new Item(properties(key("heavy_nuclear_missile_warhead"), 64));
+    public static final Item HEAVY_NUCLEAR_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("heavy_nuclear_cluster_missile_warhead"), 64));
     private static boolean registered;
 
     private ModItems() {
@@ -142,9 +164,34 @@ public final class ModItems {
         register(RIFLE_AMMO_KEY, RIFLE_AMMO);
         register(SNIPER_AMMO_KEY, SNIPER_AMMO);
         for (WarheadYield yield : WarheadYield.values()) for (PayloadKind kind : PayloadKind.values()) register(key(kind.path(yield)), item(yield, kind));
+        register(key("icbm_body"), ICBM_BODY);
+        register(key("anti_air_body"), ANTI_AIR_BODY);
+        register(key("targeting_chip_tier_1"), TARGETING_CHIP_TIER_1);
+        register(key("targeting_chip_tier_2"), TARGETING_CHIP_TIER_2);
+        register(key("targeting_chip_tier_3"), TARGETING_CHIP_TIER_3);
+        register(key("anti_air_controller_ballistic"), ANTI_AIR_CONTROLLER_BALLISTIC);
+        register(key("anti_air_controller_self_destruct"), ANTI_AIR_CONTROLLER_SELF_DESTRUCT);
+        register(key("missile_workbench"), MISSILE_WORKBENCH);
+        register(key("high_explosive_missile_warhead"), HIGH_EXPLOSIVE_MISSILE_WARHEAD);
+        register(key("high_explosive_cluster_missile_warhead"), HIGH_EXPLOSIVE_CLUSTER_MISSILE_WARHEAD);
+        register(key("high_capacity_he_missile_warhead"), HIGH_CAPACITY_HE_MISSILE_WARHEAD);
+        register(key("high_capacity_he_cluster_missile_warhead"), HIGH_CAPACITY_HE_CLUSTER_MISSILE_WARHEAD);
+        register(key("conventional_missile_warhead"), CONVENTIONAL_MISSILE_WARHEAD);
+        register(key("conventional_cluster_missile_warhead"), CONVENTIONAL_CLUSTER_MISSILE_WARHEAD);
+        register(key("heavy_conventional_missile_warhead"), HEAVY_CONVENTIONAL_MISSILE_WARHEAD);
+        register(key("heavy_conventional_cluster_missile_warhead"), HEAVY_CONVENTIONAL_CLUSTER_MISSILE_WARHEAD);
+        register(key("tactical_nuclear_missile_warhead"), TACTICAL_NUCLEAR_MISSILE_WARHEAD);
+        register(key("tactical_nuclear_cluster_missile_warhead"), TACTICAL_NUCLEAR_CLUSTER_MISSILE_WARHEAD);
+        register(key("strategic_nuclear_missile_warhead"), STRATEGIC_NUCLEAR_MISSILE_WARHEAD);
+        register(key("strategic_nuclear_cluster_missile_warhead"), STRATEGIC_NUCLEAR_CLUSTER_MISSILE_WARHEAD);
+        register(key("heavy_nuclear_missile_warhead"), HEAVY_NUCLEAR_MISSILE_WARHEAD);
+        register(key("heavy_nuclear_cluster_missile_warhead"), HEAVY_NUCLEAR_CLUSTER_MISSILE_WARHEAD);
         registered = true;
     }
 
+    public static Item missileWarhead(final WarheadYield yield, final boolean cluster) {
+        return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("war_mod", yield.getSerializedName() + (cluster ? "_cluster" : "") + "_missile_warhead"));
+    }
     public static Item guidanceSupport(final int tier) {
         return switch (tier) {
             case 2 -> GUIDANCE_TIER_2;

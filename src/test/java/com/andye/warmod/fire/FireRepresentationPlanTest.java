@@ -14,6 +14,34 @@ import org.junit.jupiter.api.Test;
 
 final class FireRepresentationPlanTest {
     @Test
+    void occupiedBitInsertionDoesNotMoveOrReseedSurvivingCards() {
+        FireVisualCell old = cell();
+        FireVisualCell expanded = new FireVisualCell(old.id(), old.band(), old.cellSize(),
+            old.cellX(), old.cellY(), old.cellZ(), old.centroid(), old.extents(),
+            old.occupancyMask() | 1L, old.flameEnergy(), old.smokeMass(),
+            old.maximumHeat(), old.averageIntensity(), old.coveredArea(),
+            old.clumpStrength(), old.wind(), old.hostCount(), old.seed(),
+            old.dominantFace(), old.phase(), old.ignitionGameTime());
+        var before = FireRepresentationPlan.plan(old, 12.0, 1.0, 1.0F).flames();
+        var after = FireRepresentationPlan.plan(expanded, 12.0, 1.0, 1.0F).flames();
+        for (Card card : before) {
+            var surviving = after.stream().filter(next -> next.seed() == card.seed()).findFirst();
+            if (surviving.isPresent()) assertEquals(card.position(), surviving.get().position());
+        }
+        assertTrue(before.stream().limit(3).allMatch(card -> after.stream()
+            .anyMatch(next -> next.seed() == card.seed())));
+    }
+
+    @Test
+    void fractionalCardsPreserveCoverageAcrossCountThresholds() {
+        CellPlan before = FireRepresentationPlan.plan(cell(), 69.99, 1.0, 1.0F);
+        CellPlan after = FireRepresentationPlan.plan(cell(), 70.01, 1.0, 1.0F);
+        assertEquals(FireRepresentationPlan.equivalentArea(before.flames()),
+            FireRepresentationPlan.equivalentArea(after.flames()), 0.001);
+        assertTrue(Math.abs(before.flames().getFirst().radius()
+            - after.flames().getFirst().radius()) < 0.001);
+    }
+    @Test
     void projectedDetailChangesPreserveAreaAndOpticalDepth() {
         FireVisualCell cell = cell();
         CellPlan far = FireRepresentationPlan.plan(cell, 12.0, 1.0, 1.0F);
