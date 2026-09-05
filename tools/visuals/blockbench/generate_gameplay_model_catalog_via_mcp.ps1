@@ -79,8 +79,13 @@ function Cubes([array]$Elements,[string]$Texture,[string]$Group) {
 
 function Get-MaterialTemplate([string]$Name) {
     $file = switch -Regex ($Name) {
+        'targeting_chip.*(body|green)' { 'circuit_board.png'; break }
+        'targeting_chip.*stock' { 'gunmetal.png'; break }
+        'artillery_shell.*stock' { 'brushed_steel.png'; break }
+        '_tnt_stock' { 'gunmetal.png'; break }
         'concrete' { 'concrete.png'; break }
         'shaft|recess|black' { 'shaft_black.png'; break }
+        'hose.*dark|rubber|grip|pad' { 'rubber.png'; break }
         'warning' { 'warning_red.png'; break }
         'brass' { 'brass.png'; break }
         'radar_cross' { 'radar_cross.png'; break }
@@ -99,11 +104,17 @@ function New-TintedTextureData([string]$Name,[string]$Color) {
     $target = [Drawing.Bitmap]::new(16,16,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $tint = [Drawing.ColorTranslator]::FromHtml($Color)
     try {
+        [double]$sum=0
+        for($y=0;$y -lt 16;$y++){for($x=0;$x -lt 16;$x++){
+            $pixel=$source.GetPixel($x,$y)
+            $sum += 0.2126*$pixel.R+0.7152*$pixel.G+0.0722*$pixel.B
+        }}
+        $mean=[Math]::Max(1.0,$sum/256.0)
         for($y=0;$y -lt 16;$y++){
             for($x=0;$x -lt 16;$x++){
                 $pixel=$source.GetPixel($x,$y)
-                $detail=(0.2126*$pixel.R+0.7152*$pixel.G+0.0722*$pixel.B)/255.0
-                $factor=0.58+0.78*$detail
+                $luma=0.2126*$pixel.R+0.7152*$pixel.G+0.0722*$pixel.B
+                $factor=[Math]::Clamp(0.20+0.82*($luma/$mean),0.58,1.42)
                 $red=[Math]::Min(255,[Math]::Round($tint.R*$factor))
                 $green=[Math]::Min(255,[Math]::Round($tint.G*$factor))
                 $blue=[Math]::Min(255,[Math]::Round($tint.B*$factor))
@@ -143,9 +154,9 @@ function RoundedBar([string]$Prefix,[double]$Half,[double]$y0,[double]$y1,[strin
     $cornerOffset = $Half - $CornerPad
     $cornerHalf = 0.36
     Cubes @(
-        (Box "${Prefix}_core" (-$inner) $y0 (-$inner) $inner $y1 $inner),
         (Box "${Prefix}_x" (-$Half) $y0 (-$inner) $Half $y1 $inner),
-        (Box "${Prefix}_z" (-$inner) $y0 (-$Half) $inner $y1 $Half),
+        (Box "${Prefix}_z_north" (-$inner) $y0 (-$Half) $inner $y1 (-$inner-.02)),
+        (Box "${Prefix}_z_south" (-$inner) $y0 ($inner+.02) $inner $y1 $Half),
         (Add-Cube "${Prefix}_c1" @(-$cornerHalf,$y0,-$cornerHalf) @($cornerHalf,$y1,$cornerHalf) @(-$cornerOffset,0,-$cornerOffset) @(0,45,0)),
         (Add-Cube "${Prefix}_c2" @(-$cornerHalf,$y0,-$cornerHalf) @($cornerHalf,$y1,$cornerHalf) @($cornerOffset,0,-$cornerOffset) @(0,45,0)),
         (Add-Cube "${Prefix}_c3" @(-$cornerHalf,$y0,-$cornerHalf) @($cornerHalf,$y1,$cornerHalf) @(-$cornerOffset,0,$cornerOffset) @(0,45,0)),
@@ -513,7 +524,7 @@ function Build-Silo([hashtable]$T,[bool]$Large=$false) {
     $doorSteel="$($T.dark)_door_steel"
     $shaft="$($T.dark)_shaft_black"
     Texture $concrete '#92928A'
-    Texture $doorSteel '#343A3C'
+    Texture $doorSteel '#596466'
     Texture $shaft '#101315'
 
     if($Large){
@@ -529,7 +540,7 @@ function Build-Silo([hashtable]$T,[bool]$Large=$false) {
         ) $concrete foundation
         Cubes @(
             (Box throat_n -22 -16 -22 22 6 -19), (Box throat_s -22 -16 19 22 6 22),
-            (Box throat_w -22 -16 -19 -19 6 19), (Box throat_e 19 -16 -19 22 6 19),
+            (Box throat_w -22 -16 -19 -19.12 6 19), (Box throat_e 19.12 -16 -19 22 6 19),
             (Box hinge_bed_l -23 4 -20 -19 7 20), (Box hinge_bed_r 19 4 -20 23 7 20),
             (Box drain_n -16 4.05 -27 16 4.5 -25), (Box drain_s -16 4.05 25 16 4.5 27)
         ) $doorSteel foundation
@@ -542,14 +553,14 @@ function Build-Silo([hashtable]$T,[bool]$Large=$false) {
             (Box left_rib_outer -19.2 8.55 -19.2 -17.7 9.35 19.2),
             (Box left_rib_n -18.0 8.55 -19.2 -1.0 9.35 -17.7),
             (Box left_rib_s -18.0 8.55 17.7 -1.0 9.35 19.2),
-            (Box left_hinge -22.1 5.5 -17.5 -19.0 9.7 17.5)
+            (Box left_hinge -22.1 5.5 -17.5 -19.22 9.7 17.5)
         ) $doorSteel left_door
         Cubes @(
             (Box right_leaf 0 6 -20 20 8.6 20),
             (Box right_rib_outer 17.7 8.55 -19.2 19.2 9.35 19.2),
             (Box right_rib_n 1.0 8.55 -19.2 18.0 9.35 -17.7),
             (Box right_rib_s 1.0 8.55 17.7 18.0 9.35 19.2),
-            (Box right_hinge 19.0 5.5 -17.5 22.1 9.7 17.5)
+            (Box right_hinge 19.22 5.5 -17.5 22.1 9.7 17.5)
         ) $doorSteel right_door
         Add-Block left_warning -13.5 9.3 -1.0 -3.5 9.65 1.0 $T.warning left_door
         Add-Block right_warning 3.5 9.3 -1.0 13.5 9.65 1.0 $T.warning right_door
@@ -677,6 +688,36 @@ function Build-Utility([string]$Kind,[hashtable]$T) {
     Add-BbGroup item_root
 
     switch($Kind){
+        'launch_controller' {
+            # One-block hardened launch terminal. The north face is the operator
+            # side so the normal horizontal blockstate rotation contract applies.
+            Texture controller_screen '#101A1C'
+            Cubes @(
+                (Box base_plinth -7.25 -8 -7.25 7.25 -6.5 7.25),
+                (Box lower_cabinet -6.75 -6.5 -6.75 6.75 1.8 6.75),
+                (Box upper_console -6.5 1.8 -5.2 6.5 7.0 6.5)
+            ) $T.dark item_root
+            Add-Block cabinet_skin -6.35 -6.1 -6.95 6.35 1.35 6.35 $T.body item_root
+            Add-Block access_panel -5.35 -5.35 -7.18 5.35 .4 -6.94 $T.stock item_root
+            Add-Block access_recess -4.75 -4.75 -7.32 4.75 -.2 -7.17 $T.dark item_root
+            foreach($x in @(-4.45,4.1)){ foreach($y in @(-4.45,-.55)){
+                Add-Block "panel_fastener_${x}_${y}" $x $y -7.42 ($x+.35) ($y+.35) -7.30 $T.brass item_root
+            }}
+            Add-Block console_bezel -5.65 2.35 -5.55 5.65 6.45 -5.18 $T.stock item_root
+            Add-Block status_screen -4.95 3.15 -5.73 1.85 5.85 -5.53 controller_screen item_root
+            Add-Block screen_trace_h -4.3 4.38 -5.80 1.15 4.62 -5.72 $T.green item_root
+            Add-Block screen_trace_v -1.72 3.6 -5.80 -1.48 5.38 -5.72 $T.green item_root
+            Add-Block switch_bank 2.45 3.0 -5.73 4.95 5.95 -5.50 $T.dark item_root
+            Add-Block launch_guard 2.85 3.4 -5.88 4.55 4.55 -5.72 $T.warning item_root
+            Add-Block selector_a 2.85 5.0 -5.86 3.45 5.55 -5.72 $T.brass item_root
+            Add-Block selector_b 3.75 5.0 -5.86 4.35 5.55 -5.72 $T.stock item_root
+            Cubes @(
+                (Box side_conduit_l -7.10 -4.5 -3.7 -6.72 .3 -2.7),
+                (Box side_conduit_r 6.72 -4.5 -3.7 7.10 .3 -2.7),
+                (Box rear_cable_trunk -1.0 -5.6 6.55 1.0 5.8 7.05)
+            ) $T.stock item_root
+            Add-Block top_service_lip -6.8 6.95 -5.45 6.8 7.55 6.8 $T.body item_root
+        }
         'target_designator' {
             Add-Block body -4.6 -3.0 -2.2 4.6 4.2 2.2 $T.dark item_root
             Add-Block armor_shell -3.8 -2.4 -2.5 3.8 3.5 2.5 $T.body item_root
@@ -1002,6 +1043,7 @@ $colors=@{
 
 $specs=@(
     @{id='missile_workbench';category='machines';build='component';arg='workbench'},
+    @{id='launch_controller';category='machines';build='utility';arg='launch_controller'},
     @{id='icbm_body';category='components';build='derived';arg='icbm_body'},
     @{id='anti_air_body';category='components';build='derived';arg='anti_air_body'},
     @{id='targeting_chip_tier_1';category='components';build='component';arg='chip_1'},
@@ -1104,7 +1146,11 @@ foreach($spec in $specs){
         if($spec.build -eq 'derived'){ continue }
         $name = "$($spec.id)_$key"
         $local[$key] = $name
-        Texture $name $colors[$palette[$key]]
+        $colour = $colors[$palette[$key]]
+        if($spec.id -eq 'fire_extinguisher' -and $key -eq 'accent'){ $colour='#B92F2A' }
+        if($spec.id -eq 'pipe_wrench' -and $key -eq 'body'){ $colour='#899294' }
+        if($spec.id -eq 'pipe_wrench' -and $key -eq 'stock'){ $colour='#626A6C' }
+        Texture $name $colour
     }
 
     switch($spec.build){

@@ -10,6 +10,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
@@ -146,9 +147,15 @@ public final class WarheadPreparationCoordinator {
                 expectedImpactTick, owner.request.deliveryMode()));
             return false;
         }
-        request(level, new WarheadPreparationRequest(preparationId, radarRootTrackId,
+        Preparation requestedPreparation = state == null ? null
+            : state.preparations.get(preparationId);
+        /* An unmapped cluster sibling must not retarget a shared preparation once
+         * another sibling has sealed it. Give only that sibling a new stream. */
+        UUID effectivePreparationId = requestedPreparation != null
+            && requestedPreparation.activeCommits > 0 ? impactId : preparationId;
+        request(level, new WarheadPreparationRequest(effectivePreparationId, radarRootTrackId,
             level.dimension(), List.of(new PreparedImpactSpec(impactId, requestedCenter,
-                yield.payloadType(), yield, seed, customFire)), expectedImpactTick,
+            yield.payloadType(), yield, seed, customFire)), expectedImpactTick,
             WarheadDeliveryMode.SINGLE));
         return false;
     }
@@ -394,12 +401,19 @@ public final class WarheadPreparationCoordinator {
         LevelState levelState = LEVELS.get(level);
         if (levelState == null) return;
         long now = level.getGameTime();
-        drainCompiled(level, levelState);
+        List<Preparation> scheduled = orderedPreparations(levelState);
+        drainCompiled(level, levelState, scheduled);
         evictCache(level, levelState, now);
         int snapshotsRemaining = MAX_SNAPSHOTS_PER_LEVEL_TICK;
         long deadline = System.nanoTime() + SNAPSHOT_BUDGET_NANOS;
-        for (Preparation preparation : List.copyOf(levelState.preparations.values())) {
+        for (Preparation preparation : scheduled) {
             if (preparation.cancelled) continue;
+            if (preparation.activeCommits > 0) {
+                // A sealed impact still owns its unfinished chunks. Do not let
+                // the launch-time lease expire underneath a large aftermath.
+                preparation.expiresAt = Math.max(preparation.expiresAt, now + MINIMUM_LIFETIME_TICKS);
+                WarheadPreparationLeaseManager.extend(level, preparation.id, preparation.expiresAt);
+            }
             recordProgress(level, preparation);
             if (preparation.activeCommits == 0 && now >= preparation.expiresAt) {
                 cancelPreparation(level, levelState, preparation, CancellationReason.TIMEOUT);
@@ -445,7 +459,7 @@ public final class WarheadPreparationCoordinator {
                     snapshotStarted);
                 if (snapshot == null) continue;
                 try {
-                    snapshot.preflight();
+                    snapshot.preflightCoverage();
                 } catch (WarheadSnapshotIncompleteException failure) {
                     WarMod.LOGGER.error("Warhead snapshot deterministic coverage violation for "
                         + "chunk {} domain={} section={} coverage={}",
@@ -492,7 +506,7 @@ public final class WarheadPreparationCoordinator {
         int features = WarheadWorldSnapshotter.requiredFeatures(chunkPosition,
             preparation.requirements);
         if (!cached.snapshot.covers(features, band[0], band[1])) return null;
-        cached.snapshot.preflight();
+        cached.snapshot.preflightCoverage();
         return cached.snapshot;
     }
 
@@ -526,6 +540,7 @@ public final class WarheadPreparationCoordinator {
             COMPILER.execute(() -> {
                 long compileStarted = WarModPerformanceDiagnostics.begin();
                 try {
+                    snapshot.preflight();
                     PreparedChunkPlan plan = WarheadPlanCompiler.compile(requirement.impact(),
                         requirement.footprint(), snapshot, preparation.palette);
                     preparation.results.add(new CompileResult(generation,
@@ -542,9 +557,10 @@ public final class WarheadPreparationCoordinator {
         }
     }
 
-    private static void drainCompiled(final ServerLevel level, final LevelState state) {
+    private static void drainCompiled(final ServerLevel level, final LevelState state,
+        final List<Preparation> scheduled) {
         int remaining = MAX_COMPILED_RESULTS_PER_LEVEL_TICK;
-        for (Preparation preparation : List.copyOf(state.preparations.values())) {
+        for (Preparation preparation : scheduled) {
             CompileResult result;
             while (remaining-- > 0 && (result = preparation.results.poll()) != null) {
                 if (result.generation != preparation.generation) continue;
@@ -575,6 +591,27 @@ public final class WarheadPreparationCoordinator {
             }
             publishIfComplete(level, state, preparation);
         }
+    }
+
+    /**
+     * Once a physical impact has sealed, its detached terrain stream owns the
+     * shared snapshot/compiler budget.  Launch-time preparations can continue
+     * with the remainder, but must never sit ahead of an already-visible impact
+     * merely because they were inserted into the level map first.
+     */
+    private static List<Preparation> orderedPreparations(final LevelState state) {
+        ArrayList<Preparation> ordered = new ArrayList<>(state.preparations.values());
+        ordered.sort(Comparator.comparingInt(preparation ->
+            WarheadPreparationSchedulingPolicy.priority(
+                preparation.state, preparation.activeCommits)));
+        int urgent = 0;
+        while (urgent < ordered.size() && WarheadPreparationSchedulingPolicy.priority(
+            ordered.get(urgent).state, ordered.get(urgent).activeCommits) == 0) urgent++;
+        int rotatingGroup = urgent > 0 ? urgent : ordered.size();
+        int start = WarheadPreparationSchedulingPolicy.startIndex(
+            rotatingGroup, state.schedulingTurn++);
+        if (start > 0) Collections.rotate(ordered.subList(0, rotatingGroup), -start);
+        return ordered;
     }
 
     private static void publishIfComplete(final ServerLevel level,
@@ -801,6 +838,7 @@ public final class WarheadPreparationCoordinator {
         private final Long2ObjectOpenHashMap<CachedSnapshot> snapshotCache =
             new Long2ObjectOpenHashMap<>();
         private final WarheadStateMetadata metadata;
+        private long schedulingTurn;
 
         private LevelState(final ServerLevel level) {
             metadata = WarheadStateMetadata.capture(level);

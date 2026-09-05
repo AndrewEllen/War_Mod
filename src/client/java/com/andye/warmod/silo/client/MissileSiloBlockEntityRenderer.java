@@ -38,6 +38,12 @@ public final class MissileSiloBlockEntityRenderer
             final ModelFeatureRenderer.@Nullable CrumblingOverlay breakProgress) {
         BlockEntityRenderer.super.extractRenderState(
                 silo, state, partialTicks, cameraPosition, breakProgress);
+        // The controller sits inside the closed throat, where sky light is zero.
+        // Door panels are exposed above it and must sample that exterior light.
+        if (silo.getLevel() != null) {
+            state.lightCoords = net.minecraft.util.LightCoordsUtil.getLightCoords(
+                    silo.getLevel(), silo.getBlockPos().above());
+        }
         state.siloState = silo.siloState();
         state.facing = silo.facing();
         state.large = silo.getBlockState().getValue(com.andye.warmod.block.MissileSiloBlock.LARGE);

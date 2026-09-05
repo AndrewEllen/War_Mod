@@ -165,7 +165,13 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                 int inserted = extractedCount - remainder.getCount();
 
                 if (!remainder.isEmpty()) {
-                    restore(source, slot, remainder);
+                    if (!(source instanceof MissileWorkbenchBlockEntity workbench
+                            && slot == 3
+                            && workbench.rollbackPreviewExtraction(remainder))) {
+                        restore(source, slot, remainder);
+                    }
+                } else if (source instanceof MissileWorkbenchBlockEntity workbench && slot == 3) {
+                    workbench.completePreviewExtraction();
                 }
 
                 /* removeItem/rollback is still an inventory mutation even if

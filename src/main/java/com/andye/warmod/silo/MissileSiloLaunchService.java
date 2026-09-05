@@ -12,6 +12,7 @@ import com.andye.warmod.block.MissileSiloStructure;
 import com.andye.warmod.block.entity.MissileSiloBlockEntity;
 import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmLaunchService;
+import com.andye.warmod.defence.MissileAffiliation;
 import com.andye.warmod.item.component.TargetCoordinates;
 
 import net.minecraft.network.chat.Component;
@@ -192,10 +193,9 @@ public final class MissileSiloLaunchService {
                 continue;
             }
             int tier = MissilePayloadItems.guidanceTier(silo.reservedMissile());
-            UUID owner =
-                    request.trigger() == MissileSiloLaunchTrigger.REDSTONE
-                            ? silo.ownerPlayerId()
-                            : request.triggeringPlayerId();
+            UUID owner = silo.ownerPlayerId();
+            MissileAffiliation affiliation = MissileAffiliation.ofDefence(silo.ownership());
+            String ownerName = owner == null ? "SERVER" : silo.ownerDisplayName();
             if (request.missileType().role() == SiloMissileRole.INTERCEPTOR) {
                 // Solve against current target motion after the doors open, not a stale lock from
                 // the button click.
@@ -214,7 +214,8 @@ public final class MissileSiloLaunchService {
                                 : AntiAirLaunchService.launchFromSilo(
                                         level,
                                         owner,
-                                        request.triggeringPlayerName(),
+                                        affiliation,
+                                        ownerName,
                                         silo.siloId(),
                                         silo.getBlockPos(),
                                         origin,
@@ -238,7 +239,8 @@ public final class MissileSiloLaunchService {
                     IcbmLaunchService.launchFromSilo(
                             level,
                             owner,
-                            request.triggeringPlayerName(),
+                            affiliation,
+                            ownerName,
                             origin(silo),
                             request.strategicTarget().position(),
                             request.missileType().payloadType().orElseThrow(),

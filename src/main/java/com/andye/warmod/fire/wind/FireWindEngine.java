@@ -43,13 +43,19 @@ public final class FireWindEngine {
     public static synchronized void addExplosionImpulse(final ServerLevel level,
         final Vec3 center, final double radius, final double strength,
         final int durationTicks) {
+        addExplosionImpulse(level, center, radius, strength, durationTicks, false);
+    }
+
+    public static synchronized void addExplosionImpulse(final ServerLevel level,
+        final Vec3 center, final double radius, final double strength,
+        final int durationTicks, final boolean nuclear) {
         if (level == null || center == null || !center.isFinite() || radius <= 0.0
             || strength <= 0.0 || durationTicks <= 0) return;
         ArrayDeque<FireWindImpulse> impulses = IMPULSES.computeIfAbsent(level,
             ignored -> new ArrayDeque<>());
         while (impulses.size() >= 32) impulses.removeFirst();
         FireWindImpulse impulse = new FireWindImpulse(center, radius, strength,
-            level.getGameTime(), durationTicks);
+            level.getGameTime(), durationTicks, nuclear);
         impulses.addLast(impulse);
         FireNetworking.sendWindImpulse(level, impulse);
     }
@@ -66,7 +72,7 @@ public final class FireWindEngine {
         return length > 2.5 ? result.scale(2.5 / length) : result;
     }
 
-    /** Snapshots carry ambient wind; timestamped impulses are applied once at the client. */
+    /** Cell snapshots carry ambient wind; timestamped impulses are applied once at the client. */
     public static Vec3 ambientWindAt(final ServerLevel level, final Vec3 position) {
         if (level == null || position == null || !position.isFinite()) return Vec3.ZERO;
         /* Wind is spatially local rather than one world-wide rotating vector.

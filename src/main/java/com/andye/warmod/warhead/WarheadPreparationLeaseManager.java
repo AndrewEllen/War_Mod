@@ -116,8 +116,20 @@ public final class WarheadPreparationLeaseManager {
         final UUID leaseId, final long packedChunk) {
         LevelState state = LEVELS.get(level);
         Lease lease = state == null ? null : state.leases.get(leaseId);
-        return lease != null && lease.owned.contains(packedChunk)
-            && fullChunkReady(level, state, packedChunk);
+        if (lease == null || !lease.owned.contains(packedChunk)
+            || !fullChunkReady(level, state, packedChunk)) return false;
+        /* Snapshot capture reads a two-block surface border from each cardinal
+         * neighbour.  Do not spend the shared server-thread budget repeatedly
+         * attempting a chunk whose leased read domain is still loading. */
+        ChunkPos chunk = ChunkPos.unpack(packedChunk);
+        return fullChunkReady(level, state,
+                new ChunkPos(chunk.x() - 1, chunk.z()).pack())
+            && fullChunkReady(level, state,
+                new ChunkPos(chunk.x() + 1, chunk.z()).pack())
+            && fullChunkReady(level, state,
+                new ChunkPos(chunk.x(), chunk.z() - 1).pack())
+            && fullChunkReady(level, state,
+                new ChunkPos(chunk.x(), chunk.z() + 1).pack());
     }
 
     public static synchronized void release(final ServerLevel level,

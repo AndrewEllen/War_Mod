@@ -54,7 +54,7 @@ public final class PointDefenceInterceptionService {
             if (
                 nearby.targetId()
                     .equals(target.targetId())
-                || !ownership.isHostile(nearby.ownerPlayerId(), nearby.forcedHostile())
+                || !ownership.isHostile(nearby.affiliation(), nearby.forcedHostile())
                 || nearby.position()
                     .distanceToSqr(hitPosition)
                     > chainRadiusSquared

@@ -1467,7 +1467,7 @@ public final class WarheadGlassShockwaveManager {
             double selector = unit(hash ^ 0x4452595F504C414EL);
             BlockState replacement;
             if (original.is(Blocks.BUSH)) {
-                replacement = selector < 0.82 ? Blocks.TALL_DRY_GRASS.defaultBlockState()
+                replacement = selector < 0.82 ? com.andye.warmod.block.ModBlocks.CHARRED_TALL_DRY_GRASS.defaultBlockState()
                     : Blocks.DEAD_BUSH.defaultBlockState();
             } else if (selector < 0.006) {
                 replacement = Blocks.WITHER_ROSE.defaultBlockState();
@@ -1476,9 +1476,9 @@ public final class WarheadGlassShockwaveManager {
             } else if (selector < 0.016) {
                 replacement = Blocks.CLOSED_EYEBLOSSOM.defaultBlockState();
             } else if (selector < 0.18) {
-                replacement = Blocks.TALL_DRY_GRASS.defaultBlockState();
+                replacement = com.andye.warmod.block.ModBlocks.CHARRED_TALL_DRY_GRASS.defaultBlockState();
             } else if (selector < 0.38) {
-                replacement = Blocks.SHORT_DRY_GRASS.defaultBlockState();
+                replacement = com.andye.warmod.block.ModBlocks.CHARRED_SHORT_DRY_GRASS.defaultBlockState();
             } else if (selector < 0.52) {
                 replacement = Blocks.DEAD_BUSH.defaultBlockState();
             } else if (selector < 0.58) {
@@ -1544,8 +1544,8 @@ public final class WarheadGlassShockwaveManager {
             double kind = unit(hash ^ 0x4153485F4B494E44L);
             BlockState decoration;
             if (kind < 0.20) decoration = Blocks.DEAD_BUSH.defaultBlockState();
-            else if (kind < 0.43) decoration = Blocks.SHORT_DRY_GRASS.defaultBlockState();
-            else if (kind < 0.61) decoration = Blocks.TALL_DRY_GRASS.defaultBlockState();
+            else if (kind < 0.43) decoration = com.andye.warmod.block.ModBlocks.CHARRED_SHORT_DRY_GRASS.defaultBlockState();
+            else if (kind < 0.61) decoration = com.andye.warmod.block.ModBlocks.CHARRED_TALL_DRY_GRASS.defaultBlockState();
             else if (kind < 0.73) decoration = Blocks.PALE_MOSS_CARPET.defaultBlockState();
             else if (kind < 0.92) decoration = deadCoralFanState((int) (hash >>> 20));
             else if (kind < 0.947) decoration = Blocks.WITHER_ROSE.defaultBlockState();

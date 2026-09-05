@@ -22,7 +22,6 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Container;
 import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Player;
@@ -115,17 +114,21 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
                     ? 1.0 - launchElapsed
                             / (double) MissileSiloConstants.DOOR_CLOSE_DELAY_TICKS
                     : 0.5;
-            int count = Math.max(1, (int) Math.ceil(1.0 + remaining * 4.0));
+            // Preparation needs a visible upward vent before a client carrier
+            // visual exists. Keep it bounded: this is six per preparation pulse
+            // and six-to-ten while the rocket is emerging.
+            int count = preparingVentTick ? 6
+                    : Math.max(6, (int) Math.ceil(6.0 + remaining * 4.0));
             server.sendParticles(
                     ParticleTypes.CLOUD,
                     pos.getX() + 0.5,
                     pos.getY() + 0.42,
                     pos.getZ() + 0.5,
                     count,
-                    0.42,
-                    0.06,
-                    0.42,
-                    0.018);
+                    preparingVentTick ? 0.24 : 0.32,
+                    preparingVentTick ? 0.14 : 0.18,
+                    preparingVentTick ? 0.24 : 0.32,
+                    preparingVentTick ? 0.055 : 0.045);
         }
         int signal =
                 MissileSiloBlock.maximumIncomingSignal(
@@ -396,15 +399,6 @@ public final class MissileSiloBlockEntity extends BlockEntity implements Worldly
         this.pendingLaunchRequestId = requestId;
         this.enterState(MissileSiloState.PREPARING);
         this.animationStartGameTime = this.level == null ? 0 : this.level.getGameTime();
-        if (this.level instanceof ServerLevel server) {
-            server.playSound(
-                    null,
-                    this.worldPosition,
-                    com.andye.warmod.acoustics.ModSoundEvents.MISSILE_ENGINE_IGNITION_NEAR,
-                    SoundSource.BLOCKS,
-                    0.9F,
-                    0.72F);
-        }
         this.sync();
         return this.reservedMissile;
     }

@@ -144,7 +144,8 @@ final class WarheadSnapshotFlags {
     }
 
     private static boolean isFragile(final BlockState state) {
-        return state.is(Blocks.SHORT_GRASS) || state.is(Blocks.TALL_GRASS)
+        return state.getBlock() instanceof com.andye.warmod.block.CharredDryGrassBlock
+            || state.is(Blocks.SHORT_GRASS) || state.is(Blocks.TALL_GRASS)
             || state.is(Blocks.FERN) || state.is(Blocks.LARGE_FERN)
             || state.is(Blocks.VINE) || isSnowLike(state)
             || state.is(Blocks.BROWN_MUSHROOM) || state.is(Blocks.RED_MUSHROOM)

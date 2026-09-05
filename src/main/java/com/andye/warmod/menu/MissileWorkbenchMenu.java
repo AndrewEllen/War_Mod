@@ -2,6 +2,7 @@ package com.andye.warmod.menu;
 
 import com.andye.warmod.block.entity.MissileWorkbenchBlockEntity;
 import com.andye.warmod.silo.MissileAssembly;
+import com.andye.warmod.silo.MissileWorkbenchPreview;
 
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
@@ -35,6 +36,14 @@ public final class MissileWorkbenchMenu extends AbstractContainerMenu {
                         public boolean mayPlace(ItemStack stack) {
                             return MissileAssembly.accepts(slot, stack);
                         }
+
+                        @Override
+                        public void onTake(final Player player, final ItemStack taken) {
+                            super.onTake(player, taken);
+                            if (slot == MissileWorkbenchPreview.OUTPUT_SLOT
+                                    && inventory instanceof MissileWorkbenchBlockEntity bench)
+                                bench.completePreviewExtraction();
+                        }
                     });
         }
         for (int row = 0; row < 3; row++)
@@ -53,7 +62,22 @@ public final class MissileWorkbenchMenu extends AbstractContainerMenu {
         Slot slot = slots.get(index);
         if (!slot.hasItem()) return ItemStack.EMPTY;
         ItemStack stack = slot.getItem(), copy = stack.copy();
-        if (index < 4) {
+        if (index == MissileWorkbenchPreview.OUTPUT_SLOT) {
+            // moveItemStackTo may accept only part of a legacy persisted output.
+            // Commit exactly what it accepted; a virtual preview has count one.
+            ItemStack moving = stack.copy();
+            if (!moveItemStackTo(moving, 4, slots.size(), true))
+                return ItemStack.EMPTY;
+            int moved = stack.getCount() - moving.getCount();
+            if (moved <= 0
+                    || inventory.removeItem(MissileWorkbenchPreview.OUTPUT_SLOT, moved).isEmpty())
+                return ItemStack.EMPTY;
+            if (inventory instanceof MissileWorkbenchBlockEntity bench)
+                bench.completePreviewExtraction();
+            slot.setChanged();
+            return copy;
+        }
+        if (index < MissileWorkbenchPreview.OUTPUT_SLOT) {
             if (!moveItemStackTo(stack, 4, slots.size(), true)) return ItemStack.EMPTY;
         } else if (!moveItemStackTo(stack, 0, 3, false)) return ItemStack.EMPTY;
         if (stack.isEmpty()) slot.setByPlayer(ItemStack.EMPTY);

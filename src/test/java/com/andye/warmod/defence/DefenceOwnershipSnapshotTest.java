@@ -16,7 +16,7 @@ final class DefenceOwnershipSnapshotTest {
     void unclaimedDefenceTreatsEveryMissileAsHostile() {
         DefenceOwnershipSnapshot defence = DefenceOwnershipSnapshot.unclaimed();
         assertTrue(defence.isHostile(OWNER, false));
-        assertTrue(defence.isHostile(null, false));
+        assertTrue(defence.isHostile((UUID)null, false));
     }
 
     @Test
@@ -26,7 +26,7 @@ final class DefenceOwnershipSnapshotTest {
         assertFalse(defence.isHostile(OWNER, false));
         assertFalse(defence.isHostile(ALLY, false));
         assertTrue(defence.isHostile(STRANGER, false));
-        assertTrue(defence.isHostile(null, false));
+        assertTrue(defence.isHostile((UUID)null, false));
         assertTrue(defence.isHostile(new UUID(0L, 0L), false));
     }
 
@@ -34,5 +34,41 @@ final class DefenceOwnershipSnapshotTest {
     void fallbackMissileIsAlwaysHostileEvenWhenOwned() {
         DefenceOwnershipSnapshot defence = new DefenceOwnershipSnapshot(OWNER, "Owner", List.of());
         assertTrue(defence.isHostile(OWNER, true));
+    }
+
+    @Test
+    void capturedSiloAffiliationIncludesOwnerAndEveryLaunchTimeAlly() {
+        DefenceOwnershipSnapshot silo = new DefenceOwnershipSnapshot(
+            OWNER, "Owner", List.of(new DefenceAlly(ALLY, "Ally")));
+        MissileAffiliation missile = MissileAffiliation.ofDefence(silo);
+
+        DefenceOwnershipSnapshot ownersDefence = new DefenceOwnershipSnapshot(
+            OWNER, "Owner", List.of());
+        DefenceOwnershipSnapshot alliesDefence = new DefenceOwnershipSnapshot(
+            ALLY, "Ally", List.of());
+        DefenceOwnershipSnapshot strangerDefence = new DefenceOwnershipSnapshot(
+            STRANGER, "Stranger", List.of());
+        DefenceOwnershipSnapshot ownersDefenceWithAlly = new DefenceOwnershipSnapshot(
+            OWNER, "Owner", List.of(new DefenceAlly(ALLY, "Ally")));
+        DefenceOwnershipSnapshot crossWhitelistedDefence = new DefenceOwnershipSnapshot(
+            STRANGER, "Stranger", List.of(
+                new DefenceAlly(OWNER, "Owner"),
+                new DefenceAlly(ALLY, "Ally")));
+
+        assertTrue(ownersDefence.isHostile(missile, false));
+        assertTrue(alliesDefence.isHostile(missile, false));
+        assertFalse(ownersDefenceWithAlly.isHostile(missile, false));
+        assertFalse(crossWhitelistedDefence.isHostile(missile, false));
+        assertTrue(strangerDefence.isHostile(missile, false));
+    }
+
+    @Test
+    void unclaimedLaunchStaysHostileAndFallbackOverridesAffiliation() {
+        DefenceOwnershipSnapshot defence = new DefenceOwnershipSnapshot(
+            OWNER, "Owner", List.of(new DefenceAlly(ALLY, "Ally")));
+
+        assertTrue(defence.isHostile(MissileAffiliation.unowned(), false));
+        assertTrue(defence.isHostile(
+            new MissileAffiliation(java.util.Set.of(OWNER, ALLY)), true));
     }
 }

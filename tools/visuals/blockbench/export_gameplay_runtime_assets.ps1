@@ -100,6 +100,27 @@ function Get-DynamicMaterialIndex {
     return 1
 }
 
+function Get-MaterialSourceName {
+    param([string]$TextureName)
+    $name = $TextureName.ToLowerInvariant()
+    # Specific object roles take precedence over the old broad palette names.
+    if ($name -match 'targeting_chip' -and $name -match 'body|green') { return 'circuit_board' }
+    if ($name -match 'targeting_chip.*stock') { return 'gunmetal' }
+    if ($name -match 'artillery_shell.*stock') { return 'brushed_steel' }
+    if ($name -match '_tnt_stock') { return 'gunmetal' }
+    if ($name -match 'concrete|cement|stone') { return 'concrete' }
+    if ($name -match 'radar_cross|screen|display|scan|glow') { return 'radar_cross' }
+    if ($name -match 'brass|gold|copper|driving_band|fuze_ring') { return 'brass' }
+    if ($name -match 'extinguisher.*accent|extinguisher.*body|warning|hazard|red') { return 'warning_red' }
+    if ($name -match 'hose.*dark|rubber|grip|pad|stock') { return 'rubber' }
+    if ($name -match 'shaft|recess|black') { return 'shaft_black' }
+    if ($name -match 'soot|burn|exhaust|char|nozzle|bore') { return 'soot_metal' }
+    if ($name -match 'wrench.*body|wrench.*stock|steel|metal|silver|blade|jaw|rail|hinge|accent|blue') { return 'brushed_steel' }
+    if ($name -match 'body_shadow|dark') { return 'gunmetal' }
+    if ($name -match 'body|shell|casing|warhead|fin|green|olive|paint|yield|tip') { return 'olive_paint' }
+    return 'painted_steel'
+}
+
 function Export-TintedMaterialTile {
     param([string]$SourceName, [string]$Tint, [string]$TargetPath)
     $sourcePath = Join-Path (Join-Path $PSScriptRoot 'material_sources') ($SourceName + '.png')
@@ -108,11 +129,19 @@ function Export-TintedMaterialTile {
     $target = [Drawing.Bitmap]::new(16, 16, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $colour = [Drawing.ColorTranslator]::FromHtml($Tint)
     try {
+        [double]$sum = 0.0
         for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) {
             $pixel = $source.GetPixel($x, $y)
-            $detail = (0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B) / 255.0
-            $factor = 0.58 + 0.78 * $detail
-            $target.SetPixel($x, $y, [Drawing.Color]::FromArgb(255,
+            $sum += 0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B
+        } }
+        $mean = [Math]::Max(1.0, $sum / 256.0)
+        for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) {
+            $pixel = $source.GetPixel($x, $y)
+            $luma = 0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B
+            # Normalize every ImageGen material around its own mean. This keeps
+            # the authored seams, rivets and wear visible even with dark tints.
+            $factor = [Math]::Clamp(0.20 + 0.82 * ($luma / $mean), 0.58, 1.42)
+            $target.SetPixel($x, $y, [Drawing.Color]::FromArgb($pixel.A,
                 [int][Math]::Min(255, [Math]::Round($colour.R * $factor)),
                 [int][Math]::Min(255, [Math]::Round($colour.G * $factor)),
                 [int][Math]::Min(255, [Math]::Round($colour.B * $factor))))
@@ -169,7 +198,7 @@ function Read-MissileBlockbenchModel {
 }
 
 function Get-TexturePalette {
-    param([object]$Model)
+    param([object]$Model, [switch]$PreserveEmbedded)
     $palette = @{}
     $directPaletteDirectory = Join-Path $ResourceRoot 'textures\blockbench_palette'
     $blockPaletteDirectory = Join-Path $ResourceRoot 'textures\block\blockbench_palette'
@@ -213,15 +242,29 @@ function Get-TexturePalette {
         } finally {
             $stream.Dispose()
         }
-        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).Substring(0, 10).ToLowerInvariant()
+        $sourceName = Get-MaterialSourceName ([string]$texture.name)
+        if ($PreserveEmbedded) {
+            [byte[]]$materialBytes = [byte[]]::new(0)
+        } else {
+            [byte[]]$materialBytes = [IO.File]::ReadAllBytes((Join-Path (Join-Path $PSScriptRoot 'material_sources') ($sourceName + '.png')))
+        }
+        $hashInput = [byte[]]::new($bytes.Length + $materialBytes.Length)
+        [Array]::Copy($bytes, 0, $hashInput, 0, $bytes.Length)
+        [Array]::Copy($materialBytes, 0, $hashInput, $bytes.Length, $materialBytes.Length)
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($hashInput)).Substring(0, 10).ToLowerInvariant()
         $key = ('{0:x2}{1:x2}{2:x2}{3:x2}_{4}' -f $colour.R, $colour.G, $colour.B, $colour.A, $hash)
         foreach ($directory in @($blockPaletteDirectory, $itemPaletteDirectory)) {
             $palettePath = Join-Path $directory ($key + '.png')
-            # Palette filenames are content-addressed by their RGBA value. An
-            # existing file is therefore already the exact runtime colour, and
-            # may be memory-mapped by a running Minecraft client on Windows.
+            # The filename includes both embedded tint and material-source
+            # content, so texture revisions never alias an older runtime tile.
             if (-not (Test-Path -LiteralPath $palettePath)) {
-                [IO.File]::WriteAllBytes($palettePath, $bytes)
+                if ($PreserveEmbedded) {
+                    [IO.File]::WriteAllBytes($palettePath, $bytes)
+                } else {
+                    Export-TintedMaterialTile -SourceName $sourceName `
+                        -Tint ('#{0:x2}{1:x2}{2:x2}' -f $colour.R, $colour.G, $colour.B) `
+                        -TargetPath $palettePath
+                }
             }
         }
         $palette[[string]$texture.id] = [pscustomobject]@{
@@ -284,9 +327,10 @@ function New-ModelObject {
         [double]$Scale,
         [double[]]$Offset,
         [object]$Display = $null,
-        [ValidateSet('block', 'item')][string]$TextureDomain = 'block'
+        [ValidateSet('block', 'item')][string]$TextureDomain = 'block',
+        [switch]$PreserveEmbeddedTextures
     )
-    $palette = Get-TexturePalette -Model $Model
+    $palette = Get-TexturePalette -Model $Model -PreserveEmbedded:$PreserveEmbeddedTextures
     $usedIds = [Collections.Generic.List[string]]::new()
     foreach ($element in @($Elements)) {
         foreach ($face in @($element.faces.PSObject.Properties.Value)) {
@@ -455,6 +499,25 @@ function Get-GameplayItemDisplay {
         $display.gui.rotation=@(22,180,0)
         $display.gui.scale=@(1.05,1.05,1.05)
         $display.fixed.rotation=@(0,180,0)
+        $display.firstperson_righthand.rotation=@(0,180,-18)
+        $display.firstperson_lefthand.rotation=@(0,180,18)
+        $display.thirdperson_righthand.rotation=@(0,180,-28)
+        $display.thirdperson_lefthand.rotation=@(0,180,28)
+        foreach($view in @('firstperson_righthand','firstperson_lefthand')){
+            $display[$view].translation=@(0,1.5,1.5)
+            $display[$view].scale=@(.68,.68,.68)
+        }
+        return $display
+    }
+    if ($ItemModelName -eq 'pipe_wrench') {
+        $display=Get-DefaultItemDisplay
+        $display.gui.rotation=@(25,180,-28)
+        $display.gui.scale=@(.92,.92,.92)
+        $display.fixed.rotation=@(0,180,-35)
+        $display.firstperson_righthand.rotation=@(0,180,-28)
+        $display.firstperson_lefthand.rotation=@(0,180,28)
+        $display.thirdperson_righthand.rotation=@(0,180,-40)
+        $display.thirdperson_lefthand.rotation=@(0,180,40)
         return $display
     }
     if ($ItemModelName -eq 'target_designator') {
@@ -508,7 +571,7 @@ function Export-ItemModelObject {
     if($TargetId -in @('pistol','assault_rifle','sniper_rifle','target_designator')){
         Set-WeaponGripAnchor -Model $model -Fit $fit -Display $display
     }
-    $output = New-ModelObject -Model $model -Elements @($model.elements) -Scale $fit.scale -Offset $fit.offset -Display $display -TextureDomain item
+    $output = New-ModelObject -Model $model -Elements @($model.elements) -Scale $fit.scale -Offset $fit.offset -Display $display -TextureDomain item -PreserveEmbeddedTextures:($TargetId -eq 'phalanx_turret')
     Write-JsonFile -Path (Join-Path $ResourceRoot "models\item\$TargetId.json") -Value $output
 }
 
@@ -959,7 +1022,7 @@ foreach ($entry in @($Manifest)) {
     if ($id -eq 'missile_silo') { Export-ItemModel -SourceId 'missile_silo_large' -TargetId 'missile_silo'; continue }
     if ($id -eq 'artillery_cannon') { Export-ItemModel -SourceId $id -TargetId 'artillery_cannon_inventory' }
     else { Export-ItemModel -SourceId $id }
-    if(([string]$entry.category).StartsWith('components') -or $id -eq 'missile_workbench'){
+    if(([string]$entry.category).StartsWith('components') -or $id -eq 'missile_workbench' -or $id -eq 'launch_controller'){
         Write-JsonFile -Path (Join-Path $ResourceRoot "items\$id.json") -Value ([ordered]@{
             model=[ordered]@{type='minecraft:model';model="war_mod:item/$id"}
         })
@@ -1042,6 +1105,16 @@ Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\radar_station.json') 
 })
 
 Export-BlockModel -SourceId 'radar_display_panel' -Offset @(8.0, 8.0, 8.0)
+if(@($Manifest | Where-Object id -eq 'launch_controller').Count -gt 0){
+    Export-BlockModel -SourceId 'launch_controller' -Offset @(8.0, 8.0, 8.0)
+    $controllerVariants = [ordered]@{
+        'facing=north' = [ordered]@{ model = 'war_mod:block/launch_controller' }
+        'facing=east' = [ordered]@{ model = 'war_mod:block/launch_controller'; y = 90 }
+        'facing=south' = [ordered]@{ model = 'war_mod:block/launch_controller'; y = 180 }
+        'facing=west' = [ordered]@{ model = 'war_mod:block/launch_controller'; y = 270 }
+    }
+    Write-JsonFile -Path (Join-Path $ResourceRoot 'blockstates\launch_controller.json') -Value ([ordered]@{ variants = $controllerVariants })
+}
 if(@($Manifest | Where-Object id -eq 'missile_workbench').Count -gt 0){
     Export-WorkbenchBlocks
 }

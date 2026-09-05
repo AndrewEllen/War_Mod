@@ -16,6 +16,14 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.PushReaction;
 
 public final class ModBlocks {
+    public static final ResourceKey<Block> CHARRED_SHORT_DRY_GRASS_KEY = key("charred_short_dry_grass");
+    public static final ResourceKey<Block> CHARRED_TALL_DRY_GRASS_KEY = key("charred_tall_dry_grass");
+    public static final CharredDryGrassBlock CHARRED_SHORT_DRY_GRASS = new CharredDryGrassBlock(
+        BlockBehaviour.Properties.ofFullCopy(net.minecraft.world.level.block.Blocks.SHORT_DRY_GRASS)
+            .setId(CHARRED_SHORT_DRY_GRASS_KEY));
+    public static final CharredDryGrassBlock CHARRED_TALL_DRY_GRASS = new CharredDryGrassBlock(
+        BlockBehaviour.Properties.ofFullCopy(net.minecraft.world.level.block.Blocks.TALL_DRY_GRASS)
+            .setId(CHARRED_TALL_DRY_GRASS_KEY));
     public static final ResourceKey<Block> MISSILE_SILO_KEY = key("missile_silo");
     public static final ResourceKey<Block> MISSILE_SILO_GUIDANCE_SUPPORT_KEY = key("missile_silo_guidance_support");
     public static final ResourceKey<Block> RADAR_STATION_KEY = key("radar_station");
@@ -23,6 +31,7 @@ public final class ModBlocks {
     public static final ResourceKey<Block> RADAR_DISPLAY_PANEL_KEY = key("radar_display_panel");
     public static final ResourceKey<Block> ITEM_PIPE_KEY = key("item_pipe");
     public static final ResourceKey<Block> ARTILLERY_CANNON_KEY = key("artillery_cannon");
+    public static final ResourceKey<Block> LAUNCH_CONTROLLER_KEY = key("launch_controller");
     private static final Map<WarheadYield, TimedWarheadTntBlock> TIMED_TNT =
         createTimedTntBlocks(false);
     private static final Map<WarheadYield, TimedWarheadTntBlock> CLUSTER_TNT =
@@ -41,6 +50,14 @@ public final class ModBlocks {
         new ArtilleryCannonBlock(BlockBehaviour.Properties.of()
             .setId(ARTILLERY_CANNON_KEY)
             .strength(7.0F, 24.0F)
+            .requiresCorrectToolForDrops()
+            .sound(SoundType.METAL)
+            .pushReaction(PushReaction.BLOCK)
+            .noOcclusion());
+    public static final LaunchControllerBlock LAUNCH_CONTROLLER =
+        new LaunchControllerBlock(BlockBehaviour.Properties.of()
+            .setId(LAUNCH_CONTROLLER_KEY)
+            .strength(4.0F, 12.0F)
             .requiresCorrectToolForDrops()
             .sound(SoundType.METAL)
             .pushReaction(PushReaction.BLOCK)
@@ -102,12 +119,15 @@ public final class ModBlocks {
         }
 
         Registry.register(BuiltInRegistries.BLOCK, MISSILE_SILO_KEY, MISSILE_SILO);
+        Registry.register(BuiltInRegistries.BLOCK, CHARRED_SHORT_DRY_GRASS_KEY, CHARRED_SHORT_DRY_GRASS);
+        Registry.register(BuiltInRegistries.BLOCK, CHARRED_TALL_DRY_GRASS_KEY, CHARRED_TALL_DRY_GRASS);
         Registry.register(BuiltInRegistries.BLOCK, MISSILE_SILO_GUIDANCE_SUPPORT_KEY, MISSILE_SILO_GUIDANCE_SUPPORT);
         Registry.register(BuiltInRegistries.BLOCK, RADAR_STATION_KEY, RADAR_STATION);
         Registry.register(BuiltInRegistries.BLOCK, PHALANX_TURRET_KEY, PHALANX_TURRET);
         Registry.register(BuiltInRegistries.BLOCK, RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         Registry.register(BuiltInRegistries.BLOCK, ITEM_PIPE_KEY, ITEM_PIPE);
         Registry.register(BuiltInRegistries.BLOCK, ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        Registry.register(BuiltInRegistries.BLOCK, LAUNCH_CONTROLLER_KEY, LAUNCH_CONTROLLER);
         for (WarheadYield yield : WarheadYield.values()) {
             Registry.register(BuiltInRegistries.BLOCK, key(tntPath(yield, false)),
                 timedTnt(yield, false));

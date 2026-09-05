@@ -90,7 +90,7 @@ public final class WarheadImpactService {
 		FireWindEngine.addExplosionImpulse(level, event.impactPosition(),
 			48.0 + yield.visualScale() * (yield.nuclear() ? 72.0 : 38.0),
 			0.55 + yield.visualScale() * (yield.nuclear() ? 0.72 : 0.34),
-			yield.nuclear() ? 110 : 56);
+			yield.nuclear() ? 300 : 90, yield.nuclear());
 		if (registerRadarImpact) {
 			RadarTrackingService.registerImpact(
 				level,

@@ -51,11 +51,13 @@ public final class IcbmFlightController {
             strategic.deliveryMode() == WarheadDeliveryMode.CLUSTER_FOUR
                 ? WarheadLaunchService.launchClusterFromCarrier(level,
                     activeFlightPlan.ownerPlayerId(),
+                    activeFlightPlan.affiliation(),
                     activeFlightPlan.separationPosition(), activeFlightPlan.intendedTarget(),
                     activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(),
                     activeFlightPlan.missileId())
                 : WarheadLaunchService.launchFromCarrier(level,
                     activeFlightPlan.ownerPlayerId(),
+                    activeFlightPlan.affiliation(),
                     activeFlightPlan.separationPosition(), activeFlightPlan.intendedTarget(),
                     activeFlightPlan.visualSeed(), activeFlightPlan.payloadType(),
                     activeFlightPlan.missileId()).map(java.util.List::of)
@@ -71,9 +73,9 @@ public final class IcbmFlightController {
             return;
         }
         int longest = 0;
+        RadarTrackingService.registerTerminalSeparation(level,
+            activeFlightPlan.missileId(), terminals);
         for (var terminal : terminals) {
-            RadarTrackingService.registerTerminalSeparation(level,
-                activeFlightPlan.missileId(), terminal);
             longest = Math.max(longest, terminal.flightTicks());
         }
         var primary = terminals.getFirst();

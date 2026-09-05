@@ -3,6 +3,7 @@ package com.andye.warmod.warhead;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.entity.IncomingWarheadEntity;
 import com.andye.warmod.entity.ModEntityTypes;
+import com.andye.warmod.defence.MissileAffiliation;
 import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.radar.RadarTrackingService;
@@ -77,6 +78,7 @@ public final class WarheadLaunchService {
         Optional<LaunchResult> result = spawn(
             level,
             owner.getUUID(),
+            MissileAffiliation.ofOwner(owner.getUUID()),
             id,
             start,
             intendedTarget,
@@ -102,6 +104,7 @@ public final class WarheadLaunchService {
     public static Optional<LaunchResult> launchFromCarrier(
         final ServerLevel level,
         final UUID ownerPlayerId,
+        final MissileAffiliation affiliation,
         final Vec3 separationPosition,
         final Vec3 intendedTarget,
         final long parentVisualSeed,
@@ -110,14 +113,13 @@ public final class WarheadLaunchService {
     ) {
         UUID id = UUID.randomUUID();
         long seed = deriveSeed(id, parentVisualSeed, payloadType);
-        int ticks = clampTerminal((int)Math.ceil(
-            separationPosition.distanceTo(intendedTarget)
-                / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK
-        ));
+        int ticks = WarheadTrajectory.terminalFlightTicks(
+            separationPosition, intendedTarget);
 
         Optional<LaunchResult> result = spawn(
             level,
             ownerPlayerId,
+            affiliation,
             id,
             separationPosition,
             intendedTarget,
@@ -139,6 +141,7 @@ public final class WarheadLaunchService {
     public static List<LaunchResult> launchClusterFromCarrier(
         final ServerLevel level,
         final UUID ownerPlayerId,
+        final MissileAffiliation affiliation,
         final Vec3 separationPosition,
         final Vec3 intendedTarget,
         final long parentVisualSeed,
@@ -146,22 +149,12 @@ public final class WarheadLaunchService {
         final UUID radarRootTrackId
     ) {
         ArrayList<LaunchResult> results = new ArrayList<>(4);
-        double rotation = ((parentVisualSeed >>> 11) & 65535)
-            / 65535.0
-            * Math.PI
-            * 2.0;
+        List<Vec3> offsets = clusterOffsets(parentVisualSeed);
 
         for (int index = 0; index < 4; index++) {
-            double angle = rotation + index * Math.PI * 0.5;
-            // Four separated quarter sections cover a materially wider footprint
-            // while retaining the existing four authoritative detonations/yields.
-            double radius = 32.0
-                + ((parentVisualSeed >>> (index * 7)) & 15) * 1.05;
-            Vec3 target = new Vec3(
-                intendedTarget.x + Math.cos(angle) * radius,
-                intendedTarget.y,
-                intendedTarget.z + Math.sin(angle) * radius
-            );
+            Vec3 offset = offsets.get(index);
+            double angle = Math.atan2(offset.z, offset.x);
+            Vec3 target = intendedTarget.add(offset);
 
             if (!level.getWorldBorder().isWithinBounds(target)
                 || level.isOutsideBuildHeight(
@@ -182,14 +175,12 @@ public final class WarheadLaunchService {
                     + index * 0x9E3779B97F4A7C15L,
                 payloadType
             );
-            int ticks = clampTerminal((int)Math.ceil(
-                start.distanceTo(target)
-                    / WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK
-            ));
+            int ticks = WarheadTrajectory.terminalFlightTicks(start, target);
 
             spawn(
                 level,
                 ownerPlayerId,
+                affiliation,
                 id,
                 start,
                 target,
@@ -227,6 +218,28 @@ public final class WarheadLaunchService {
         return List.copyOf(results);
     }
 
+    /** Deterministic four-quarter footprint used by both authoritative launch and tests. */
+    static List<Vec3> clusterOffsets(final long parentVisualSeed) {
+        SplittableRandom spread = new SplittableRandom(
+            parentVisualSeed ^ 0x434C555354455234L
+        );
+        double rotation = spread.nextDouble(0.0, Math.PI * 2.0);
+        ArrayList<Vec3> offsets = new ArrayList<>(4);
+        for (int index = 0; index < 4; index++) {
+            // Each quarter stays in its own broad sector, with independent angle
+            // and distance jitter so the footprint is wide but not a perfect cross.
+            double angle = rotation + index * Math.PI * 0.5
+                + spread.nextDouble(-0.56, 0.56);
+            double radius = spread.nextDouble(26.0, 68.0);
+            offsets.add(new Vec3(
+                Math.cos(angle) * radius,
+                0.0,
+                Math.sin(angle) * radius
+            ));
+        }
+        return List.copyOf(offsets);
+    }
+
     private static void transferCarrierPreparation(final ServerLevel level,
         final UUID radarRootTrackId, final List<LaunchResult> results,
         final WarheadDeliveryMode deliveryMode) {
@@ -252,6 +265,7 @@ public final class WarheadLaunchService {
     private static Optional<LaunchResult> spawn(
         final ServerLevel level,
         final @Nullable UUID ownerPlayerId,
+        final MissileAffiliation affiliation,
         final UUID id,
         final Vec3 start,
         final Vec3 target,
@@ -301,6 +315,7 @@ public final class WarheadLaunchService {
             level,
             id,
             ownerPlayerId,
+            affiliation,
             start,
             target,
             gameTime,
@@ -382,7 +397,8 @@ public final class WarheadLaunchService {
             payloadType,
             radarRootTrackId,
             clusterIndex,
-            clusterCount
+            clusterCount,
+            affiliation
         ));
     }
 
@@ -467,13 +483,6 @@ public final class WarheadLaunchService {
         );
     }
 
-    private static int clampTerminal(final int ticks) {
-        return Math.max(
-            IcbmConstants.MINIMUM_TERMINAL_TICKS,
-            Math.min(IcbmConstants.MAXIMUM_TERMINAL_TICKS, ticks)
-        );
-    }
-
     private static boolean loaded(
         final ServerLevel level,
         final Vec3 position
@@ -494,7 +503,8 @@ public final class WarheadLaunchService {
         WarheadPayloadType payloadType,
         UUID radarRootTrackId,
         int clusterIndex,
-        int clusterCount
+        int clusterCount,
+        MissileAffiliation affiliation
     ) {
         public LaunchResult(
             final UUID warheadId,
@@ -516,7 +526,8 @@ public final class WarheadLaunchService {
                 payloadType,
                 radarRootTrackId,
                 0,
-                1
+                1,
+                MissileAffiliation.unowned()
             );
         }
     }

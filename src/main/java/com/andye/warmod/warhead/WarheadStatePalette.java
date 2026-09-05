@@ -16,7 +16,10 @@ record WarheadStatePalette(int air, int magma, int tintedGlass, int blackGlass,
     int paleWood, int deadBush, int shortDryGrass, int tallDryGrass, int calcite,
     WarheadDecorationPalette decoration) {
 
-    static WarheadStatePalette capture() {
+    static WarheadStatePalette capture() { return capture(false); }
+
+    // Frozen historical policy fixtures select their original material palette explicitly.
+    static WarheadStatePalette capture(final boolean historicalGrass) {
         BlockState paleLeaves = Blocks.PALE_OAK_LEAVES.defaultBlockState()
             .setValue(BlockStateProperties.PERSISTENT, true);
         BlockState paleLog = Blocks.PALE_OAK_LOG.defaultBlockState();
@@ -42,8 +45,8 @@ record WarheadStatePalette(int air, int magma, int tintedGlass, int blackGlass,
             id(paleLog.setValue(BlockStateProperties.AXIS, Direction.Axis.Y)),
             id(paleLog.setValue(BlockStateProperties.AXIS, Direction.Axis.Z)),
             id(Blocks.PALE_OAK_WOOD.defaultBlockState()), id(Blocks.DEAD_BUSH.defaultBlockState()),
-            id(Blocks.SHORT_DRY_GRASS.defaultBlockState()),
-            id(Blocks.TALL_DRY_GRASS.defaultBlockState()),
+            historicalGrass ? id(Blocks.SHORT_DRY_GRASS.defaultBlockState()) : aftermathGrass("charred_short_dry_grass", Blocks.SHORT_DRY_GRASS),
+            historicalGrass ? id(Blocks.TALL_DRY_GRASS.defaultBlockState()) : aftermathGrass("charred_tall_dry_grass", Blocks.TALL_DRY_GRASS),
             id(Blocks.CALCITE.defaultBlockState()), WarheadDecorationPalette.capture());
     }
 
@@ -55,5 +58,13 @@ record WarheadStatePalette(int air, int magma, int tintedGlass, int blackGlass,
 
     private static int id(final BlockState state) {
         return Block.getId(state);
+    }
+
+    private static int aftermathGrass(final String path, final Block vanilla) {
+        // Pure vanilla-bootstrap fixtures have no mod registry; never capture an
+        // unregistered state's air ID. Live worlds register the charred palette.
+        return id(net.minecraft.core.registries.BuiltInRegistries.BLOCK.getOptional(
+            net.minecraft.resources.Identifier.fromNamespaceAndPath("war_mod", path))
+            .orElse(vanilla).defaultBlockState());
     }
 }

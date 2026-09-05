@@ -103,6 +103,29 @@ final class WarheadPlanCompilerTest {
     }
 
     private static WarheadChunkSnapshot stoneSnapshot() {
+        return stoneSnapshot(false);
+    }
+
+    @Test
+    void craterRemovesFlowerAboveMotionBlockingHeight() {
+        PreparedImpactSpec impact = impact(123L);
+        PreparedChunkPlan plan = WarheadPlanCompiler.compile(impact,
+            WarheadFootprintCalculator.calculate(impact.payload(), impact.yield(), impact.target()),
+            stoneSnapshot(true), WarheadStatePalette.capture());
+        int flowerIndex = (1 << 8) | (8 << 4) | 8; // y=65 in section 4
+        boolean removed = false;
+        for (PreparedSectionPlan section : plan.blockSections()) {
+            if (section.sectionY() != 4) continue;
+            for (int i = 0; i < section.mutationCount(); i++) {
+                if (section.localIndicesUnsafe()[i] == flowerIndex
+                    && section.finalStateIdsUnsafe()[i] == Block.getId(Blocks.AIR.defaultBlockState()))
+                    removed = true;
+            }
+        }
+        assertTrue(removed, "Vegetation above MOTION_BLOCKING must not float over the crater");
+    }
+
+    private static WarheadChunkSnapshot stoneSnapshot(boolean flower) {
         int air = Block.getId(Blocks.AIR.defaultBlockState());
         int stone = Block.getId(Blocks.STONE.defaultBlockState());
         int minimumCraterY = 38;
@@ -132,8 +155,10 @@ final class WarheadPlanCompilerTest {
         return new WarheadChunkSnapshot(new ChunkPos(0, 0), 11L, -4,
             sectionRevisions, -64, 319, minimumCraterY, maximumCraterY,
             motion, terrain, new int[256], surfaceStates, surfaceFlags,
-            craterStates, craterFlags, resistance, new long[0], new int[0],
-            new int[0]);
+            craterStates, craterFlags, resistance,
+            flower ? new long[] {net.minecraft.core.BlockPos.asLong(8, 65, 8)} : new long[0],
+            flower ? new int[] {Block.getId(Blocks.DANDELION.defaultBlockState())} : new int[0],
+            flower ? new int[] {WarheadSnapshotFlags.FRAGILE} : new int[0]);
     }
 
     private static WarheadChunkSnapshot semanticSoilSnapshot(final ChunkPos chunk) {

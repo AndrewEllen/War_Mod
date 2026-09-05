@@ -382,6 +382,10 @@ public final class WarheadPreparedCommitManager {
 
         private void advance(final ServerLevel level) {
             int age = (int)Math.max(0L, level.getGameTime() - startedAt);
+            if (fallbackLeaseId != null) {
+                WarheadPreparationLeaseManager.extend(level, fallbackLeaseId,
+                    level.getGameTime() + 1_200L);
+            }
             ImpactStreamState streamState = WarheadPreparationCoordinator.impactStreamState(
                 level, preparationId, plan.impactId());
             if (streamState == ImpactStreamState.FAILED) {

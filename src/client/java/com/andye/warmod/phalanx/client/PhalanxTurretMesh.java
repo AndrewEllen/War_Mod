@@ -75,16 +75,20 @@ public final class PhalanxTurretMesh {
     }
 
     public static void renderBarrels(final PoseStack.Pose pose,
-        final VertexConsumer buffer, final int light, final float spinDegrees) {
+        final VertexConsumer buffer, final int light, final float spinDegrees, final float heat) {
         double phase = Math.toRadians(spinDegrees);
         float radius = .115F;
+        int barrelRed = (int)(31 + (206 - 31) * heat);
+        int barrelGreen = (int)(37 + (52 - 37) * heat);
+        int barrelBlue = (int)(39 * (1.0F - heat));
+        int barrelLight = heat > .68F ? 0xF000F0 : light;
         for (int index = 0; index < 6; index++) {
             double angle = phase + index * Math.PI / 3.0;
             float x = (float)Math.cos(angle) * radius;
             float y = (float)Math.sin(angle) * radius;
             box(pose, buffer, x - .025F, y - .025F, .60F,
                 x + .025F, y + .025F, 1.72F,
-                31, 37, 39, light);
+                barrelRed, barrelGreen, barrelBlue, barrelLight);
         }
         // Central spindle and two retainers keep the six barrels from reading as loose rods.
         box(pose, buffer, -.055F, -.055F, .42F, .055F, .055F, 1.69F,

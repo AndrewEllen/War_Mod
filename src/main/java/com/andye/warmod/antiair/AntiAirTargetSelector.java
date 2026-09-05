@@ -101,7 +101,7 @@ public final class AntiAirTargetSelector {
                 || telemetry.phase() == RadarTrackPhase.IMPACT
                 || telemetry.strategicPayloadType().isEmpty()
                 || telemetry.snapshot().carrierPlan().isEmpty()
-                || !ownership.isHostile(telemetry.snapshot().ownerPlayerId(), false)) {
+                || !ownership.isHostile(telemetry.affiliation(), false)) {
                 continue;
             }
 
@@ -115,7 +115,7 @@ public final class AntiAirTargetSelector {
         for (AntiAirPointDefenceSnapshot interceptor
                 : AntiAirFlightControllerManager.pointDefenceSnapshots(level)) {
             if (interceptor.active()
-                    && ownership.isHostile(interceptor.ownerPlayerId(), interceptor.forcedHostile())) {
+                    && ownership.isHostile(interceptor.affiliation(), interceptor.forcedHostile())) {
                 projectInterceptor(interceptor, origin, now).ifPresent(candidates::add);
             }
         }

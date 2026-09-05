@@ -234,16 +234,19 @@ final class WarheadPlanCompiler {
             int z = BlockPos.getZ(packed);
             boolean craterOwned = NuclearCraterPolicy.ownsCell(profile,
                 impact.target(), x, y, z);
-            if (craterOwned) continue;
+            // The crater copier stops at MOTION_BLOCKING, which excludes grass
+            // and flowers. Geometric ownership alone cannot mean it copied them.
+            int columnIndex = (z & 15) * 16 + (x & 15);
+            if (craterOwned && y <= snapshot.motionTopY(columnIndex)) continue;
             double dx = x + 0.5 - impact.target().x;
             double dz = z + 0.5 - impact.target().z;
             double radial = Math.sqrt(dx * dx + dz * dz);
             int flags = snapshot.relevantFlags(index);
             int expected = snapshot.relevantStateId(index);
-            if (isStructuralCleanupCell(impact, profile, snapshot, x, y, z,
+            if (craterOwned || isStructuralCleanupCell(impact, profile, snapshot, x, y, z,
                 radial, flags)) {
-                boolean forceRemoval = (flags & (WarheadSnapshotFlags.LEAVES
-                    | WarheadSnapshotFlags.FRAGILE)) != 0;
+                boolean forceRemoval = craterOwned || (flags & (WarheadSnapshotFlags.LEAVES
+                    | WarheadSnapshotFlags.FRAGILE | WarheadSnapshotFlags.LOG)) != 0;
                 builders.addCleanup(x, y, z, expected, palette.air(),
                     (flags & WarheadSnapshotFlags.SEMANTIC) != 0, !forceRemoval);
                 continue;
@@ -387,7 +390,7 @@ final class WarheadPlanCompiler {
         final int x, final int y, final int z, final double radial,
         final int flags) {
         if (radial > profile.horizontalRadius() * 1.08
-            || (flags & (WarheadSnapshotFlags.LEAVES | WarheadSnapshotFlags.FRAGILE
+            || (flags & (WarheadSnapshotFlags.LEAVES | WarheadSnapshotFlags.FRAGILE | WarheadSnapshotFlags.LOG
                 | WarheadSnapshotFlags.SURVIVAL_SENSITIVE)) == 0) return false;
         int column = (z & 15) * 16 + (x & 15);
         int craterFloor = snapshot.terrainSurfaceY(column);

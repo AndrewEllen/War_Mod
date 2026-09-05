@@ -58,9 +58,9 @@ public final class FireRepresentationPlan {
             * (1.0 + clump * 0.42);
         double flameDepth = Math.max(0.05, cell.flameEnergy() * 0.82);
         float close = exactPatch(cell) ? Mth.clamp(closeDetail, 0.0F, 1.0F) : 0.0F;
-        // More overlap fills the same physical envelope; it must not make the
-        // distant representation larger, nor shrink every near tongue to a dot.
-        flameArea *= 1.0 + close * 2.2;
+        // Additional translucent detail fills the same envelope without turning
+        // close particles into broad, solid panels.
+        flameArea *= 1.0 + close * 0.12;
         double smokeArea = Math.max(0.08, footprintArea * (0.65
             + Math.sqrt(Math.max(0.0, cell.smokeMass())) * 0.82));
         double smokeDepth = Math.max(0.04, cell.smokeMass() * 0.92);
@@ -150,7 +150,7 @@ public final class FireRepresentationPlan {
         // cancelled the intended inverse-square-root change in particle size.
         double opacity = smoke ? opacity(opticalDepth, count)
             : Math.min(0.86, 0.48 + opticalDepth * 0.16);
-        if (!smoke) opacity += (0.96 - opacity) * close;
+        if (!smoke) opacity += (0.52 - opacity) * close;
         float radius = (float) Math.min(maximumRadius, Math.max(0.06,
             Math.sqrt(representedArea
                 / (Math.PI * count * Math.max(0.025, opacity)))));

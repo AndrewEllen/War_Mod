@@ -3,6 +3,7 @@ package com.andye.warmod.block;
 import com.andye.warmod.block.entity.MissileSiloBlockEntity;
 import com.andye.warmod.block.entity.ModBlockEntities;
 import com.andye.warmod.item.TargetDesignatorItem;
+import com.andye.warmod.item.ControllerLinkingToolItem;
 import com.andye.warmod.item.component.TargetCoordinates;
 import com.andye.warmod.menu.MissileSiloMenu;
 import com.andye.warmod.menu.ModMenus;
@@ -149,6 +150,9 @@ public final class MissileSiloBlock extends BaseEntityBlock implements WorldlyCo
         if (level.isClientSide()) return InteractionResult.SUCCESS;
         MissileSiloBlockEntity silo = resolve(level, pos, state);
         if (silo == null) return InteractionResult.FAIL;
+        if (held.getItem() instanceof ControllerLinkingToolItem) {
+            return ControllerLinkingToolItem.addSilo(held, silo, player);
+        }
         if (held.getItem() instanceof TargetDesignatorItem && player.isShiftKeyDown()) {
             TargetCoordinates target =
                     held.get(com.andye.warmod.item.component.ModDataComponents.TARGET_COORDINATES);

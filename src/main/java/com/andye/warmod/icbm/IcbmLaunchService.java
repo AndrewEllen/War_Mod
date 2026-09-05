@@ -13,6 +13,8 @@ import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
 import com.andye.warmod.silo.MissileSiloCollisionContext;
 import com.andye.warmod.icbm.guidance.IcbmGuidanceProfile;
+import com.andye.warmod.icbm.guidance.IcbmGuidanceResolver;
+import com.andye.warmod.defence.MissileAffiliation;
 import java.util.Optional;
 import java.util.SplittableRandom;
 import java.util.UUID;
@@ -145,7 +147,7 @@ public final class IcbmLaunchService {
 	}
 
 	public static Optional<LaunchResult> launchFromSilo(final ServerLevel level, final @Nullable UUID ownerPlayerId,
-		final @Nullable String ownerDisplayName, final Vec3 launchPosition, final Vec3 intendedTarget,
+		final MissileAffiliation affiliation, final @Nullable String ownerDisplayName, final Vec3 launchPosition, final Vec3 intendedTarget,
 		final WarheadPayloadType payloadType, final WarheadYield yield,
 		final WarheadDeliveryMode deliveryMode, final MissileSiloCollisionContext collisionContext,
 		final UUID siloId, final BlockPos siloCentre, final int guidanceTier) {
@@ -156,14 +158,20 @@ public final class IcbmLaunchService {
 		UUID missileId = UUID.randomUUID();
 		long seed = mix(missileId.getMostSignificantBits() ^ Long.rotateLeft(missileId.getLeastSignificantBits(), 17)
 			^ payloadType.ordinal());
-		IcbmFlightPlan plan = createSiloFlightPlan(level, ownerPlayerId == null ? new UUID(0L, 0L) : ownerPlayerId,
-			launchPosition, intendedTarget, payloadType, missileId, seed).orElse(null);
-		IcbmGuidanceProfile guidance = plan == null ? null : new IcbmGuidanceProfile(siloId, siloCentre, guidanceTier,
-			intendedTarget, plan.visualSeed());
-		return acceptPlan(level, plan, collisionContext, guidance, yield, deliveryMode);
+		UUID primaryOwner = ownerPlayerId == null ? UNOWNED : ownerPlayerId;
+		IcbmGuidanceProfile guidance = new IcbmGuidanceProfile(siloId, siloCentre, guidanceTier,
+			intendedTarget, seed);
+		Vec3 resolvedTarget = IcbmGuidanceResolver.resolve(guidance, missileId,
+			candidate -> validTargetCoordinate(level, candidate)
+				&& IcbmRouteRules.strategicRangeValid(launchPosition, candidate))
+			.resolvedTarget();
+		IcbmFlightPlan plan = createSiloFlightPlan(level, primaryOwner, affiliation,
+			launchPosition, resolvedTarget, payloadType, missileId, seed).orElse(null);
+		return acceptPlan(level, plan, collisionContext, null, yield, deliveryMode);
 	}
 
 	private static Optional<IcbmFlightPlan> createSiloFlightPlan(final ServerLevel level, final UUID ownerPlayerId,
+		final MissileAffiliation affiliation,
 		final Vec3 launch, final Vec3 target, final WarheadPayloadType payloadType, final UUID id, final long seed) {
 		double cloudHeight = cloudHeight(level, launch);
 		Vec3 horizontal = new Vec3(target.x - launch.x, 0.0, target.z - launch.z);
@@ -190,8 +198,8 @@ public final class IcbmLaunchService {
 			Mth.clamp(horizontalDistance / IcbmConstants.MAXIMUM_COAST_TICKS * 0.70, 0.25, 2.8));
 		if (coastTicks < 0) return Optional.empty();
 		try {
-			return Optional.of(new IcbmFlightPlan(id, ownerPlayerId, launch, burnout, separation, target,
-				level.getGameTime(), IcbmConstants.IGNITION_TICKS, IcbmConstants.BOOST_TICKS, coastTicks, seed, payloadType));
+			return Optional.of(new IcbmFlightPlan(id, ownerPlayerId, affiliation, launch, burnout, separation, target,
+				level.getGameTime(), IcbmConstants.SILO_IGNITION_TICKS, IcbmConstants.BOOST_TICKS, coastTicks, seed, payloadType));
 		} catch (IllegalArgumentException ignored) {
 			return Optional.empty();
 		}
@@ -314,7 +322,7 @@ public final class IcbmLaunchService {
 		int coastTicks = chooseCoastTicks(original.burnoutPosition(), separation, preferredApex, ceiling,
 			Mth.clamp(distance / IcbmConstants.MAXIMUM_COAST_TICKS * 0.70, 0.25, 2.8));
 		if (coastTicks < 0) return Optional.empty();
-		try { return Optional.of(new IcbmFlightPlan(original.missileId(), original.ownerPlayerId(),
+		try { return Optional.of(new IcbmFlightPlan(original.missileId(), original.ownerPlayerId(), original.affiliation(),
 			original.launchPosition(), original.burnoutPosition(), separation, resolvedTarget,
 			original.launchGameTime(), original.ignitionTicks(), original.boostTicks(), coastTicks,
 			original.visualSeed(), original.payloadType())); }

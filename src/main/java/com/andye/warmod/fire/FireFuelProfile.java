@@ -22,7 +22,9 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
     public static FireFuelProfile of(final BlockState state) {
         if (state.isAir()) return NONE;
         // Burned ground is still a solid terrain block, but its surface fuel is spent.
-        if (state.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)) return NONE;
+        if (state.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+            || state.is(net.minecraft.world.level.block.Blocks.DIRT)
+            || state.is(net.minecraft.world.level.block.Blocks.DIRT_PATH)) return NONE;
         if (state.is(FireFuelTags.IMMUNE)) return NONE;
         if (state.is(FireFuelTags.HIGH) || state.is(BlockTags.LEAVES)
             || state.is(BlockTags.FLOWERS) || state.is(BlockTags.CROPS)
@@ -39,7 +41,8 @@ public record FireFuelProfile(boolean flammable, boolean consumable,
     }
 
     static FireFuelProfile fallbackForPath(final String path) {
-        if (path.equals("coarse_dirt")) return NONE;
+        if (path.equals("coarse_dirt") || path.equals("dirt")
+            || path.equals("dirt_path") || path.startsWith("charred_")) return NONE;
         /* Keep non-consumable ground fuels ahead of the broad plant-name
            fallback. This also preserves the intended classification when a
            development data pack has not bound the fire-fuel tags yet. */

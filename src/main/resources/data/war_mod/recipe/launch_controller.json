@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    "III",
+    "RTR",
+    "ICI"
+  ],
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "R": "minecraft:redstone",
+    "T": "war_mod:targeting_chip_tier_1",
+    "C": "minecraft:comparator"
+  },
+  "result": {
+    "id": "war_mod:launch_controller"
+  }
+}

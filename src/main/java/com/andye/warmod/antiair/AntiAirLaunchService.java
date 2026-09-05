@@ -4,6 +4,7 @@ import com.andye.warmod.WarMod;
 import com.andye.warmod.antiair.network.AntiAirNetworking;
 import com.andye.warmod.antiair.network.ClientboundAntiAirLaunchPayload;
 import com.andye.warmod.defence.DefenceOwnershipSnapshot;
+import com.andye.warmod.defence.MissileAffiliation;
 import com.andye.warmod.radar.RadarInterceptorPlanSnapshot;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.silo.MissileSiloCollisionContext;
@@ -41,6 +42,7 @@ public final class AntiAirLaunchService {
     public static Optional<AntiAirLaunchResult> launchFromSilo(
         final ServerLevel level,
         final @Nullable UUID owner,
+        final MissileAffiliation affiliation,
         final String name,
         final UUID siloId,
         final BlockPos centre,
@@ -54,6 +56,7 @@ public final class AntiAirLaunchService {
         return launch(
             level,
             owner,
+            affiliation,
             name,
             siloId,
             centre,
@@ -97,6 +100,7 @@ public final class AntiAirLaunchService {
         return launch(
             level,
             owner,
+            MissileAffiliation.ofOwner(owner),
             name,
             null,
             null,
@@ -121,6 +125,7 @@ public final class AntiAirLaunchService {
     private static Optional<AntiAirLaunchResult> launch(
         final ServerLevel level,
         final @Nullable UUID owner,
+        final MissileAffiliation affiliation,
         final String name,
         final @Nullable UUID siloId,
         final @Nullable BlockPos centre,
@@ -214,6 +219,7 @@ public final class AntiAirLaunchService {
             new AntiAirFlightPlan(
                 id,
                 owner,
+                affiliation,
                 siloId,
                 centre,
                 variant,
@@ -272,6 +278,7 @@ public final class AntiAirLaunchService {
             level,
             id,
             owner,
+            affiliation,
             name,
             radar
         );

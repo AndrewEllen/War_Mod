@@ -35,6 +35,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -86,7 +88,8 @@ public final class FireWorldRenderer {
             planLevel = level;
             planPruneTick = Long.MIN_VALUE;
         }
-        long tick = level.getGameTime();
+        long visualTick = ClientFireVisualManager.INSTANCE.visualTick(level);
+        final long tick = visualTick == Long.MIN_VALUE ? 0L : visualTick;
         if (planPruneTick == Long.MIN_VALUE || tick - planPruneTick >= 20) {
             for (var cache : PLANS.values()) cache.values().removeIf(entry -> tick - entry.lastUsed > 20);
             planPruneTick = tick;
@@ -95,8 +98,8 @@ public final class FireWorldRenderer {
             ? new Quaternionf() : new Quaternionf(camera.orientation);
         CameraProjection projection = CameraProjection.create(camera);
         OCCLUSION.begin(level, cameraPosition, level.getGameTime());
-        double gameTime = level.getGameTime()
-            + context.deltaTracker().getGameTimeDeltaPartialTick(true);
+        double gameTime = ClientFireVisualManager.INSTANCE.renderTime(level,
+            (float) context.deltaTracker().getGameTimeDeltaPartialTick(true));
         float cpuFlameWeight = GpuParticleEngine.cpuOpticalWeight(
             GpuParticleEngine.VisualLayer.FLAMES);
         float cpuSmokeWeight = GpuParticleEngine.cpuOpticalWeight(
@@ -121,6 +124,11 @@ public final class FireWorldRenderer {
         int cpuSmokeCards = 0;
         int reusedPlans = 0;
         double quality = WarheadRenderSettings.qualityScale();
+        // This is the real negotiated client/server terrain distance, not a
+        // projection or zoom value. Fire LOD must never make distant unloaded
+        // terrain look populated with floating effects.
+        int terrainRenderChunks = Math.max(2,
+            Minecraft.getInstance().options.getEffectiveRenderDistance());
 
         for (VisualCell visual : clientCells) {
             FireVisualCell cell = visual.cell();
@@ -132,8 +140,13 @@ public final class FireWorldRenderer {
             double distanceSquared = dx * dx + dy * dy + dz * dz;
             double distance = Math.sqrt(distanceSquared);
             float boundsRadius = cell.boundingRadius();
+            double smokeHalfHeight = cell.smokeMass() > 0.012F
+                ? FireParticleRenderer.smokePlumeHeight(cell) * 0.5 : 0.0;
             if (!Double.isFinite(distance)
-                || !projection.visible(dx, dy, dz, distanceSquared, boundsRadius)) continue;
+                || !projection.visible(dx, dy + smokeHalfHeight, dz,
+                    dx * dx + (dy + smokeHalfHeight) * (dy + smokeHalfHeight) + dz * dz,
+                    boundsRadius + (float)smokeHalfHeight)
+                || !hasVisibleTerrainSupport(level, cameraPosition, cell, terrainRenderChunks)) continue;
             double projectedCellDiameter = projection.projectedDiameter(distance,
                 Math.max(0.5F, Math.max((float) cell.extents().x,
                     Math.max((float) cell.extents().y, (float) cell.extents().z))));
@@ -183,7 +196,7 @@ public final class FireWorldRenderer {
                     new Vec3(dx, dy, dz), wind, smokeFlow,
                     distance, projectedCellDiameter, cameraPosition,
                     cpuFlameWeight, cpuSmokeWeight,
-                    closeDetail));
+                    closeDetail, visual.windHistory()));
             }
         }
 
@@ -197,6 +210,8 @@ public final class FireWorldRenderer {
             double distance = Math.sqrt(distanceSquared);
             if (!Double.isFinite(distance) || distance > MAX_EMBER_DISTANCE
                 || !projection.visible(dx, dy, dz, distanceSquared, EMBER_VISIBILITY_RADIUS)
+                || !hasVisibleTerrainPoint(level, cameraPosition, worldPosition,
+                    EMBER_VISIBILITY_RADIUS, terrainRenderChunks)
                 || (level.hasChunkAt(BlockPos.containing(worldPosition))
                     && !OCCLUSION.visible(level, cameraPosition, worldPosition, distance))) continue;
             double projectedEmberDiameter = projection.projectedDiameter(distance, 0.10F);
@@ -242,6 +257,65 @@ public final class FireWorldRenderer {
         FireSurfaceAnchor anchor = new FireSurfaceAnchor(centerBlock,
             cell.dominantFace(), 0.5F, 0.5F, 0.5F);
         return ClientSmokeFlowField.INSTANCE.request(level, anchor, level.getGameTime());
+    }
+
+    /**
+     * A smoke column may be tall, but visibility belongs to the burning ground
+     * beneath it. Check horizontal support only so height never causes a
+     * distant unloaded fire to survive the terrain boundary.
+     */
+    private static boolean hasVisibleTerrainSupport(final ClientLevel level,
+        final Vec3 camera, final FireVisualCell cell, final int renderChunks) {
+        double horizontalRadius = Math.hypot(cell.extents().x, cell.extents().z);
+        if (!supportWithinRenderDistance(camera.x, camera.z, cell.centroid().x,
+            cell.centroid().z, horizontalRadius, renderChunks)) return false;
+
+        double subcellSize = cell.cellSize() / 8.0;
+        double subcellRadius = Math.sqrt(2.0) * subcellSize * 0.5;
+        long occupancy = cell.occupancyMask();
+        for (int bit = 0; bit < Long.SIZE; bit++) {
+            if ((occupancy & (1L << bit)) == 0L) continue;
+            int subX = bit & 7;
+            int subZ = bit >>> 3;
+            double x = cell.cellX() * (double) cell.cellSize()
+                + (subX + 0.5) * subcellSize;
+            double z = cell.cellZ() * (double) cell.cellSize()
+                + (subZ + 0.5) * subcellSize;
+            if (hasVisibleTerrainPoint(level, camera, new Vec3(x, 0.0, z),
+                subcellRadius, renderChunks)) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasVisibleTerrainPoint(final ClientLevel level,
+        final Vec3 camera, final Vec3 point, final double supportRadius,
+        final int renderChunks) {
+        return supportWithinRenderDistance(camera.x, camera.z, point.x, point.z,
+            supportRadius, renderChunks)
+            && hasLoadedTerrainChunk(level, (int)Math.floor(point.x),
+                (int)Math.floor(point.z));
+    }
+
+    /** ClientLevel#hasChunk is intentionally optimistic, so query the cache itself. */
+    private static boolean hasLoadedTerrainChunk(final ClientLevel level,
+        final int blockX, final int blockZ) {
+        return level.getChunkSource().getChunk(
+            SectionPos.blockToSectionCoord(blockX),
+            SectionPos.blockToSectionCoord(blockZ),
+            ChunkStatus.FULL,
+            false) != null;
+    }
+
+    /** Pure horizontal boundary used by the support and renderer-distance tests. */
+    static boolean supportWithinRenderDistance(final double cameraX, final double cameraZ,
+        final double supportX, final double supportZ, final double supportRadius,
+        final int renderChunks) {
+        if (renderChunks <= 0 || !Double.isFinite(cameraX) || !Double.isFinite(cameraZ)
+            || !Double.isFinite(supportX) || !Double.isFinite(supportZ)
+            || !Double.isFinite(supportRadius)) return false;
+        double reach = renderChunks * 16.0 + 16.0;
+        double horizontalDistance = Math.hypot(supportX - cameraX, supportZ - cameraZ);
+        return horizontalDistance - Math.max(0.0, supportRadius) <= reach;
     }
 
     private static CellPlan filteredPlan(final CellPlan source,
@@ -359,7 +433,15 @@ public final class FireWorldRenderer {
     record FireRenderCell(FireVisualCell cell, CellPlan plan, Vec3 relativeCentroid,
         Vec3 wind, SmokeFlow smokeFlow, double distance,
         double projectedCellDiameter, Vec3 cameraPosition,
-        float flameWeight, float smokeWeight, float closeDetail) { }
+        float flameWeight, float smokeWeight, float closeDetail,
+        ClientFireVisualManager.WindHistory windHistory) {
+        double windDisplacementX(final double from, final double to) {
+            return windHistory.displacementX(from, to);
+        }
+        double windDisplacementZ(final double from, final double to) {
+            return windHistory.displacementZ(from, to);
+        }
+    }
     record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
         long seed, long startGameTime, int lifetime, double distance,
         double projectedDiameter, float lodScale,

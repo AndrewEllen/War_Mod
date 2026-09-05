@@ -20,11 +20,15 @@ public final class ModMenus {
     public record ArtilleryOpeningData(BlockPos position) {
         public static final StreamCodec<RegistryFriendlyByteBuf, ArtilleryOpeningData> STREAM_CODEC = StreamCodec.of((buffer, data) -> buffer.writeBlockPos(data.position), buffer -> new ArtilleryOpeningData(buffer.readBlockPos()));
     }
+    public record LaunchControllerOpeningData(BlockPos centre, UUID controllerId) {
+        public static final StreamCodec<RegistryFriendlyByteBuf, LaunchControllerOpeningData> STREAM_CODEC = StreamCodec.of((buffer, data) -> { buffer.writeBlockPos(data.centre); buffer.writeUUID(data.controllerId); }, buffer -> new LaunchControllerOpeningData(buffer.readBlockPos(), buffer.readUUID()));
+    }
     public static final ExtendedMenuType<MissileSiloMenu, SiloOpeningData> MISSILE_SILO = new ExtendedMenuType<>((id, inventory, data) -> new MissileSiloMenu(id, inventory, data), SiloOpeningData.STREAM_CODEC);
     public static final ExtendedMenuType<PhalanxMenu, PhalanxOpeningData> PHALANX = new ExtendedMenuType<>((id, inventory, data) -> new PhalanxMenu(id, inventory, data), PhalanxOpeningData.STREAM_CODEC);
     public static final ExtendedMenuType<ArtilleryCannonMenu, ArtilleryOpeningData> ARTILLERY_CANNON = new ExtendedMenuType<>((id, inventory, data) -> new ArtilleryCannonMenu(id, inventory, data), ArtilleryOpeningData.STREAM_CODEC);
     public static final ExtendedMenuType<MissileWorkbenchMenu, ArtilleryOpeningData> MISSILE_WORKBENCH = new ExtendedMenuType<>((id, inventory, data) -> new MissileWorkbenchMenu(id, inventory, data), ArtilleryOpeningData.STREAM_CODEC);
+    public static final ExtendedMenuType<LaunchControllerMenu, LaunchControllerOpeningData> LAUNCH_CONTROLLER = new ExtendedMenuType<>((id, inventory, data) -> new LaunchControllerMenu(id, inventory, data), LaunchControllerOpeningData.STREAM_CODEC);
     private static boolean registered;
     private ModMenus() { }
-    public static void register() { if (registered) return; Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "missile_silo"), MISSILE_SILO); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "phalanx_turret"), PHALANX); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "artillery_cannon"), ARTILLERY_CANNON); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "missile_workbench"), MISSILE_WORKBENCH); registered = true; }
+    public static void register() { if (registered) return; Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "missile_silo"), MISSILE_SILO); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "phalanx_turret"), PHALANX); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "artillery_cannon"), ARTILLERY_CANNON); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "missile_workbench"), MISSILE_WORKBENCH); Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "launch_controller"), LAUNCH_CONTROLLER); registered = true; }
 }

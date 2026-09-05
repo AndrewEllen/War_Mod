@@ -10,7 +10,7 @@ public final class MissileSiloConstants {
     public static final int TARGET_PREPARATION_TIMEOUT_TICKS = 400;
     public static final int OPENING_ANIMATION_TICKS = 24;
     /** Hold fully open until even the 5.2-block ICBM has cleared the door plane. */
-    public static final int DOOR_CLOSE_DELAY_TICKS = 36;
+    public static final int DOOR_CLOSE_DELAY_TICKS = 70;
     public static final int DOOR_CLOSE_ANIMATION_TICKS = 20;
     public static final int LAUNCHING_STATE_TICKS =
             DOOR_CLOSE_DELAY_TICKS + DOOR_CLOSE_ANIMATION_TICKS;

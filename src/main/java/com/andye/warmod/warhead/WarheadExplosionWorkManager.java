@@ -163,6 +163,33 @@ public final class WarheadExplosionWorkManager {
 		return resolveDetonationCenter(level, requested, WarheadYield.defaultFor(payloadType));
 	}
 
+	/**
+	 * Reuses the preflight centre when the terminal ray hits the same support block.
+	 * A genuinely earlier collision with terrain or a structure keeps its independently
+	 * resolved centre, so preparation is only reused for the expected final contact.
+	 */
+	public static Vec3 resolveAuthoritativeImpactCenter(
+		final ServerLevel level,
+		final Vec3 intendedTarget,
+		final Vec3 actualHit,
+		final WarheadYield yield
+	) {
+		Vec3 planned = resolveDetonationCenter(level, intendedTarget, yield);
+		Vec3 actual = resolveDetonationCenter(level, actualHit, yield);
+		return sameSupportBlock(planned, actual) ? planned : actual;
+	}
+
+	static boolean sameSupportBlock(final Vec3 first, final Vec3 second) {
+		if (first == null || second == null || !first.isFinite() || !second.isFinite()) {
+			return false;
+		}
+		return supportBlock(first).equals(supportBlock(second));
+	}
+
+	private static BlockPos supportBlock(final Vec3 center) {
+		return BlockPos.containing(center.x, Math.nextDown(center.y), center.z);
+	}
+
 	public static synchronized List<WarheadExplosionDropContext.DestroyedBlock> detonate(
 		final ServerLevel level,
 		final @Nullable ServerPlayer source,

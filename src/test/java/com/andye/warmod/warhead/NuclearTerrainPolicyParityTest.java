@@ -26,7 +26,7 @@ final class NuclearTerrainPolicyParityTest {
 
     @Test
     void extractedPoliciesRetainReferenceDecisionFingerprints() {
-        WarheadStatePalette palette = WarheadStatePalette.capture();
+        WarheadStatePalette palette = WarheadStatePalette.capture(true);
         long crater = craterFingerprint(palette);
         long surface = surfaceFingerprint(palette);
         long environment = environmentFingerprint(palette);
@@ -41,7 +41,7 @@ final class NuclearTerrainPolicyParityTest {
 
     @Test
     void referenceSurfaceGradientRetainsRareMaterialBranches() {
-        WarheadStatePalette palette = WarheadStatePalette.capture();
+        WarheadStatePalette palette = WarheadStatePalette.capture(true);
         boolean calcite = false;
         boolean coral = false;
         for (int x = -240; x <= 240; x++) {

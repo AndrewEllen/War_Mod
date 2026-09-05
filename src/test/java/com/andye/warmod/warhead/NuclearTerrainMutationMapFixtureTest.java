@@ -109,7 +109,7 @@ final class NuclearTerrainMutationMapFixtureTest {
         WarheadFootprint footprint = WarheadFootprintCalculator.calculate(
             impact.payload(), impact.yield(), impact.target());
         return WarheadPlanCompiler.compile(impact, footprint,
-            fixture.snapshot(impact), WarheadStatePalette.capture());
+            fixture.snapshot(impact), WarheadStatePalette.capture(true));
     }
 
     private static List<Fixture> fixtures() {

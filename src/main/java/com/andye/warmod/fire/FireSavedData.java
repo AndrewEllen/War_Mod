@@ -40,7 +40,20 @@ public final class FireSavedData extends SavedData {
         long seed, long ignitionGameTime, long nextTransferDelay,
         boolean surfaceFlame, boolean consumed, long hardBurnEndTick,
         long lastExternalHeatTick, float remainingExternalHeatBudget,
-        boolean surfaceBurnLocked) {
+        boolean surfaceBurnLocked, long rootExpiryTick) {
+        public Entry(final BlockPos host, final int face, final float localX,
+            final float localY, final float localZ, final float intensity,
+            final int phase, final float heat, final float coverage, final float fuel,
+            final int burnTicks, final long seed, final long ignitionGameTime,
+            final long nextTransferDelay, final boolean surfaceFlame,
+            final boolean consumed, final long hardBurnEndTick,
+            final long lastExternalHeatTick, final float remainingExternalHeatBudget,
+            final boolean surfaceBurnLocked) {
+            this(host, face, localX, localY, localZ, intensity, phase, heat, coverage,
+                fuel, burnTicks, seed, ignitionGameTime, nextTransferDelay,
+                surfaceFlame, consumed, hardBurnEndTick, lastExternalHeatTick,
+                remainingExternalHeatBudget, surfaceBurnLocked, Long.MAX_VALUE);
+        }
         private static final Codec<LegacyEntry> LEGACY_CODEC =
             RecordCodecBuilder.create(instance -> instance.group(
             BlockPos.CODEC.fieldOf("host").forGetter(LegacyEntry::host),
@@ -69,7 +82,9 @@ public final class FireSavedData extends SavedData {
                 Codec.FLOAT.fieldOf("remaining_external_heat_budget")
                     .forGetter(SurfaceLifetime::remainingExternalHeatBudget),
                 Codec.BOOL.fieldOf("surface_burn_locked")
-                    .forGetter(SurfaceLifetime::surfaceBurnLocked)
+                    .forGetter(SurfaceLifetime::surfaceBurnLocked),
+                Codec.LONG.optionalFieldOf("root_expiry_tick", Long.MAX_VALUE)
+                    .forGetter(SurfaceLifetime::rootExpiryTick)
             ).apply(instance, SurfaceLifetime::new));
         private static final Codec<Entry> EXTENDED_CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
@@ -89,7 +104,7 @@ public final class FireSavedData extends SavedData {
 
         private SurfaceLifetime surfaceLifetime() {
             return new SurfaceLifetime(hardBurnEndTick, lastExternalHeatTick,
-                remainingExternalHeatBudget, surfaceBurnLocked);
+                remainingExternalHeatBudget, surfaceBurnLocked, rootExpiryTick);
         }
 
         private static Entry from(final LegacyEntry legacy, final SurfaceLifetime lifetime) {
@@ -99,7 +114,7 @@ public final class FireSavedData extends SavedData {
                 legacy.ignitionGameTime, legacy.nextTransferDelay,
                 legacy.surfaceFlame, legacy.consumed, lifetime.hardBurnEndTick,
                 lifetime.lastExternalHeatTick, lifetime.remainingExternalHeatBudget,
-                lifetime.surfaceBurnLocked);
+                lifetime.surfaceBurnLocked, lifetime.rootExpiryTick);
         }
 
         private static Entry fromLegacy(final LegacyEntry legacy) {
@@ -108,11 +123,12 @@ public final class FireSavedData extends SavedData {
                 legacy.coverage, legacy.fuel, legacy.burnTicks, legacy.seed,
                 legacy.ignitionGameTime, legacy.nextTransferDelay,
                 legacy.surfaceFlame, legacy.consumed, Long.MAX_VALUE,
-                Long.MIN_VALUE, 0.0F, false);
+                Long.MIN_VALUE, 0.0F, false, Long.MAX_VALUE);
         }
 
         private record SurfaceLifetime(long hardBurnEndTick, long lastExternalHeatTick,
-            float remainingExternalHeatBudget, boolean surfaceBurnLocked) { }
+            float remainingExternalHeatBudget, boolean surfaceBurnLocked,
+            long rootExpiryTick) { }
 
         private record LegacyEntry(BlockPos host, int face, float localX, float localY,
             float localZ, float intensity, int phase, float heat, float coverage,

@@ -42,6 +42,7 @@ import com.andye.warmod.scheduler.WarModServerWorkScheduler;
 import com.andye.warmod.silo.MissileSiloChunkTicketType;
 import com.andye.warmod.silo.MissileSiloManager;
 import com.andye.warmod.silo.network.SiloNetworking;
+import com.andye.warmod.silo.network.LaunchControllerNetworking;
 import com.andye.warmod.testtool.network.MasterExplosiveNetworking;
 import com.andye.warmod.warhead.IncomingWarheadRegistry;
 import com.andye.warmod.warhead.WarheadExplosionWorkManager;
@@ -83,6 +84,7 @@ public final class WarMod implements ModInitializer {
         IcbmVisualNetworking.registerPayloadTypes();
         RadarNetworking.register();
         SiloNetworking.register();
+        LaunchControllerNetworking.register();
         ArtilleryNetworking.register();
         MasterExplosiveNetworking.register();
         RadarStationNetworking.register();

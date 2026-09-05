@@ -354,7 +354,7 @@ public final class PhalanxBlockEntity
                 level
             ).stream()
                 .filter(candidate -> ownership().isHostile(
-                    candidate.ownerPlayerId(), candidate.forcedHostile()))
+                    candidate.affiliation(), candidate.forcedHostile()))
                 .toList();
 
         PhalanxTargetSnapshot target =

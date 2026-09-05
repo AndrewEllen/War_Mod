@@ -3,6 +3,8 @@ package com.andye.warmod.icbm;
 public final class IcbmConstants {
     /** Visible one-second engine build-up before the full powered ascent begins. */
     public static final int IGNITION_TICKS = 20;
+    public static final int SILO_IGNITION_TICKS = 60;
+    public static final double SILO_IGNITION_RISE_BLOCKS = 8.0;
     public static final int BOOST_TICKS = 120;
     public static final int MINIMUM_COAST_TICKS = 180;
     public static final int MAXIMUM_COAST_TICKS = 4096;
@@ -10,10 +12,10 @@ public final class IcbmConstants {
     public static final int MAXIMUM_TERMINAL_TICKS = 140;
 
     public static final double COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED = 0.008;
-    public static final double MINIMUM_COAST_ARC_HEIGHT_BLOCKS = 160.0;
-    public static final double MAXIMUM_COAST_ARC_HEIGHT_BLOCKS = 640.0;
-    public static final double COAST_ARC_HEIGHT_PER_HORIZONTAL_BLOCK = 0.035;
-    public static final double MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS = 256.0;
+    public static final double MINIMUM_COAST_ARC_HEIGHT_BLOCKS = 240.0;
+    public static final double MAXIMUM_COAST_ARC_HEIGHT_BLOCKS = 1200.0;
+    public static final double COAST_ARC_HEIGHT_PER_HORIZONTAL_BLOCK = 0.08;
+    public static final double MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS = 1400.0;
     public static final double BOOST_HORIZONTAL_LEAD_FRACTION = 0.14;
     public static final double BOOST_HORIZONTAL_LEAD_MINIMUM_BLOCKS = 56.0;
     /** Vanilla ocean level plus the requested 150-block vertical ascent. */

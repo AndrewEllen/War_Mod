@@ -13,6 +13,12 @@ public final class BlockbenchModelRenderType {
             .withTexture("Sampler0", Identifier.fromNamespaceAndPath(WarMod.MOD_ID,
                 "textures/blockbench_material_atlas.png"))
             .useLightmap().useOverlay().createRenderSetup());
+    /** Accepted Anti-Air Turret material snapshot, insulated from atlas refreshes. */
+    public static final RenderType PHALANX_SOLID = RenderType.create("war_mod_phalanx_models",
+        RenderSetup.builder(RenderPipelines.ENTITY_CUTOUT)
+            .withTexture("Sampler0", Identifier.fromNamespaceAndPath(WarMod.MOD_ID,
+                "textures/phalanx_material_atlas.png"))
+            .useLightmap().useOverlay().createRenderSetup());
     public static final RenderType TRANSLUCENT = RenderType.create(
         "war_mod_blockbench_models_translucent",
         RenderSetup.builder(RenderPipelines.ENTITY_TRANSLUCENT)

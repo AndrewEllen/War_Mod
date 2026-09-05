@@ -17,7 +17,7 @@ public final class ModCreativeModeTabs {
         Registries.CREATIVE_MODE_TAB,
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
     );
-    private static final int ENTRY_COUNT = 123;
+    private static final int ENTRY_COUNT = 125;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
@@ -31,6 +31,8 @@ public final class ModCreativeModeTabs {
                 WarheadYield.STRATEGIC_NUCLEAR, false)))
             .displayItems((parameters, output) -> {
                 output.accept(ModItems.MISSILE_SILO);
+                output.accept(ModItems.LAUNCH_CONTROLLER);
+                output.accept(ModItems.CONTROLLER_LINKING_TOOL);
                 output.accept(ModItems.ARTILLERY_CANNON);
                 output.accept(ModItems.ICBM_BODY);
                 output.accept(ModItems.ANTI_AIR_BODY);

@@ -42,9 +42,11 @@ public final class ModItems {
     public static final ResourceKey<Item> ANTI_AIR_GUN_AMMO_KEY = key("anti_air_gun_ammo");
     public static final ResourceKey<Item> RADAR_DISPLAY_PANEL_KEY = key("radar_display_panel");
     public static final ResourceKey<Item> RADAR_LINKING_TOOL_KEY = key("radar_linking_tool");
+    public static final ResourceKey<Item> CONTROLLER_LINKING_TOOL_KEY = key("controller_linking_tool");
     public static final ResourceKey<Item> ITEM_PIPE_KEY = key("item_pipe");
     public static final ResourceKey<Item> PIPE_WRENCH_KEY = key("pipe_wrench");
     public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
+    public static final ResourceKey<Item> LAUNCH_CONTROLLER_KEY = key("launch_controller");
     public static final ResourceKey<Item> FIRE_DEBUG_STICK_KEY = key("fire_debug_stick");
     public static final ResourceKey<Item> FIRE_HOSE_KEY = key("fire_hose");
     public static final ResourceKey<Item> FIRE_EXTINGUISHER_KEY = key("fire_extinguisher");
@@ -80,12 +82,16 @@ public final class ModItems {
         properties(RADAR_DISPLAY_PANEL_KEY, 64)
     );
     public static final Item RADAR_LINKING_TOOL = new RadarLinkingToolItem(properties(RADAR_LINKING_TOOL_KEY, 1));
+    public static final Item CONTROLLER_LINKING_TOOL = new ControllerLinkingToolItem(
+        properties(CONTROLLER_LINKING_TOOL_KEY, 1)
+    );
     public static final Item ITEM_PIPE = new BlockItem(
         com.andye.warmod.block.ModBlocks.ITEM_PIPE,
         properties(ITEM_PIPE_KEY, 64)
     );
     public static final Item PIPE_WRENCH = new PipeWrenchItem(properties(PIPE_WRENCH_KEY, 1));
     public static final Item ARTILLERY_CANNON = new BlockItem(ModBlocks.ARTILLERY_CANNON, properties(ARTILLERY_CANNON_KEY, 1));
+    public static final Item LAUNCH_CONTROLLER = new BlockItem(ModBlocks.LAUNCH_CONTROLLER, properties(LAUNCH_CONTROLLER_KEY, 64));
     public static final Item FIRE_DEBUG_STICK = new FireDebugStickItem(properties(FIRE_DEBUG_STICK_KEY, 1));
     public static final Item FIRE_HOSE = new FireHoseItem(properties(FIRE_HOSE_KEY, 1));
     public static final Item FIRE_EXTINGUISHER = new FireExtinguisherItem(properties(FIRE_EXTINGUISHER_KEY, 1));
@@ -151,9 +157,11 @@ public final class ModItems {
         register(ANTI_AIR_GUN_AMMO_KEY, ANTI_AIR_GUN_AMMO);
         register(RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         register(RADAR_LINKING_TOOL_KEY, RADAR_LINKING_TOOL);
+        register(CONTROLLER_LINKING_TOOL_KEY, CONTROLLER_LINKING_TOOL);
         register(ITEM_PIPE_KEY, ITEM_PIPE);
         register(PIPE_WRENCH_KEY, PIPE_WRENCH);
         register(ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        register(LAUNCH_CONTROLLER_KEY, LAUNCH_CONTROLLER);
         register(FIRE_DEBUG_STICK_KEY, FIRE_DEBUG_STICK);
         register(FIRE_HOSE_KEY, FIRE_HOSE);
         register(FIRE_EXTINGUISHER_KEY, FIRE_EXTINGUISHER);

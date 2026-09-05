@@ -148,7 +148,9 @@ final class WarheadChunkSnapshotCoverageTest {
         requirements[3] = WarheadSnapshotFeatures.SURFACE;
         requirements[4] = WarheadSnapshotFeatures.SURFACE;
         int[] top = filledTop(7);
-        Halo halo = completeHalo(new ChunkPos(0, 0), top,
+        // Live capture anchors its halo at the resolved support (-1), not the
+        // raw heightmap top (7). Keep the full eight-block descent fixture valid.
+        Halo halo = completeHalo(new ChunkPos(0, 0), filledTop(-1),
             Block.getId(Blocks.AIR.defaultBlockState()));
         WarheadChunkSnapshot snapshot = packedSnapshot(WarheadSnapshotFeatures.SURFACE,
             coverage, requirements, List.of(

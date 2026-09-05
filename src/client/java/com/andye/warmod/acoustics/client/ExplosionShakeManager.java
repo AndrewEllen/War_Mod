@@ -54,6 +54,15 @@ public final class ExplosionShakeManager {
 			intensity, duration);
 	}
 
+	/** A close Phalanx burst is felt, but never competes with an explosion shake. */
+	public synchronized void addPhalanxRecoil(final long visualSeed, final double listenerDistance) {
+		if (listenerDistance > 5.75) return;
+		double proximity = 1.0 - clamp(listenerDistance / 5.75, 0.0, 1.0);
+		// This maps to at most a few tenths of a degree for two client ticks.
+		addImpulse(visualSeed ^ 0x5048414C414E5858L, listenerDistance, 0.0,
+			0.010 + 0.012 * proximity, 2);
+	}
+
 	private void addImpulse(final long eventSeed, final double listenerDistance,
 		final double gainMarker, final double intensity, final int duration) {
 		long mixed = mix(eventSeed ^ Double.doubleToLongBits(listenerDistance)

@@ -239,7 +239,18 @@ final class WarheadChunkSnapshot {
         return relevantFlags[index];
     }
 
-    /** Resolves every derived read before a snapshot is handed to a worker. */
+    /** Cheap manifest validation on the server; derived classification stays on workers. */
+    void preflightCoverage() {
+        for (int feature : new int[] {WarheadSnapshotFeatures.CRATER_VOLUME,
+            WarheadSnapshotFeatures.SURFACE, WarheadSnapshotFeatures.VERTICAL_FEATURES,
+            WarheadSnapshotFeatures.BIOMES}) {
+            if (hasFeature(feature)) requireCoverage(feature);
+        }
+        if (hasFeature(WarheadSnapshotFeatures.BIOMES))
+            requireValidColumnHeights(WarheadSnapshotFeatures.BIOMES);
+    }
+
+    /** Resolves every derived read on detached data before worker compilation. */
     void preflight() {
         if (hasFeature(WarheadSnapshotFeatures.CRATER_VOLUME)) {
             requireCoverage(WarheadSnapshotFeatures.CRATER_VOLUME);

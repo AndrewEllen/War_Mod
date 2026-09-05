@@ -17,7 +17,7 @@ public final class PhalanxTargetService {
     public static List<PhalanxTargetSnapshot> snapshot(final ServerLevel level) {
         ArrayList<PhalanxTargetSnapshot> output = new ArrayList<>();
         long now = level.getGameTime();
-        for (var carrier : IcbmFlightControllerManager.pointDefenceSnapshots(level, now)) output.add(new PhalanxTargetSnapshot(carrier.missileId(), carrier.missileId(), PhalanxTargetKind.ICBM_CARRIER, Optional.of(carrier.payloadType()), carrier.position(), carrier.velocity(), carrier.intendedTarget(), carrier.ticksToImpact(), 0.90, carrier.ownerPlayerId(), false));
+        for (var carrier : IcbmFlightControllerManager.pointDefenceSnapshots(level, now)) output.add(new PhalanxTargetSnapshot(carrier.missileId(), carrier.missileId(), PhalanxTargetKind.ICBM_CARRIER, Optional.of(carrier.payloadType()), carrier.position(), carrier.velocity(), carrier.intendedTarget(), carrier.ticksToImpact(), 0.90, carrier.affiliation(), false));
         for (IncomingWarheadEntity warhead : IncomingWarheadRegistry.activeWarheads(level)) {
             double age = Math.max(0.0, now - warhead.launchGameTime());
             Vec3 position = WarheadTrajectory.position(warhead.startPosition(), warhead.intendedTarget(), age,
@@ -26,7 +26,7 @@ public final class PhalanxTargetService {
                 warhead.flightTicks(), warhead.clusterIndex(), warhead.clusterCount());
             double remaining = Math.max(0.0, warhead.flightTicks() - age);
             PhalanxTargetKind kind = warhead.clusterCount() > 1 ? PhalanxTargetKind.CLUSTER_SUBMUNITION : PhalanxTargetKind.TERMINAL_WARHEAD;
-            output.add(new PhalanxTargetSnapshot(warhead.warheadId(), warhead.radarRootTrackId(), kind, Optional.of(warhead.payloadType()), position, velocity, warhead.intendedTarget(), remaining, warhead.clusterCount() > 1 ? 0.48 : 0.62, warhead.ownerPlayerId(), false));
+            output.add(new PhalanxTargetSnapshot(warhead.warheadId(), warhead.radarRootTrackId(), kind, Optional.of(warhead.payloadType()), position, velocity, warhead.intendedTarget(), remaining, warhead.clusterCount() > 1 ? 0.48 : 0.62, warhead.affiliation(), false));
         }
         for (var interceptor : AntiAirFlightControllerManager.pointDefenceSnapshots(level)) {
             if (!interceptor.active()) continue;
@@ -41,7 +41,7 @@ public final class PhalanxTargetService {
             output.add(new PhalanxTargetSnapshot(interceptor.interceptorId(), interceptor.interceptorId(),
                 fallback ? PhalanxTargetKind.MK_I_FALLBACK : PhalanxTargetKind.ACTIVE_ANTI_AIR,
                 Optional.empty(), interceptor.currentPosition(), interceptor.currentVelocity(), impact,
-                remaining, 0.8, interceptor.ownerPlayerId(), interceptor.forcedHostile()));
+                remaining, 0.8, interceptor.affiliation(), interceptor.forcedHostile()));
         }
         return List.copyOf(output);
     }

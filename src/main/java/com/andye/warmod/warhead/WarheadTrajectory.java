@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead;
 
+import com.andye.warmod.icbm.IcbmConstants;
 import java.util.Objects;
 import net.minecraft.world.phys.Vec3;
 
@@ -9,6 +10,19 @@ public final class WarheadTrajectory {
 	private static final double CLUSTER_GRAVITY_PER_TICK_SQUARED = 0.05;
 
 	private WarheadTrajectory() {
+	}
+
+	/** Duration used by both carrier ETA preparation and the spawned terminal. */
+	public static int terminalFlightTicks(final Vec3 start, final Vec3 intendedTarget) {
+		Objects.requireNonNull(start, "start");
+		Objects.requireNonNull(intendedTarget, "intendedTarget");
+		if (!start.isFinite() || !intendedTarget.isFinite()) {
+			throw new IllegalArgumentException("trajectory positions must be finite");
+		}
+		int estimated = (int)Math.ceil(start.distanceTo(intendedTarget)
+			/ WarheadConstants.TRAJECTORY_SPEED_BLOCKS_PER_TICK);
+		return Math.max(IcbmConstants.MINIMUM_TERMINAL_TICKS,
+			Math.min(IcbmConstants.MAXIMUM_TERMINAL_TICKS, estimated));
 	}
 
 	public static double progress(final double elapsedTicks, final int flightTicks) {

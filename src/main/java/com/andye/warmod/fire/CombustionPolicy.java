@@ -35,11 +35,15 @@ final class CombustionPolicy {
     }
 
     static BlockState scorchedState(final BlockState state) {
-        if (state.is(Blocks.COARSE_DIRT)) return state;
-        if (state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.PODZOL))
-            return Blocks.COARSE_DIRT.defaultBlockState();
+        if (state.is(Blocks.COARSE_DIRT) || state.is(Blocks.DIRT)
+            || state.is(Blocks.DIRT_PATH)) return state;
+        // Ordinary surface fire removes the grass cover without creating a
+        // permanent nuclear-style aftermath block. Vanilla grass can spread
+        // back onto this dirt after the fire and its cooldown have expired.
+        if (state.is(Blocks.GRASS_BLOCK)) return Blocks.DIRT.defaultBlockState();
+        if (state.is(Blocks.PODZOL)) return Blocks.COARSE_DIRT.defaultBlockState();
         if (state.is(Blocks.MOSS_BLOCK) || state.is(Blocks.MYCELIUM)
-            || state.is(Blocks.DIRT) || state.is(Blocks.ROOTED_DIRT)
+            || state.is(Blocks.ROOTED_DIRT)
             || state.is(BlockTags.DIRT)) return Blocks.COARSE_DIRT.defaultBlockState();
         return state;
     }

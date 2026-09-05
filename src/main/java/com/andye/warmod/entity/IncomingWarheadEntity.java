@@ -3,6 +3,7 @@ package com.andye.warmod.entity;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticEngine;
 import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.defence.MissileAffiliation;
 import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.radar.RadarRemovalReason;
@@ -53,6 +54,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public final class IncomingWarheadEntity extends Entity {
     private UUID warheadId;
     private UUID ownerPlayerId;
+    private MissileAffiliation affiliation = MissileAffiliation.unowned();
     private UUID radarRootTrackId;
 
     private Vec3 startPosition = Vec3.ZERO;
@@ -92,6 +94,7 @@ public final class IncomingWarheadEntity extends Entity {
         final ServerLevel level,
         final UUID warheadId,
         final UUID ownerPlayerId,
+        final MissileAffiliation affiliation,
         final Vec3 startPosition,
         final Vec3 intendedTarget,
         final long launchGameTime,
@@ -105,6 +108,7 @@ public final class IncomingWarheadEntity extends Entity {
         this(type, level);
         this.warheadId = Objects.requireNonNull(warheadId);
         this.ownerPlayerId = ownerPlayerId;
+        this.affiliation = Objects.requireNonNull(affiliation);
         this.startPosition = Objects.requireNonNull(startPosition);
         this.intendedTarget = Objects.requireNonNull(intendedTarget);
         this.launchGameTime = launchGameTime;
@@ -184,7 +188,10 @@ public final class IncomingWarheadEntity extends Entity {
         Vec3 effective = WarheadExplosionWorkManager.resolveDetonationCenter(
             level, intendedTarget, yield);
         long remaining = ceilRemainingTicks(flightTicks - elapsed);
-        WarheadPreparationCoordinator.ensureImpact(level, warheadId, warheadId,
+        /* Carrier preparation is owned by the persistent radar/root track.  The
+         * terminal has a new impact id, but must retarget and reuse that same
+         * preparation instead of creating a second full-world snapshot stream. */
+        WarheadPreparationCoordinator.ensureImpact(level, radarRootTrackId(), warheadId,
             radarRootTrackId(), effective, yield, visualSeed,
             authoritativeCustomFire,
             level.getGameTime() + remaining);
@@ -310,6 +317,8 @@ public final class IncomingWarheadEntity extends Entity {
             .orElse(null);
         ownerPlayerId = input.read("OwnerPlayerId", UUIDUtil.STRING_CODEC)
             .orElse(null);
+        affiliation = input.read("Affiliation", MissileAffiliation.CODEC)
+            .orElseGet(() -> MissileAffiliation.ofOwner(ownerPlayerId));
         radarRootTrackId = input.read("RadarRootTrackId", UUIDUtil.STRING_CODEC)
             .orElse(warheadId);
         startPosition = input.read("StartPosition", Vec3.CODEC)
@@ -353,6 +362,7 @@ public final class IncomingWarheadEntity extends Entity {
             UUIDUtil.STRING_CODEC,
             ownerPlayerId
         );
+        output.store("Affiliation", MissileAffiliation.CODEC, affiliation);
         output.storeNullable(
             "RadarRootTrackId",
             UUIDUtil.STRING_CODEC,
@@ -388,6 +398,10 @@ public final class IncomingWarheadEntity extends Entity {
 
     public UUID ownerPlayerId() {
         return ownerPlayerId;
+    }
+
+    public MissileAffiliation affiliation() {
+        return affiliation;
     }
 
     public UUID radarRootTrackId() {
@@ -533,6 +547,15 @@ public final class IncomingWarheadEntity extends Entity {
         }
 
         impacted = true;
+        Vec3 authoritativeHit = hit;
+        if (payloadType == WarheadPayloadType.NUCLEAR) {
+            authoritativeHit = WarheadExplosionWorkManager.resolveAuthoritativeImpactCenter(
+                server,
+                intendedTarget,
+                hit,
+                persistentYield(server)
+            );
+        }
         ServerPlayer owner = null;
 
         if (ownerPlayerId != null && server.getServer() != null) {
@@ -550,14 +573,14 @@ public final class IncomingWarheadEntity extends Entity {
                 "Warhead {} impacted: payload={}, position={}",
                 warheadId,
                 payloadType.serializedName(),
-                hit
+                authoritativeHit
             );
         }
 
         WarheadImpactChunkLeaseManager.hold(
             server,
             warheadId,
-            hit,
+            authoritativeHit,
             IcbmConstants.IMPACT_CHUNK_TAIL_TICKS
         );
         WarheadImpactService.impact(
@@ -565,7 +588,7 @@ public final class IncomingWarheadEntity extends Entity {
             owner,
             warheadId,
             radarRootTrackId(),
-            hit,
+            authoritativeHit,
             visualSeed,
             payloadType
         );

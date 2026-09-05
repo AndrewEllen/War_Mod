@@ -1,12 +1,14 @@
 package com.andye.warmod.antiair;
 
 import java.util.UUID;
+import com.andye.warmod.defence.MissileAffiliation;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 public record AntiAirPointDefenceSnapshot(
     UUID interceptorId,
     @Nullable UUID ownerPlayerId,
+    MissileAffiliation affiliation,
     Vec3 currentPosition,
     Vec3 currentVelocity,
     AntiAirFlightPhase phase,

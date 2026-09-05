@@ -4,6 +4,7 @@ import com.andye.warmod.WarMod;
 import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.icbm.IcbmTrajectory;
 import com.andye.warmod.icbm.client.ClientIcbmVisualManager;
+import com.andye.warmod.icbm.client.IcbmLaunchGroundSmokeManager;
 import com.andye.warmod.icbm.client.IcbmTrailSample;
 import com.andye.warmod.icbm.client.IcbmVisualState;
 import com.andye.warmod.icbm.client.SpentIcbmStageState;
@@ -22,6 +23,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.QuadParticleRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
@@ -50,6 +52,17 @@ public final class IcbmWorldRenderer {
 		long time = level.getGameTime();
 		double partial = context.deltaTracker().getGameTimeDeltaPartialTick(true);
 		ClientIcbmVisualManager.Snapshot snapshot = ClientIcbmVisualManager.INSTANCE.snapshot(level);
+		IcbmLaunchGroundSmokeManager.Snapshot cloudSnapshot =
+			IcbmLaunchGroundSmokeManager.INSTANCE.snapshot(level);
+		List<LaunchCloudFrame> launchClouds = new ArrayList<>();
+		for (IcbmLaunchGroundSmokeManager.LaunchCloud cloud : cloudSnapshot.clouds()) {
+			BlockPos anchor = BlockPos.containing(cloud.position());
+			if (!level.hasChunkAt(anchor) || cameraPos.distanceToSqr(cloud.position()) > camera.depthFar * camera.depthFar)
+				continue;
+			launchClouds.add(new LaunchCloudFrame(cloud));
+		}
+		launchClouds.sort(java.util.Comparator.comparingDouble(
+			(LaunchCloudFrame cloud) -> cameraPos.distanceToSqr(cloud.cloud().position())).reversed());
 		List<MissileFrame> missiles = new ArrayList<>();
 		for (IcbmVisualState state : snapshot.missiles()) {
 			Vec3 position = state.position(time, partial);
@@ -70,7 +83,8 @@ public final class IcbmWorldRenderer {
 			stages.add(new StageFrame(position, state.age(time, partial), state.orientationVelocity(), state.rollDrift(),
 				state.alpha(time, partial), state.yield(), state.deliveryMode(), renderContext, light(level, position)));
 		}
-		frame = new Frame(cameraPos, orientation, List.copyOf(missiles), List.copyOf(stages));
+		frame = new Frame(cameraPos, orientation, List.copyOf(missiles), List.copyOf(stages),
+			List.copyOf(launchClouds), cloudSnapshot.visualTime());
 	}
 
 	private static void render(final LevelRenderContext context) {
@@ -106,6 +120,16 @@ public final class IcbmWorldRenderer {
 						missile.renderContext(), current.orientation()));
 				stack.popPose();
 			}
+		}
+		if (!current.launchClouds().isEmpty()) {
+			QuadParticleRenderState particles = new QuadParticleRenderState();
+			for (LaunchCloudFrame cloud : current.launchClouds()) {
+				IcbmLaunchGroundSmokeRenderer.append(particles, cloud.cloud(),
+					cloud.cloud().elapsed(current.visualTime()), current.camera(), current.orientation());
+			}
+			// The native translucent-particle phase runs after water terrain and
+			// uses the appropriate particle framebuffer in Fabulous rendering.
+			context.submitNodeCollector().submitQuadParticleGroup(particles);
 		}
 		for (StageFrame stage : current.stages()) {
 			IcbmLongRangeTransform transform = stage.renderContext().transform();
@@ -152,7 +176,10 @@ public final class IcbmWorldRenderer {
 	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity,
 		float rollDrift, float alpha, WarheadYield yield, WarheadDeliveryMode deliveryMode,
 		IcbmLongRangeRenderContext renderContext, int light) { }
-	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles, List<StageFrame> stages) {
-		private static final Frame EMPTY = new Frame(Vec3.ZERO, new Quaternionf(), List.of(), List.of());
+	private record LaunchCloudFrame(IcbmLaunchGroundSmokeManager.LaunchCloud cloud) { }
+	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles,
+		List<StageFrame> stages, List<LaunchCloudFrame> launchClouds, double visualTime) {
+		private static final Frame EMPTY = new Frame(Vec3.ZERO, new Quaternionf(), List.of(), List.of(),
+			List.of(), 0.0);
 	}
 }

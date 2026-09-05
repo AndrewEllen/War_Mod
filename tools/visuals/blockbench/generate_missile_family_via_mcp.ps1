@@ -25,10 +25,16 @@ function New-MissileTextureData([string]$Name,[string]$Color) {
     $target=[Drawing.Bitmap]::new(16,16,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $tint=[Drawing.ColorTranslator]::FromHtml($Color)
     try {
+        [double]$sum=0
         for($y=0;$y -lt 16;$y++){for($x=0;$x -lt 16;$x++){
             $pixel=$source.GetPixel($x,$y)
-            $detail=(.2126*$pixel.R+.7152*$pixel.G+.0722*$pixel.B)/255.0
-            $factor=.58+.78*$detail
+            $sum += .2126*$pixel.R+.7152*$pixel.G+.0722*$pixel.B
+        }}
+        $mean=[Math]::Max(1.0,$sum/256.0)
+        for($y=0;$y -lt 16;$y++){for($x=0;$x -lt 16;$x++){
+            $pixel=$source.GetPixel($x,$y)
+            $luma=.2126*$pixel.R+.7152*$pixel.G+.0722*$pixel.B
+            $factor=[Math]::Clamp(.20+.82*($luma/$mean),.58,1.42)
             $target.SetPixel($x,$y,[Drawing.Color]::FromArgb(255,
                 [Math]::Min(255,[Math]::Round($tint.R*$factor)),
                 [Math]::Min(255,[Math]::Round($tint.G*$factor)),
@@ -106,10 +112,13 @@ function Add-OctagonalSection {
         [string]$Texture, [string]$Group, [double]$Corner = 0.58
     )
     $mid = $Half - 0.48
+    # Form the same octagonal union without overlapping cuboids. The previous
+    # core and crossed shells emitted coincident cap/side faces and visibly
+    # z-fought on the ICBM body.
     Add-Cubes @(
-        (Cube "${Prefix}_core" @(-$mid,$Bottom,-$mid) @($mid,$Top,$mid)),
         (Cube "${Prefix}_x_shell" @(-$Half,$Bottom,-$mid) @($Half,$Top,$mid)),
-        (Cube "${Prefix}_z_shell" @(-$mid,$Bottom,-$Half) @($mid,$Top,$Half))
+        (Cube "${Prefix}_z_shell_north" @(-$mid,$Bottom,-$Half) @($mid,$Top,(-$mid-0.02))),
+        (Cube "${Prefix}_z_shell_south" @(-$mid,$Bottom,($mid+0.02)) @($mid,$Top,$Half))
     ) $Texture $Group
     $cornerPos = $Half - 0.38
     $cornerHalf = $Corner / 2.0

@@ -61,26 +61,31 @@ public final class FireParticleRenderer {
                     : card.position();
                 double curl = Math.sin(gameTime * (0.16 + unit(value, 4) * 0.13)
                     + unit(value, 5) * Mth.TWO_PI) * (0.035 + progress * 0.12);
-                double windAge = particleAge
-                    * (0.075 + render.cell().averageIntensity() * 0.045)
+                double windRate = (0.075 + render.cell().averageIntensity() * 0.045)
                     * (1.0 + render.closeDetail() * 1.65);
+                double windX = render.windDisplacementX(gameTime - particleAge, gameTime)
+                    * windRate;
+                double windZ = render.windDisplacementZ(gameTime - particleAge, gameTime)
+                    * windRate;
                 Vec3 center = base.add(
-                    curl + render.wind().x * windAge,
+                    curl + windX,
                     0.035 + progress * flameHeight * (0.72 + unit(value, 6) * 0.48),
-                    -curl * 0.48 + render.wind().z * windAge).subtract(render.cameraPosition());
+                    -curl * 0.48 + windZ).subtract(render.cameraPosition());
                 float temperature = Mth.clamp(render.cell().maximumHeat()
                     * (1.16F - (float) progress * 0.48F), 0.0F, 1.0F);
                 if (densePass) temperature = Math.max(temperature,
                     0.80F - (float)progress * 0.24F);
                 Colour colour = fireColour(temperature);
                 float alpha = Mth.clamp((float) (card.opacity() * stage * render.flameWeight() * passWeight
-                    * Math.pow(1.0 - progress, 0.22 - render.closeDetail() * 0.13)), 0.0F, 0.96F);
+                    * Math.pow(1.0 - progress, 0.22 - render.closeDetail() * 0.13)
+                    * cycleFade(progress, 0.14, 0.84)), 0.0F, 0.96F);
                 float size = card.radius() * (0.88F + (float) unit(value, 7) * 0.22F)
                     * (1.0F - (float) progress * (0.38F - render.closeDetail() * 0.20F));
+                if (densePass) size *= 0.80F + (float)unit(value, 9) * 0.35F;
                 billboard(pose, buffer, center, size,
                     (float) (unit(value, 8) * Mth.TWO_PI + gameTime * 0.016),
                     colour.red(), colour.green(), colour.blue(), alpha, 0xF000F0, basis,
-                    1.0F + render.closeDetail() * 0.55F);
+                    1.0F + render.closeDetail() * (0.05F + (float)unit(value, 10) * 0.55F));
             }
         }
         ClientPerformanceTelemetry.recordFireFlameGeometryNanos(System.nanoTime() - started, densePass);
@@ -104,13 +109,13 @@ public final class FireParticleRenderer {
                 double progress = particleAge / life;
                 double turbulence = Math.sin(gameTime * 0.037
                     + unit(value, 2) * Mth.TWO_PI) * (0.08 + progress * 0.32);
-                double windAge = particleAge * (0.34
-                    + render.cell().averageIntensity() * 0.24);
-                double unconstrainedRise = 0.18 + progress
-                    * (2.2 + render.cell().maximumHeat() * 4.2);
+                double windRate = 0.34 + render.cell().averageIntensity() * 0.24;
+                double unconstrainedRise = 0.18 + progress * smokePlumeHeight(render.cell());
                 double rise = unconstrainedRise;
                 double flowAlongCeiling = 0.0;
-                double outdoorWind = 1.0;
+                // Hot smoke initially rises on buoyancy rather than being swept
+                // almost horizontally along the ground by ambient wind.
+                double outdoorWind = 0.35;
                 if (flow.enclosed()) {
                     double roof = Math.max(0.55, flow.maximumRise());
                     double pooling = Mth.clamp((unconstrainedRise - roof * 0.55)
@@ -122,28 +127,38 @@ public final class FireParticleRenderer {
                     outdoorWind = 0.04 + flow.ventilation() * 0.16;
                     turbulence *= 0.24 + flow.ventilation() * 0.34;
                 }
+                double windX = render.windDisplacementX(gameTime - particleAge, gameTime)
+                    * windRate * outdoorWind;
+                double windZ = render.windDisplacementZ(gameTime - particleAge, gameTime)
+                    * windRate * outdoorWind;
                 Vec3 center = card.position().add(
-                    turbulence + render.wind().x * windAge * outdoorWind
+                    turbulence + windX
                         + flow.ventDirection().x * flowAlongCeiling,
                     rise,
-                    -turbulence * 0.46 + render.wind().z * windAge * outdoorWind
+                    -turbulence * 0.46 + windZ
                         + flow.ventDirection().z * flowAlongCeiling).subtract(render.cameraPosition());
                 float radius = card.radius() * (0.82F + (float) progress * 0.68F)
                     * (0.88F + (float) unit(value, 4) * 0.20F);
                 if (flow.enclosed()) radius = Math.min(radius,
                     Math.max(0.20F, flow.lateralRadius() * 0.42F));
-                int shade = Mth.clamp(124
+                int shade = Mth.clamp(96
                     - (int) (render.plan().representedSmokeOpticalDepth() * 34.0F)
-                    - (int) (progress * 20.0) + (int) (unit(value, 5) * 17.0), 48, 142);
+                    - (int) (progress * 14.0) + (int) (unit(value, 5) * 17.0), 38, 112);
                 float alpha = Mth.clamp(card.opacity()
-                    * render.smokeWeight() * 1.18F
-                    * (float) Math.pow(1.0 - progress, 0.58), 0.0F, 0.72F);
+                    * render.smokeWeight() * 1.45F
+                    * (float) Math.pow(1.0 - progress, 0.58)
+                    * (float)cycleFade(progress, 0.10, 0.84), 0.0F, 0.80F);
                 billboard(pose, buffer, center, radius,
                     (float) (unit(value, 6) * Mth.TWO_PI + gameTime * 0.0022),
                     shade, shade + 4, shade + 9, alpha, 0xA000A0, basis);
             }
         }
         ClientPerformanceTelemetry.recordFireSmokeGeometryNanos(System.nanoTime() - started);
+    }
+
+    static double smokePlumeHeight(final com.andye.warmod.fire.network.FireVisualCell cell) {
+        return 8.0 + cell.maximumHeat() * 8.0
+            + Math.min(24.0, Math.sqrt(Math.max(0.0, cell.smokeMass())) * 4.0);
     }
 
     /** Aggregate local sparks; authoritative windborne firebrands render below. */
@@ -166,7 +181,8 @@ public final class FireParticleRenderer {
                     source.radius() * 0.12F));
                 billboard(pose, buffer, center, radius, 0.0F, 255,
                     118 + (int) (unit(value, 3) * 94), 28,
-                    (float) (0.78 * (1.0 - progress)), 0xF000F0, basis);
+                    (float) (0.78 * (1.0 - progress) * cycleFade(progress, 0.15, 0.82)),
+                    0xF000F0, basis);
             }
         }
     }
@@ -196,7 +212,8 @@ public final class FireParticleRenderer {
                 billboard(pose, buffer, center, radius,
                     (float) (gameTime * 0.08 + unit(value, 5) * Mth.TWO_PI),
                     colour.red(), colour.green(), colour.blue(),
-                    (float) (0.88 - progress * 0.36), 0xF000F0, basis);
+                    (float) ((0.88 - progress * 0.36)
+                        * smoothStep(Math.min(1.0, age / 5.0))), 0xF000F0, basis);
             }
         }
     }
@@ -228,7 +245,8 @@ public final class FireParticleRenderer {
                     * (0.85 + unit(value, 1) * 0.30) * Math.sqrt(ember.lodScale()));
                 int shade = 112 + (int) (unit(value, 2) * 28.0);
                 float alpha = (float) ((0.10F + ember.intensity() * 0.065F)
-                    * Math.max(0.18, 1.0 - rank / 10.0));
+                    * Math.max(0.18, 1.0 - rank / 10.0)
+                    * smoothStep(Math.min(1.0, (age - 5.0) / 3.0)));
                 billboard(pose, buffer, center, radius,
                     (float) (unit(value, 3) * Mth.TWO_PI), shade, shade + 4, shade + 8,
                     alpha, 0xA000A0, basis);
@@ -308,6 +326,20 @@ public final class FireParticleRenderer {
     private static double positiveModulo(final double value, final double modulus) {
         double result = value % modulus;
         return result < 0.0 ? result + modulus : result;
+    }
+
+    /** Briefly fade each recycled analytical card at both ends of its cycle. */
+    private static double cycleFade(final double progress, final double fadeInEnd,
+        final double fadeOutStart) {
+        double safe = Math.max(0.0, Math.min(1.0, progress));
+        return smoothStep(Math.min(1.0, safe / Math.max(0.001, fadeInEnd)))
+            * smoothStep(Math.min(1.0, (1.0 - safe)
+                / Math.max(0.001, 1.0 - fadeOutStart)));
+    }
+
+    private static double smoothStep(final double value) {
+        double t = Math.max(0.0, Math.min(1.0, value));
+        return t * t * (3.0 - 2.0 * t);
     }
 
     private static double unit(final long value, final int lane) {

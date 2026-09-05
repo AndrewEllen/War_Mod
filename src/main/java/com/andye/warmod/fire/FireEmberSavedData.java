@@ -34,7 +34,14 @@ public final class FireEmberSavedData extends SavedData {
     }
 
     public record Entry(double x, double y, double z, double velocityX, double velocityY,
-        double velocityZ, float intensity, long seed, int remainingLifetime) {
+        double velocityZ, float intensity, long seed, int remainingLifetime,
+        long rootExpiryTick) {
+        public Entry(final double x, final double y, final double z,
+            final double velocityX, final double velocityY, final double velocityZ,
+            final float intensity, final long seed, final int remainingLifetime) {
+            this(x, y, z, velocityX, velocityY, velocityZ, intensity, seed,
+                remainingLifetime, Long.MAX_VALUE);
+        }
         public static final Codec<Entry> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.DOUBLE.fieldOf("x").forGetter(Entry::x),
             Codec.DOUBLE.fieldOf("y").forGetter(Entry::y),
@@ -44,7 +51,9 @@ public final class FireEmberSavedData extends SavedData {
             Codec.DOUBLE.fieldOf("velocity_z").forGetter(Entry::velocityZ),
             Codec.FLOAT.fieldOf("intensity").forGetter(Entry::intensity),
             Codec.LONG.fieldOf("seed").forGetter(Entry::seed),
-            Codec.INT.fieldOf("remaining_lifetime").forGetter(Entry::remainingLifetime)
+            Codec.INT.fieldOf("remaining_lifetime").forGetter(Entry::remainingLifetime),
+            Codec.LONG.optionalFieldOf("root_expiry_tick", Long.MAX_VALUE)
+                .forGetter(Entry::rootExpiryTick)
         ).apply(instance, Entry::new));
     }
 }

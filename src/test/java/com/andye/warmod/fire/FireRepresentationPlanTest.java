@@ -113,8 +113,11 @@ final class FireRepresentationPlanTest {
         CellPlan baseline = FireRepresentationPlan.plan(near, 80, 1, 1, 0);
         CellPlan close = FireRepresentationPlan.plan(near, 80, 1, 1, 0, 1);
         assertTrue(close.flames().size() > baseline.flames().size());
-        assertTrue(close.flames().getFirst().radius() >= baseline.flames().getFirst().radius());
-        assertTrue(close.flames().getFirst().opacity() > baseline.flames().getFirst().opacity());
+        assertTrue(close.representedFlameArea() > baseline.representedFlameArea());
+        assertTrue(close.flames().getFirst().radius() <= baseline.flames().getFirst().radius(),
+            "Near density comes from overlapping detail rather than oversized cards");
+        assertTrue(close.flames().getFirst().opacity() < baseline.flames().getFirst().opacity(),
+            "Close flames retain the requested layered transparency");
         assertEquals(FireRepresentationPlan.plan(cell(), 12, 1, 1, 3),
             FireRepresentationPlan.plan(cell(), 12, 1, 1, 3, 1));
         assertEquals(1.0F, FireRepresentationPlan.closeDetailWeight(15));

@@ -102,15 +102,27 @@ public final class PhalanxBulletManager {
         );
 
         level.sendParticles(
+            ParticleTypes.FLAME,
+            origin.x,
+            origin.y,
+            origin.z,
+            1,
+            0.015,
+            0.015,
+            0.015,
+            0.006
+        );
+
+        level.sendParticles(
             ParticleTypes.SMOKE,
             origin.x,
             origin.y,
             origin.z,
-            2,
-            0.05,
-            0.05,
-            0.05,
-            0.015
+            1,
+            0.035,
+            0.035,
+            0.035,
+            0.012
         );
 
         PhalanxNetworking.send(
@@ -232,7 +244,7 @@ public final class PhalanxBulletManager {
                 targets.get(bullet.targetId);
 
             if (target != null
-                && bullet.ownership.isHostile(target.ownerPlayerId(), target.forcedHostile())
+                && bullet.ownership.isHostile(target.affiliation(), target.forcedHostile())
                 && PhalanxBulletCollision.intersects(
                     bullet.previousPosition,
                     bullet.position,

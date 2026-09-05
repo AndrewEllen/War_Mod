@@ -1,5 +1,6 @@
 package com.andye.warmod.defence;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -28,13 +29,21 @@ public record DefenceOwnershipSnapshot(
         final @Nullable UUID missileOwnerPlayerId,
         final boolean forcedHostile
     ) {
-        if (forcedHostile || isUnowned(missileOwnerPlayerId) || ownerPlayerId == null) {
+        return isHostile(MissileAffiliation.ofOwner(missileOwnerPlayerId), forcedHostile);
+    }
+
+    public boolean isHostile(
+        final MissileAffiliation missileAffiliation,
+        final boolean forcedHostile
+    ) {
+        if (forcedHostile || missileAffiliation == null || missileAffiliation.unclaimed()
+                || ownerPlayerId == null) {
             return true;
         }
-        if (ownerPlayerId.equals(missileOwnerPlayerId)) {
-            return false;
-        }
-        return allies.stream().noneMatch(ally -> ally.playerId().equals(missileOwnerPlayerId));
+        HashSet<UUID> recognizedPlayers = new HashSet<>();
+        recognizedPlayers.add(ownerPlayerId);
+        allies.forEach(ally -> recognizedPlayers.add(ally.playerId()));
+        return !recognizedPlayers.containsAll(missileAffiliation.playerIds());
     }
 
     public static boolean isUnowned(final @Nullable UUID playerId) {

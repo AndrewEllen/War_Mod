@@ -3,6 +3,7 @@ package com.andye.warmod.icbm;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.warhead.WarheadImpactChunkLeaseManager;
 import com.andye.warmod.warhead.WarheadPreImpactPreparationManager;
+import com.andye.warmod.warhead.WarheadTrajectory;
 import com.andye.warmod.warhead.WarheadYield;
 import com.andye.warmod.warhead.WarheadYieldRegistry;
 import java.util.HashSet;
@@ -25,6 +26,7 @@ public final class IcbmChunkTicketController {
     private long nextApproachLeaseRefreshElapsed;
     private boolean finalApproachLeaseHeld;
     private boolean finalApproachLeaseDirty;
+    private boolean preparationTransferred;
     private boolean released;
 
     public IcbmChunkTicketController(final IcbmFlightPlan plan) {
@@ -67,7 +69,9 @@ public final class IcbmChunkTicketController {
          * loading the complete defensive approach area immediately instead of
          * waiting until ten seconds before separation.
          */
-        maintainFinalApproachLease(level, elapsed);
+        if (shouldMaintainTerrainPreparation()) {
+            maintainFinalApproachLease(level, elapsed);
+        }
 
         HashSet<ChunkPos> wanted = new HashSet<>();
         long boostEnd = (long)plan.ignitionTicks() + plan.boostTicks();
@@ -105,8 +109,17 @@ public final class IcbmChunkTicketController {
     }
 
     public void markSeparated(final long elapsed) {
+        /* WarheadLaunchService has atomically retargeted the root preparation to
+         * the terminal child before this handoff is recorded. The carrier stays
+         * alive for its simulation-ticket tail, but must never recreate its old
+         * root placeholder impact during that period. */
+        preparationTransferred = true;
         separationReleaseElapsed = elapsed
             + IcbmConstants.SEPARATION_TICKET_TAIL_TICKS;
+    }
+
+    boolean shouldMaintainTerrainPreparation() {
+        return !released && !preparationTransferred;
     }
 
     public void releaseAll(final ServerLevel level) {
@@ -147,9 +160,10 @@ public final class IcbmChunkTicketController {
             0L,
             plan.separationTick() - elapsed
         );
-        long requestedTicks = ticksUntilSeparation
-            + IcbmConstants.MAXIMUM_TERMINAL_TICKS
-            + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS;
+        int terminalTicks = WarheadTrajectory.terminalFlightTicks(
+            plan.separationPosition(), plan.intendedTarget());
+        long ticksUntilImpact = ticksUntilSeparation + terminalTicks;
+        long requestedTicks = ticksUntilImpact + IcbmConstants.IMPACT_CHUNK_TAIL_TICKS;
         int leaseTicks = (int)Math.min(
             Integer.MAX_VALUE,
             Math.max(1L, requestedTicks)
@@ -169,7 +183,8 @@ public final class IcbmChunkTicketController {
 			 * retarget the separate load-only full-footprint preparation now; this
 			 * small simulation corridor is not used as terrain readiness evidence. */
 			WarheadPreImpactPreparationManager.scheduleKnownNuclearTerrain(
-				level, missileId, plan.intendedTarget(), yield, plan.visualSeed(), leaseTicks);
+				level, missileId, plan.intendedTarget(), yield, plan.visualSeed(),
+				(int)Math.min(Integer.MAX_VALUE, Math.max(1L, ticksUntilImpact)));
 		}
         finalApproachLeaseHeld = true;
         finalApproachLeaseDirty = false;

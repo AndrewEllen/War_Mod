@@ -14,6 +14,9 @@ public final class ModBlockEntities {
     public static final ResourceKey<BlockEntityType<?>> ARTILLERY_CANNON_KEY = key("artillery_cannon");
     public static final BlockEntityType<ArtilleryCannonBlockEntity> ARTILLERY_CANNON =
         new BlockEntityType<>(ArtilleryCannonBlockEntity::new, Set.of(ModBlocks.ARTILLERY_CANNON));
+    public static final ResourceKey<BlockEntityType<?>> LAUNCH_CONTROLLER_KEY = key("launch_controller");
+    public static final BlockEntityType<LaunchControllerBlockEntity> LAUNCH_CONTROLLER =
+        new BlockEntityType<>(LaunchControllerBlockEntity::new, Set.of(ModBlocks.LAUNCH_CONTROLLER));
     public static final ResourceKey<BlockEntityType<?>> RADAR_STATION_KEY = key("radar_station");
     public static final BlockEntityType<RadarStationBlockEntity> RADAR_STATION =
         new BlockEntityType<>(RadarStationBlockEntity::new, Set.of(ModBlocks.RADAR_STATION));
@@ -48,6 +51,7 @@ public final class ModBlockEntities {
 
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, MISSILE_SILO_KEY, MISSILE_SILO);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, LAUNCH_CONTROLLER_KEY, LAUNCH_CONTROLLER);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RADAR_STATION_KEY, RADAR_STATION);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, PHALANX_TURRET_KEY, PHALANX_TURRET);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);

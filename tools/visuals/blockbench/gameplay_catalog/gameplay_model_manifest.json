@@ -9,6 +9,15 @@
     "preview": "previews/machines/missile_workbench.png"
   },
   {
+    "id": "launch_controller",
+    "category": "machines",
+    "kind": "utility",
+    "cubes": 22,
+    "meshes": 0,
+    "model": "machines/launch_controller.bbmodel",
+    "preview": "previews/machines/launch_controller.png"
+  },
+  {
     "id": "icbm_body",
     "category": "components",
     "kind": "derived",
