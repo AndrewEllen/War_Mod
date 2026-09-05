@@ -272,7 +272,8 @@ public final class PhalanxTargetSelector {
                 target.payloadType().orElse(null) == WarheadPayloadType.NUCLEAR
                     ? 2
                     : 3;
-            case MK_I_FALLBACK -> 4;
+            case ACTIVE_ANTI_AIR -> 4;
+            case MK_I_FALLBACK -> 5;
         };
     }
 }

@@ -5,12 +5,6 @@ import net.minecraft.world.phys.Vec3;
 
 /** Authoritative carrier route with a continuous powered-ascent-to-coast arc. */
 public final class IcbmTrajectory {
-    private static final double COAST_INITIAL_HORIZONTAL_FRACTION = 0.14;
-    private static final double COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD = 24.0;
-    private static final double COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD = 192.0;
-    private static final double BOOST_CURVE_MINIMUM_FRACTION = 0.18;
-    private static final double BOOST_CURVE_MAXIMUM_FRACTION = 0.62;
-
     private IcbmTrajectory() { }
 
     public static IcbmFlightPhase phase(final IcbmFlightPlan plan, final double ticks) {
@@ -30,7 +24,7 @@ public final class IcbmTrajectory {
         double ticks = Math.max(0, Math.min(elapsed, plan.separationTick()));
         if (ticks < plan.ignitionTicks()) {
             double u = ticks / plan.ignitionTicks();
-            return plan.launchPosition().add(0, .5 * u * u, 0);
+            return plan.launchPosition().add(0, ignitionRise(plan) * u * u, 0);
         }
         if (ticks < plan.ignitionTicks() + plan.boostTicks()) {
             return powered(plan, (ticks - plan.ignitionTicks()) / plan.boostTicks());
@@ -47,7 +41,7 @@ public final class IcbmTrajectory {
         double ticks = Math.max(0, Math.min(elapsed, plan.separationTick()));
         if (ticks < plan.ignitionTicks()) {
             double u = ticks / plan.ignitionTicks();
-            return new Vec3(0, u / plan.ignitionTicks(), 0);
+            return new Vec3(0, 2.0 * ignitionRise(plan) * u / plan.ignitionTicks(), 0);
         }
         if (ticks < plan.ignitionTicks() + plan.boostTicks()) {
             return poweredVelocity(plan,
@@ -57,194 +51,194 @@ public final class IcbmTrajectory {
             (ticks - plan.ignitionTicks() - plan.boostTicks()) / plan.coastTicks());
     }
 
-    private static Vec3 powered(final IcbmFlightPlan plan, final double raw) {
-        double u = Mth.clamp(raw, 0.0, 1.0);
-        Vec3 start = plan.launchPosition().add(0, .5, 0);
-        Vec3 burnout = plan.burnoutPosition();
-        double curveStartFraction = boostCurveStartFraction(plan, start, burnout);
-        Vec3 curveStart = new Vec3(start.x,
-            Mth.lerp(curveStartFraction, start.y, burnout.y), start.z);
-        double curveStartTicks = Math.max(1.0, plan.boostTicks() * curveStartFraction);
-        double curvedTicks = Math.max(1.0, plan.boostTicks() - curveStartTicks);
-        Vec3 curveStartVelocity = boostCurveStartVelocity(plan, curveStart, burnout, curvedTicks);
-
-        if (u <= curveStartFraction) {
-            double local = curveStartFraction <= 1.0E-8 ? 1.0 : u / curveStartFraction;
-            double secant = Math.max(0.01, (curveStart.y - start.y) / curveStartTicks);
-            Vec3 launchVelocity = new Vec3(0.0, Mth.clamp(secant * 0.45, 0.35, 1.20), 0.0);
-            return hermitePosition(start, curveStart,
-                launchVelocity.scale(curveStartTicks),
-                curveStartVelocity.scale(curveStartTicks), local);
+    /**
+     * Fit a circular bend whose entry tangent is vertical and whose exit tangent
+     * is the initial ballistic velocity. Unlike an unconstrained spline, its
+     * heading can only turn down-range: there is no internal inflection.
+     */
+    static Vec3 alignedBurnout(final Vec3 launch, final Vec3 requested,
+        final Vec3 separation) {
+        Vec3 horizontal = new Vec3(separation.x - launch.x, 0, separation.z - launch.z);
+        double distance = horizontal.length();
+        if (distance < 1.0E-6) return new Vec3(launch.x, requested.y, launch.z);
+        Vec3 direction = horizontal.scale(1.0 / distance);
+        double rise = requested.y - curveStartY(launch, requested);
+        double lead = 0.0;
+        for (int iteration = 0; iteration < 32; iteration++) {
+            Vec3 candidate = new Vec3(launch.x + direction.x * lead, requested.y,
+                launch.z + direction.z * lead);
+            double remaining = Math.max(1.0E-6, distance - lead);
+            double slope = (separation.y - candidate.y
+                + 4.0 * ballisticArcHeight(candidate, separation)) / remaining;
+            lead = Math.min(distance * 0.95,
+                rise / (Math.sqrt(1.0 + slope * slope) + slope));
         }
+        return new Vec3(launch.x + direction.x * lead, requested.y,
+            launch.z + direction.z * lead);
+    }
 
-        double local = (u - curveStartFraction) / Math.max(1.0E-8, 1.0 - curveStartFraction);
-        Vec3 burnoutVelocity = coastInitialVelocity(plan);
-        return hermitePosition(curveStart, burnout,
-            curveStartVelocity.scale(curvedTicks),
-            burnoutVelocity.scale(curvedTicks), local);
+    private static double curveStartY(final Vec3 launch, final Vec3 burnout) {
+        return Math.min(burnout.y - 1.0, Math.max(
+            IcbmConstants.BOOST_CURVE_START_MINIMUM_WORLD_Y,
+            launch.y + IcbmConstants.BOOST_CURVE_START_MINIMUM_HEIGHT_ABOVE_LAUNCH));
+    }
+
+    private static Vec3 powered(final IcbmFlightPlan plan, final double raw) {
+        PoweredArc arc = poweredArc(plan);
+        double ticks = Mth.clamp(raw, 0.0, 1.0) * plan.boostTicks();
+        if (ticks <= arc.verticalTicks) {
+            double height = arc.initialSpeed * ticks
+                + 0.5 * arc.verticalAcceleration * ticks * ticks;
+            return plan.launchPosition().add(0.0, ignitionRise(plan) + height, 0.0);
+        }
+        double curvedTime = ticks - arc.verticalTicks;
+        double distance = arc.joinSpeed * curvedTime
+            + 0.5 * arc.curvedAcceleration * curvedTime * curvedTime;
+        double angle = distance / arc.radius;
+        double horizontal = arc.radius * (1.0 - Math.cos(angle));
+        return new Vec3(plan.launchPosition().x + arc.direction.x * horizontal,
+            arc.startY + arc.radius * Math.sin(angle),
+            plan.launchPosition().z + arc.direction.z * horizontal);
     }
 
     private static Vec3 poweredVelocity(final IcbmFlightPlan plan, final double raw) {
-        double u = Mth.clamp(raw, 0.0, 1.0);
-        Vec3 start = plan.launchPosition().add(0, .5, 0);
+        PoweredArc arc = poweredArc(plan);
+        double ticks = Mth.clamp(raw, 0.0, 1.0) * plan.boostTicks();
+        if (ticks <= arc.verticalTicks)
+            return new Vec3(0.0, arc.initialSpeed + arc.verticalAcceleration * ticks, 0.0);
+        double curvedTime = ticks - arc.verticalTicks;
+        double distance = arc.joinSpeed * curvedTime
+            + 0.5 * arc.curvedAcceleration * curvedTime * curvedTime;
+        double angle = distance / arc.radius;
+        double speed = arc.joinSpeed + arc.curvedAcceleration * curvedTime;
+        return new Vec3(arc.direction.x * Math.sin(angle) * speed,
+            Math.cos(angle) * speed, arc.direction.z * Math.sin(angle) * speed);
+    }
+
+    private static PoweredArc poweredArc(final IcbmFlightPlan plan) {
+        Vec3 start = plan.launchPosition().add(0.0, ignitionRise(plan), 0.0);
         Vec3 burnout = plan.burnoutPosition();
-        double curveStartFraction = boostCurveStartFraction(plan, start, burnout);
-        Vec3 curveStart = new Vec3(start.x,
-            Mth.lerp(curveStartFraction, start.y, burnout.y), start.z);
-        double curveStartTicks = Math.max(1.0, plan.boostTicks() * curveStartFraction);
-        double curvedTicks = Math.max(1.0, plan.boostTicks() - curveStartTicks);
-        Vec3 curveStartVelocity = boostCurveStartVelocity(plan, curveStart, burnout, curvedTicks);
-
-        if (u <= curveStartFraction) {
-            double local = curveStartFraction <= 1.0E-8 ? 1.0 : u / curveStartFraction;
-            double secant = Math.max(0.01, (curveStart.y - start.y) / curveStartTicks);
-            Vec3 launchVelocity = new Vec3(0.0, Mth.clamp(secant * 0.45, 0.35, 1.20), 0.0);
-            return hermiteDerivative(start, curveStart,
-                launchVelocity.scale(curveStartTicks),
-                curveStartVelocity.scale(curveStartTicks), local)
-                .scale(1.0 / curveStartTicks);
-        }
-
-        double local = (u - curveStartFraction) / Math.max(1.0E-8, 1.0 - curveStartFraction);
-        Vec3 burnoutVelocity = coastInitialVelocity(plan);
-        return hermiteDerivative(curveStart, burnout,
-            curveStartVelocity.scale(curvedTicks),
-            burnoutVelocity.scale(curvedTicks), local)
-            .scale(1.0 / curvedTicks);
+        Vec3 endVelocity = coastInitialVelocity(plan);
+        Vec3 lateral = new Vec3(burnout.x - start.x, 0.0, burnout.z - start.z);
+        double lead = Math.max(1.0E-9, lateral.length());
+        Vec3 direction = lateral.scale(1.0 / lead);
+        double startY = curveStartY(plan.launchPosition(), burnout);
+        double rise = burnout.y - startY;
+        double angle = 2.0 * Math.atan2(lead, rise);
+        double radius = (lead * lead + rise * rise) / (2.0 * lead);
+        double arcLength = radius * angle;
+        double verticalHeight = startY - start.y;
+        double initialSpeed = 2.0 * ignitionRise(plan) / plan.ignitionTicks();
+        double endSpeed = endVelocity.length();
+        double duration = plan.boostTicks();
+        // Solve T = 2H/(v0+vJoin) + 2S/(vJoin+vEnd). Both segments
+        // use constant tangential acceleration and share exactly one speed.
+        double b = duration * (initialSpeed + endSpeed)
+            - 2.0 * (verticalHeight + arcLength);
+        double c = duration * initialSpeed * endSpeed
+            - 2.0 * (verticalHeight * endSpeed + arcLength * initialSpeed);
+        double joinSpeed = (-b + Math.sqrt(b * b - 4.0 * duration * c))
+            / (2.0 * duration);
+        double verticalTicks = 2.0 * verticalHeight / (initialSpeed + joinSpeed);
+        double curvedTicks = duration - verticalTicks;
+        return new PoweredArc(direction, startY, radius, initialSpeed, joinSpeed,
+            verticalTicks, (joinSpeed - initialSpeed) / verticalTicks,
+            (endSpeed - joinSpeed) / curvedTicks);
     }
 
-    private static double boostCurveStartFraction(final IcbmFlightPlan plan,
-        final Vec3 start, final Vec3 burnout) {
-        double verticalGain = Math.max(1.0, burnout.y - start.y);
-        double desiredStartY = Math.max(
-            IcbmConstants.BOOST_CURVE_START_MINIMUM_WORLD_Y,
-            plan.launchPosition().y + IcbmConstants.BOOST_CURVE_START_MINIMUM_HEIGHT_ABOVE_LAUNCH);
-        double rawFraction = (desiredStartY - start.y) / verticalGain;
-        return Mth.clamp(rawFraction, BOOST_CURVE_MINIMUM_FRACTION,
-            BOOST_CURVE_MAXIMUM_FRACTION);
+    private static double ignitionRise(final IcbmFlightPlan plan) {
+        return plan.ignitionTicks() == IcbmConstants.SILO_IGNITION_TICKS
+            ? IcbmConstants.SILO_IGNITION_RISE_BLOCKS : 0.5;
     }
 
-    private static Vec3 boostCurveStartVelocity(final IcbmFlightPlan plan,
-        final Vec3 curveStart, final Vec3 burnout, final double curvedTicks) {
-        double verticalSecant = Math.max(0.01, (burnout.y - curveStart.y) / curvedTicks);
-        double verticalVelocity = Mth.clamp(verticalSecant * 1.30, 0.70, 4.50);
-        return new Vec3(0.0, verticalVelocity, 0.0);
-    }
-
-    private static Vec3 hermitePosition(final Vec3 p0, final Vec3 p1,
-        final Vec3 m0, final Vec3 m1, final double rawU) {
-        double u = Mth.clamp(rawU, 0.0, 1.0);
-        double u2 = u * u;
-        double u3 = u2 * u;
-        return p0.scale(2 * u3 - 3 * u2 + 1)
-            .add(m0.scale(u3 - 2 * u2 + u))
-            .add(p1.scale(-2 * u3 + 3 * u2))
-            .add(m1.scale(u3 - u2));
-    }
-
-    private static Vec3 hermiteDerivative(final Vec3 p0, final Vec3 p1,
-        final Vec3 m0, final Vec3 m1, final double rawU) {
-        double u = Mth.clamp(rawU, 0.0, 1.0);
-        double u2 = u * u;
-        return p0.scale(6 * u2 - 6 * u)
-            .add(m0.scale(3 * u2 - 4 * u + 1))
-            .add(p1.scale(-6 * u2 + 6 * u))
-            .add(m1.scale(3 * u2 - 2 * u));
-    }
-
+    private record PoweredArc(Vec3 direction, double startY, double radius,
+        double initialSpeed, double joinSpeed, double verticalTicks,
+        double verticalAcceleration, double curvedAcceleration) { }
     private static Vec3 coast(final IcbmFlightPlan plan, final double raw) {
         double u = Mth.clamp(raw, 0, 1);
-        double u2 = u * u;
-        double u3 = u2 * u;
-        Vec3 p0 = plan.burnoutPosition();
-        Vec3 p1 = coastControlOne(plan.burnoutPosition(), plan.separationPosition());
-        Vec3 p2 = coastControlTwo(plan.burnoutPosition(), plan.separationPosition());
-        Vec3 p3 = plan.separationPosition();
-        return p0.scale(1 - 3 * u + 3 * u2 - u3)
-            .add(p1.scale(3 * u - 6 * u2 + 3 * u3))
-            .add(p2.scale(3 * u2 - 3 * u3))
-            .add(p3.scale(u3));
+        double ticks = u * plan.coastTicks();
+        Vec3 initial = ballisticInitialVelocity(plan.burnoutPosition(),
+            plan.separationPosition(), plan.coastTicks());
+        return plan.burnoutPosition().add(initial.scale(ticks))
+            .add(0.0, -0.5 * ballisticGravity(plan.burnoutPosition(),
+                plan.separationPosition(), plan.coastTicks())
+                * ticks * ticks, 0.0);
     }
 
     private static Vec3 coastVelocity(final IcbmFlightPlan plan, final double raw) {
         double u = Mth.clamp(raw, 0, 1);
-        Vec3 p0 = plan.burnoutPosition();
-        Vec3 p1 = coastControlOne(plan.burnoutPosition(), plan.separationPosition());
-        Vec3 p2 = coastControlTwo(plan.burnoutPosition(), plan.separationPosition());
-        Vec3 p3 = plan.separationPosition();
-        return p1.subtract(p0).scale(3 * (1 - u) * (1 - u))
-            .add(p2.subtract(p1).scale(6 * (1 - u) * u))
-            .add(p3.subtract(p2).scale(3 * u * u))
-            .scale(1.0 / plan.coastTicks());
+        double ticks = u * plan.coastTicks();
+        return ballisticInitialVelocity(plan.burnoutPosition(), plan.separationPosition(),
+            plan.coastTicks()).add(0.0,
+                -ballisticGravity(plan.burnoutPosition(), plan.separationPosition(),
+                    plan.coastTicks()) * ticks, 0.0);
     }
 
-    /**
-     * Keep the coast tangent moving down-range while it is still climbing, so
-     * burnout joins the ballistic arc without a second visible corner.
-     */
-    private static Vec3 coastControlOne(final Vec3 burnout, final Vec3 separation) {
-        Vec3 delta = separation.subtract(burnout);
-        Vec3 horizontal = new Vec3(delta.x, 0.0, delta.z);
-        if (horizontal.lengthSqr() < 1.0E-8) {
-            return burnout.add(0, IcbmConstants.BOOST_ASCENT_CONTROL_DISTANCE, 0);
-        }
-        double lead = Mth.clamp(
-            horizontal.length() * COAST_INITIAL_HORIZONTAL_FRACTION,
-            COAST_INITIAL_MINIMUM_HORIZONTAL_LEAD,
-            COAST_INITIAL_MAXIMUM_HORIZONTAL_LEAD);
-        return burnout.add(horizontal.normalize().scale(lead))
-            .add(0, IcbmConstants.BOOST_ASCENT_CONTROL_DISTANCE, 0);
+    private static Vec3 ballisticInitialVelocity(final Vec3 burnout,
+        final Vec3 separation, final int ticks) {
+        return separation.subtract(burnout)
+            .add(0.0, 0.5 * ballisticGravity(burnout, separation, ticks)
+                * ticks * ticks, 0.0)
+            .scale(1.0 / ticks);
     }
 
-    private static Vec3 coastControlTwo(final Vec3 burnout, final Vec3 separation) {
-        Vec3 delta = separation.subtract(burnout);
-        Vec3 horizontal = new Vec3(delta.x, 0, delta.z);
-        Vec3 approach = horizontal.lengthSqr() < 1.0E-8 ? Vec3.ZERO
-            : horizontal.normalize().scale(Math.min(
-                IcbmConstants.COAST_APPROACH_CONTROL_DISTANCE,
-                horizontal.length() * .20));
-        return separation.subtract(approach)
-            .add(0, IcbmConstants.COAST_TERMINAL_CONTROL_HEIGHT, 0);
+    private static double ballisticGravity(final Vec3 burnout, final Vec3 separation,
+        final int ticks) {
+        return 8.0 * ballisticArcHeight(burnout, separation) / (ticks * (double) ticks);
     }
 
-    private static Vec3 coastDerivativePerUnit(final Vec3 burnout,
-        final Vec3 separation, final double rawU) {
-        double u = Mth.clamp(rawU, 0.0, 1.0);
-        double inverse = 1 - u;
-        Vec3 p0 = burnout;
-        Vec3 p1 = coastControlOne(burnout, separation);
-        Vec3 p2 = coastControlTwo(burnout, separation);
-        Vec3 p3 = separation;
-        return p1.subtract(p0).scale(3 * inverse * inverse)
-            .add(p2.subtract(p1).scale(6 * inverse * u))
-            .add(p3.subtract(p2).scale(3 * u * u));
+    private static double ballisticArcHeight(final Vec3 burnout, final Vec3 separation) {
+        double horizontal = Math.hypot(separation.x - burnout.x,
+            separation.z - burnout.z);
+        double arcHeight = Mth.clamp(
+            horizontal * IcbmConstants.COAST_ARC_HEIGHT_PER_HORIZONTAL_BLOCK,
+            IcbmConstants.MINIMUM_COAST_ARC_HEIGHT_BLOCKS,
+            IcbmConstants.MAXIMUM_COAST_ARC_HEIGHT_BLOCKS);
+        // A high-altitude launch must also leave burnout climbing. Otherwise the
+        // powered bend would have to turn past its apex before thrust cuts out.
+        return Math.max(arcHeight, (burnout.y - separation.y) * 0.25 + 120.0);
     }
 
     public static double estimatedPeakCoastDerivative(final Vec3 burnout,
         final Vec3 separation) {
-        double maximum = 0;
-        for (int index = 0; index <= 4096; index++) {
-            maximum = Math.max(maximum,
-                coastDerivativePerUnit(burnout, separation, index / 4096.0).length());
-        }
-        return maximum * 1.005;
+        int ticks = requiredCoastTicks(burnout, separation);
+        if (ticks < 0) return Double.POSITIVE_INFINITY;
+        return peakBallisticSpeed(burnout, separation, ticks) * ticks;
     }
 
     public static int requiredCoastTicks(final Vec3 burnout, final Vec3 separation) {
-        double peak = estimatedPeakCoastDerivative(burnout, separation);
-        if (!Double.isFinite(peak)) return -1;
-        int ticks = Math.max(IcbmConstants.MINIMUM_COAST_TICKS,
-            Math.max((int) Math.ceil(peak / IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK),
-                (int) Math.ceil(peak / IcbmConstants.PREFERRED_CARRIER_SPEED_BLOCKS_PER_TICK)));
-        if (ticks > IcbmConstants.MAXIMUM_COAST_TICKS) return -1;
-        while (peak / ticks > IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK
-            && ticks < IcbmConstants.MAXIMUM_COAST_TICKS) ticks++;
-        return peak / ticks <= IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK + .001
-            ? ticks : -1;
+        Vec3 horizontal = new Vec3(separation.x - burnout.x, 0.0,
+            separation.z - burnout.z);
+        int preferred = Math.max(IcbmConstants.MINIMUM_COAST_TICKS,
+            (int) Math.ceil(horizontal.length()
+                / IcbmConstants.PREFERRED_CARRIER_SPEED_BLOCKS_PER_TICK));
+        int best = -1;
+        double bestSpeed = Double.POSITIVE_INFINITY;
+        for (int ticks = IcbmConstants.MINIMUM_COAST_TICKS;
+            ticks <= IcbmConstants.MAXIMUM_COAST_TICKS; ticks++) {
+            double peak = peakBallisticSpeed(burnout, separation, ticks);
+            if (!Double.isFinite(peak)) return -1;
+            if (peak <= IcbmConstants.MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK + .001) {
+                if (ticks >= preferred) return ticks;
+                if (peak < bestSpeed) {
+                    best = ticks;
+                    bestSpeed = peak;
+                }
+            }
+        }
+        return best;
     }
 
     public static double estimatedPeakCoastSpeed(final IcbmFlightPlan plan) {
-        return estimatedPeakCoastDerivative(plan.burnoutPosition(),
-            plan.separationPosition()) / plan.coastTicks();
+        return peakBallisticSpeed(plan.burnoutPosition(), plan.separationPosition(),
+            plan.coastTicks());
+    }
+
+    private static double peakBallisticSpeed(final Vec3 burnout, final Vec3 separation,
+        final int ticks) {
+        Vec3 initial = ballisticInitialVelocity(burnout, separation, ticks);
+        Vec3 terminal = initial.add(0.0,
+            -ballisticGravity(burnout, separation, ticks) * ticks, 0.0);
+        return Math.max(initial.length(), terminal.length());
     }
 }

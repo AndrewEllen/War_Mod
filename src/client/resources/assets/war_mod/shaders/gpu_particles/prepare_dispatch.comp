@@ -1,0 +1,28 @@
+#version 430 core
+layout(local_size_x = 1) in;
+
+layout(std430, binding = 5) readonly buffer AliveInput {
+    uint currentAliveCount;
+    uint currentAliveIds[];
+};
+layout(std430, binding = 6) readonly buffer AliveOutput {
+    uint nextAliveCount;
+    uint nextAliveIds[];
+};
+layout(std430, binding = 4) readonly buffer DeadList { uint deadCount; uint deadIds[]; };
+layout(std430, binding = 7) buffer StatsBuffer { uint stats[]; };
+layout(std430, binding = 8) buffer DispatchCommand {
+    uint groupCountX;
+    uint groupCountY;
+    uint groupCountZ;
+};
+uniform bool useNextAliveList;
+uniform uint particleTypeCount;
+
+void main() {
+    uint count = useNextAliveList ? nextAliveCount : currentAliveCount;
+    groupCountX = (count + 255u) / 256u;
+    groupCountY = 1u;
+    groupCountZ = 1u;
+    stats[particleTypeCount * 4u + 3u] = deadCount;
+}

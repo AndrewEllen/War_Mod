@@ -25,8 +25,8 @@ public final class PhalanxConstants {
      */
     public static final double HORIZONTAL_ENGAGEMENT_RADIUS_BLOCKS = 400.0;
 
-    public static final double MAX_ELEVATION_DEGREES = 80.0;
-    public static final double MIN_ELEVATION_DEGREES = -5.0;
+    public static final double MAX_ELEVATION_DEGREES = 90.0;
+    public static final double MIN_ELEVATION_DEGREES = -90.0;
 
     public static final double BULLET_SPEED_BLOCKS_PER_TICK = 12.0;
     public static final double BULLET_GRAVITY_PER_TICK_SQUARED = 0.015;

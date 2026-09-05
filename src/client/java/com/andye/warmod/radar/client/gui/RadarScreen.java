@@ -77,8 +77,8 @@ public final class RadarScreen extends Screen {
     public RadarScreen(final RadarScreenMode mode) {
         super(Component.literal(switch (mode) {
             case STATION -> "Radar Station";
-            case STATION_MAP -> "Station Missile Radar";
-            case GLOBAL -> "Missile Radar";
+            case STATION_MAP -> "Remote Display - Linked Station";
+            case GLOBAL -> "Remote Display";
         }));
         this.mode = mode;
     }
@@ -338,7 +338,7 @@ public final class RadarScreen extends Screen {
     ) {
         int mapWidth = mapWidth();
         int mapHeight = mapHeight();
-        graphics.fill(0, 0, width, height, 0xFF070B0D);
+        graphics.fill(0, 0, width, height, WarModUiText.BACKGROUND);
 
         if (stationBacked()) {
             renderStationMap(graphics, mapWidth, mapHeight, partial);
@@ -417,7 +417,7 @@ public final class RadarScreen extends Screen {
             layout.top(),
             layout.left() + layout.width(),
             layout.bottom(),
-            0xFF0D1519
+            WarModUiText.BACKGROUND
         );
         graphics.enableScissor(
             layout.left(),
@@ -432,7 +432,7 @@ public final class RadarScreen extends Screen {
             "RADAR STATION",
             x,
             layout.y(8),
-            0xFFFFC45A,
+            WarModUiText.WARNING,
             Math.max(20, textWidth - 100)
         );
         stationText(
@@ -442,7 +442,7 @@ public final class RadarScreen extends Screen {
                 : station.radarId().toString().substring(0, 8),
             x,
             layout.y(28),
-            0xFFC5D5DC,
+            WarModUiText.TEXT,
             textWidth
         );
         stationText(
@@ -452,7 +452,7 @@ public final class RadarScreen extends Screen {
                 + String.format(Locale.ROOT, "%.1fs", station.sweepPeriod() / 20.0),
             x,
             layout.y(42),
-            0xFFFFFFFF,
+            WarModUiText.TEXT,
             textWidth
         );
         stationText(
@@ -460,16 +460,16 @@ public final class RadarScreen extends Screen {
             "Contacts " + station.contacts() + " | Threats " + station.threats(),
             x,
             layout.y(56),
-            station.threats() > 0 ? 0xFFFF8B62 : 0xFF8FD7A6,
+            station.threats() > 0 ? WarModUiText.ERROR : WarModUiText.SUCCESS,
             textWidth
         );
-        stationText(graphics, "WARNING RADIUS", x, layout.y(76), 0xFF7F969D, textWidth);
+        stationText(graphics, "WARNING RADIUS", x, layout.y(76), WarModUiText.TEXT_MUTED, textWidth);
         stationText(
             graphics,
             "Current: " + (int)station.warningRadius() + " blocks",
             x,
             layout.y(132),
-            0xFFC5D5DC,
+            WarModUiText.TEXT,
             textWidth
         );
         stationText(
@@ -477,16 +477,16 @@ public final class RadarScreen extends Screen {
             "Predicted impact must enter this radius",
             x,
             layout.y(142),
-            0xFF7F969D,
+            WarModUiText.TEXT_MUTED,
             textWidth
         );
-        stationText(graphics, "FIRE RADIUS", x, layout.y(154), 0xFF7F969D, textWidth);
+        stationText(graphics, "FIRE RADIUS", x, layout.y(154), WarModUiText.TEXT_MUTED, textWidth);
         stationText(
             graphics,
             "Current: " + (int)station.fireRadius() + " blocks",
             x,
             layout.y(198),
-            0xFFD7F7FF,
+            WarModUiText.TEXT,
             textWidth
         );
         stationText(
@@ -494,10 +494,10 @@ public final class RadarScreen extends Screen {
             "Trigger mode turns on inside this radius",
             x,
             layout.y(208),
-            0xFF7F969D,
+            WarModUiText.TEXT_MUTED,
             textWidth
         );
-        stationText(graphics, "REDSTONE OUTPUT", x, layout.y(220), 0xFF7F969D, textWidth);
+        stationText(graphics, "REDSTONE OUTPUT", x, layout.y(220), WarModUiText.TEXT_MUTED, textWidth);
         stationText(
             graphics,
             pendingRedstoneMode == RadarRedstoneMode.ANALOG_DISTANCE
@@ -505,7 +505,7 @@ public final class RadarScreen extends Screen {
                 : "Block sides: fire trigger 0/15",
             x,
             layout.y(274),
-            0xFFC5D5DC,
+            WarModUiText.TEXT,
             textWidth
         );
         stationText(
@@ -513,12 +513,12 @@ public final class RadarScreen extends Screen {
             "Comparator: distance strength 0-15",
             x,
             layout.y(286),
-            0xFF50E7FF,
+            WarModUiText.SUCCESS,
             textWidth
         );
         int colour = station.redstoneSignal() == 15
-            ? 0xFF50E7FF
-            : station.redstoneSignal() > 0 ? 0xFFFFC45A : 0xFF8FD7A6;
+            ? WarModUiText.SUCCESS
+            : station.redstoneSignal() > 0 ? WarModUiText.WARNING : WarModUiText.SUCCESS;
         stationText(
             graphics,
             "Block signal: " + station.redstoneSignal() + " / 15",
@@ -534,7 +534,7 @@ public final class RadarScreen extends Screen {
                 : station.primaryThreatId().toString().substring(0, 8)),
             x,
             layout.y(320),
-            station.primaryThreatId() == null ? 0xFF8FD7A6 : 0xFFFF8B62,
+            station.primaryThreatId() == null ? WarModUiText.SUCCESS : WarModUiText.ERROR,
             textWidth
         );
         stationText(
@@ -544,7 +544,7 @@ public final class RadarScreen extends Screen {
                 : "--"),
             x,
             layout.y(334),
-            0xFFC5D5DC,
+            WarModUiText.TEXT,
             textWidth
         );
         stationText(
@@ -553,7 +553,7 @@ public final class RadarScreen extends Screen {
                 + (station.dynamicChunkLoading() ? "enabled" : "disabled"),
             x,
             layout.y(350),
-            station.dynamicChunkLoading() ? 0xFF8FD7A6 : 0xFFFFC45A,
+            station.dynamicChunkLoading() ? WarModUiText.SUCCESS : WarModUiText.WARNING,
             textWidth
         );
         graphics.disableScissor();
@@ -564,13 +564,13 @@ public final class RadarScreen extends Screen {
         final int mouseX,
         final int mouseY
     ) {
-        graphics.fill(0, 0, width, HEADER_HEIGHT, 0xFF11191D);
+        graphics.fill(0, 0, width, HEADER_HEIGHT, WarModUiText.BACKGROUND);
         String heading = switch (mode) {
             case STATION -> "RADAR STATION SWEEP";
             case STATION_MAP -> "LINKED RADAR STATION";
-            case GLOBAL -> "MISSILE RADAR";
+            case GLOBAL -> "REMOTE DISPLAY";
         };
-        graphics.text(font, Component.literal(heading), 8, 8, 0xFFFFC45A);
+        WarModUiText.text(graphics, font, Component.literal(heading), 8, 8, WarModUiText.WARNING);
         String dimension = stationBacked()
             ? station.dimension() == null ? "unknown" : station.dimension().toString()
             : state.dimensionId() == null ? "unknown" : state.dimensionId().toString();
@@ -584,7 +584,7 @@ public final class RadarScreen extends Screen {
             + String.format(Locale.ROOT, "%.2f blocks/px", map.transform().blocksPerPixel())
             + "   Mode: " + modeName;
         int statusX = 8 + font.width(heading) + 18;
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(WarModUiText.ellipsize(
                 font,
@@ -593,21 +593,21 @@ public final class RadarScreen extends Screen {
             )),
             statusX,
             8,
-            0xFFC5D5DC
+            WarModUiText.TEXT
         );
 
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height, 0xFF11191D);
+        graphics.fill(0, height - FOOTER_HEIGHT, width, height, WarModUiText.BACKGROUND);
         String footer = switch (mode) {
             case GLOBAL -> "Drag: Pan  Wheel: Zoom  Click: Select  F: Follow  Home: Fit  R: Centre  Esc: Close";
             case STATION_MAP -> "Drag: Pan  Wheel: Zoom  Click: Select  F: Follow  Home: Full range  R: Station  Esc: Close";
             case STATION -> "Drag: Pan  Wheel: Zoom  Sidebar wheel: Scroll  Esc: Close";
         };
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(WarModUiText.ellipsize(font, footer, Math.max(0, width - 16))),
             8,
             height - 15,
-            0xFFA9BDC5
+            WarModUiText.TEXT_MUTED
         );
 
         if (mode == RadarScreenMode.GLOBAL) {
@@ -629,7 +629,7 @@ public final class RadarScreen extends Screen {
         final int colour,
         final int maximumWidth
     ) {
-        graphics.text(
+        WarModUiText.text(graphics,
             font,
             Component.literal(WarModUiText.ellipsize(font, value, maximumWidth)),
             x,

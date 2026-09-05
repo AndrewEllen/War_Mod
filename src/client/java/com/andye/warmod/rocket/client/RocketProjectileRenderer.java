@@ -1,6 +1,7 @@
 package com.andye.warmod.rocket.client;
 
 import com.andye.warmod.entity.RocketProjectileEntity;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.rocket.RocketConstants;
 import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -42,6 +43,10 @@ public final class RocketProjectileRenderer
     @Override
     public void submit(final RocketProjectileRenderState state, final PoseStack poseStack,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
+        // The spawn packet can precede movement by several client ticks. Keep
+        // collision at the muzzle, but hide the rear cap while it intersects the
+        // viewer's near field, regardless of how long that first update takes.
+        if (state.distanceToCameraSq < 4.0D) return;
         poseStack.pushPose();
         Vector3f direction = new Vector3f((float)state.velocity.x,
             (float)state.velocity.y, (float)state.velocity.z);
@@ -49,14 +54,12 @@ public final class RocketProjectileRenderer
             poseStack.mulPose(new Quaternionf().rotationTo(
                 new Vector3f(0, 1, 0), direction.normalize()));
         }
-        collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.PROJECTILE,
+        collector.submitCustomGeometry(poseStack, BlockbenchModelRenderType.SOLID,
             (pose, buffer) -> RocketProjectileMesh.render(pose, buffer, state));
         collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.FIREBALL_HOT,
             (pose, buffer) -> RocketTrailRenderer.renderFlame(pose, buffer, state));
-        if (state.lod == RocketProjectileRenderState.RocketLod.NEAR) {
-            collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.HEAVY_SMOKE,
-                (pose, buffer) -> RocketTrailRenderer.renderSmoke(pose, buffer, state));
-        }
+        collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.GROUND_DUST,
+            (pose, buffer) -> RocketTrailRenderer.renderSmoke(pose, buffer, state));
         poseStack.popPose();
         super.submit(state, poseStack, collector, camera);
     }

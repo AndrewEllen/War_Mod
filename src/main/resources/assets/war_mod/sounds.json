@@ -272,5 +272,101 @@
         "sounds": [
             { "name": "war_mod:warhead/impact_thud_near", "volume": 0.42, "pitch": 1.75 }
         ]
-    }
+    },
+    "pistol_near": { "sounds": ["war_mod:firearm/pistol_near"] },
+    "pistol_medium": { "sounds": [{ "name": "war_mod:firearm/pistol_medium", "pitch": 1.12 }] },
+    "pistol_far": { "sounds": [{ "name": "war_mod:firearm/pistol_far", "pitch": 1.12 }] },
+    "pistol_extreme": { "sounds": [{ "name": "war_mod:firearm/pistol_extreme", "pitch": 1.10 }] },
+    "rifle_near": { "sounds": [
+        "war_mod:firearm/rifle_near", "war_mod:firearm/rifle_near_2",
+        "war_mod:firearm/rifle_near_3", "war_mod:firearm/rifle_near_4",
+        "war_mod:firearm/rifle_near_5", "war_mod:firearm/rifle_near_6",
+        "war_mod:firearm/rifle_near_7", "war_mod:firearm/rifle_near_8"
+    ] },
+    "rifle_medium": { "sounds": ["war_mod:firearm/rifle_medium"] },
+    "rifle_far": { "sounds": ["war_mod:firearm/rifle_far"] },
+    "rifle_extreme": { "sounds": ["war_mod:firearm/rifle_extreme"] },
+    "sniper_near": { "sounds": ["war_mod:firearm/sniper_near"] },
+    "sniper_medium": { "sounds": ["war_mod:firearm/sniper_medium"] },
+    "sniper_far": { "sounds": ["war_mod:firearm/sniper_far"] },
+    "sniper_extreme": { "sounds": ["war_mod:firearm/sniper_extreme"] },
+    "bullet_crack_near": { "sounds": [
+        "war_mod:firearm/bullet_crack_near", "war_mod:firearm/bullet_crack_near_2",
+        "war_mod:firearm/bullet_crack_near_3", "war_mod:firearm/bullet_crack_near_4",
+        "war_mod:firearm/bullet_crack_near_5", "war_mod:firearm/bullet_crack_near_6",
+        "war_mod:firearm/bullet_crack_near_7", "war_mod:firearm/bullet_crack_near_8"
+    ] },
+    "bullet_crack_medium": { "sounds": [
+        "war_mod:firearm/bullet_crack_medium", "war_mod:firearm/bullet_crack_medium_2",
+        "war_mod:firearm/bullet_crack_medium_3", "war_mod:firearm/bullet_crack_medium_4",
+        "war_mod:firearm/bullet_crack_medium_5", "war_mod:firearm/bullet_crack_medium_6",
+        "war_mod:firearm/bullet_crack_medium_7", "war_mod:firearm/bullet_crack_medium_8"
+    ] },
+    "bullet_crack_far": { "sounds": [
+        "war_mod:firearm/bullet_crack_far", "war_mod:firearm/bullet_crack_far_2",
+        "war_mod:firearm/bullet_crack_far_3", "war_mod:firearm/bullet_crack_far_4",
+        "war_mod:firearm/bullet_crack_far_5", "war_mod:firearm/bullet_crack_far_6",
+        "war_mod:firearm/bullet_crack_far_7", "war_mod:firearm/bullet_crack_far_8"
+    ] },
+    "bullet_crack_extreme": { "sounds": [
+        "war_mod:firearm/bullet_crack_extreme", "war_mod:firearm/bullet_crack_extreme_2",
+        "war_mod:firearm/bullet_crack_extreme_3", "war_mod:firearm/bullet_crack_extreme_4",
+        "war_mod:firearm/bullet_crack_extreme_5", "war_mod:firearm/bullet_crack_extreme_6",
+        "war_mod:firearm/bullet_crack_extreme_7", "war_mod:firearm/bullet_crack_extreme_8"
+    ] },
+    "bullet_impact_near": { "sounds": ["war_mod:firearm/bullet_impact_near"] },
+    "bullet_impact_medium": { "sounds": ["war_mod:firearm/bullet_impact_medium"] },
+    "bullet_impact_far": { "sounds": ["war_mod:firearm/bullet_impact_far"] },
+    "bullet_impact_extreme": { "sounds": ["war_mod:firearm/bullet_impact_extreme"] },
+    "bullet_impact_body_near": { "sounds": ["war_mod:firearm/bullet_impact_body_near"] },
+    "bullet_impact_body_medium": { "sounds": ["war_mod:firearm/bullet_impact_body_medium"] },
+    "bullet_impact_body_far": { "sounds": ["war_mod:firearm/bullet_impact_body_far"] },
+    "bullet_impact_body_extreme": { "sounds": ["war_mod:firearm/bullet_impact_body_extreme"] },
+    "bullet_impact_metal_near": { "sounds": [
+        "war_mod:firearm/bullet_impact_metal_near", "war_mod:firearm/bullet_impact_metal_near_2",
+        "war_mod:firearm/bullet_impact_metal_near_3", "war_mod:firearm/bullet_impact_metal_near_4",
+        "war_mod:firearm/bullet_impact_metal_near_5", "war_mod:firearm/bullet_impact_metal_near_6",
+        "war_mod:firearm/bullet_impact_metal_near_7", "war_mod:firearm/bullet_impact_metal_near_8",
+        "war_mod:firearm/bullet_impact_metal_near_9", "war_mod:firearm/bullet_impact_metal_near_10"
+    ] },
+    "bullet_impact_metal_medium": { "sounds": [
+        "war_mod:firearm/bullet_impact_metal_medium", "war_mod:firearm/bullet_impact_metal_medium_2",
+        "war_mod:firearm/bullet_impact_metal_medium_3", "war_mod:firearm/bullet_impact_metal_medium_4",
+        "war_mod:firearm/bullet_impact_metal_medium_5", "war_mod:firearm/bullet_impact_metal_medium_6",
+        "war_mod:firearm/bullet_impact_metal_medium_7", "war_mod:firearm/bullet_impact_metal_medium_8",
+        "war_mod:firearm/bullet_impact_metal_medium_9", "war_mod:firearm/bullet_impact_metal_medium_10"
+    ] },
+    "bullet_impact_metal_far": { "sounds": [
+        "war_mod:firearm/bullet_impact_metal_far", "war_mod:firearm/bullet_impact_metal_far_2",
+        "war_mod:firearm/bullet_impact_metal_far_3", "war_mod:firearm/bullet_impact_metal_far_4",
+        "war_mod:firearm/bullet_impact_metal_far_5", "war_mod:firearm/bullet_impact_metal_far_6",
+        "war_mod:firearm/bullet_impact_metal_far_7", "war_mod:firearm/bullet_impact_metal_far_8",
+        "war_mod:firearm/bullet_impact_metal_far_9", "war_mod:firearm/bullet_impact_metal_far_10"
+    ] },
+    "bullet_impact_metal_extreme": { "sounds": [
+        "war_mod:firearm/bullet_impact_metal_extreme", "war_mod:firearm/bullet_impact_metal_extreme_2",
+        "war_mod:firearm/bullet_impact_metal_extreme_3", "war_mod:firearm/bullet_impact_metal_extreme_4",
+        "war_mod:firearm/bullet_impact_metal_extreme_5", "war_mod:firearm/bullet_impact_metal_extreme_6",
+        "war_mod:firearm/bullet_impact_metal_extreme_7", "war_mod:firearm/bullet_impact_metal_extreme_8",
+        "war_mod:firearm/bullet_impact_metal_extreme_9", "war_mod:firearm/bullet_impact_metal_extreme_10"
+    ] },
+    "bullet_pass_metal_near": { "sounds": [
+        "war_mod:firearm/bullet_pass_metal_1", "war_mod:firearm/bullet_pass_metal_2",
+        "war_mod:firearm/bullet_pass_metal_3", "war_mod:firearm/bullet_pass_metal_4"
+    ] },
+    "bullet_pass_metal_medium": { "sounds": [
+        "war_mod:firearm/bullet_pass_metal_1", "war_mod:firearm/bullet_pass_metal_2",
+        "war_mod:firearm/bullet_pass_metal_3", "war_mod:firearm/bullet_pass_metal_4"
+    ] },
+    "bullet_pass_metal_far": { "sounds": [
+        "war_mod:firearm/bullet_pass_metal_1", "war_mod:firearm/bullet_pass_metal_2",
+        "war_mod:firearm/bullet_pass_metal_3", "war_mod:firearm/bullet_pass_metal_4"
+    ] },
+    "bullet_pass_metal_extreme": { "sounds": [
+        "war_mod:firearm/bullet_pass_metal_1", "war_mod:firearm/bullet_pass_metal_2",
+        "war_mod:firearm/bullet_pass_metal_3", "war_mod:firearm/bullet_pass_metal_4"
+    ] },
+    "ear_ringing_light": { "sounds": [{ "name": "war_mod:hearing/ear_ringing_light", "stream": true }] },
+    "ear_ringing_medium": { "sounds": [{ "name": "war_mod:hearing/ear_ringing_medium", "stream": true }] },
+    "ear_ringing_heavy": { "sounds": [{ "name": "war_mod:hearing/ear_ringing_heavy", "stream": true }] }
 }

@@ -29,7 +29,8 @@ public final class AntiAirConstants {
     public static final int MAXIMUM_ACTIVE_INTERCEPTORS_PER_LEVEL = 2048;
 
     public static final int IGNITION_TICKS = 10;
-    public static final int BOOST_TICKS = 55;
+    public static final int BOOST_TICKS = 80;
+    public static final double VERTICAL_ASCENT_ABOVE_SEA_OR_LAUNCH_BLOCKS = 150.0;
 
     public static final double
         FALLBACK_SONIC_BOOM_SPEED_BLOCKS_PER_TICK = 4.0;

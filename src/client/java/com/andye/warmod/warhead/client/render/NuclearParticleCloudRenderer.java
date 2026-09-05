@@ -9,6 +9,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -44,30 +45,59 @@ public final class NuclearParticleCloudRenderer {
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
         final List<? extends NuclearCloudSource> sources, final Quaternionf camera) {
+        renderFire(pose, buffer, age, visualScale, profile, seed, lod, hotPass,
+            sources, camera, Vec3.ZERO);
+    }
+
+    public static void renderFire(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final double age, final float visualScale, final WarheadClientVisualProfile profile,
+        final long seed, final WarheadMesh.Lod lod, final boolean hotPass,
+        final List<? extends NuclearCloudSource> sources, final Quaternionf camera,
+        final Vec3 wind) {
         if (!valid(profile, age)) return;
-        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera,
-            hotPass ? Pass.HOT_FIRE : Pass.COOL_FIRE);
+        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, profile,
+            wind, hotPass ? Pass.HOT_FIRE : Pass.COOL_FIRE);
     }
 
     public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final float visualScale, final WarheadClientVisualProfile profile,
         final long seed, final WarheadMesh.Lod lod,
         final List<? extends NuclearCloudSource> sources, final Quaternionf camera) {
+        renderSmoke(pose, buffer, age, visualScale, profile, seed, lod, sources,
+            camera, Vec3.ZERO);
+    }
+
+    public static void renderSmoke(final PoseStack.Pose pose, final VertexConsumer buffer,
+        final double age, final float visualScale, final WarheadClientVisualProfile profile,
+        final long seed, final WarheadMesh.Lod lod,
+        final List<? extends NuclearCloudSource> sources, final Quaternionf camera,
+        final Vec3 wind) {
         if (!valid(profile, age)) return;
-        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, Pass.SMOKE);
+        field(seed, visualScale, sources).render(pose, buffer, age, lod, camera, profile,
+            wind, Pass.SMOKE);
     }
 
     public static synchronized DebugSnapshot debugSnapshot() {
-        int active = 0;
+        int simulated = 0;
         int spawned = 0;
         int culled = 0;
         for (Field field : FIELDS.values()) {
-            active += field.activeCount * LOGICAL_PARTICLES_PER_SIMULATED;
-            spawned += field.spawnedLastTick * LOGICAL_PARTICLES_PER_SIMULATED;
-            culled += field.culledLastRender * LOGICAL_PARTICLES_PER_SIMULATED;
+            simulated += field.activeCount;
+            spawned += field.spawnedLastTick;
+            culled += field.culledLastRender;
         }
-        return new DebugSnapshot(active, spawned, culled, FIELDS.size());
+        return new DebugSnapshot(simulated,
+            simulated * LOGICAL_PARTICLES_PER_SIMULATED,
+            spawned, culled, FIELDS.size());
     }
+
+    /** Releases expired cloud arrays and keeps debug/memory totals tied to live impacts. */
+    public static synchronized void retainFields(final Set<Long> activeSeeds) {
+        if (activeSeeds == null || activeSeeds.isEmpty()) FIELDS.clear();
+        else FIELDS.keySet().removeIf(seed -> !activeSeeds.contains(seed));
+    }
+
+    public static synchronized void clearLevel() { FIELDS.clear(); }
 
     private static boolean valid(final WarheadClientVisualProfile profile, final double age) {
         return profile != null && profile.payloadType() == WarheadPayloadType.NUCLEAR
@@ -198,8 +228,9 @@ public final class NuclearParticleCloudRenderer {
         }
     }
 
-    public record DebugSnapshot(int activeParticles, int spawnedParticlesPerTick,
-        int culledParticles, int activeFields) { }
+    public record DebugSnapshot(int simulatedParticles, int representedParticles,
+        int spawnedSimulatedParticlesPerTick, int culledSimulatedParticles,
+        int activeFields) { }
 
     private enum Pass { HOT_FIRE, COOL_FIRE, SMOKE }
 
@@ -772,33 +803,31 @@ public final class NuclearParticleCloudRenderer {
             hotCount = 0;
             coolCount = 0;
             smokeCount = 0;
-            int stride = switch (lod) {
-                case NEAR -> 2;
-                case MEDIUM -> 4;
-                case FAR -> 9;
-            };
+            /* This field is already capped, packed, and independent of Minecraft's
+             * particle manager. Drawing every live entry is predictable (32,768
+             * billboards maximum) and avoids a hollow cloud on otherwise idle clients. */
             int inspected = 0;
-            int rejected = 0;
-            for (int activePosition = 0; activePosition < activeCount; activePosition += stride) {
+            for (int activePosition = 0; activePosition < activeCount; activePosition++) {
                 int index = activeSlots[activePosition];
+                /* The analytical central renderer is the single owner of the
+                   nuclear stalk. Packed particles still travel through this region
+                   physically, but are not drawn as a second, thinner column. */
+                if (region[index] == REGION_STEM) continue;
                 inspected++;
-                if (interior(index, tick, lod)) {
-                    rejected++;
-                    continue;
-                }
                 float heat = temperature[index];
                 if (heat >= 0.70F) hotBucket[hotCount++] = index;
                 else if (heat >= 0.28F) coolBucket[coolCount++] = index;
                 else smokeBucket[smokeCount++] = index;
             }
-            culledLastRender = Math.max(0, activeCount - inspected) + rejected;
+            culledLastRender = Math.max(0, activeCount - inspected);
             bucketTick = tick;
             bucketLod = lod;
         }
 
         private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
             final double renderedAge, final WarheadMesh.Lod lod,
-            final Quaternionf camera, final Pass pass) {
+            final Quaternionf camera, final WarheadClientVisualProfile profile,
+            final Vec3 wind, final Pass pass) {
             ensureSimulated(renderedAge);
             int tick = Math.max(0, (int) Math.floor(renderedAge));
             prepareBuckets(tick, lod);
@@ -812,9 +841,16 @@ public final class NuclearParticleCloudRenderer {
                 case SMOKE -> { bucket = smokeBucket; count = smokeCount; }
                 default -> throw new IllegalStateException("Unknown nuclear pass " + pass);
             }
-            int orderedCount = depthOrder(bucket, count, basis.normal);
+            /* Additive fire is order-independent. Sorting it twice per frame was
+               pure render-thread CPU work; translucent smoke alone needs depth order. */
+            int[] drawOrder = bucket;
+            int orderedCount = count;
+            if (pass == Pass.SMOKE) {
+                orderedCount = depthOrder(bucket, count, basis.normal);
+                drawOrder = ordered;
+            }
             for (int position = 0; position < orderedCount; position++) {
-                int index = ordered[position];
+                int index = drawOrder[position];
                 int life = lifetime[index] & 0xFFFF;
                 float progress = (particleAge[index] & 0xFFFF) / (float) Math.max(1, life);
                 float alpha = alpha(pass, progress, temperature[index]);
@@ -840,6 +876,23 @@ public final class NuclearParticleCloudRenderer {
                     * noiseAmplitude + signed(particleSeed[index], 16) * noiseAmplitude * 0.34F;
                 py += Mth.sin(phase * 0.71F + unit(particleSeed[index], 17) * Mth.PI)
                     * noiseAmplitude * 0.30F;
+                if (region[index] == REGION_CAP || region[index] == REGION_OUTER_CURL
+                    || region[index] == REGION_UNDER_CAP) {
+                    double dissipating = BlastCloudRenderer.dissipationProgress(profile,
+                        renderedAge);
+                    float spread = (float) (1.0 + smoothstep((float) dissipating) * 0.42);
+                    px *= spread;
+                    pz *= spread;
+                    py += (float) (profile.maximumCloudHeight() * 0.055
+                        * smoothstep((float) dissipating));
+                    Vec3 drift = BlastCloudRenderer.windOffset(
+                        region[index] == REGION_OUTER_CURL
+                            ? BlastCloudFlowRole.CAP_ROLLING_RIM
+                            : BlastCloudFlowRole.CAP_CORE,
+                        profile, renderedAge, wind);
+                    px += (float) drift.x;
+                    pz += (float) drift.z;
+                }
                 Colour colour = colour(temperature[index], progress, particleSeed[index], pass,
                     region[index]);
                 float drawRadius = radius[index] * renderScale(index, tick, pass);
@@ -905,39 +958,14 @@ public final class NuclearParticleCloudRenderer {
                 if (region[index] == REGION_OUTER_CURL) density *= 0.90F;
                 if (region[index] == REGION_UNDER_CAP) density *= 1.24F;
             }
-            /* Larger smoke cards cover the intentionally culled interior and remove
-               visible holes at no extra billboard count. Lower alpha below balances
-               their fill rate on the translucent pass. */
+            /* Generous card overlap makes the fully retained field read as one dense,
+               rolling volume instead of thousands of disconnected billboards. */
             if (pass == Pass.SMOKE) density *= 2.04F;
             else if (region[index] == REGION_STEM) density *= 1.86F;
             else if (region[index] == REGION_CAP || region[index] == REGION_UNDER_CAP) {
                 density *= 1.76F;
             }
             return density;
-        }
-
-        private boolean interior(final int index, final int tick,
-            final WarheadMesh.Lod lod) {
-            float radial = Mth.sqrt(x[index] * x[index] + z[index] * z[index]);
-            int keepModulo = lod == WarheadMesh.Lod.NEAR ? 8
-                : lod == WarheadMesh.Lod.MEDIUM ? 13 : 21;
-            if (region[index] == REGION_FIREBALL && radial < craterRadius * 0.60F) {
-                return Math.floorMod(particleSeed[index], keepModulo) != 0;
-            }
-            if (region[index] == REGION_STEM && radial < stemRadius(tick) * 0.55F) {
-                return Math.floorMod(particleSeed[index], keepModulo) != 0;
-            }
-            if (region[index] == REGION_CAP) {
-                float capR = capRadius(tick);
-                float capD = capDepth(tick);
-                boolean deep = radial < capR * 0.60F
-                    && Math.abs(y[index] - capCenterY(tick)) < capD * 0.48F;
-                return deep && Math.floorMod(particleSeed[index], keepModulo + 3) != 0;
-            }
-            if (region[index] == REGION_BASE && radial < craterRadius * 0.48F) {
-                return Math.floorMod(particleSeed[index], keepModulo + 4) != 0;
-            }
-            return false;
         }
 
         private static float alpha(final Pass pass, final float progress,

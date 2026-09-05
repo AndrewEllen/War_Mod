@@ -24,6 +24,7 @@ public final class TimedWarheadTntItem extends Item {
         Vec3 direction = player.getLookAngle().normalize();
         TimedWarheadTntEntity charge = new TimedWarheadTntEntity(server, player.getUUID(), player.getEyePosition().add(direction.scale(0.35)), direction.scale(0.72).add(0.0, 0.18, 0.0), payload);
         if (!server.addFreshEntity(charge)) return InteractionResult.FAIL;
+        charge.beginTerrainPreparation(server);
         if (!player.getAbilities().instabuild) stack.shrink(1);
         return InteractionResult.SUCCESS_SERVER;
     }

@@ -69,22 +69,42 @@ public final class ClientDebrisBatchManager {
 
             double mass = Math.max(1.0, parts.size()) * Math.max(0.35,
                 entry.scale() * entry.scale() * entry.scale());
-            double massDamping = 1.0 / Math.pow(Math.max(1.0, mass / 7.0), 0.34);
             Vec3 encodedVelocity = new Vec3(entry.velocityX(), entry.velocityY(),
                 entry.velocityZ());
-            double horizontalLength = Math.sqrt(encodedVelocity.x * encodedVelocity.x
-                + encodedVelocity.z * encodedVelocity.z);
-            double maximumHorizontal = 1.02 + 2.55 / Math.sqrt(Math.max(1.0, mass));
-            double horizontalScale = horizontalLength > maximumHorizontal
-                ? maximumHorizontal / horizontalLength : 1.0;
-            double maximumVertical = 0.72 + 1.55 / Math.sqrt(Math.max(1.0, mass));
-            double horizontalTuning = WarheadDebrisTuning.horizontalVelocityMultiplier();
-            double verticalTuning = WarheadDebrisTuning.verticalVelocityMultiplier();
-            Vec3 velocity = new Vec3(
-                encodedVelocity.x * massDamping * horizontalScale * 1.14 * horizontalTuning,
-                Mth.clamp(encodedVelocity.y * massDamping * 1.12, 0.18, maximumVertical)
-                    * verticalTuning,
-                encodedVelocity.z * massDamping * horizontalScale * 1.14 * horizontalTuning);
+            Vec3 velocity;
+            if (payload.nuclear()) {
+                /* Preserve the pre-repair nuclear client transform exactly. */
+                double massDamping = 1.0
+                    / Math.pow(Math.max(1.0, mass / 7.0), 0.34);
+                double horizontalLength = Math.sqrt(
+                    encodedVelocity.x * encodedVelocity.x
+                        + encodedVelocity.z * encodedVelocity.z);
+                double maximumHorizontal = 1.02
+                    + 2.55 / Math.sqrt(Math.max(1.0, mass));
+                double horizontalScale = horizontalLength > maximumHorizontal
+                    ? maximumHorizontal / horizontalLength : 1.0;
+                double maximumVertical = 0.72
+                    + 1.55 / Math.sqrt(Math.max(1.0, mass));
+                velocity = new Vec3(
+                    encodedVelocity.x * massDamping * horizontalScale * 1.14
+                        * WarheadDebrisTuning.nuclearHorizontalVelocityMultiplier(),
+                    Mth.clamp(encodedVelocity.y * massDamping * 1.12,
+                        0.18, maximumVertical)
+                        * WarheadDebrisTuning.nuclearVerticalVelocityMultiplier(),
+                    encodedVelocity.z * massDamping * horizontalScale * 1.14
+                        * WarheadDebrisTuning.nuclearHorizontalVelocityMultiplier());
+            } else {
+                /* The grouped conventional velocity is authoritative. Optional
+                   explicit diagnostics multipliers are the only adjustment. */
+                double horizontalTuning =
+                    WarheadDebrisTuning.horizontalVelocityMultiplier();
+                double verticalTuning =
+                    WarheadDebrisTuning.verticalVelocityMultiplier();
+                velocity = new Vec3(
+                    encodedVelocity.x * horizontalTuning,
+                    encodedVelocity.y * verticalTuning,
+                    encodedVelocity.z * horizontalTuning);
+            }
             Vec3 angularVelocity = new Vec3(entry.spinX(), entry.spinY(), entry.spinZ())
                 .scale(Math.min(0.72, 2.2 / Math.sqrt(mass)));
             float visualScale = Mth.clamp(entry.scale()

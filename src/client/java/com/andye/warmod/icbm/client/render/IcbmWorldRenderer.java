@@ -1,11 +1,15 @@
 package com.andye.warmod.icbm.client.render;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.icbm.IcbmTrajectory;
 import com.andye.warmod.icbm.client.ClientIcbmVisualManager;
+import com.andye.warmod.icbm.client.IcbmLaunchGroundSmokeManager;
 import com.andye.warmod.icbm.client.IcbmTrailSample;
 import com.andye.warmod.icbm.client.IcbmVisualState;
 import com.andye.warmod.icbm.client.SpentIcbmStageState;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
 import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -19,6 +23,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.QuadParticleRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
@@ -47,6 +52,17 @@ public final class IcbmWorldRenderer {
 		long time = level.getGameTime();
 		double partial = context.deltaTracker().getGameTimeDeltaPartialTick(true);
 		ClientIcbmVisualManager.Snapshot snapshot = ClientIcbmVisualManager.INSTANCE.snapshot(level);
+		IcbmLaunchGroundSmokeManager.Snapshot cloudSnapshot =
+			IcbmLaunchGroundSmokeManager.INSTANCE.snapshot(level);
+		List<LaunchCloudFrame> launchClouds = new ArrayList<>();
+		for (IcbmLaunchGroundSmokeManager.LaunchCloud cloud : cloudSnapshot.clouds()) {
+			BlockPos anchor = BlockPos.containing(cloud.position());
+			if (!level.hasChunkAt(anchor) || cameraPos.distanceToSqr(cloud.position()) > camera.depthFar * camera.depthFar)
+				continue;
+			launchClouds.add(new LaunchCloudFrame(cloud));
+		}
+		launchClouds.sort(java.util.Comparator.comparingDouble(
+			(LaunchCloudFrame cloud) -> cameraPos.distanceToSqr(cloud.cloud().position())).reversed());
 		List<MissileFrame> missiles = new ArrayList<>();
 		for (IcbmVisualState state : snapshot.missiles()) {
 			Vec3 position = state.position(time, partial);
@@ -56,7 +72,7 @@ public final class IcbmWorldRenderer {
 			logLongRangeOnce(state.flightPlan().missileId(), renderContext.transform());
 			double elapsed = state.elapsed(time, partial);
 			missiles.add(new MissileFrame(position, velocity, IcbmTrajectory.thrustActive(state.flightPlan(), elapsed),
-				elapsed, state.flightPlan().visualSeed(), IcbmPayloadAppearance.from(state.flightPlan().payloadType()),
+				elapsed, state.flightPlan().visualSeed(), state.yield(), state.deliveryMode(),
 				renderContext, light(level, position), state.trail(time, partial)));
 		}
 		List<StageFrame> stages = new ArrayList<>();
@@ -65,9 +81,10 @@ public final class IcbmWorldRenderer {
 			if (!position.isFinite()) continue;
 			IcbmLongRangeRenderContext renderContext = IcbmLongRangeRenderContext.create(cameraPos, position, camera.depthFar);
 			stages.add(new StageFrame(position, state.age(time, partial), state.orientationVelocity(), state.rollDrift(),
-				state.alpha(time, partial), renderContext, light(level, position)));
+				state.alpha(time, partial), state.yield(), state.deliveryMode(), renderContext, light(level, position)));
 		}
-		frame = new Frame(cameraPos, orientation, List.copyOf(missiles), List.copyOf(stages));
+		frame = new Frame(cameraPos, orientation, List.copyOf(missiles), List.copyOf(stages),
+			List.copyOf(launchClouds), cloudSnapshot.visualTime());
 	}
 
 	private static void render(final LevelRenderContext context) {
@@ -83,8 +100,8 @@ public final class IcbmWorldRenderer {
 			stack.mulPose(rotation(missile.velocity()));
 			float compression = (float) transform.compression();
 			stack.scale(compression, compression, compression);
-			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.MISSILE,
-				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.appearance(),
+			context.submitNodeCollector().submitCustomGeometry(stack, BlockbenchModelRenderType.SOLID,
+				(pose, buffer) -> IcbmMissileMesh.render(pose, buffer, missile.yield(), missile.deliveryMode(),
 					missile.renderContext().lod(), missile.light()));
 			if (missile.thrust()) {
 				context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.EXHAUST_CORE,
@@ -104,6 +121,16 @@ public final class IcbmWorldRenderer {
 				stack.popPose();
 			}
 		}
+		if (!current.launchClouds().isEmpty()) {
+			QuadParticleRenderState particles = new QuadParticleRenderState();
+			for (LaunchCloudFrame cloud : current.launchClouds()) {
+				IcbmLaunchGroundSmokeRenderer.append(particles, cloud.cloud(),
+					cloud.cloud().elapsed(current.visualTime()), current.camera(), current.orientation());
+			}
+			// The native translucent-particle phase runs after water terrain and
+			// uses the appropriate particle framebuffer in Fabulous rendering.
+			context.submitNodeCollector().submitQuadParticleGroup(particles);
+		}
 		for (StageFrame stage : current.stages()) {
 			IcbmLongRangeTransform transform = stage.renderContext().transform();
 			stack.pushPose();
@@ -113,9 +140,9 @@ public final class IcbmWorldRenderer {
 			stack.mulPose(new Quaternionf().rotateY((float) (stage.age() * stage.rollDrift())));
 			float compression = (float) transform.compression();
 			stack.scale(compression, compression, compression);
-			context.submitNodeCollector().submitCustomGeometry(stack, IcbmRenderPipelines.SPENT_STAGE,
-				(pose, buffer) -> SpentIcbmStageRenderer.render(pose, buffer, stage.renderContext().lod(),
-					stage.light(), stage.alpha()));
+			context.submitNodeCollector().submitCustomGeometry(stack, BlockbenchModelRenderType.TRANSLUCENT,
+				(pose, buffer) -> SpentIcbmStageRenderer.render(pose, buffer,
+					stage.yield(), stage.deliveryMode(), stage.light(), stage.alpha()));
 			stack.popPose();
 		}
 	}
@@ -143,11 +170,16 @@ public final class IcbmWorldRenderer {
 	}
 
 	private record MissileFrame(Vec3 position, Vec3 velocity, boolean thrust, double elapsed, long seed,
-		IcbmPayloadAppearance appearance, IcbmLongRangeRenderContext renderContext, int light,
+		WarheadYield yield, WarheadDeliveryMode deliveryMode,
+		IcbmLongRangeRenderContext renderContext, int light,
 		List<IcbmTrailSample> trail) { }
-	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity, float rollDrift, float alpha,
+	private record StageFrame(Vec3 position, double age, Vec3 orientationVelocity,
+		float rollDrift, float alpha, WarheadYield yield, WarheadDeliveryMode deliveryMode,
 		IcbmLongRangeRenderContext renderContext, int light) { }
-	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles, List<StageFrame> stages) {
-		private static final Frame EMPTY = new Frame(Vec3.ZERO, new Quaternionf(), List.of(), List.of());
+	private record LaunchCloudFrame(IcbmLaunchGroundSmokeManager.LaunchCloud cloud) { }
+	private record Frame(Vec3 camera, Quaternionf orientation, List<MissileFrame> missiles,
+		List<StageFrame> stages, List<LaunchCloudFrame> launchClouds, double visualTime) {
+		private static final Frame EMPTY = new Frame(Vec3.ZERO, new Quaternionf(), List.of(), List.of(),
+			List.of(), 0.0);
 	}
 }

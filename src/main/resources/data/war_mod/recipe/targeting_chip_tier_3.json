@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "war_mod:targeting_chip_tier_2",
+    "minecraft:diamond",
+    "minecraft:ender_pearl"
+  ],
+  "result": {
+    "id": "war_mod:targeting_chip_tier_3"
+  }
+}

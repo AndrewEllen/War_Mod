@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "minecraft:tnt",
+    "minecraft:tnt",
+    "minecraft:tnt",
+    "minecraft:tnt",
+    "minecraft:iron_ingot"
+  ],
+  "result": {
+    "id": "war_mod:heavy_conventional_missile_warhead"
+  }
+}

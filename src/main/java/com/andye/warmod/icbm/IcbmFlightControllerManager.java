@@ -127,6 +127,8 @@ public final class IcbmFlightControllerManager {
             );
             snapshots.add(new IcbmPointDefenceSnapshot(
                 plan.missileId(),
+                plan.ownerPlayerId(),
+                plan.affiliation(),
                 plan.payloadType(),
                 position,
                 velocity,

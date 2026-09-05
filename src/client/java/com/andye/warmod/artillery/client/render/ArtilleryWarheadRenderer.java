@@ -1,6 +1,9 @@
 package com.andye.warmod.artillery.client.render;
 
 import com.andye.warmod.entity.ArtilleryWarheadEntity;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes;
+import com.andye.warmod.client.model.BlockbenchGameplayMeshes.Model;
+import com.andye.warmod.client.model.BlockbenchModelRenderType;
 import com.andye.warmod.warhead.WarheadConstants;
 import com.andye.warmod.warhead.WarheadVisualMath;
 import com.andye.warmod.warhead.client.render.ReentryHeatingRenderer;
@@ -37,6 +40,10 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
     public void extractRenderState(final ArtilleryWarheadEntity shell,
         final ArtilleryWarheadRenderState state, final float partialTick) {
         super.extractRenderState(shell, state, partialTick);
+        var prediction = shell.clientVisualOffset(partialTick);
+        state.x += prediction.x;
+        state.y += prediction.y;
+        state.z += prediction.z;
         state.velocity = shell.getDeltaMovement();
         state.visualSeed = shell.visualSeed();
         state.flightTicks = Math.max(1, shell.flightTicks());
@@ -44,6 +51,7 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
             Math.max(0.0F, shell.activeTicks() + partialTick));
         state.remainingTicks = Math.max(0.0F, state.flightTicks - state.elapsedTicks);
         state.progress = Math.min(1.0F, state.elapsedTicks / state.flightTicks);
+        state.clusterCarrier = shell.clusterCarrier();
         double distance = Math.sqrt(state.distanceToCameraSq);
         state.lod = distance < 192.0 ? WarheadMesh.Lod.NEAR
             : distance < 640.0 ? WarheadMesh.Lod.MEDIUM : WarheadMesh.Lod.FAR;
@@ -53,14 +61,19 @@ public final class ArtilleryWarheadRenderer extends EntityRenderer<ArtilleryWarh
     public void submit(final ArtilleryWarheadRenderState state, final PoseStack poses,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
         poses.pushPose();
+        if (state.lod == WarheadMesh.Lod.FAR) poses.scale(2.20F, 2.20F, 2.20F);
+        else if (state.lod == WarheadMesh.Lod.MEDIUM) poses.scale(1.35F, 1.35F, 1.35F);
+        if (state.clusterCarrier) poses.scale(1.32F, 1.32F, 1.32F);
         Vector3f direction = new Vector3f((float) state.velocity.x, (float) state.velocity.y,
             (float) state.velocity.z);
         if (direction.lengthSquared() > 1.0E-6F) {
             poses.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F),
                 direction.normalize()));
         }
-        collector.submitCustomGeometry(poses, WarheadRenderPipelines.PROJECTILE,
-            (pose, buffer) -> WarheadMesh.render(pose, buffer, state.lod, state.lightCoords));
+        collector.submitCustomGeometry(poses, BlockbenchModelRenderType.SOLID,
+            (pose, buffer) -> BlockbenchGameplayMeshes.render(pose, buffer,
+                Model.ARTILLERY_SHELL, 0.055F, 0.0F, 0.0F, 0.0F,
+                state.lightCoords));
         collector.submitCustomGeometry(poses, WarheadRenderPipelines.CONE,
             (pose, buffer) -> ShockConeMesh.render(pose, buffer, state.lod, state.progress,
                 state.elapsedTicks, state.remainingTicks, state.velocity, state.visualSeed,

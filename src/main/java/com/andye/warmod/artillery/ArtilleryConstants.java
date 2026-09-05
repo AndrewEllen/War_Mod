@@ -8,8 +8,8 @@ public final class ArtilleryConstants {
     public static final double GRAVITY_PER_TICK = 0.05;
     public static final double MAX_APEX_ABOVE_MUZZLE = 384.0;
     /** Shared by the cannon renderer and server launch point so the shell exits the visible tube. */
-    public static final double BARREL_PIVOT_HEIGHT = 0.70;
-    public static final double BARREL_MUZZLE_OFFSET = 2.35;
+    public static final double BARREL_PIVOT_HEIGHT = 1.28;
+    public static final double BARREL_MUZZLE_OFFSET = 3.25;
     public static final int TARGET_PREPARATION_TIMEOUT_TICKS = 200;
     public static final int STREAM_LOOKAHEAD_TICKS = 12;
     public static final int TARGET_LEAD_TICKS = 48;

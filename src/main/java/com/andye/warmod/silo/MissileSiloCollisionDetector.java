@@ -20,8 +20,9 @@ public final class MissileSiloCollisionDetector {
             double progress = (double)step / steps;
             Vec3 point = from.lerp(to, progress);
             double half = context.missileWidth() * 0.5;
-            AABB body = new AABB(point.x - half, point.y, point.z - half,
-                point.x + half, point.y + context.missileHeight(), point.z + half);
+            double halfHeight = context.missileHeight() * 0.5;
+            AABB body = new AABB(point.x - half, point.y - halfHeight, point.z - half,
+                point.x + half, point.y + halfHeight, point.z + half);
             BlockPos min = BlockPos.containing(body.minX, body.minY, body.minZ);
             BlockPos max = BlockPos.containing(body.maxX, body.maxY, body.maxZ);
             for (BlockPos pos : BlockPos.betweenClosed(min, max)) {

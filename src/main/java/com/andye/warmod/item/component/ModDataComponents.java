@@ -1,6 +1,7 @@
 package com.andye.warmod.item.component;
 
 import com.andye.warmod.WarMod;
+import com.andye.warmod.fire.FireIntensity;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -15,12 +16,22 @@ public final class ModDataComponents {
         .<AntiAirTestVariant>builder().persistent(AntiAirTestVariant.CODEC).build();
     public static final DataComponentType<LinkedSilo> LINKED_SILO = DataComponentType
         .<LinkedSilo>builder().persistent(LinkedSilo.CODEC).build();
+    public static final DataComponentType<LinkedLaunchController> LINKED_LAUNCH_CONTROLLER =
+        DataComponentType.<LinkedLaunchController>builder()
+            .persistent(LinkedLaunchController.CODEC)
+            .build();
     public static final DataComponentType<LinkedRadarStation> LINKED_RADAR_STATION = DataComponentType
         .<LinkedRadarStation>builder().persistent(LinkedRadarStation.CODEC).build();
     public static final DataComponentType<IcbmTestDeliveryMode> ICBM_TEST_DELIVERY_MODE = DataComponentType
         .<IcbmTestDeliveryMode>builder().persistent(IcbmTestDeliveryMode.CODEC).build();
     public static final DataComponentType<MasterExplosiveConfig> MASTER_EXPLOSIVE_CONFIG = DataComponentType
         .<MasterExplosiveConfig>builder().persistent(MasterExplosiveConfig.CODEC).build();
+    public static final DataComponentType<FireIntensity> FIRE_DEBUG_INTENSITY = DataComponentType
+        .<FireIntensity>builder().persistent(FireIntensity.CODEC).build();
+    public static final DataComponentType<FireDebugConfig> FIRE_DEBUG_CONFIG = DataComponentType
+        .<FireDebugConfig>builder().persistent(FireDebugConfig.CODEC).build();
+    public static final DataComponentType<Integer> MISSILE_GUIDANCE_TIER = DataComponentType
+        .<Integer>builder().persistent(com.mojang.serialization.Codec.intRange(1, 3)).build();
     private static boolean registered;
 
     private ModDataComponents() {
@@ -30,11 +41,15 @@ public final class ModDataComponents {
         if (registered) return;
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("target_coordinates"), TARGET_COORDINATES);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_silo"), LINKED_SILO);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_launch_controller"), LINKED_LAUNCH_CONTROLLER);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("rocket_launcher_mode"), ROCKET_LAUNCHER_MODE);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("anti_air_test_variant"), ANTI_AIR_TEST_VARIANT);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("linked_radar_station"), LINKED_RADAR_STATION);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("icbm_test_delivery_mode"), ICBM_TEST_DELIVERY_MODE);
         Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("master_explosive_config"), MASTER_EXPLOSIVE_CONFIG);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_intensity"), FIRE_DEBUG_INTENSITY);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("fire_debug_config"), FIRE_DEBUG_CONFIG);
+        Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE, id("missile_guidance_tier"), MISSILE_GUIDANCE_TIER);
         registered = true;
     }
 

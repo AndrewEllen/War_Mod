@@ -10,13 +10,14 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
+import com.andye.warmod.warhead.WarheadYield;
 
 public final class ModCreativeModeTabs {
     public static final ResourceKey<CreativeModeTab> WAR_MOD_KEY = ResourceKey.create(
         Registries.CREATIVE_MODE_TAB,
         Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "war_mod")
     );
-    private static final int ENTRY_COUNT = 67;
+    private static final int ENTRY_COUNT = 125;
     private static boolean registered;
 
     private ModCreativeModeTabs() {
@@ -26,34 +27,77 @@ public final class ModCreativeModeTabs {
         if (registered) return;
         CreativeModeTab tab = CreativeModeTab.builder(CreativeModeTab.Row.TOP, 0)
             .title(Component.translatable("itemGroup.war_mod.war_mod"))
-            .icon(() -> new ItemStack(ModItems.NUCLEAR_ICBM))
+            .icon(() -> new ItemStack(ModItems.yieldMissile(
+                WarheadYield.STRATEGIC_NUCLEAR, false)))
             .displayItems((parameters, output) -> {
                 output.accept(ModItems.MISSILE_SILO);
+                output.accept(ModItems.LAUNCH_CONTROLLER);
+                output.accept(ModItems.CONTROLLER_LINKING_TOOL);
                 output.accept(ModItems.ARTILLERY_CANNON);
-                output.accept(ModItems.GUIDANCE_TIER_1);
-                output.accept(ModItems.GUIDANCE_TIER_2);
-                output.accept(ModItems.GUIDANCE_TIER_3);
+                output.accept(ModItems.ICBM_BODY);
+                output.accept(ModItems.ANTI_AIR_BODY);
+                output.accept(ModItems.TARGETING_CHIP_TIER_1);
+                output.accept(ModItems.TARGETING_CHIP_TIER_2);
+                output.accept(ModItems.TARGETING_CHIP_TIER_3);
+                output.accept(ModItems.ANTI_AIR_CONTROLLER_BALLISTIC);
+                output.accept(ModItems.ANTI_AIR_CONTROLLER_SELF_DESTRUCT);
+                output.accept(ModItems.MISSILE_WORKBENCH);
                 output.accept(ModItems.RADAR_STATION);
                 output.accept(ModItems.RADAR_DISPLAY_PANEL);
                 output.accept(ModItems.PHALANX_TURRET);
                 output.accept(ModItems.ITEM_PIPE);
                 output.accept(ModItems.PIPE_WRENCH);
-                output.accept(ModItems.CONVENTIONAL_ICBM);
-                output.accept(ModItems.CONVENTIONAL_CLUSTER_ICBM);
-                output.accept(ModItems.NUCLEAR_ICBM);
-                output.accept(ModItems.NUCLEAR_CLUSTER_ICBM);
-                output.accept(ModItems.ANTI_AIR_MISSILE_MK1);
-                output.accept(ModItems.ANTI_AIR_MISSILE_MK2);
+                /* Legacy four ICBM IDs remain registered so old worlds load, but
+                   the yield-aware replacements are the only creative entries. */
+                for (WarheadYield yield : WarheadYield.values()) {
+                    output.accept(ModItems.timedTnt(yield, false));
+                    output.accept(ModItems.timedTnt(yield, true));
+                }
+                for (WarheadYield yield : WarheadYield.values()) {
+                    output.accept(ModItems.artilleryWarhead(yield, false));
+                    output.accept(ModItems.artilleryWarhead(yield, true));
+                }
+                // Keep every ICBM family together: regular yield progression,
+                // then cluster yield progression. Guidance tiers are adjacent
+                // variants of the same missile rather than separate families.
+                for (WarheadYield yield : WarheadYield.values()) {
+                    for (int tier = 1; tier <= 3; tier++) {
+                        output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.yieldMissile(yield, false), tier));
+                    }
+                }
+                for (WarheadYield yield : WarheadYield.values()) {
+                    for (int tier = 1; tier <= 3; tier++) {
+                        output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.yieldMissile(yield, true), tier));
+                    }
+                }
+                // Warhead parts follow the completed missile families, again
+                // keeping regular and cluster variants in separate runs.
+                for (WarheadYield yield : WarheadYield.values())
+                    output.accept(ModItems.missileWarhead(yield, false));
+                for (WarheadYield yield : WarheadYield.values())
+                    output.accept(ModItems.missileWarhead(yield, true));
+                for (int tier = 1; tier <= 3; tier++) {
+                    output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.ANTI_AIR_MISSILE_MK1, tier));
+                    output.accept(com.andye.warmod.silo.MissilePayloadItems.withGuidance(ModItems.ANTI_AIR_MISSILE_MK2, tier));
+                }
                 output.accept(ModItems.ROCKET_LAUNCHER);
                 output.accept(ModItems.HE_ROCKET);
                 output.accept(ModItems.ANTI_AIR_GUN_AMMO);
+                output.accept(ModItems.PISTOL);
+                output.accept(ModItems.PISTOL_AMMO);
+                output.accept(ModItems.ASSAULT_RIFLE);
+                output.accept(ModItems.RIFLE_AMMO);
+                output.accept(ModItems.SNIPER_RIFLE);
+                output.accept(ModItems.SNIPER_AMMO);
                 output.accept(ModItems.TARGET_DESIGNATOR);
                 output.accept(ModItems.REMOTE_LAUNCH_DESIGNATOR);
                 output.accept(ModItems.RADAR);
                 output.accept(ModItems.RADAR_LINKING_TOOL);
                 output.accept(ModItems.MASTER_EXPLOSIVE_TEST_STICK);
                 output.accept(ModItems.ANTI_AIR_TEST_STICK);
-                for (net.minecraft.world.item.Item item : ModItems.yieldItems()) output.accept(item);
+                output.accept(ModItems.FIRE_DEBUG_STICK);
+                output.accept(ModItems.FIRE_HOSE);
+                output.accept(ModItems.FIRE_EXTINGUISHER);
             }).build();
         Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, WAR_MOD_KEY, tab);
         registered = true;

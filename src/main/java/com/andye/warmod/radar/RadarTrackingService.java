@@ -5,6 +5,7 @@ import com.andye.warmod.antiair.AntiAirFallbackTrajectory;
 import com.andye.warmod.antiair.AntiAirMissileVariant;
 import com.andye.warmod.antiair.AntiAirRoute;
 import com.andye.warmod.antiair.AntiAirTrajectory;
+import com.andye.warmod.defence.MissileAffiliation;
 import com.andye.warmod.entity.IncomingWarheadEntity;
 import com.andye.warmod.icbm.IcbmFlightControllerManager;
 import com.andye.warmod.icbm.IcbmFlightPlan;
@@ -62,6 +63,7 @@ public final class RadarTrackingService {
             plan.missileId(),
             RadarTrackKind.ICBM,
             plan.ownerPlayerId(),
+            plan.affiliation(),
             bounded(owner == null ? "SERVER" : owner.getGameProfile().name()),
             plan.payloadType(),
             null,
@@ -103,6 +105,7 @@ public final class RadarTrackingService {
             launch.radarRootTrackId(),
             RadarTrackKind.DIRECT_WARHEAD,
             ownerId,
+            launch.affiliation(),
             bounded(owner == null ? "SERVER" : owner.getGameProfile().name()),
             launch.payloadType(),
             null,
@@ -133,22 +136,92 @@ public final class RadarTrackingService {
         upsert(level, track);
     }
 
+    /**
+     * Atomically replaces a cluster carrier with one independently keyed radar
+     * track for each terminal quarter. The launch entities retain their shared
+     * radar root for affiliation, yield and terrain preparation; only the
+     * visible/targetable radar identity is split here.
+     */
+    public static synchronized void registerTerminalSeparation(
+        final ServerLevel level,
+        final UUID rootTrackId,
+        final List<WarheadLaunchService.LaunchResult> launches
+    ) {
+        if (launches.size() == 1) {
+            registerTerminalSeparation(level, rootTrackId, launches.getFirst());
+            return;
+        }
+
+        if (!isCompleteCluster(rootTrackId, launches)) {
+            return;
+        }
+
+        State state = state(level);
+        RadarTrack carrier = state.tracks.get(rootTrackId);
+
+        if (carrier == null) {
+            return;
+        }
+
+        removeTrack(level, rootTrackId, RadarRemovalReason.SEPARATED);
+
+        for (WarheadLaunchService.LaunchResult launch : launches) {
+            makeStrategicRoom(level, state);
+            RadarTrack terminal = new RadarTrack(
+                launch.warheadId(),
+                carrier.kind,
+                carrier.ownerPlayerId,
+                carrier.affiliation,
+                carrier.ownerDisplayName,
+                launch.payloadType(),
+                null,
+                launch.launchGameTime(),
+                carrier.carrierFlightPlan,
+                null,
+                RadarTrackPhase.PAYLOAD_DELIVERY
+            );
+            attach(state, terminal, launch);
+            terminal.lastStateChangeGameTime = level.getGameTime();
+            state.tracks.put(terminal.trackId, terminal);
+            upsert(level, terminal);
+        }
+    }
+
     public static synchronized void reconcileWarhead(
         final ServerLevel level,
         final IncomingWarheadEntity entity
     ) {
-        if (entity.warheadId() == null
-            || track(level, entity.radarRootTrackId()) != null) {
+        if (entity.warheadId() == null) {
             return;
         }
 
-        registerDirectWarhead(
+        UUID visibleTrackId = visibleTerminalTrackId(
+            entity.radarRootTrackId(),
+            entity.warheadId(),
+            entity.clusterCount()
+        );
+
+        if (entity.clusterCount() == 4
+            && track(level, entity.radarRootTrackId()) != null) {
+            removeTrack(
+                level,
+                entity.radarRootTrackId(),
+                RadarRemovalReason.SEPARATED
+            );
+        }
+
+        if (track(level, visibleTrackId) != null) {
+            return;
+        }
+
+        registerReconciledWarhead(
             level,
             entity.ownerPlayerId() == null
                 ? null
                 : level.getServer()
                     .getPlayerList()
                     .getPlayer(entity.ownerPlayerId()),
+            entity.ownerPlayerId(),
             new WarheadLaunchService.LaunchResult(
                 entity.warheadId(),
                 entity.startPosition(),
@@ -157,8 +230,12 @@ public final class RadarTrackingService {
                 entity.flightTicks(),
                 entity.visualSeed(),
                 entity.payloadType(),
-                entity.radarRootTrackId()
-            )
+                entity.radarRootTrackId(),
+                entity.clusterIndex(),
+                entity.clusterCount(),
+                entity.affiliation()
+            ),
+            visibleTrackId
         );
     }
 
@@ -166,6 +243,7 @@ public final class RadarTrackingService {
         final ServerLevel level,
         final UUID interceptorId,
         final UUID ownerId,
+        final MissileAffiliation affiliation,
         final String ownerName,
         final RadarInterceptorPlanSnapshot plan
     ) {
@@ -180,6 +258,7 @@ public final class RadarTrackingService {
             interceptorId,
             RadarTrackKind.INTERCEPTOR,
             ownerId == null ? SERVER_OWNER : ownerId,
+            affiliation,
             bounded(ownerName),
             null,
             plan.variant(),
@@ -301,10 +380,14 @@ public final class RadarTrackingService {
         final float visualScale
     ) {
         State state = state(level);
-        RadarTrack track = state.tracks.get(rootTrackId);
+        UUID visibleTrackId = state.terminalToTrack.getOrDefault(
+            warheadId,
+            rootTrackId
+        );
+        RadarTrack track = state.tracks.get(visibleTrackId);
         long now = level.getGameTime();
         RadarImpactSnapshot impact = new RadarImpactSnapshot(
-            rootTrackId,
+            visibleTrackId,
             warheadId,
             position,
             now,
@@ -314,7 +397,7 @@ public final class RadarTrackingService {
 
         if (track != null) {
             track.terminalPlans.remove(warheadId);
-            state.terminalToRoot.remove(warheadId);
+            state.terminalToTrack.remove(warheadId);
 
             if (track.terminalPlans.isEmpty()) {
                 track.phase = RadarTrackPhase.IMPACT;
@@ -365,18 +448,22 @@ public final class RadarTrackingService {
             return;
         }
 
-        RadarTrack track = state.tracks.get(rootTrackId);
+        UUID visibleTrackId = state.terminalToTrack.getOrDefault(
+            warheadId,
+            rootTrackId
+        );
+        RadarTrack track = state.tracks.get(visibleTrackId);
 
         if (track == null
             || track.terminalPlans.remove(warheadId) == null) {
-            state.terminalToRoot.remove(warheadId);
+            state.terminalToTrack.remove(warheadId);
             return;
         }
 
-        state.terminalToRoot.remove(warheadId);
+        state.terminalToTrack.remove(warheadId);
 
         if (track.terminalPlans.isEmpty()) {
-            removeTrack(level, rootTrackId, reason);
+            removeTrack(level, visibleTrackId, reason);
             return;
         }
 
@@ -404,7 +491,7 @@ public final class RadarTrackingService {
         }
 
         for (UUID child : track.terminalPlans.keySet()) {
-            state.terminalToRoot.remove(child);
+            state.terminalToTrack.remove(child);
         }
 
         RadarSubscriptionManager.broadcast(
@@ -515,17 +602,25 @@ public final class RadarTrackingService {
                     0,
                     time - track.terminalLaunchGameTime
                 );
+                RadarTerminalPlanSnapshot terminal =
+                    track.terminalPlans.get(track.terminalWarheadId);
+                int clusterIndex = terminal == null ? 0 : terminal.clusterIndex();
+                int clusterCount = terminal == null ? 1 : terminal.clusterCount();
                 position = WarheadTrajectory.position(
                     track.terminalStartPosition,
                     track.terminalTargetPosition,
                     elapsed,
-                    track.terminalFlightTicks
+                    track.terminalFlightTicks,
+                    clusterIndex,
+                    clusterCount
                 );
                 velocity = WarheadTrajectory.velocity(
                     track.terminalStartPosition,
                     track.terminalTargetPosition,
                     elapsed,
-                    track.terminalFlightTicks
+                    track.terminalFlightTicks,
+                    clusterIndex,
+                    clusterCount
                 );
                 target = track.terminalTargetPosition;
             } else if (track.carrierFlightPlan != null) {
@@ -556,6 +651,7 @@ public final class RadarTrackingService {
                 velocity,
                 target,
                 time,
+                track.affiliation,
                 track.snapshot()
             ));
         }
@@ -665,7 +761,67 @@ public final class RadarTrackingService {
                 launch.payloadType()
             )
         );
-        state.terminalToRoot.put(launch.warheadId(), track.trackId);
+        state.terminalToTrack.put(launch.warheadId(), track.trackId);
+    }
+
+    static UUID visibleTerminalTrackId(
+        final UUID rootTrackId,
+        final UUID warheadId,
+        final int clusterCount
+    ) {
+        return clusterCount == 4 ? warheadId : rootTrackId;
+    }
+
+    static boolean isCompleteCluster(
+        final UUID rootTrackId,
+        final List<WarheadLaunchService.LaunchResult> launches
+    ) {
+        if (launches.size() != 4) {
+            return false;
+        }
+
+        boolean[] indices = new boolean[4];
+        for (WarheadLaunchService.LaunchResult launch : launches) {
+            if (!rootTrackId.equals(launch.radarRootTrackId())
+                || launch.clusterCount() != 4
+                || launch.clusterIndex() < 0
+                || launch.clusterIndex() >= indices.length
+                || indices[launch.clusterIndex()]) {
+                return false;
+            }
+            indices[launch.clusterIndex()] = true;
+        }
+        return true;
+    }
+
+    private static void registerReconciledWarhead(
+        final ServerLevel level,
+        final @org.jspecify.annotations.Nullable ServerPlayer owner,
+        final @org.jspecify.annotations.Nullable UUID ownerPlayerId,
+        final WarheadLaunchService.LaunchResult launch,
+        final UUID visibleTrackId
+    ) {
+        State state = state(level);
+        makeStrategicRoom(level, state);
+        UUID ownerId = owner != null
+            ? owner.getUUID()
+            : ownerPlayerId == null ? SERVER_OWNER : ownerPlayerId;
+        RadarTrack track = new RadarTrack(
+            visibleTrackId,
+            RadarTrackKind.DIRECT_WARHEAD,
+            ownerId,
+            launch.affiliation(),
+            bounded(owner == null ? "SERVER" : owner.getGameProfile().name()),
+            launch.payloadType(),
+            null,
+            launch.launchGameTime(),
+            null,
+            null,
+            RadarTrackPhase.PAYLOAD_DELIVERY
+        );
+        attach(state, track, launch);
+        state.tracks.put(track.trackId, track);
+        upsert(level, track);
     }
 
     private static void selectPrimaryTerminal(final RadarTrack track) {
@@ -741,6 +897,7 @@ public final class RadarTrackingService {
         Vec3 currentVelocity,
         Vec3 predictedImpactPosition,
         long gameTime,
+        MissileAffiliation affiliation,
         RadarTrackSnapshot snapshot
     ) {
     }
@@ -748,7 +905,7 @@ public final class RadarTrackingService {
     private static final class State {
         private final LinkedHashMap<UUID, RadarTrack> tracks =
             new LinkedHashMap<>();
-        private final Map<UUID, UUID> terminalToRoot = new HashMap<>();
+        private final Map<UUID, UUID> terminalToTrack = new HashMap<>();
         private final ArrayDeque<RadarImpactSnapshot> impacts =
             new ArrayDeque<>();
     }

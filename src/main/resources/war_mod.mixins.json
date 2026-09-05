@@ -3,7 +3,9 @@
   "package": "com.andye.warmod.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "ServerExplosionDropMixin"
+    "ServerExplosionDropMixin",
+    "LevelChunkWarheadRevisionMixin",
+    "ThreadedLevelLightEngineWarheadMixin"
   ],
   "injectors": {
     "defaultRequire": 1

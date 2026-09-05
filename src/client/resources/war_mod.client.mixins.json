@@ -3,8 +3,14 @@
   "package": "com.andye.warmod.mixin.client",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "AvatarWeaponPoseMixin",
     "CameraShakeMixin",
+    "FirearmAimFovMixin",
     "GameRendererCleanupMixin",
+    "MinecraftFirearmInputMixin",
+    "ParticleEngineTelemetryMixin",
+    "QuadParticleFeatureTelemetryMixin",
+    "SniperScopeMixin",
     "WarheadTerrainVisualTimingMixin",
     "WarheadWorldVisualTimingMixin"
   ],

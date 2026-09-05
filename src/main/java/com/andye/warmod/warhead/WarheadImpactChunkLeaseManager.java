@@ -1,5 +1,6 @@
 package com.andye.warmod.warhead;
 
+import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
 import com.andye.warmod.icbm.IcbmChunkTicketRegistry;
 import com.andye.warmod.icbm.IcbmConstants;
 import java.util.ArrayList;
@@ -86,11 +87,7 @@ public final class WarheadImpactChunkLeaseManager {
         WarheadPreImpactPreparationManager.schedule(level, effectId, impact, ticks);
     }
 
-    /**
-     * Extends the existing approach lease through the post-impact effects.
-     * Existing corridor chunks are retained rather than being replaced by only
-     * the impact square.
-     */
+    /** Replaces the flight corridor with only the authoritative impact window. */
     public static synchronized void hold(
         final ServerLevel level,
         final UUID effectId,
@@ -105,7 +102,30 @@ public final class WarheadImpactChunkLeaseManager {
 
         HashSet<ChunkPos> chunks = new HashSet<>();
         addImpactWindow(chunks, impact);
-        extend(level, effectId, chunks, ticks);
+        replace(level, effectId, chunks, ticks, LeasePurpose.IMPACT);
+    }
+
+    /**
+     * Replaces the impact square with a bounded radial wavefront window. Chunks
+     * safely behind the completed shell are released on every update.
+     */
+    public static synchronized AftermathLeaseSnapshot holdAftermathWindow(
+        final ServerLevel level, final UUID effectId, final Vec3 center,
+        final double completedRadius, final double currentWorkRadius,
+        final double maximumRadius, final boolean retainImpactCore,
+        final int ticks) {
+        double innerRadius = Math.max(0.0, completedRadius - 32.0);
+        double outerRadius = Math.min(Math.max(0.0, maximumRadius),
+            Math.max(innerRadius, currentWorkRadius + 64.0));
+        HashSet<ChunkPos> requested = new HashSet<>(AftermathChunkLeaseWindow.chunks(center,
+            innerRadius, outerRadius));
+        if (retainImpactCore) addImpactWindow(requested, center);
+        replace(level, effectId, requested, ticks, LeasePurpose.AFTERMATH);
+        int available = 0;
+        for (ChunkPos chunk : requested)
+            if (level.getChunkSource().hasChunk(chunk.x(), chunk.z())) available++;
+        return new AftermathLeaseSnapshot(requested.size(), requested.size(), available,
+            innerRadius, outerRadius);
     }
 
     /**
@@ -152,7 +172,7 @@ public final class WarheadImpactChunkLeaseManager {
         IcbmChunkTicketRegistry.addWindow(
             chunks,
             IcbmChunkTicketRegistry.chunk(impact),
-            IcbmConstants.IMPACT_CHUNK_RADIUS
+            IcbmConstants.MINIMUM_PREPARATION_CHUNK_RADIUS
         );
     }
 
@@ -183,7 +203,30 @@ public final class WarheadImpactChunkLeaseManager {
             }
         }
 
-        leases.put(effectId, new Lease(Set.copyOf(combined), expiresAt));
+        leases.put(effectId, new Lease(Set.copyOf(combined), expiresAt,
+            LeasePurpose.APPROACH));
+    }
+
+    private static void replace(
+        final ServerLevel level,
+        final UUID effectId,
+        final Set<ChunkPos> requested,
+        final int ticks,
+        final LeasePurpose purpose
+    ) {
+        Map<UUID, Lease> leases =
+            LEASES.computeIfAbsent(level, ignored -> new HashMap<>());
+        Lease existing = leases.get(effectId);
+        Set<ChunkPos> previouslyHeld = existing == null ? Set.of() : existing.chunks();
+        Set<ChunkPos> replacement = Set.copyOf(requested);
+        for (ChunkPos chunk : replacement) {
+            if (!previouslyHeld.contains(chunk)) IcbmChunkTicketRegistry.acquire(level, chunk);
+        }
+        for (ChunkPos chunk : previouslyHeld) {
+            if (!replacement.contains(chunk)) IcbmChunkTicketRegistry.release(level, chunk);
+        }
+        long expiresAt = level.getGameTime() + Math.max(1, ticks);
+        leases.put(effectId, new Lease(replacement, expiresAt, purpose));
     }
 
     private static synchronized void tick(final MinecraftServer server) {
@@ -195,11 +238,19 @@ public final class WarheadImpactChunkLeaseManager {
             }
 
             for (UUID id : new ArrayList<>(leases.keySet())) {
-                if (level.getGameTime() >= leases.get(id).expiresAt()) {
+                Lease lease = leases.get(id);
+                boolean workComplete = lease.purpose() != LeasePurpose.APPROACH
+                    && !WarheadExplosionWorkManager.hasPendingWork(level, id)
+                    && !WarheadGlassShockwaveManager.hasPendingWork(level, id);
+                if (level.getGameTime() >= lease.expiresAt() || workComplete) {
                     release(level, id);
                 }
             }
         }
+        long activeLeases = 0L;
+        for (Map<UUID, Lease> leases : LEASES.values()) activeLeases += leases.size();
+        WarModPerformanceDiagnostics.gauge(
+            WarModPerformanceDiagnostics.Gauge.ACTIVE_CHUNK_LEASES, activeLeases);
     }
 
     private static synchronized void clear() {
@@ -216,6 +267,10 @@ public final class WarheadImpactChunkLeaseManager {
         LEASES.clear();
     }
 
-    private record Lease(Set<ChunkPos> chunks, long expiresAt) {
-    }
+    public record AftermathLeaseSnapshot(int requiredChunks, int leasedChunks,
+        int availableChunks, double innerRadius, double outerRadius) { }
+
+    private enum LeasePurpose { APPROACH, IMPACT, AFTERMATH }
+
+    private record Lease(Set<ChunkPos> chunks, long expiresAt, LeasePurpose purpose) { }
 }

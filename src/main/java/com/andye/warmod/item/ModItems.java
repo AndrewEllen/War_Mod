@@ -6,6 +6,7 @@ import com.andye.warmod.block.MissileSiloGuidanceSupportItem;
 import com.andye.warmod.block.PhalanxTurretBlockItem;
 import com.andye.warmod.block.RadarStationBlockItem;
 import com.andye.warmod.artillery.ArtilleryPayload;
+import com.andye.warmod.firearm.FirearmType;
 import com.andye.warmod.block.ModBlocks;
 import com.andye.warmod.warhead.WarheadYield;
 import java.util.EnumMap;
@@ -41,9 +42,20 @@ public final class ModItems {
     public static final ResourceKey<Item> ANTI_AIR_GUN_AMMO_KEY = key("anti_air_gun_ammo");
     public static final ResourceKey<Item> RADAR_DISPLAY_PANEL_KEY = key("radar_display_panel");
     public static final ResourceKey<Item> RADAR_LINKING_TOOL_KEY = key("radar_linking_tool");
+    public static final ResourceKey<Item> CONTROLLER_LINKING_TOOL_KEY = key("controller_linking_tool");
     public static final ResourceKey<Item> ITEM_PIPE_KEY = key("item_pipe");
     public static final ResourceKey<Item> PIPE_WRENCH_KEY = key("pipe_wrench");
     public static final ResourceKey<Item> ARTILLERY_CANNON_KEY = key("artillery_cannon");
+    public static final ResourceKey<Item> LAUNCH_CONTROLLER_KEY = key("launch_controller");
+    public static final ResourceKey<Item> FIRE_DEBUG_STICK_KEY = key("fire_debug_stick");
+    public static final ResourceKey<Item> FIRE_HOSE_KEY = key("fire_hose");
+    public static final ResourceKey<Item> FIRE_EXTINGUISHER_KEY = key("fire_extinguisher");
+    public static final ResourceKey<Item> PISTOL_KEY = key("pistol");
+    public static final ResourceKey<Item> ASSAULT_RIFLE_KEY = key("assault_rifle");
+    public static final ResourceKey<Item> SNIPER_RIFLE_KEY = key("sniper_rifle");
+    public static final ResourceKey<Item> PISTOL_AMMO_KEY = key("pistol_ammo");
+    public static final ResourceKey<Item> RIFLE_AMMO_KEY = key("rifle_ammo");
+    public static final ResourceKey<Item> SNIPER_AMMO_KEY = key("sniper_ammo");
 
     public static final Item MASTER_EXPLOSIVE_TEST_STICK = new MasterExplosiveStickItem(properties(MASTER_EXPLOSIVE_TEST_STICK_KEY, 1));
     public static final Item ANTI_AIR_TEST_STICK = new AntiAirTestStickItem(properties(ANTI_AIR_TEST_STICK_KEY, 1));
@@ -70,14 +82,52 @@ public final class ModItems {
         properties(RADAR_DISPLAY_PANEL_KEY, 64)
     );
     public static final Item RADAR_LINKING_TOOL = new RadarLinkingToolItem(properties(RADAR_LINKING_TOOL_KEY, 1));
+    public static final Item CONTROLLER_LINKING_TOOL = new ControllerLinkingToolItem(
+        properties(CONTROLLER_LINKING_TOOL_KEY, 1)
+    );
     public static final Item ITEM_PIPE = new BlockItem(
         com.andye.warmod.block.ModBlocks.ITEM_PIPE,
         properties(ITEM_PIPE_KEY, 64)
     );
     public static final Item PIPE_WRENCH = new PipeWrenchItem(properties(PIPE_WRENCH_KEY, 1));
     public static final Item ARTILLERY_CANNON = new BlockItem(ModBlocks.ARTILLERY_CANNON, properties(ARTILLERY_CANNON_KEY, 1));
+    public static final Item LAUNCH_CONTROLLER = new BlockItem(ModBlocks.LAUNCH_CONTROLLER, properties(LAUNCH_CONTROLLER_KEY, 64));
+    public static final Item FIRE_DEBUG_STICK = new FireDebugStickItem(properties(FIRE_DEBUG_STICK_KEY, 1));
+    public static final Item FIRE_HOSE = new FireHoseItem(properties(FIRE_HOSE_KEY, 1));
+    public static final Item FIRE_EXTINGUISHER = new FireExtinguisherItem(properties(FIRE_EXTINGUISHER_KEY, 1));
+    public static final Item PISTOL = new FirearmItem(properties(PISTOL_KEY, 1), FirearmType.PISTOL);
+    public static final Item ASSAULT_RIFLE = new FirearmItem(properties(ASSAULT_RIFLE_KEY, 1), FirearmType.ASSAULT_RIFLE);
+    public static final Item SNIPER_RIFLE = new FirearmItem(properties(SNIPER_RIFLE_KEY, 1), FirearmType.SNIPER_RIFLE);
+    public static final Item PISTOL_AMMO = new Item(magazineProperties(PISTOL_AMMO_KEY,
+        FirearmType.PISTOL.magazineCapacity()));
+    public static final Item RIFLE_AMMO = new Item(magazineProperties(RIFLE_AMMO_KEY,
+        FirearmType.ASSAULT_RIFLE.magazineCapacity()));
+    public static final Item SNIPER_AMMO = new Item(magazineProperties(SNIPER_AMMO_KEY,
+        FirearmType.SNIPER_RIFLE.magazineCapacity()));
     private static final Map<WarheadYield, Map<PayloadKind, Item>> YIELD_ITEMS = createYieldItems();
 
+    public static final Item ICBM_BODY = new Item(properties(key("icbm_body"), 64));
+    public static final Item ANTI_AIR_BODY = new Item(properties(key("anti_air_body"), 64));
+    public static final Item TARGETING_CHIP_TIER_1 = new Item(properties(key("targeting_chip_tier_1"), 64));
+    public static final Item TARGETING_CHIP_TIER_2 = new Item(properties(key("targeting_chip_tier_2"), 64));
+    public static final Item TARGETING_CHIP_TIER_3 = new Item(properties(key("targeting_chip_tier_3"), 64));
+    public static final Item ANTI_AIR_CONTROLLER_BALLISTIC = new Item(properties(key("anti_air_controller_ballistic"), 64));
+    public static final Item ANTI_AIR_CONTROLLER_SELF_DESTRUCT = new Item(properties(key("anti_air_controller_self_destruct"), 64));
+    public static final Item MISSILE_WORKBENCH = new BlockItem(ModBlocks.MISSILE_WORKBENCH, properties(key("missile_workbench"), 64));
+    public static final Item HIGH_EXPLOSIVE_MISSILE_WARHEAD = new Item(properties(key("high_explosive_missile_warhead"), 64));
+    public static final Item HIGH_EXPLOSIVE_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("high_explosive_cluster_missile_warhead"), 64));
+    public static final Item HIGH_CAPACITY_HE_MISSILE_WARHEAD = new Item(properties(key("high_capacity_he_missile_warhead"), 64));
+    public static final Item HIGH_CAPACITY_HE_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("high_capacity_he_cluster_missile_warhead"), 64));
+    public static final Item CONVENTIONAL_MISSILE_WARHEAD = new Item(properties(key("conventional_missile_warhead"), 64));
+    public static final Item CONVENTIONAL_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("conventional_cluster_missile_warhead"), 64));
+    public static final Item HEAVY_CONVENTIONAL_MISSILE_WARHEAD = new Item(properties(key("heavy_conventional_missile_warhead"), 64));
+    public static final Item HEAVY_CONVENTIONAL_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("heavy_conventional_cluster_missile_warhead"), 64));
+    public static final Item TACTICAL_NUCLEAR_MISSILE_WARHEAD = new Item(properties(key("tactical_nuclear_missile_warhead"), 64));
+    public static final Item TACTICAL_NUCLEAR_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("tactical_nuclear_cluster_missile_warhead"), 64));
+    public static final Item STRATEGIC_NUCLEAR_MISSILE_WARHEAD = new Item(properties(key("strategic_nuclear_missile_warhead"), 64));
+    public static final Item STRATEGIC_NUCLEAR_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("strategic_nuclear_cluster_missile_warhead"), 64));
+    public static final Item HEAVY_NUCLEAR_MISSILE_WARHEAD = new Item(properties(key("heavy_nuclear_missile_warhead"), 64));
+    public static final Item HEAVY_NUCLEAR_CLUSTER_MISSILE_WARHEAD = new Item(properties(key("heavy_nuclear_cluster_missile_warhead"), 64));
     private static boolean registered;
 
     private ModItems() {
@@ -107,13 +157,49 @@ public final class ModItems {
         register(ANTI_AIR_GUN_AMMO_KEY, ANTI_AIR_GUN_AMMO);
         register(RADAR_DISPLAY_PANEL_KEY, RADAR_DISPLAY_PANEL);
         register(RADAR_LINKING_TOOL_KEY, RADAR_LINKING_TOOL);
+        register(CONTROLLER_LINKING_TOOL_KEY, CONTROLLER_LINKING_TOOL);
         register(ITEM_PIPE_KEY, ITEM_PIPE);
         register(PIPE_WRENCH_KEY, PIPE_WRENCH);
         register(ARTILLERY_CANNON_KEY, ARTILLERY_CANNON);
+        register(LAUNCH_CONTROLLER_KEY, LAUNCH_CONTROLLER);
+        register(FIRE_DEBUG_STICK_KEY, FIRE_DEBUG_STICK);
+        register(FIRE_HOSE_KEY, FIRE_HOSE);
+        register(FIRE_EXTINGUISHER_KEY, FIRE_EXTINGUISHER);
+        register(PISTOL_KEY, PISTOL);
+        register(ASSAULT_RIFLE_KEY, ASSAULT_RIFLE);
+        register(SNIPER_RIFLE_KEY, SNIPER_RIFLE);
+        register(PISTOL_AMMO_KEY, PISTOL_AMMO);
+        register(RIFLE_AMMO_KEY, RIFLE_AMMO);
+        register(SNIPER_AMMO_KEY, SNIPER_AMMO);
         for (WarheadYield yield : WarheadYield.values()) for (PayloadKind kind : PayloadKind.values()) register(key(kind.path(yield)), item(yield, kind));
+        register(key("icbm_body"), ICBM_BODY);
+        register(key("anti_air_body"), ANTI_AIR_BODY);
+        register(key("targeting_chip_tier_1"), TARGETING_CHIP_TIER_1);
+        register(key("targeting_chip_tier_2"), TARGETING_CHIP_TIER_2);
+        register(key("targeting_chip_tier_3"), TARGETING_CHIP_TIER_3);
+        register(key("anti_air_controller_ballistic"), ANTI_AIR_CONTROLLER_BALLISTIC);
+        register(key("anti_air_controller_self_destruct"), ANTI_AIR_CONTROLLER_SELF_DESTRUCT);
+        register(key("missile_workbench"), MISSILE_WORKBENCH);
+        register(key("high_explosive_missile_warhead"), HIGH_EXPLOSIVE_MISSILE_WARHEAD);
+        register(key("high_explosive_cluster_missile_warhead"), HIGH_EXPLOSIVE_CLUSTER_MISSILE_WARHEAD);
+        register(key("high_capacity_he_missile_warhead"), HIGH_CAPACITY_HE_MISSILE_WARHEAD);
+        register(key("high_capacity_he_cluster_missile_warhead"), HIGH_CAPACITY_HE_CLUSTER_MISSILE_WARHEAD);
+        register(key("conventional_missile_warhead"), CONVENTIONAL_MISSILE_WARHEAD);
+        register(key("conventional_cluster_missile_warhead"), CONVENTIONAL_CLUSTER_MISSILE_WARHEAD);
+        register(key("heavy_conventional_missile_warhead"), HEAVY_CONVENTIONAL_MISSILE_WARHEAD);
+        register(key("heavy_conventional_cluster_missile_warhead"), HEAVY_CONVENTIONAL_CLUSTER_MISSILE_WARHEAD);
+        register(key("tactical_nuclear_missile_warhead"), TACTICAL_NUCLEAR_MISSILE_WARHEAD);
+        register(key("tactical_nuclear_cluster_missile_warhead"), TACTICAL_NUCLEAR_CLUSTER_MISSILE_WARHEAD);
+        register(key("strategic_nuclear_missile_warhead"), STRATEGIC_NUCLEAR_MISSILE_WARHEAD);
+        register(key("strategic_nuclear_cluster_missile_warhead"), STRATEGIC_NUCLEAR_CLUSTER_MISSILE_WARHEAD);
+        register(key("heavy_nuclear_missile_warhead"), HEAVY_NUCLEAR_MISSILE_WARHEAD);
+        register(key("heavy_nuclear_cluster_missile_warhead"), HEAVY_NUCLEAR_CLUSTER_MISSILE_WARHEAD);
         registered = true;
     }
 
+    public static Item missileWarhead(final WarheadYield yield, final boolean cluster) {
+        return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("war_mod", yield.getSerializedName() + (cluster ? "_cluster" : "") + "_missile_warhead"));
+    }
     public static Item guidanceSupport(final int tier) {
         return switch (tier) {
             case 2 -> GUIDANCE_TIER_2;
@@ -165,5 +251,10 @@ public final class ModItems {
 
     private static Item.Properties properties(final ResourceKey<Item> key, final int size) {
         return new Item.Properties().setId(key).stacksTo(size);
+    }
+
+    private static Item.Properties magazineProperties(final ResourceKey<Item> key,
+        final int capacity) {
+        return new Item.Properties().setId(key).durability(capacity);
     }
 }

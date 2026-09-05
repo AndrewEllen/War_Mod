@@ -34,7 +34,7 @@ The mod is built around battles that feel dramatic and dangerous. Missiles trave
 ### Artillery and handheld weapons
 
 - Target coordinates and fire long-range artillery shells in a high arc.
-- Use the rocket launcher with high-explosive, conventional, or nuclear ammunition.
+- Hold right-click to aim the rocket launcher, then left-click to fire one HE Rocket.
 - Fire visible warheads that use the same impact systems as larger strategic weapons.
 
 ### Radar and defence
@@ -42,13 +42,24 @@ The mod is built around battles that feel dramatic and dangerous. Missiles trave
 - Build radar stations to detect and track incoming missiles.
 - Link physical radar display panels to a station and monitor contacts in the world.
 - Deploy Anti-Air Missile Mk I and Mk II interceptors.
-- Build Phalanx Anti-Air Turrets with ammunition for close-range automatic defence.
+- Build Anti-Air Turrets with ammunition for close-range automatic defence.
 
 ### Logistics
 
 - Move ammunition and supplies through item pipes.
 - Configure pipe connections with the Pipe Wrench.
 - Use dedicated interfaces for silos, artillery cannons, radar equipment, and defensive weapons.
+
+### Dynamic fire
+
+- Start custom, particle-rendered fires with the Custom Fire Debug Stick.
+- Crouch-use the stick to open its intensity and placement-size sliders; normal use anchors fire to the exact clicked face and point.
+- Nearby fire patches clump into larger flame and smoke bodies; stronger clumps consume fuel and destroy blocks faster.
+- Windborne firebrands use the same visible, smoke-trailed path for server collision and chance-based ignition across gaps.
+- Strategic explosions create an outward pressure wind followed by a weaker return flow for fire only.
+- The Master Explosive Test Stick can opt an individual launch into custom aftermath fire; vanilla fire remains its default.
+- Flowing or placed Minecraft water suppresses fire; the Fire Hose and Fire Extinguisher provide directed suppression.
+- Fire fuel overrides are data-packable through the `war_mod:fire_fuel_high`, `fire_fuel_medium`, `fire_fuel_low`, and `fire_immune` block tags.
 
 ### Visual compatibility
 

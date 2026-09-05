@@ -39,13 +39,13 @@ public final class PhalanxTurretBlockItem extends BlockItem {
         List<BlockPos> positions = PhalanxPart.compactStructure().stream().map(part -> controller.offset(part.offset())).toList();
         Stage stage = Stage.PRECHECK; List<BlockPos> placed = new ArrayList<>(); PhalanxBlockEntity entity = null;
         try {
-            if (!PhalanxManager.canPlace(level)) return fail(player, "Phalanx limit reached");
-            if (new HashSet<>(positions).size() != 2) return fail(player, "Phalanx placement has duplicate positions");
+            if (!PhalanxManager.canPlace(level)) return fail(player, "Anti-Air Turret limit reached");
+            if (new HashSet<>(positions).size() != 2) return fail(player, "Anti-Air Turret placement has duplicate positions");
             for (BlockPos position : positions) {
                 if (level.isOutsideBuildHeight(position) || !level.getWorldBorder().isWithinBounds(position)
                     || !level.getBlockState(position).canBeReplaced() || level.getBlockEntity(position) != null
                     || (player != null && !level.mayInteract(player, position)) || !level.getEntities(null, new AABB(position)).isEmpty())
-                    return fail(player, "Cannot place complete 1x1x2 Phalanx here");
+                    return fail(player, "Cannot place complete 1x1x2 Anti-Air Turret here");
             }
             PhalanxStructureAssembly.begin(level, positions);
             stage = Stage.CONTROLLER_BLOCK;
@@ -63,13 +63,13 @@ public final class PhalanxTurretBlockItem extends BlockItem {
             if (entity != null) { PhalanxManager.unregister(level, entity); PhalanxBulletManager.removeForTurret(level, entity.turretId()); }
             for (BlockPos position : placed) level.setBlock(position, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
             WarMod.LOGGER.error("Phalanx placement failed at stage {}: controller={}, facing={}, placedParts={}", stage, controller, facing, placed.size(), exception);
-            if (SharedConstants.IS_RUNNING_IN_IDE && player != null) player.sendSystemMessage(Component.literal("Phalanx placement failed at " + stage));
+            if (SharedConstants.IS_RUNNING_IN_IDE && player != null) player.sendSystemMessage(Component.literal("Anti-Air Turret placement failed at " + stage));
             String detail = exception.getMessage() == null
                 ? exception.getClass().getSimpleName()
                 : exception.getMessage();
             return fail(
                 player,
-                "Phalanx placement failed at " + stage + ": " + detail
+                "Anti-Air Turret placement failed at " + stage + ": " + detail
             );
         } finally { PhalanxStructureAssembly.end(level, positions); }
     }

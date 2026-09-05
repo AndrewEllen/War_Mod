@@ -18,18 +18,20 @@ public final class AntiAirTrajectory {
     public static Vec3 boostPosition(Vec3 launch, Vec3 burnout, Vec3 noTargetOffset, int ignitionTicks,
         int boostTicks, double elapsed) {
         double relative = Math.max(0.0, Math.min(boostTicks, elapsed - ignitionTicks));
-        if (noTargetOffset.lengthSqr() > 1.0E-8) return noTargetAscentRoute(launch, burnout, boostTicks).position(relative);
         double u = relative / boostTicks;
-        u = u * u * (3.0 - 2.0 * u);
-        return launch.lerp(burnout, u);
+        // Zero launch velocity, steady acceleration, and a non-zero vertical
+        // velocity at burnout. The following route inherits a vertical tangent,
+        // so there is no stop or snap when the missile begins to arc.
+        double progress = u * u * (2.0 - u);
+        return launch.lerp(burnout, progress);
     }
 
     public static Vec3 boostVelocity(Vec3 launch, Vec3 burnout, Vec3 noTargetOffset, int ignitionTicks,
         int boostTicks, double elapsed) {
-        if (noTargetOffset.lengthSqr() > 1.0E-8)
-            return noTargetAscentRoute(launch, burnout, boostTicks).velocity(elapsed - ignitionTicks);
-        return boostPosition(launch, burnout, noTargetOffset, ignitionTicks, boostTicks, elapsed + 0.25)
-            .subtract(boostPosition(launch, burnout, noTargetOffset, ignitionTicks, boostTicks, elapsed - 0.25)).scale(2.0);
+        double relative = Math.max(0.0, Math.min(boostTicks, elapsed - ignitionTicks));
+        double u = relative / boostTicks;
+        double derivative = (4.0 * u - 3.0 * u * u) / boostTicks;
+        return burnout.subtract(launch).scale(derivative);
     }
 
     /** A slight off-axis ascent: vertical initial tangent, gradual drift, and a fixed offset apex. */

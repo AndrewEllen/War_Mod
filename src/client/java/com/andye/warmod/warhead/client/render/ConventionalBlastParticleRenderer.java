@@ -1,13 +1,17 @@
 package com.andye.warmod.warhead.client.render;
 
-import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.client.TerrainSurfaceCache;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -19,15 +23,15 @@ import org.joml.Vector3f;
  * of disappearing at a material boundary.
  */
 public final class ConventionalBlastParticleRenderer {
-    private static final int MAX_FIELDS = 8;
-    private static final int CAPACITY = 65_536;
+    private static final int MAX_FIELDS = 16;
+    private static final int CAPACITY = 131_072;
     /*
      * The nuclear return front is a persistent, packed ring.  Keep it below
      * the backing field capacity so the pressure front never has to compete
      * for whatever slots happen to be released that tick.  Its deliberately
      * short trail is still wider than the visible pressure band.
      */
-    private static final int RETURN_ACTIVE_CAP = 54_000;
+    private static final int RETURN_ACTIVE_CAP = 110_000;
     private static final float HE_FIRE_TOP = 4.75F;
     private static final long NUCLEAR_KEY_MASK = 0x6E75636C656172L;
     private static final Map<Long, Field> FIELDS = new LinkedHashMap<>(16, 0.75F, true);
@@ -89,43 +93,32 @@ public final class ConventionalBlastParticleRenderer {
         field(seed, visualScale, false).render(pose, buffer, age, lod, camera, Pass.SMOKE_SOFT);
     }
 
-    public static void renderSurfaceFront(final PoseStack.Pose pose, final VertexConsumer buffer,
-        final double age, final double physicalRadius, final float visualScale, final long seed,
-        final WarheadMesh.Lod lod, final Quaternionf camera) {
-        if (!WarheadRenderSettings.usePackedParticles()) {
-            LegacyConventionalBlastRenderer.renderSurfaceFront(pose, buffer, age, physicalRadius,
-                visualScale, seed, lod, camera);
-            return;
-        }
-        Field field = field(seed, visualScale, false);
-        field.emitSurfaceFront(age, physicalRadius, lod);
-        field.render(pose, buffer, age, lod, camera, Pass.SURFACE_FRONT);
-    }
-
-    /** Vanilla explosion-texture flecks carried by the outward pressure front. */
-    public static void renderSurfaceExplosionPuffs(final PoseStack.Pose pose,
-        final VertexConsumer buffer, final double age, final double physicalRadius,
-        final float visualScale, final long seed, final WarheadMesh.Lod lod,
-        final Quaternionf camera) {
-        if (!WarheadRenderSettings.usePackedParticles()) return;
-        Field field = field(seed, visualScale, false);
-        field.emitSurfaceFront(age, physicalRadius, lod);
-        field.render(pose, buffer, age, lod, camera, Pass.EXPLOSION_FRONT);
-    }
-
     public static void renderNuclearReturnFront(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double age, final double returnRadius,
-        final float yieldScale, final long seed, final WarheadMesh.Lod lod,
-        final Quaternionf camera) {
+        final float yieldScale, final long seed, final Vec3 impactPosition,
+        final WarheadMesh.Lod lod, final Quaternionf camera) {
         if (!WarheadRenderSettings.usePackedParticles()) {
             LegacyConventionalBlastRenderer.renderNuclearReturnFront(pose, buffer, age, returnRadius,
-                yieldScale, seed, lod, camera);
+                yieldScale, seed, lod, impactPosition, camera);
             return;
         }
         Field field = field(seed ^ NUCLEAR_KEY_MASK, yieldScale, true);
         field.emitReturnFront(age, returnRadius, lod);
-        field.render(pose, buffer, age, lod, camera, Pass.RETURN_FRONT);
+        field.render(pose, buffer, age, lod, camera, Pass.RETURN_FRONT, impactPosition);
     }
+
+    /** Releases all packed arrays whose owning impact has expired. */
+    public static synchronized void retainFields(final Set<Long> activeImpactSeeds) {
+        if (activeImpactSeeds == null || activeImpactSeeds.isEmpty()) {
+            FIELDS.clear();
+            return;
+        }
+        FIELDS.keySet().removeIf(key -> !activeImpactSeeds.contains(key)
+            && !activeImpactSeeds.contains(key ^ NUCLEAR_KEY_MASK));
+    }
+
+    /** Explicit dimension/world lifecycle hook. */
+    public static synchronized void clearLevel() { FIELDS.clear(); }
 
     public static synchronized DebugSnapshot debugSnapshot() {
         if (!WarheadRenderSettings.usePackedParticles()) {
@@ -167,8 +160,6 @@ public final class ConventionalBlastParticleRenderer {
         FIRE_COOLING,
         SMOKE_CORE,
         SMOKE_SOFT,
-        SURFACE_FRONT,
-        EXPLOSION_FRONT,
         RETURN_FRONT
     }
 
@@ -176,8 +167,7 @@ public final class ConventionalBlastParticleRenderer {
         private static final byte MATERIAL_FIRE = 0;
         private static final byte MATERIAL_SMOKE = 1;
         private static final byte MATERIAL_DUST = 2;
-        private static final byte MATERIAL_FRONT = 3;
-        private static final byte MATERIAL_RETURN = 4;
+        private static final byte MATERIAL_RETURN = 3;
 
         private static final byte FLAG_CORE = 1;
         private static final byte FLAG_SPOUT = 2;
@@ -224,7 +214,6 @@ public final class ConventionalBlastParticleRenderer {
         private int activeReturnCount;
         private int spawnedLastTick;
         private int culledLastRender;
-        private int lastSurfaceTick = Integer.MIN_VALUE;
         private int lastReturnTick = Integer.MIN_VALUE;
 
         private Field(final long seed, final float visualScale, final boolean nuclearOnly) {
@@ -451,44 +440,6 @@ public final class ConventionalBlastParticleRenderer {
                 (int) random);
         }
 
-        private void emitSurfaceFront(final double renderedAge,
-            final double physicalRadius, final WarheadMesh.Lod lod) {
-            ensureSimulated(renderedAge);
-            int tick = Math.max(0, (int) Math.floor(renderedAge));
-            if (tick == lastSurfaceTick || physicalRadius <= 0.0) return;
-            lastSurfaceTick = tick;
-            if (renderedAge >= WarheadVisualMath.airShockwaveDurationTicks(scale)) return;
-            int base = switch (lod) {
-                case NEAR -> 560;
-                case MEDIUM -> 280;
-                case FAR -> 105;
-            };
-            int count = Math.min(1_700,
-                Math.round(base * (0.72F + (float) Math.pow(scale, 1.10))));
-            for (int index = 0; index < count; index++) {
-                long random = mix(seed ^ 0x46524F4E545F5633L ^ ((long) tick << 32)
-                    ^ index * 0x9E3779B97F4A7C15L);
-                float angle = (index + unit(random, 0)) / count * Mth.TWO_PI;
-                float trail = unit(random, 1) * (1.8F + 4.4F * scale);
-                float radial = (float) Math.max(0.0, physicalRadius - trail);
-                float tangent = signed(random, 2) * 0.075F;
-                float outward = 0.045F + unit(random, 3) * 0.105F;
-                float heat = unit(random, 4) < 0.13F
-                    ? 0.48F + unit(random, 5) * 0.32F : 0.0F;
-                spawn(MATERIAL_FRONT, (byte) 0,
-                    Mth.cos(angle) * radial,
-                    0.04F + unit(random, 6) * (0.38F + 0.40F * scale),
-                    Mth.sin(angle) * radial,
-                    Mth.cos(angle) * outward - Mth.sin(angle) * tangent,
-                    0.018F + unit(random, 7) * 0.075F,
-                    Mth.sin(angle) * outward + Mth.cos(angle) * tangent,
-                    heat,
-                    (0.30F + unit(random, 8) * 0.54F) * (0.96F + scale * 0.10F),
-                    Math.round(92.0F + unit(random, 9) * 82.0F),
-                    (int) random);
-            }
-        }
-
         private void emitReturnFront(final double renderedAge,
             final double returnRadius, final WarheadMesh.Lod lod) {
             ensureSimulated(renderedAge);
@@ -496,11 +447,11 @@ public final class ConventionalBlastParticleRenderer {
             if (tick == lastReturnTick || returnRadius <= 0.0) return;
             lastReturnTick = tick;
             int base = switch (lod) {
-                case NEAR -> 620;
-                case MEDIUM -> 310;
-                case FAR -> 120;
+                case NEAR -> 1_800;
+                case MEDIUM -> 1_400;
+                case FAR -> 900;
             };
-            int count = Math.min(1_900,
+            int count = Math.min(5_200,
                 Math.round(base * (0.78F + (float) Math.sqrt(scale))));
             int admitted = Math.min(count,
                 Math.max(0, RETURN_ACTIVE_CAP - activeReturnCount));
@@ -603,13 +554,6 @@ public final class ConventionalBlastParticleRenderer {
                         turbulence, crossTurbulence);
                     case MATERIAL_DUST -> updateDust(index, progress, turbulence,
                         crossTurbulence);
-                    case MATERIAL_FRONT -> {
-                        velocityX[index] *= 0.952F;
-                        velocityZ[index] *= 0.952F;
-                        velocityY[index] = velocityY[index] * 0.94F - 0.0012F;
-                        temperature[index] = Math.max(0.0F, temperature[index] - 0.025F);
-                        radius[index] *= 1.0065F;
-                    }
                     case MATERIAL_RETURN -> {
                         velocityX[index] *= 0.994F;
                         velocityZ[index] *= 0.994F;
@@ -754,13 +698,18 @@ public final class ConventionalBlastParticleRenderer {
         private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
             final double renderedAge, final WarheadMesh.Lod lod, final Quaternionf camera,
             final Pass pass) {
+            render(pose, buffer, renderedAge, lod, camera, pass, null);
+        }
+
+        private void render(final PoseStack.Pose pose, final VertexConsumer buffer,
+            final double renderedAge, final WarheadMesh.Lod lod, final Quaternionf camera,
+            final Pass pass, final Vec3 impactPosition) {
             ensureSimulated(renderedAge);
             float partial = (float) Mth.clamp(renderedAge - Math.floor(renderedAge), 0.0, 1.0);
             Basis basis = Basis.from(camera);
             int stride = switch (lod) {
-                case NEAR -> 1;
-                case MEDIUM -> 2;
-                case FAR -> 5;
+                case NEAR, MEDIUM -> 1;
+                case FAR -> 2;
             };
             int inspected = 0;
             int rejected = 0;
@@ -781,6 +730,13 @@ public final class ConventionalBlastParticleRenderer {
                 float px = Mth.lerp(partial, previousX[index], x[index]);
                 float py = Mth.lerp(partial, previousY[index], y[index]);
                 float pz = Mth.lerp(partial, previousZ[index], z[index]);
+                if (impactPosition != null && pass == Pass.RETURN_FRONT) {
+                    ClientLevel level = Minecraft.getInstance().level;
+                    TerrainSurfaceCache.SurfaceSample surface = TerrainSurfaceCache.INSTANCE.sample(
+                        level, impactPosition.x + px, impactPosition.z + pz);
+                    if (surface != null) py = (float) (surface.position().y - impactPosition.y)
+                        + Math.max(0.06F, py);
+                }
                 Colour colour = colour(index, pass);
                 float drawRadius = radius[index];
                 if (pass == Pass.SMOKE_CORE) drawRadius *= 1.20F;
@@ -812,9 +768,6 @@ public final class ConventionalBlastParticleRenderer {
                     || type == MATERIAL_DUST
                     || (type == MATERIAL_FIRE && heat < 0.14F
                         && (flags[index] & FLAG_CORE) == 0);
-                case SURFACE_FRONT -> type == MATERIAL_FRONT;
-                case EXPLOSION_FRONT -> type == MATERIAL_FRONT && heat > 0.18F
-                    && Math.floorMod(particleSeed[index], 3) == 0;
                 case RETURN_FRONT -> type == MATERIAL_RETURN;
             };
         }
@@ -827,7 +780,7 @@ public final class ConventionalBlastParticleRenderer {
                 case FIRE_CORE, FIRE_HOT, FIRE_COOLING -> 0.72F;
                 case SMOKE_CORE -> 0.62F;
                 case SMOKE_SOFT -> 0.74F;
-                case SURFACE_FRONT, EXPLOSION_FRONT, RETURN_FRONT -> 0.82F;
+                case RETURN_FRONT -> 0.82F;
             };
             float fadeOut = (float) Math.pow(remaining, exponent);
             float base = switch (pass) {
@@ -836,8 +789,6 @@ public final class ConventionalBlastParticleRenderer {
                 case FIRE_COOLING -> 0.72F;
                 case SMOKE_CORE -> 0.82F;
                 case SMOKE_SOFT -> (flags[index] & FLAG_TENDRIL) != 0 ? 0.90F : 0.70F;
-                case SURFACE_FRONT -> 0.68F;
-                case EXPLOSION_FRONT -> 0.78F;
                 case RETURN_FRONT -> 0.62F;
             };
             if ((flags[index] & FLAG_LANDED) != 0) base *= 0.84F;
@@ -845,16 +796,6 @@ public final class ConventionalBlastParticleRenderer {
         }
 
         private Colour colour(final int index, final Pass pass) {
-            if (pass == Pass.EXPLOSION_FRONT) return new Colour(255, 228, 176);
-            if (material[index] == MATERIAL_FRONT) {
-                if (temperature[index] > 0.18F) {
-                    float heat = Mth.clamp(temperature[index], 0.0F, 1.0F);
-                    return new Colour(255, Mth.lerpInt(heat, 154, 238),
-                        Mth.lerpInt(heat, 62, 190));
-                }
-                int tone = 178 + Math.floorMod(particleSeed[index], 42);
-                return new Colour(tone, Math.min(228, tone + 4), Math.min(234, tone + 9));
-            }
             if (material[index] == MATERIAL_RETURN) {
                 int tone = 174 + Math.floorMod(particleSeed[index], 46);
                 return new Colour(tone, Math.min(228, tone + 5), Math.min(236, tone + 11));
@@ -903,7 +844,7 @@ public final class ConventionalBlastParticleRenderer {
 
         private static boolean isEmissive(final Pass pass) {
             return pass == Pass.FIRE_CORE || pass == Pass.FIRE_HOT
-                || pass == Pass.FIRE_COOLING || pass == Pass.EXPLOSION_FRONT;
+                || pass == Pass.FIRE_COOLING;
         }
     }
 

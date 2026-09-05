@@ -1,0 +1,1258 @@
+[
+  {
+    "name": "missile_workbench",
+    "uuid": "516c3389-48f4-6e17-223c-02689a30d5ba",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_workbench__516c3389.bbmodel",
+    "elements": 10,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "icbm_body",
+    "uuid": "076565a2-8f9d-0634-5e34-ca6e54795b51",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/icbm_body__076565a2.bbmodel",
+    "elements": 22,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "anti_air_body",
+    "uuid": "a3edfd28-cb4c-fe9b-c2df-f01bcb35ef47",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_body__a3edfd28.bbmodel",
+    "elements": 28,
+    "textures": 18,
+    "embedded": 18
+  },
+  {
+    "name": "targeting_chip_tier_1",
+    "uuid": "19cc48e9-023e-4e00-86e2-b66542089dfd",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_1__19cc48e9.bbmodel",
+    "elements": 11,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_2",
+    "uuid": "9fd09e60-2ebd-dc13-7a1d-0c44a629fcab",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_2__9fd09e60.bbmodel",
+    "elements": 12,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_3",
+    "uuid": "fa8008f0-e166-c794-ff58-24aeb360a31b",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_3__fa8008f0.bbmodel",
+    "elements": 13,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_ballistic",
+    "uuid": "39a03113-c6f8-7f51-1993-affe9e745ba3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_ballistic__39a03113.bbmodel",
+    "elements": 22,
+    "textures": 18,
+    "embedded": 18
+  },
+  {
+    "name": "anti_air_controller_self_destruct",
+    "uuid": "39e1aa3d-42e5-e220-6f39-eb3a55addf55",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_self_destruct__39e1aa3d.bbmodel",
+    "elements": 22,
+    "textures": 18,
+    "embedded": 18
+  },
+  {
+    "name": "artillery_cannon",
+    "uuid": "6020d582-40df-571a-7f92-a2bc23af5463",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/artillery_cannon__6020d582.bbmodel",
+    "elements": 31,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "radar",
+    "uuid": "8939237e-b4c0-19a0-b34a-56782121512e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar__8939237e.bbmodel",
+    "elements": 12,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "target_designator",
+    "uuid": "21598cbf-5b2d-850f-000b-44c19875ccd4",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/target_designator__21598cbf.bbmodel",
+    "elements": 8,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "radar_linking_tool",
+    "uuid": "58cf2ae2-f0d3-20b2-e081-d555f96a3eeb",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar_linking_tool__58cf2ae2.bbmodel",
+    "elements": 9,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "phalanx_turret",
+    "uuid": "7532b6a8-b1e9-db5f-d4ca-89a4d248c484",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/phalanx_turret__7532b6a8.bbmodel",
+    "elements": 34,
+    "textures": 27,
+    "embedded": 27
+  },
+  {
+    "name": "radar_display_panel",
+    "uuid": "e7402911-e83d-c7a7-07eb-e00e6b8fdbe4",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar_display_panel__e7402911.bbmodel",
+    "elements": 7,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "pipe_wrench",
+    "uuid": "111bda73-3cba-148c-3eb5-c7eff4d41d1f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/pipe_wrench__111bda73.bbmodel",
+    "elements": 17,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "high_explosive_missile_warhead",
+    "uuid": "b5af9060-b20e-411a-e288-98f2ae778e21",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_missile_warhead__b5af9060.bbmodel",
+    "elements": 22,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "high_explosive_cluster_missile_warhead",
+    "uuid": "8abb8524-0df4-a35e-6d59-ff008775be12",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_cluster_missile_warhead__8abb8524.bbmodel",
+    "elements": 27,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "high_capacity_he_missile_warhead",
+    "uuid": "69bbb801-dc5d-ae25-9216-19aaee1d9b66",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_missile_warhead__69bbb801.bbmodel",
+    "elements": 22,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "high_capacity_he_cluster_missile_warhead",
+    "uuid": "9171f9a4-7760-01e3-3b40-2922fb5319fb",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_cluster_missile_warhead__9171f9a4.bbmodel",
+    "elements": 27,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "conventional_missile_warhead",
+    "uuid": "c1bc9960-0f90-78e3-e561-e9e021dee5d3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_missile_warhead__c1bc9960.bbmodel",
+    "elements": 22,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "conventional_cluster_missile_warhead",
+    "uuid": "370796c8-dc20-7d10-e4aa-2f40164411f9",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_cluster_missile_warhead__370796c8.bbmodel",
+    "elements": 27,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "heavy_conventional_missile_warhead",
+    "uuid": "17713b68-7be3-e43e-5e9b-f4c8b857bc29",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_missile_warhead__17713b68.bbmodel",
+    "elements": 22,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "heavy_conventional_cluster_missile_warhead",
+    "uuid": "86e67aae-9aaa-80f1-e6c3-b469a8803cdc",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_cluster_missile_warhead__86e67aae.bbmodel",
+    "elements": 27,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "tactical_nuclear_missile_warhead",
+    "uuid": "7c812665-8356-8035-3149-caf1f73aceaa",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_missile_warhead__7c812665.bbmodel",
+    "elements": 24,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "tactical_nuclear_cluster_missile_warhead",
+    "uuid": "a0f32192-8723-abfc-43a8-20024f48c1e7",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_cluster_missile_warhead__a0f32192.bbmodel",
+    "elements": 29,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "strategic_nuclear_missile_warhead",
+    "uuid": "8385a31b-eefb-bff8-9903-69001b71687c",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_missile_warhead__8385a31b.bbmodel",
+    "elements": 24,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "strategic_nuclear_cluster_missile_warhead",
+    "uuid": "4c9bd53a-dab6-c082-e1d4-7f68711766ef",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_cluster_missile_warhead__4c9bd53a.bbmodel",
+    "elements": 29,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "heavy_nuclear_missile_warhead",
+    "uuid": "0a806ee8-7339-e553-3c59-28c0a0e5ac0e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_missile_warhead__0a806ee8.bbmodel",
+    "elements": 25,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "heavy_nuclear_cluster_missile_warhead",
+    "uuid": "a1c76cd4-cf79-b176-dce1-60d93ecd281e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_cluster_missile_warhead__a1c76cd4.bbmodel",
+    "elements": 30,
+    "textures": 16,
+    "embedded": 16
+  },
+  {
+    "name": "icbm_body",
+    "uuid": "d9b6fdfd-b308-c58b-eec9-c4b169c16a48",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/icbm_body__d9b6fdfd.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "anti_air_body",
+    "uuid": "9bf16b63-ad0d-a29f-00f2-ebf1ecbf3ad9",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_body__9bf16b63.bbmodel",
+    "elements": 28,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_ballistic",
+    "uuid": "0383596f-ab3b-585a-5d28-5a8c0df00a49",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_ballistic__0383596f.bbmodel",
+    "elements": 22,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_self_destruct",
+    "uuid": "eff120b9-58f2-60e3-bc6b-3c86b7d41a83",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_self_destruct__eff120b9.bbmodel",
+    "elements": 22,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "high_explosive_missile_warhead",
+    "uuid": "fab76c97-78aa-dfb9-644b-f66c59b29693",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_missile_warhead__fab76c97.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_explosive_cluster_missile_warhead",
+    "uuid": "076eac3f-f062-706e-c3a3-aa0ef61af21d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_cluster_missile_warhead__076eac3f.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_capacity_he_missile_warhead",
+    "uuid": "8f1375fb-5320-b4e6-4ef8-90576fd33ab5",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_missile_warhead__8f1375fb.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_capacity_he_cluster_missile_warhead",
+    "uuid": "543f5398-0a8b-b893-f56c-3e09fddb7831",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_cluster_missile_warhead__543f5398.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "conventional_missile_warhead",
+    "uuid": "c0bf3469-c68a-40c3-b04b-260910a267a0",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_missile_warhead__c0bf3469.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "conventional_cluster_missile_warhead",
+    "uuid": "8f0b0d8c-59fe-fc45-75cb-e7edfbf5f7c5",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_cluster_missile_warhead__8f0b0d8c.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_conventional_missile_warhead",
+    "uuid": "9065c97e-2387-5538-30b8-84647219f1f6",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_missile_warhead__9065c97e.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_conventional_cluster_missile_warhead",
+    "uuid": "769b3779-2aed-e79d-db88-b5ffe9903587",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_cluster_missile_warhead__769b3779.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "tactical_nuclear_missile_warhead",
+    "uuid": "2ecca50f-7a4a-2515-45f8-860f3872360f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_missile_warhead__2ecca50f.bbmodel",
+    "elements": 24,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "tactical_nuclear_cluster_missile_warhead",
+    "uuid": "58cb879f-9611-b500-a2c3-1e36342c65e3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_cluster_missile_warhead__58cb879f.bbmodel",
+    "elements": 29,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "strategic_nuclear_missile_warhead",
+    "uuid": "2a8e10be-9587-e0bf-1ff0-ba01a1bc0d39",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_missile_warhead__2a8e10be.bbmodel",
+    "elements": 24,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "strategic_nuclear_cluster_missile_warhead",
+    "uuid": "222a4531-a065-2ade-c8ea-f74260e6abc3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_cluster_missile_warhead__222a4531.bbmodel",
+    "elements": 29,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_nuclear_missile_warhead",
+    "uuid": "f9dabc76-3c54-25eb-a8de-dad193cb01f6",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_missile_warhead__f9dabc76.bbmodel",
+    "elements": 25,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_nuclear_cluster_missile_warhead",
+    "uuid": "5b6e63ff-9e79-4af9-83a4-814dca916b49",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_cluster_missile_warhead__5b6e63ff.bbmodel",
+    "elements": 30,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "artillery_cannon",
+    "uuid": "ea762ea4-521c-d48d-d560-5d0448af7178",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/artillery_cannon__ea762ea4.bbmodel",
+    "elements": 31,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "phalanx_turret",
+    "uuid": "1b58e8bb-12c4-e9e0-db73-212a516dc2ca",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/phalanx_turret__1b58e8bb.bbmodel",
+    "elements": 35,
+    "textures": 27,
+    "embedded": 27
+  },
+  {
+    "name": "artillery_cannon",
+    "uuid": "10cb7cff-f5a9-91c2-7f7a-02ced93c8b5a",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/artillery_cannon__10cb7cff.bbmodel",
+    "elements": 31,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "phalanx_turret",
+    "uuid": "503f4998-d235-706d-5e69-0d8e2368e3d5",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/phalanx_turret__503f4998.bbmodel",
+    "elements": 35,
+    "textures": 27,
+    "embedded": 27
+  },
+  {
+    "name": "anti_air_body",
+    "uuid": "70f05816-d242-451f-2fb9-b95e2d2a0a20",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_body__70f05816.bbmodel",
+    "elements": 27,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_ballistic",
+    "uuid": "e4ac691c-95a3-65a8-4e2a-8cf4114e9d3f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_ballistic__e4ac691c.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_self_destruct",
+    "uuid": "9c0aa8c5-aa57-6c93-b126-8d161e20961d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_self_destruct__9c0aa8c5.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_silo_large",
+    "uuid": "0743e7e7-f5c0-3aab-d996-3210d86560df",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_large__0743e7e7.bbmodel",
+    "elements": 34,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_workbench",
+    "uuid": "a472310d-f8db-cea2-98e7-7eca62d1fc84",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_workbench__a472310d.bbmodel",
+    "elements": 13,
+    "textures": 11,
+    "embedded": 11
+  },
+  {
+    "name": "targeting_chip_tier_1",
+    "uuid": "ad8bfff3-3177-2553-25ba-7831cdda2165",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_1__ad8bfff3.bbmodel",
+    "elements": 11,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_2",
+    "uuid": "32d603f4-402a-ac7d-06f6-dee466e52609",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_2__32d603f4.bbmodel",
+    "elements": 12,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_3",
+    "uuid": "8ec5be6d-b36f-ad27-9d77-203b131cbe25",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_3__8ec5be6d.bbmodel",
+    "elements": 13,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_silo",
+    "uuid": "4adbcaa5-1cb8-3971-1832-51ca81f75fd0",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo__4adbcaa5.bbmodel",
+    "elements": 27,
+    "textures": 12,
+    "embedded": 12
+  },
+  {
+    "name": "missile_silo_large",
+    "uuid": "25f6d29a-fc0d-8239-4f39-95e9703ddd75",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_large__25f6d29a.bbmodel",
+    "elements": 33,
+    "textures": 12,
+    "embedded": 12
+  },
+  {
+    "name": "radar",
+    "uuid": "a45457ac-11ce-50ec-c352-ed528572e2bb",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar__a45457ac.bbmodel",
+    "elements": 10,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "target_designator",
+    "uuid": "dda9e0bb-de37-6801-b0ed-900b000c5f4c",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/target_designator__dda9e0bb.bbmodel",
+    "elements": 12,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "remote_launch_designator",
+    "uuid": "1fc4a4ce-15fe-d33a-1a1e-1520254f5f03",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/remote_launch_designator__1fc4a4ce.bbmodel",
+    "elements": 8,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "pipe_wrench",
+    "uuid": "7c283722-31f6-9132-360f-db21c6b91347",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/pipe_wrench__7c283722.bbmodel",
+    "elements": 18,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_silo_large",
+    "uuid": "1a49a597-acd9-e668-eb97-3da537962fe8",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_large__1a49a597.bbmodel",
+    "elements": 33,
+    "textures": 12,
+    "embedded": 12
+  },
+  {
+    "name": "high_explosive_missile",
+    "uuid": "3e7b7e21-8d3b-622a-0ab3-30ffe9bb0ff4",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_missile__3e7b7e21.bbmodel",
+    "elements": 43,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_explosive_cluster_missile",
+    "uuid": "d4957457-d662-4aca-bdfc-38eadeb637d8",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_cluster_missile__d4957457.bbmodel",
+    "elements": 48,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_capacity_he_missile",
+    "uuid": "93ea3a7e-f989-c567-72c1-f4009040602f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_missile__93ea3a7e.bbmodel",
+    "elements": 44,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_capacity_he_cluster_missile",
+    "uuid": "268aa223-df6b-cbc3-08d6-7037194c0baf",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_cluster_missile__268aa223.bbmodel",
+    "elements": 49,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "conventional_missile",
+    "uuid": "8db4681c-a136-2957-903c-8f2b59600c2e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_missile__8db4681c.bbmodel",
+    "elements": 44,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "conventional_cluster_missile",
+    "uuid": "56822513-c72e-1086-4b94-dbcabe9df19d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_cluster_missile__56822513.bbmodel",
+    "elements": 49,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_conventional_missile",
+    "uuid": "f6a7a79a-5c77-54b5-05dc-8befa939633d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_missile__f6a7a79a.bbmodel",
+    "elements": 44,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_conventional_cluster_missile",
+    "uuid": "8c140845-7b5d-fec9-98db-826cc7fa5475",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_cluster_missile__8c140845.bbmodel",
+    "elements": 49,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "tactical_nuclear_missile",
+    "uuid": "8f77fcc0-0617-6f03-c809-11b0a6163b36",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_missile__8f77fcc0.bbmodel",
+    "elements": 46,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "tactical_nuclear_cluster_missile",
+    "uuid": "8c3f36f7-fb8f-c38c-2efa-f7db6541b7bf",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_cluster_missile__8c3f36f7.bbmodel",
+    "elements": 51,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "strategic_nuclear_missile",
+    "uuid": "78fd820d-3af8-7a56-f8f8-2874544a23a2",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_missile__78fd820d.bbmodel",
+    "elements": 46,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "strategic_nuclear_cluster_missile",
+    "uuid": "18dc9360-85c6-0539-3fd8-4cf01e2704fd",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_cluster_missile__18dc9360.bbmodel",
+    "elements": 51,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_nuclear_missile",
+    "uuid": "c52cf245-88a3-77f1-d142-bf436d0d1ad7",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_missile__c52cf245.bbmodel",
+    "elements": 46,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_nuclear_cluster_missile",
+    "uuid": "fa49c9ec-7561-4e7c-d02c-20f6df376cb6",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_cluster_missile__fa49c9ec.bbmodel",
+    "elements": 51,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "missile_workbench",
+    "uuid": "6ba9004f-97b8-3bbf-31aa-2b7a26f8e60f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_workbench__6ba9004f.bbmodel",
+    "elements": 13,
+    "textures": 11,
+    "embedded": 11
+  },
+  {
+    "name": "icbm_body",
+    "uuid": "0d9c6c89-6953-1e47-f638-43edd699d0fb",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/icbm_body__0d9c6c89.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "anti_air_body",
+    "uuid": "7ce3adbb-6574-a23c-5e32-c46884e3e262",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_body__7ce3adbb.bbmodel",
+    "elements": 27,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_1",
+    "uuid": "1521683f-57cf-17cf-3c97-6677b7de5d1f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_1__1521683f.bbmodel",
+    "elements": 11,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_2",
+    "uuid": "bda64962-99d2-3afa-b7e6-2bc3f2f72c86",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_2__bda64962.bbmodel",
+    "elements": 12,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "targeting_chip_tier_3",
+    "uuid": "d3cef2d2-1a03-9dce-d72f-ec282c65c1d9",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/targeting_chip_tier_3__d3cef2d2.bbmodel",
+    "elements": 13,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_ballistic",
+    "uuid": "d5eee809-4ad1-03e7-dbc8-4b2986c323d1",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_ballistic__d5eee809.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_self_destruct",
+    "uuid": "6b052ccf-e89d-4b83-2d50-87e5eb5a1488",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_self_destruct__6b052ccf.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "pistol",
+    "uuid": "d7393746-739b-ac88-59f3-00f2a6d5cdf4",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/pistol__d7393746.bbmodel",
+    "elements": 16,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "assault_rifle",
+    "uuid": "9e541ffd-01ac-c15d-36bb-45e471457b77",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/assault_rifle__9e541ffd.bbmodel",
+    "elements": 20,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "sniper_rifle",
+    "uuid": "d09aebea-8a5f-52e0-b12a-c6b951e6e3d6",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/sniper_rifle__d09aebea.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "pistol_bullet",
+    "uuid": "5c055c70-3cf9-1b95-51fc-9c01c4edd430",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/pistol_bullet__5c055c70.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "rifle_bullet",
+    "uuid": "1c0c5db8-76a7-7cb1-e8d6-16df905abbee",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/rifle_bullet__1c0c5db8.bbmodel",
+    "elements": 24,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "sniper_bullet",
+    "uuid": "2901d6c7-b376-0f93-6099-7f8242a077be",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/sniper_bullet__2901d6c7.bbmodel",
+    "elements": 25,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "falling_warhead",
+    "uuid": "c4af3e93-10a7-1e04-6af0-ccee70c074fc",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/falling_warhead__c4af3e93.bbmodel",
+    "elements": 36,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "artillery_shell",
+    "uuid": "f65849b3-c21d-1f81-b300-9b7c56abd6b9",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/artillery_shell__f65849b3.bbmodel",
+    "elements": 24,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_missile_mk1",
+    "uuid": "19a3bed0-5cb0-cc6f-3ba6-7705d561279f",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_missile_mk1__19a3bed0.bbmodel",
+    "elements": 50,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_missile_mk2",
+    "uuid": "a47149b6-4ecd-9ed0-402d-8d51bdbe04ad",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_missile_mk2__a47149b6.bbmodel",
+    "elements": 56,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "artillery_cannon",
+    "uuid": "aeac8b6a-bba0-75b9-b4e7-3c585d9e978c",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/artillery_cannon__aeac8b6a.bbmodel",
+    "elements": 31,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "radar_station",
+    "uuid": "b24e65a6-8d4b-2ef1-6bad-7da6aef95bc9",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar_station__b24e65a6.bbmodel",
+    "elements": 81,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_silo",
+    "uuid": "2389fa1e-3671-e353-facf-52d2bcbb6488",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo__2389fa1e.bbmodel",
+    "elements": 27,
+    "textures": 12,
+    "embedded": 12
+  },
+  {
+    "name": "missile_silo_large",
+    "uuid": "fdf10bc1-320a-c478-175b-a886a97d5ae1",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_large__fdf10bc1.bbmodel",
+    "elements": 33,
+    "textures": 12,
+    "embedded": 12
+  },
+  {
+    "name": "missile_silo_guidance_support_tier_1",
+    "uuid": "09cf8d42-c06d-1d78-cbda-e463b46aa56c",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_guidance_support_tier_1__09cf8d42.bbmodel",
+    "elements": 10,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_silo_guidance_support_tier_2",
+    "uuid": "3c8a3ccc-9544-df02-8064-40b1b23813a2",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_guidance_support_tier_2__3c8a3ccc.bbmodel",
+    "elements": 16,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "missile_silo_guidance_support_tier_3",
+    "uuid": "c6b20b0e-6aeb-6891-0074-6b6404971b5a",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_silo_guidance_support_tier_3__c6b20b0e.bbmodel",
+    "elements": 22,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "rocket_launcher",
+    "uuid": "f180b976-7ae5-6045-65d3-a9213863f9bf",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/rocket_launcher__f180b976.bbmodel",
+    "elements": 20,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "he_rocket",
+    "uuid": "305f45f4-c37a-cd00-45aa-f42886c9815e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/he_rocket__305f45f4.bbmodel",
+    "elements": 51,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "radar",
+    "uuid": "8c2b7af6-2ce1-5eb8-2fa0-9db3cb280472",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar__8c2b7af6.bbmodel",
+    "elements": 10,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "target_designator",
+    "uuid": "e2649c89-77a0-87ac-f35d-f815b37562ee",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/target_designator__e2649c89.bbmodel",
+    "elements": 12,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "remote_launch_designator",
+    "uuid": "28f9bab4-af9f-9a16-a2b5-262501b51d61",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/remote_launch_designator__28f9bab4.bbmodel",
+    "elements": 8,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "radar_linking_tool",
+    "uuid": "4f2c2c4d-7ed3-3553-7f0d-5afd533bb922",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar_linking_tool__4f2c2c4d.bbmodel",
+    "elements": 9,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "pistol_ammo",
+    "uuid": "be6443a1-fdb0-aefd-6185-5732a4b51dee",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/pistol_ammo__be6443a1.bbmodel",
+    "elements": 4,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "rifle_ammo",
+    "uuid": "f3a7e72a-d421-2c8b-154f-0a8c7f1bfe51",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/rifle_ammo__f3a7e72a.bbmodel",
+    "elements": 5,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "sniper_ammo",
+    "uuid": "a190c676-df11-bfaf-e139-0664c81b94a3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/sniper_ammo__a190c676.bbmodel",
+    "elements": 5,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_gun_ammo",
+    "uuid": "dca794c2-db18-abce-3d94-c91ae35b16c2",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_gun_ammo__dca794c2.bbmodel",
+    "elements": 4,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "phalanx_turret",
+    "uuid": "4ef1c0ec-b1db-650a-c91f-b24d95fa4759",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/phalanx_turret__4ef1c0ec.bbmodel",
+    "elements": 35,
+    "textures": 27,
+    "embedded": 27
+  },
+  {
+    "name": "radar_display_panel",
+    "uuid": "cbbbb48a-a1ae-9dc9-e9bb-e75604b436e2",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/radar_display_panel__cbbbb48a.bbmodel",
+    "elements": 7,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "item_pipe",
+    "uuid": "8df64658-8782-6f9e-1453-f2746d3f3d62",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/item_pipe__8df64658.bbmodel",
+    "elements": 4,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "pipe_wrench",
+    "uuid": "5159614a-1cf4-ffbc-86fb-0474f209905c",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/pipe_wrench__5159614a.bbmodel",
+    "elements": 18,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "fire_hose",
+    "uuid": "a698d51b-4ead-3088-1ebc-2b2a1aecd863",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/fire_hose__a698d51b.bbmodel",
+    "elements": 4,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "fire_extinguisher",
+    "uuid": "29905e29-2b7a-b944-a5cc-dcd62dbfc867",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/fire_extinguisher__29905e29.bbmodel",
+    "elements": 5,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "master_explosive_test_stick",
+    "uuid": "d1820b3b-8e89-1b54-27b6-12070a9bad36",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/master_explosive_test_stick__d1820b3b.bbmodel",
+    "elements": 3,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_test_stick",
+    "uuid": "f5b8bdfa-2226-b49d-9d4c-727e2dd18e1d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_test_stick__f5b8bdfa.bbmodel",
+    "elements": 3,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "fire_debug_stick",
+    "uuid": "bf1767f8-fd61-c88a-77cd-91e2bd382706",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/fire_debug_stick__bf1767f8.bbmodel",
+    "elements": 3,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "high_explosive_tnt",
+    "uuid": "247ffa82-2e5b-1fdf-3353-93b0ab7efe1e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_tnt__247ffa82.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "high_explosive_missile_warhead",
+    "uuid": "5d5e4610-5ec3-f92b-a515-e341a0e11dd0",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_missile_warhead__5d5e4610.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_explosive_cluster_tnt",
+    "uuid": "6ff04ff6-baed-56cd-3789-c4680214a9e5",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_cluster_tnt__6ff04ff6.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "high_explosive_cluster_missile_warhead",
+    "uuid": "ac0a79a3-ebfc-aa26-2ed9-568fb120da0d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_explosive_cluster_missile_warhead__ac0a79a3.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_capacity_he_tnt",
+    "uuid": "26e05b6e-c55f-5db6-202b-e04a80de58f3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_tnt__26e05b6e.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "high_capacity_he_missile_warhead",
+    "uuid": "5440e509-aeba-d555-3e34-7dc5d6acb446",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_missile_warhead__5440e509.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "high_capacity_he_cluster_tnt",
+    "uuid": "47b4ba53-f064-9f0d-ddfd-85a768f90047",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_cluster_tnt__47b4ba53.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "high_capacity_he_cluster_missile_warhead",
+    "uuid": "4053cb46-787b-1d97-36ba-c84731331699",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/high_capacity_he_cluster_missile_warhead__4053cb46.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "conventional_tnt",
+    "uuid": "e0b62eec-6836-6841-f455-3206cfca6cd3",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_tnt__e0b62eec.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "conventional_missile_warhead",
+    "uuid": "72423229-6af5-6cc2-a520-cb6e653d859a",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_missile_warhead__72423229.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "conventional_cluster_tnt",
+    "uuid": "9cecf451-6b5e-2700-9bf2-08743f703932",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_cluster_tnt__9cecf451.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "conventional_cluster_missile_warhead",
+    "uuid": "c5f8a9fa-ef89-1a1d-b66c-b9e42d7eee18",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/conventional_cluster_missile_warhead__c5f8a9fa.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_conventional_tnt",
+    "uuid": "60e587b8-c010-f4a1-19c5-3b2ed1ec8a8e",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_tnt__60e587b8.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "heavy_conventional_missile_warhead",
+    "uuid": "609e71b3-6a14-25af-d69b-b4d4963997bd",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_missile_warhead__609e71b3.bbmodel",
+    "elements": 22,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_conventional_cluster_tnt",
+    "uuid": "40cc6a60-569c-5b21-78e2-e8036dab6c3d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_cluster_tnt__40cc6a60.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "heavy_conventional_cluster_missile_warhead",
+    "uuid": "3908f87e-c4ac-2894-5d6c-2d0f57de9898",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_conventional_cluster_missile_warhead__3908f87e.bbmodel",
+    "elements": 27,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "tactical_nuclear_tnt",
+    "uuid": "04c6ea12-e1ad-1294-3280-56154dd409ce",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_tnt__04c6ea12.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "tactical_nuclear_missile_warhead",
+    "uuid": "11490201-e4c6-eeb3-9ea5-9bd67f92b3b0",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_missile_warhead__11490201.bbmodel",
+    "elements": 24,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "tactical_nuclear_cluster_tnt",
+    "uuid": "8fe99884-b981-f2b6-e43a-e0cedfcd85b0",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_cluster_tnt__8fe99884.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "tactical_nuclear_cluster_missile_warhead",
+    "uuid": "475a4059-bc5a-4b72-ec38-36f9aad2f01a",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/tactical_nuclear_cluster_missile_warhead__475a4059.bbmodel",
+    "elements": 29,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "strategic_nuclear_tnt",
+    "uuid": "2cd37e2f-1ef2-8eb2-0188-416742e18b82",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_tnt__2cd37e2f.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "strategic_nuclear_missile_warhead",
+    "uuid": "00f66a97-d0af-3592-1fc9-9a4b2a769ac9",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_missile_warhead__00f66a97.bbmodel",
+    "elements": 24,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "strategic_nuclear_cluster_tnt",
+    "uuid": "c5dbab66-dc05-bdb9-ec39-82a8868762cc",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_cluster_tnt__c5dbab66.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "strategic_nuclear_cluster_missile_warhead",
+    "uuid": "0eccd116-7c8e-cb0f-e42f-2883085c9f1a",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/strategic_nuclear_cluster_missile_warhead__0eccd116.bbmodel",
+    "elements": 29,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_nuclear_tnt",
+    "uuid": "20ce4c45-13a8-37e1-4131-ac9cd8ea3afd",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_tnt__20ce4c45.bbmodel",
+    "elements": 19,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "heavy_nuclear_missile_warhead",
+    "uuid": "79e79499-fc92-6e53-9fba-635eafebfca1",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_missile_warhead__79e79499.bbmodel",
+    "elements": 25,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "heavy_nuclear_cluster_tnt",
+    "uuid": "5225e164-d57b-1125-22cf-0808efb82fa4",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_cluster_tnt__5225e164.bbmodel",
+    "elements": 25,
+    "textures": 10,
+    "embedded": 10
+  },
+  {
+    "name": "heavy_nuclear_cluster_missile_warhead",
+    "uuid": "f28a5da1-9f26-2a58-6b2a-b40608f4c40a",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/heavy_nuclear_cluster_missile_warhead__f28a5da1.bbmodel",
+    "elements": 30,
+    "textures": 7,
+    "embedded": 7
+  },
+  {
+    "name": "missile_workbench",
+    "uuid": "56a5b5df-fb24-f976-8582-cdd3b3420621",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_workbench__56a5b5df.bbmodel",
+    "elements": 44,
+    "textures": 14,
+    "embedded": 14
+  },
+  {
+    "name": "missile_workbench",
+    "uuid": "7ca88ee6-53ea-84e3-3982-ecbc22e88e99",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/missile_workbench__7ca88ee6.bbmodel",
+    "elements": 44,
+    "textures": 14,
+    "embedded": 14
+  },
+  {
+    "name": "anti_air_body",
+    "uuid": "64b9b818-10b9-4e67-4589-5bd99d515878",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_body__64b9b818.bbmodel",
+    "elements": 27,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_ballistic",
+    "uuid": "452ea60f-1c3f-bccf-f0a4-aefc133ab03d",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_ballistic__452ea60f.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  },
+  {
+    "name": "anti_air_controller_self_destruct",
+    "uuid": "998bd2db-2f22-5058-85bb-d1e23f70a081",
+    "path": "D:/Minecraft Modding/War_Mod/tools/visuals/blockbench/saved_sessions/2026-09-05-open-projects/anti_air_controller_self_destruct__998bd2db.bbmodel",
+    "elements": 23,
+    "textures": 9,
+    "embedded": 9
+  }
+]

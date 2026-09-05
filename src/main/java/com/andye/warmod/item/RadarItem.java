@@ -17,6 +17,8 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -91,7 +93,7 @@ public final class RadarItem extends Item {
 
         context.getItemInHand().set(ModDataComponents.LINKED_RADAR_STATION, link);
         serverPlayer.sendSystemMessage(Component.literal(
-            "Missile Radar linked to station "
+            "Remote Display linked to station "
                 + link.radarId().toString().substring(0, 8)
         ));
         return InteractionResult.SUCCESS_SERVER;
@@ -121,7 +123,20 @@ public final class RadarItem extends Item {
     }
 
     @Override
-    public boolean isFoil(final ItemStack stack) {
-        return stack.has(ModDataComponents.LINKED_RADAR_STATION);
+    public void appendHoverText(
+        final ItemStack stack,
+        final TooltipContext context,
+        final TooltipDisplay display,
+        final java.util.function.Consumer<Component> tooltip,
+        final TooltipFlag flag
+    ) {
+        LinkedRadarStation link = stack.get(ModDataComponents.LINKED_RADAR_STATION);
+        if (link == null) {
+            tooltip.accept(Component.literal("Station: Not linked"));
+            return;
+        }
+        tooltip.accept(Component.literal("Station: " + link.centre().getX()
+            + ", " + link.centre().getY() + ", " + link.centre().getZ()));
+        tooltip.accept(Component.literal("Dimension: " + link.dimension().identifier()));
     }
 }

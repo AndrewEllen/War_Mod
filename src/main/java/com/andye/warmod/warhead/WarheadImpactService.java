@@ -3,6 +3,9 @@ package com.andye.warmod.warhead;
 import com.andye.warmod.WarMod;
 import com.andye.warmod.acoustics.AcousticEngine;
 import com.andye.warmod.acoustics.AcousticSounds;
+import com.andye.warmod.diagnostics.WarModPerformanceDiagnostics;
+import com.andye.warmod.diagnostics.WarheadLifecycleDiagnostics;
+import com.andye.warmod.fire.wind.FireWindEngine;
 import com.andye.warmod.radar.RadarTrackingService;
 import com.andye.warmod.testtool.TestExplosionService;
 import com.andye.warmod.testtool.WarheadExplosionDropContext;
@@ -60,6 +63,8 @@ public final class WarheadImpactService {
 	public static void detonateAt(final ServerLevel level, final @Nullable ServerPlayer owner, final UUID id,
 		final UUID radarRootTrackId, final Vec3 pos, final long seed, final WarheadPayloadType payloadType,
 		final boolean registerRadarImpact) {
+		long impactStarted = WarModPerformanceDiagnostics.begin();
+		try {
 		Objects.requireNonNull(level);
 		Objects.requireNonNull(id);
 		Objects.requireNonNull(pos);
@@ -67,63 +72,114 @@ public final class WarheadImpactService {
 		if (!pos.isFinite()) throw new IllegalArgumentException("impactPosition must be finite");
 
 		WarheadYield yield = WarheadYieldRegistry.resolve(level, id, radarRootTrackId, payloadType);
+		boolean customFire = WarheadYieldRegistry.usesCustomFire(level, id, radarRootTrackId);
 		StrategicExplosionProfile craterProfile = StrategicExplosionProfiles.get(yield);
 		Vec3 effectivePosition = WarheadExplosionWorkManager.resolveDetonationCenter(level, pos, yield);
+		double preparationReadiness = yield.nuclear()
+			? WarheadPreparationCoordinator.readinessPercent(level, id) : 100.0;
+		if (yield.nuclear()) {
+			WarheadLifecycleDiagnostics.impactAttempt(level, id, preparationReadiness,
+				null, pos, effectivePosition);
+		}
+		WarheadImpactEvent event = WarheadImpactEvent.create(id, level.getGameTime(),
+			effectivePosition, yield, seed);
+		/* Capture the atmospheric field before adding the radial blast impulse. The
+		   persistent cloud should drift with weather, not translate away from its own
+		   detonation as though the shockwave were a prevailing wind. */
+		Vec3 ambientWind = FireWindEngine.windAt(level, event.impactPosition());
+		FireWindEngine.addExplosionImpulse(level, event.impactPosition(),
+			48.0 + yield.visualScale() * (yield.nuclear() ? 72.0 : 38.0),
+			0.55 + yield.visualScale() * (yield.nuclear() ? 0.72 : 0.34),
+			yield.nuclear() ? 300 : 90, yield.nuclear());
 		if (registerRadarImpact) {
 			RadarTrackingService.registerImpact(
 				level,
 				id,
 				radarRootTrackId,
-				effectivePosition,
+				event.impactPosition(),
 				yield.payloadType(),
 				yield.visualScale()
 			);
 		}
 
-		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(
-			id,
-			effectivePosition.x,
-			effectivePosition.y,
-			effectivePosition.z,
-			level.getGameTime(),
-			seed,
-			yield.payloadType(),
-			yield.visualScale(),
-			yield.effectProfile()
-		), effectivePosition);
-
-		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks = TestExplosionService.createExplosion(
-			level,
-			owner,
-			id,
-			effectivePosition,
-			yield,
-			seed
-		);
-		spawnDebris(level, id, effectivePosition, seed, destroyedBlocks, yield, craterProfile);
+		long visualPacketStarted = WarModPerformanceDiagnostics.begin();
+		ClientboundWarheadImpactPayload visualPayload = event.visualPayload(ambientWind);
+		WarModPerformanceDiagnostics.record(
+			WarModPerformanceDiagnostics.Subsystem.VISUAL_PACKET_PREPARATION,
+			visualPacketStarted);
+		WarheadVisualNetworking.sendImpact(level, visualPayload,
+			event.impactPosition(), customFire, yield.nuclear());
+		if (yield.nuclear()) WarheadLifecycleDiagnostics.visualImpact(level, id);
 
 		float thudVolume = Mth.clamp(0.50F + yield.visualScale() * 0.09F, 0.55F, 1.15F);
-		AcousticEngine.playSound(
+		AcousticEngine.playSoundAtTime(
 			level,
-			effectivePosition,
+			event.impactPosition(),
 			AcousticSounds.WARHEAD_IMPACT_THUD_ID,
 			SoundSource.BLOCKS,
 			thudVolume,
-			Mth.clamp(1.08F - yield.visualScale() * 0.035F, 0.78F, 1.10F)
+			Mth.clamp(1.08F - yield.visualScale() * 0.035F, 0.78F, 1.10F),
+			event.impactServerTick(), event.acousticEventId("impact_thud"),
+			event.seed() ^ 0x494D504143545448L
 		);
-		AcousticEngine.playSound(
+		AcousticEngine.playSoundAtTime(
 			level,
-			effectivePosition,
+			event.impactPosition(),
 			yield == WarheadYield.HIGH_EXPLOSIVE
 				? AcousticSounds.TACTICAL_HE_EXPLOSION_ID
 				: AcousticSounds.LARGE_EXPLOSION_ID,
 			SoundSource.BLOCKS,
 			yield.acousticVolume(),
-			yield.acousticPitch()
+			yield.acousticPitch(), event.impactServerTick(),
+			event.acousticEventId("main_explosion"),
+			event.seed() ^ 0x4D41494E5F424F4FL
 		);
 
+		/* Physical impact is authoritative now. Terrain preparation is deliberately
+		 * sequenced after flash, sound, radar and entity blast dispatch so it can
+		 * never suppress or postpone the observable detonation. */
+		List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks;
+		if (yield.nuclear()) {
+			WarheadExplosionWorkManager.detonateEntitiesOnly(level, owner,
+				event.impactPosition(), yield);
+			WarheadLifecycleDiagnostics.entityBlast(level, id);
+			destroyedBlocks = TestExplosionService.captureDebris(level, id,
+				event.impactPosition(), yield, seed);
+			WarheadPreImpactPreparationManager.invalidateAround(level, id,
+				event.impactPosition(), yield,
+				WarheadFootprintCalculator.calculate(yield.payloadType(), yield,
+					event.impactPosition()).maximumMutationRadius());
+			ConsumedPreparedImpact sealed = WarheadPreparationCoordinator.sealImpact(
+				level, radarRootTrackId, id, radarRootTrackId,
+				event.impactPosition(), yield, seed, customFire);
+			boolean commitStarted = sealed != null && WarheadPreparedCommitManager.begin(level,
+				sealed.preparationId(), sealed.plan(), owner, yield, seed, customFire);
+			if (!commitStarted && !WarheadPreparedCommitManager.active(level, id)) {
+				WarMod.LOGGER.error("Could not begin detached prepared terrain commit for {}; "
+					+ "starting the complete bounded live compiler", id);
+				if (sealed != null) WarheadPreparationCoordinator.completeCommit(level,
+					sealed.preparationId(), id);
+				commitStarted = WarheadPreparedCommitManager.beginLiveFallback(level, id,
+					event.impactPosition(), owner, yield, seed, customFire);
+			}
+			if (!commitStarted && !WarheadPreparedCommitManager.active(level, id)) {
+				WarMod.LOGGER.error("No complete terrain commit owner could be established for {}",
+					id);
+			}
+		} else {
+			destroyedBlocks = TestExplosionService.createExplosion(level, owner, id,
+				event.impactPosition(), event.yield(), event.seed(), customFire);
+		}
+		spawnDebris(level, event, destroyedBlocks, craterProfile);
+
 		if (SharedConstants.IS_RUNNING_IN_IDE) {
-			WarMod.LOGGER.info("Warhead {} impacted: yield={}, position={}", id, yield.getSerializedName(), effectivePosition);
+			WarMod.LOGGER.info("Warhead {} impacted: sequence={}, yield={}, position={}",
+				id, event.impactSequence(), yield.getSerializedName(), event.impactPosition());
+		}
+		} finally {
+			WarModPerformanceDiagnostics.record(
+				WarModPerformanceDiagnostics.Subsystem.IMPACT_SERVICE_TOTAL,
+				impactStarted);
 		}
 	}
 
@@ -142,9 +198,11 @@ public final class WarheadImpactService {
 			case ANTI_AIR_LAUNCH_FAILURE -> 0.30F;
 			default -> 0.24F;
 		};
+		Vec3 ambientWind = FireWindEngine.windAt(level, pos);
 		WarheadVisualNetworking.sendImpact(level, new ClientboundWarheadImpactPayload(
 			id, pos.x, pos.y, pos.z, level.getGameTime(), seed,
-			WarheadPayloadType.CONVENTIONAL, scale, effect
+			WarheadPayloadType.CONVENTIONAL, scale, (float) ambientWind.x,
+			(float) ambientWind.z, effect
 		), pos);
 		if (effect == WarheadEffectProfile.ANTI_AIR_FALLBACK) {
 			TestExplosionService.createExplosion(level, null, pos, 8.0F);
@@ -161,13 +219,14 @@ public final class WarheadImpactService {
 
 	private static void spawnDebris(
 		final ServerLevel level,
-		final UUID impactId,
-		final Vec3 center,
-		final long seed,
+		final WarheadImpactEvent event,
 		final List<WarheadExplosionDropContext.DestroyedBlock> destroyedBlocks,
-		final WarheadYield yield,
 		final StrategicExplosionProfile craterProfile
 	) {
+		UUID impactId = event.impactId();
+		Vec3 center = event.impactPosition();
+		long seed = event.seed();
+		WarheadYield yield = event.yield();
 		int blockBudget = Math.min(yield.maximumDebris(), destroyedBlocks.size());
 		if (blockBudget <= 0) return;
 		PriorityQueue<RankedDestroyedBlock> selected = new PriorityQueue<>(
@@ -254,8 +313,15 @@ public final class WarheadImpactService {
 				1.0F, lifetime, List.copyOf(parts)
 			));
 		}
+		long debrisPartCount = 0L;
+		for (ClientboundWarheadDebrisPayload.Entry entry : entries)
+			debrisPartCount += entry.parts().size();
+		WarModPerformanceDiagnostics.add(
+			WarModPerformanceDiagnostics.Gauge.DEBRIS_PARTS_GENERATED,
+			debrisPartCount);
 		WarheadVisualNetworking.sendDebris(level, new ClientboundWarheadDebrisPayload(
-			impactId, center.x, center.y, center.z, level.getGameTime(), entries
+			impactId, center.x, center.y, center.z, event.impactServerTick(),
+			yield.nuclear(), entries
 		), center);
 	}
 

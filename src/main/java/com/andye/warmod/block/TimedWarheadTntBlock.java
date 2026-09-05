@@ -138,6 +138,7 @@ public final class TimedWarheadTntBlock extends TntBlock {
         TimedWarheadTntEntity charge = new TimedWarheadTntEntity(server,
             source == null ? null : source.getUUID(), Vec3.atCenterOf(pos), Vec3.ZERO, payload);
         if (!server.addFreshEntity(charge)) return false;
+        charge.beginTerrainPreparation(server);
         level.playSound(null, charge.getX(), charge.getY(), charge.getZ(),
             SoundEvents.TNT_PRIMED, SoundSource.BLOCKS, 1.0F, 1.0F);
         level.gameEvent(source, GameEvent.PRIME_FUSE, pos);

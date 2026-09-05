@@ -67,7 +67,7 @@ public final class PhalanxMenu extends AbstractContainerMenu {
             addSlot(new Slot(
                 container,
                 slot,
-                44 + column * 24,
+                66 + column * 24,
                 44 + row * 22
             ) {
                 @Override
@@ -77,7 +77,7 @@ public final class PhalanxMenu extends AbstractContainerMenu {
             });
         }
 
-        addStandardInventorySlots(inventory, 10, 166);
+        addStandardInventorySlots(inventory, 29, 166);
     }
 
     @Override
@@ -137,5 +137,13 @@ public final class PhalanxMenu extends AbstractContainerMenu {
 
     public @Nullable PhalanxBlockEntity turret() {
         return turret;
+    }
+
+    public BlockPos centre() {
+        return centre;
+    }
+
+    public java.util.UUID turretId() {
+        return turret == null ? new java.util.UUID(0L, 0L) : turret.turretId();
     }
 }

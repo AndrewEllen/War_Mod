@@ -1,5 +1,6 @@
 package com.andye.warmod.antiair;
 
+import com.andye.warmod.defence.DefenceOwnershipSnapshot;
 import java.util.Optional;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -17,6 +18,15 @@ public final class AntiAirLaunchPlanner {
         final Vec3 origin,
         final Vec3 burnout
     ) {
+        return plan(level, origin, burnout, DefenceOwnershipSnapshot.unclaimed());
+    }
+
+    public static Optional<AntiAirLaunchDecision> plan(
+        final ServerLevel level,
+        final Vec3 origin,
+        final Vec3 burnout,
+        final DefenceOwnershipSnapshot ownership
+    ) {
         if (
             origin == null
             || burnout == null
@@ -29,7 +39,8 @@ public final class AntiAirLaunchPlanner {
         AntiAirTargetSelection selection =
             AntiAirTargetSelector.acquire(
                 level,
-                origin
+                origin,
+                ownership
             ).orElse(null);
 
         if (selection == null) {

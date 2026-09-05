@@ -33,6 +33,8 @@ public final class NuclearFlashOverlay {
 				Vec3 look = client.player.getViewVector(partial).normalize();
 				for (ImpactVisualState state : ClientWarheadVisualManager.INSTANCE.snapshot(client.level).impacts()) {
 					if (state.payloadType() != WarheadPayloadType.NUCLEAR) continue;
+					if (!ClientWarheadVisualManager.INSTANCE
+						.isNuclearFlashExposed(state.warheadId())) continue;
 					Vec3 toImpact = state.impactPosition().subtract(eye);
 					double distance = toImpact.length();
 					if (!Double.isFinite(distance) || distance > 2_048.0 || distance < 1.0E-5) continue;

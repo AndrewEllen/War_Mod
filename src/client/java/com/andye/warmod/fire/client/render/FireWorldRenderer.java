@@ -1,0 +1,533 @@
+package com.andye.warmod.fire.client.render;
+
+import com.andye.warmod.diagnostics.client.ClientPerformanceTelemetry;
+import com.andye.warmod.fire.FireRepresentationPlan;
+import com.andye.warmod.fire.FireRepresentationPlan.Card;
+import com.andye.warmod.fire.FireRepresentationPlan.CellPlan;
+import com.andye.warmod.fire.FireSurfaceAnchor;
+import com.andye.warmod.fire.FireVisualLodPolicy;
+import com.andye.warmod.fire.client.ClientFireVisualManager;
+import com.andye.warmod.fire.client.ClientFireVisualManager.VisualCell;
+import com.andye.warmod.fire.client.ClientFireVisualManager.VisualEmber;
+import com.andye.warmod.fire.client.ClientSmokeFlowField;
+import com.andye.warmod.fire.client.ClientSmokeFlowField.SmokeFlow;
+import com.andye.warmod.fire.network.FireVisualCell;
+import com.andye.warmod.fire.network.FireVisualBand;
+import com.andye.warmod.particle.gpu.GpuParticleEngine;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldCell;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldEmber;
+import com.andye.warmod.particle.gpu.GpuParticleEngine.FireFieldSubmission;
+import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
+import com.andye.warmod.warhead.client.render.WarheadRenderSettings;
+import com.mojang.blaze3d.vertex.PoseStack;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.EnumMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import org.joml.FrustumIntersection;
+import org.joml.Matrix4f;
+import org.joml.Quaternionf;
+
+/** Shared coverage-plan renderer for both packed CPU and GPU fire paths. */
+public final class FireWorldRenderer {
+    private static final double MAX_EMBER_DISTANCE = 320.0;
+    private static final int GPU_FIELD_CELL_SIZE = 64;
+    private static final float EMBER_VISIBILITY_RADIUS = 0.75F;
+    private static final FireOcclusionCache OCCLUSION = new FireOcclusionCache();
+    private static volatile RenderFrame currentFrame = RenderFrame.EMPTY;
+    private static volatile FireRenderStats lastStats = FireRenderStats.EMPTY;
+    private static boolean registered;
+    private static ClientLevel planLevel;
+    private static final Map<FireVisualBand, Long2ObjectOpenHashMap<CachedPlan>> PLANS =
+        new EnumMap<>(FireVisualBand.class);
+    private static long planPruneTick = Long.MIN_VALUE;
+
+    private FireWorldRenderer() { }
+
+    public static void register() {
+        if (registered) return;
+        LevelExtractionEvents.END_EXTRACTION.register(FireWorldRenderer::extract);
+        LevelRenderEvents.COLLECT_SUBMITS.register(FireWorldRenderer::collectSubmits);
+        registered = true;
+    }
+
+    private static void extract(final LevelExtractionContext context) {
+        long extractionStarted = System.nanoTime();
+        ClientLevel level = context.level();
+        CameraRenderState camera = context.levelState().cameraRenderState;
+        if (level == null || camera == null || camera.pos == null) {
+            currentFrame = RenderFrame.EMPTY;
+            lastStats = FireRenderStats.EMPTY;
+            GpuParticleEngine.recordClientFirePatches(0);
+            ClientPerformanceTelemetry.recordFireNanos(
+                Math.max(0L, System.nanoTime() - extractionStarted));
+            return;
+        }
+        Vec3 cameraPosition = camera.pos;
+        if (planLevel != level) {
+            PLANS.clear();
+            for (FireVisualBand band : FireVisualBand.values())
+                PLANS.put(band, new Long2ObjectOpenHashMap<>());
+            planLevel = level;
+            planPruneTick = Long.MIN_VALUE;
+        }
+        long visualTick = ClientFireVisualManager.INSTANCE.visualTick(level);
+        final long tick = visualTick == Long.MIN_VALUE ? 0L : visualTick;
+        if (planPruneTick == Long.MIN_VALUE || tick - planPruneTick >= 20) {
+            for (var cache : PLANS.values()) cache.values().removeIf(entry -> tick - entry.lastUsed > 20);
+            planPruneTick = tick;
+        }
+        Quaternionf orientation = camera.orientation == null
+            ? new Quaternionf() : new Quaternionf(camera.orientation);
+        CameraProjection projection = CameraProjection.create(camera);
+        OCCLUSION.begin(level, cameraPosition, level.getGameTime());
+        double gameTime = ClientFireVisualManager.INSTANCE.renderTime(level,
+            (float) context.deltaTracker().getGameTimeDeltaPartialTick(true));
+        float cpuFlameWeight = GpuParticleEngine.cpuOpticalWeight(
+            GpuParticleEngine.VisualLayer.FLAMES);
+        float cpuSmokeWeight = GpuParticleEngine.cpuOpticalWeight(
+            GpuParticleEngine.VisualLayer.SMOKE);
+        boolean cpuFlames = cpuFlameWeight > 0.001F;
+        boolean cpuSmoke = cpuSmokeWeight > 0.001F;
+        boolean cpuEmbers = GpuParticleEngine.shouldRenderCpu(
+            GpuParticleEngine.VisualLayer.EMBERS);
+        boolean gpuFlames = GpuParticleEngine.shouldSubmitGpu(
+            GpuParticleEngine.VisualLayer.FLAMES);
+        boolean gpuSmoke = GpuParticleEngine.shouldSubmitGpu(
+            GpuParticleEngine.VisualLayer.SMOKE);
+        boolean gpuEmbers = GpuParticleEngine.shouldSubmitGpu(
+            GpuParticleEngine.VisualLayer.EMBERS);
+        List<VisualCell> clientCells = ClientFireVisualManager.INSTANCE.snapshot(level);
+        GpuParticleEngine.recordClientFirePatches(clientCells.size());
+        ArrayList<FireRenderCell> renderCells = new ArrayList<>(clientCells.size());
+        Map<Long, FireFieldBuilder> gpuFields = new LinkedHashMap<>();
+        int sourceHosts = 0;
+        int representedCells = 0;
+        int cpuFlameCards = 0;
+        int cpuSmokeCards = 0;
+        int reusedPlans = 0;
+        double quality = WarheadRenderSettings.qualityScale();
+        // This is the real negotiated client/server terrain distance, not a
+        // projection or zoom value. Fire LOD must never make distant unloaded
+        // terrain look populated with floating effects.
+        int terrainRenderChunks = Math.max(2,
+            Minecraft.getInstance().options.getEffectiveRenderDistance());
+
+        for (VisualCell visual : clientCells) {
+            FireVisualCell cell = visual.cell();
+            sourceHosts += Math.max(1, cell.hostCount());
+            Vec3 worldPosition = cell.centroid();
+            double dx = worldPosition.x - cameraPosition.x;
+            double dy = worldPosition.y - cameraPosition.y;
+            double dz = worldPosition.z - cameraPosition.z;
+            double distanceSquared = dx * dx + dy * dy + dz * dz;
+            double distance = Math.sqrt(distanceSquared);
+            float boundsRadius = cell.boundingRadius();
+            double smokeHalfHeight = cell.smokeMass() > 0.012F
+                ? FireParticleRenderer.smokePlumeHeight(cell) * 0.5 : 0.0;
+            if (!Double.isFinite(distance)
+                || !projection.visible(dx, dy + smokeHalfHeight, dz,
+                    dx * dx + (dy + smokeHalfHeight) * (dy + smokeHalfHeight) + dz * dz,
+                    boundsRadius + (float)smokeHalfHeight)
+                || !hasVisibleTerrainSupport(level, cameraPosition, cell, terrainRenderChunks)) continue;
+            double projectedCellDiameter = projection.projectedDiameter(distance,
+                Math.max(0.5F, Math.max((float) cell.extents().x,
+                    Math.max((float) cell.extents().y, (float) cell.extents().z))));
+            double projectedHostDiameter = projection.projectedDiameter(distance, 0.5F);
+            int detailLevel = ClientFireVisualManager.INSTANCE.lodLevel(level,
+                cell, projectedHostDiameter);
+            double continuousDetail = Math.max(0.0, Math.min(4.0,
+                Math.log(FireVisualLodPolicy.FULL_DETAIL_PIXELS
+                    / Math.max(0.01, projectedHostDiameter)) / Math.log(2.6)));
+            float representationWeight = visual.transitionWeight()
+                * FireVisualLodPolicy.representationWeight(cell.band(), distance, continuousDetail);
+            if (representationWeight <= 0.001F) continue;
+            BlockPos centerBlock = BlockPos.containing(worldPosition);
+            float closeDetail = cell.band().exactPatch() ? FireRepresentationPlan.closeDetailWeight(
+                distance / projection.projectionScale()) : 0.0F;
+            var cache = PLANS.get(cell.band());
+            CachedPlan previous = cache.get(cell.id());
+            CellPlan plan;
+            if (previous != null && previous.cell == cell
+                && previous.projected == projectedCellDiameter && previous.quality == quality
+                && previous.weight == representationWeight && previous.close == closeDetail) {
+                plan = previous.plan;
+                previous.lastUsed = tick;
+                reusedPlans++;
+            } else {
+                plan = FireRepresentationPlan.plan(cell, projectedCellDiameter,
+                    quality, representationWeight, detailLevel, closeDetail);
+                if (cache.size() >= 32768) cache.clear();
+                cache.put(cell.id(), new CachedPlan(cell, projectedCellDiameter, quality,
+                    representationWeight, closeDetail, plan, tick));
+            }
+            if (plan.flames().isEmpty() && plan.smoke().isEmpty()) continue;
+            representedCells++;
+            if (cpuFlames) cpuFlameCards += plan.flames().size();
+            if (cpuSmoke) cpuSmokeCards += plan.smoke().size();
+            Vec3 wind = ClientFireVisualManager.INSTANCE.effectiveWind(worldPosition,
+                cell.wind(), gameTime);
+            if (gpuFlames || gpuSmoke) field(gpuFields, worldPosition).cells.add(
+                new FireFieldCell(cell.id(), cell.band(), worldPosition,
+                    Vec3.atLowerCornerOf(cell.dominantFace().getUnitVec3i()), wind,
+                    cell.averageIntensity(), cell.maximumHeat(), cell.smokeMass(),
+                    cell.flameEnvelopeHeight(), boundsRadius,
+                    filteredPlan(plan, gpuFlames, gpuSmoke), cell.seed()));
+            if (cpuFlames || cpuSmoke || cpuEmbers) {
+                SmokeFlow smokeFlow = smokeFlow(level, cell, centerBlock);
+                renderCells.add(new FireRenderCell(cell, plan,
+                    new Vec3(dx, dy, dz), wind, smokeFlow,
+                    distance, projectedCellDiameter, cameraPosition,
+                    cpuFlameWeight, cpuSmokeWeight,
+                    closeDetail, visual.windHistory()));
+            }
+        }
+
+        List<FireRenderEmber> embers = new ArrayList<>();
+        for (VisualEmber ember : ClientFireVisualManager.INSTANCE.emberSnapshot(level)) {
+            Vec3 worldPosition = ember.position();
+            double dx = worldPosition.x - cameraPosition.x;
+            double dy = worldPosition.y - cameraPosition.y;
+            double dz = worldPosition.z - cameraPosition.z;
+            double distanceSquared = dx * dx + dy * dy + dz * dz;
+            double distance = Math.sqrt(distanceSquared);
+            if (!Double.isFinite(distance) || distance > MAX_EMBER_DISTANCE
+                || !projection.visible(dx, dy, dz, distanceSquared, EMBER_VISIBILITY_RADIUS)
+                || !hasVisibleTerrainPoint(level, cameraPosition, worldPosition,
+                    EMBER_VISIBILITY_RADIUS, terrainRenderChunks)
+                || (level.hasChunkAt(BlockPos.containing(worldPosition))
+                    && !OCCLUSION.visible(level, cameraPosition, worldPosition, distance))) continue;
+            double projectedEmberDiameter = projection.projectedDiameter(distance, 0.10F);
+            if (stableUnit(ember.id() ^ ember.seed())
+                > FireVisualLodPolicy.emberRetention(projectedEmberDiameter)) continue;
+            float emberLodScale = FireVisualLodPolicy.emberScale(projectedEmberDiameter);
+            float emberImportance = Math.max(0.1F, ember.intensity()
+                * (0.85F + (float) Math.min(1.5, ember.velocity().length()) * 0.35F));
+            if (gpuEmbers) field(gpuFields, worldPosition).embers.add(new FireFieldEmber(
+                ember.id(), worldPosition, ember.velocity(), Math.max(0.05F, ember.intensity()),
+                (0.075F + ember.intensity() * 0.035F) * emberLodScale,
+                emberImportance, ember.seed()));
+            if (!cpuEmbers && !cpuSmoke) continue;
+            List<FireRenderEmberTrail> trail = ember.trail().stream()
+                .map(sample -> new FireRenderEmberTrail(
+                    sample.position().subtract(cameraPosition),
+                    ClientFireVisualManager.INSTANCE.effectiveWind(sample.position(),
+                        sample.wind(), gameTime), sample.gameTime()))
+                .toList();
+            embers.add(new FireRenderEmber(new Vec3(dx, dy, dz),
+                ember.velocity(), ember.intensity(), ember.seed(), ember.startGameTime(),
+                ember.lifetime(), distance, projectedEmberDiameter, emberLodScale, trail));
+        }
+
+        currentFrame = renderCells.isEmpty() && embers.isEmpty()
+            ? RenderFrame.EMPTY : new RenderFrame(gameTime, orientation,
+                List.copyOf(renderCells), List.copyOf(embers),
+                cpuFlames, cpuSmoke, cpuEmbers);
+        for (FireFieldBuilder builder : gpuFields.values()) {
+            FireFieldSubmission submission = builder.finish();
+            if (submission != null) GpuParticleEngine.submitFireField(submission);
+        }
+        lastStats = new FireRenderStats(sourceHosts, clientCells.size(), representedCells,
+            cpuFlameCards, cpuSmokeCards, reusedPlans);
+        ClientPerformanceTelemetry.recordFireNanos(
+            Math.max(0L, System.nanoTime() - extractionStarted));
+    }
+
+    private static SmokeFlow smokeFlow(final ClientLevel level,
+        final FireVisualCell cell, final BlockPos centerBlock) {
+        if (cell.cellSize() > 2 || !level.hasChunkAt(centerBlock))
+            return new SmokeFlow(8.5F, 3.0F, Vec3.ZERO, false, 1.0F);
+        FireSurfaceAnchor anchor = new FireSurfaceAnchor(centerBlock,
+            cell.dominantFace(), 0.5F, 0.5F, 0.5F);
+        return ClientSmokeFlowField.INSTANCE.request(level, anchor, level.getGameTime());
+    }
+
+    /**
+     * A smoke column may be tall, but visibility belongs to the burning ground
+     * beneath it. Check horizontal support only so height never causes a
+     * distant unloaded fire to survive the terrain boundary.
+     */
+    private static boolean hasVisibleTerrainSupport(final ClientLevel level,
+        final Vec3 camera, final FireVisualCell cell, final int renderChunks) {
+        double horizontalRadius = Math.hypot(cell.extents().x, cell.extents().z);
+        if (!supportWithinRenderDistance(camera.x, camera.z, cell.centroid().x,
+            cell.centroid().z, horizontalRadius, renderChunks)) return false;
+
+        double subcellSize = cell.cellSize() / 8.0;
+        double subcellRadius = Math.sqrt(2.0) * subcellSize * 0.5;
+        long occupancy = cell.occupancyMask();
+        for (int bit = 0; bit < Long.SIZE; bit++) {
+            if ((occupancy & (1L << bit)) == 0L) continue;
+            int subX = bit & 7;
+            int subZ = bit >>> 3;
+            double x = cell.cellX() * (double) cell.cellSize()
+                + (subX + 0.5) * subcellSize;
+            double z = cell.cellZ() * (double) cell.cellSize()
+                + (subZ + 0.5) * subcellSize;
+            if (hasVisibleTerrainPoint(level, camera, new Vec3(x, 0.0, z),
+                subcellRadius, renderChunks)) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasVisibleTerrainPoint(final ClientLevel level,
+        final Vec3 camera, final Vec3 point, final double supportRadius,
+        final int renderChunks) {
+        return supportWithinRenderDistance(camera.x, camera.z, point.x, point.z,
+            supportRadius, renderChunks)
+            && hasLoadedTerrainChunk(level, (int)Math.floor(point.x),
+                (int)Math.floor(point.z));
+    }
+
+    /** ClientLevel#hasChunk is intentionally optimistic, so query the cache itself. */
+    private static boolean hasLoadedTerrainChunk(final ClientLevel level,
+        final int blockX, final int blockZ) {
+        return level.getChunkSource().getChunk(
+            SectionPos.blockToSectionCoord(blockX),
+            SectionPos.blockToSectionCoord(blockZ),
+            ChunkStatus.FULL,
+            false) != null;
+    }
+
+    /** Pure horizontal boundary used by the support and renderer-distance tests. */
+    static boolean supportWithinRenderDistance(final double cameraX, final double cameraZ,
+        final double supportX, final double supportZ, final double supportRadius,
+        final int renderChunks) {
+        if (renderChunks <= 0 || !Double.isFinite(cameraX) || !Double.isFinite(cameraZ)
+            || !Double.isFinite(supportX) || !Double.isFinite(supportZ)
+            || !Double.isFinite(supportRadius)) return false;
+        double reach = renderChunks * 16.0 + 16.0;
+        double horizontalDistance = Math.hypot(supportX - cameraX, supportZ - cameraZ);
+        return horizontalDistance - Math.max(0.0, supportRadius) <= reach;
+    }
+
+    private static CellPlan filteredPlan(final CellPlan source,
+        final boolean flames, final boolean smoke) {
+        return new CellPlan(flames ? source.flames() : List.of(),
+            smoke ? source.smoke() : List.of(), source.sparkCount(),
+            source.representedFlameArea(), source.representedSmokeOpticalDepth(),
+            source.representationWeight());
+    }
+
+    private static void collectSubmits(final LevelRenderContext context) {
+        RenderFrame frame = currentFrame;
+        if (frame == RenderFrame.EMPTY || (frame.cells().isEmpty() && frame.embers().isEmpty()))
+            return;
+        PoseStack poseStack = context.poseStack();
+        if (poseStack == null) return;
+        if (frame.cpuFlames()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+            WarheadRenderPipelines.FIREBALL_HOT,
+            (pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
+                frame.gameTime(), frame.cells(), frame.cameraOrientation()));
+        if (frame.cpuFlames()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+            SurfaceFireRenderPipelines.FLAMES,
+            (pose, buffer) -> FireParticleRenderer.renderFlames(pose, buffer,
+                frame.gameTime(), frame.cells(), frame.cameraOrientation(), true));
+        if (frame.cpuEmbers() && !frame.embers().isEmpty())
+            context.submitNodeCollector().submitCustomGeometry(poseStack,
+                WarheadRenderPipelines.FIREBALL_HOT,
+                (pose, buffer) -> FireParticleRenderer.renderFirebrands(pose, buffer,
+                    frame.gameTime(), frame.embers(), frame.cameraOrientation()));
+        if (frame.cpuEmbers()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+            WarheadRenderPipelines.FIREBALL_COOL,
+            (pose, buffer) -> FireParticleRenderer.renderEmbers(pose, buffer,
+                frame.gameTime(), frame.cells(), frame.cameraOrientation()));
+        if (frame.cpuSmoke()) context.submitNodeCollector().submitCustomGeometry(poseStack,
+            WarheadRenderPipelines.GROUND_DUST,
+            (pose, buffer) -> FireParticleRenderer.renderSmoke(pose, buffer,
+                frame.gameTime(), frame.cells(), frame.cameraOrientation()));
+        if (frame.cpuSmoke() && !frame.embers().isEmpty())
+            context.submitNodeCollector().submitCustomGeometry(poseStack,
+                WarheadRenderPipelines.GROUND_DUST,
+                (pose, buffer) -> FireParticleRenderer.renderFirebrandSmoke(pose, buffer,
+                    frame.gameTime(), frame.embers(), frame.cameraOrientation()));
+    }
+
+    private static FireFieldBuilder field(final Map<Long, FireFieldBuilder> fields,
+        final Vec3 position) {
+        int cellX = Math.floorDiv((int) Math.floor(position.x), GPU_FIELD_CELL_SIZE);
+        int cellZ = Math.floorDiv((int) Math.floor(position.z), GPU_FIELD_CELL_SIZE);
+        long key = ((long) cellX << 32) ^ (cellZ & 0xFFFF_FFFFL);
+        return fields.computeIfAbsent(key, ignored -> new FireFieldBuilder(key));
+    }
+
+    private static double stableUnit(final long value) {
+        return (mix(value) >>> 11) * 0x1.0p-53;
+    }
+
+    public static FireRenderStats debugStats() { return lastStats; }
+
+    public record FireRenderStats(int sourceHosts, int aggregatedCells,
+        int visibleCells, int cpuFlameCards, int cpuSmokeCards, int reusedPlans) {
+        private static final FireRenderStats EMPTY = new FireRenderStats(0, 0, 0, 0, 0, 0);
+    }
+
+    private static final class CachedPlan {
+        final FireVisualCell cell;
+        final double projected, quality;
+        final float weight, close;
+        final CellPlan plan;
+        long lastUsed;
+        CachedPlan(FireVisualCell cell, double projected, double quality, float weight,
+            float close, CellPlan plan, long tick) {
+            this.cell = cell; this.projected = projected; this.quality = quality;
+            this.weight = weight; this.close = close; this.plan = plan; this.lastUsed = tick;
+        }
+    }
+
+    private static long mix(long value) {
+        value ^= value >>> 30; value *= 0xBF58476D1CE4E5B9L;
+        value ^= value >>> 27; value *= 0x94D049BB133111EBL;
+        return value ^ value >>> 31;
+    }
+
+    private static final class FireFieldBuilder {
+        private final long regionId;
+        private final List<FireFieldCell> cells = new ArrayList<>();
+        private final List<FireFieldEmber> embers = new ArrayList<>();
+
+        private FireFieldBuilder(final long regionId) { this.regionId = regionId; }
+
+        private FireFieldSubmission finish() {
+            if (cells.isEmpty() && embers.isEmpty()) return null;
+            double x = 0.0, y = 0.0, z = 0.0;
+            int count = 0;
+            for (FireFieldCell cell : cells) {
+                x += cell.position().x; y += cell.position().y; z += cell.position().z;
+                count++;
+            }
+            for (FireFieldEmber ember : embers) {
+                x += ember.position().x; y += ember.position().y; z += ember.position().z;
+                count++;
+            }
+            Vec3 center = new Vec3(x / Math.max(1, count), y / Math.max(1, count),
+                z / Math.max(1, count));
+            double radius = 4.0;
+            for (FireFieldCell cell : cells)
+                radius = Math.max(radius, center.distanceTo(cell.position())
+                    + cell.boundsRadius());
+            for (FireFieldEmber ember : embers)
+                radius = Math.max(radius, center.distanceTo(ember.position()) + 2.0);
+            return new FireFieldSubmission(regionId, center, (float) radius,
+                List.copyOf(cells), List.copyOf(embers));
+        }
+    }
+
+    record FireRenderCell(FireVisualCell cell, CellPlan plan, Vec3 relativeCentroid,
+        Vec3 wind, SmokeFlow smokeFlow, double distance,
+        double projectedCellDiameter, Vec3 cameraPosition,
+        float flameWeight, float smokeWeight, float closeDetail,
+        ClientFireVisualManager.WindHistory windHistory) {
+        double windDisplacementX(final double from, final double to) {
+            return windHistory.displacementX(from, to);
+        }
+        double windDisplacementZ(final double from, final double to) {
+            return windHistory.displacementZ(from, to);
+        }
+    }
+    record FireRenderEmber(Vec3 relativePosition, Vec3 velocity, float intensity,
+        long seed, long startGameTime, int lifetime, double distance,
+        double projectedDiameter, float lodScale,
+        List<FireRenderEmberTrail> trail) { }
+    record FireRenderEmberTrail(Vec3 relativePosition, Vec3 wind, long gameTime) { }
+    private record RenderFrame(double gameTime, Quaternionf cameraOrientation,
+        List<FireRenderCell> cells, List<FireRenderEmber> embers,
+        boolean cpuFlames, boolean cpuSmoke, boolean cpuEmbers) {
+        private static final RenderFrame EMPTY = new RenderFrame(0.0, new Quaternionf(),
+            List.of(), List.of(), false, false, false);
+    }
+
+    private record CameraProjection(Vec3 position, Matrix4f viewProjection,
+        FrustumIntersection frustum, float projectionScale, int viewportHeight) {
+        private static CameraProjection create(final CameraRenderState camera) {
+            Matrix4f matrix = camera.projectionMatrix == null || camera.viewRotationMatrix == null
+                ? null : new Matrix4f(camera.projectionMatrix).mul(camera.viewRotationMatrix);
+            float scale = camera.projectionMatrix == null ? 1.0F
+                : Math.max(0.01F, Math.abs(camera.projectionMatrix.m11()));
+            int height = Math.max(1, Minecraft.getInstance().getWindow().getHeight());
+            return new CameraProjection(camera.pos, matrix,
+                matrix == null ? null : new FrustumIntersection(matrix), scale, height);
+        }
+
+        private boolean visible(final double dx, final double dy, final double dz,
+            final double distanceSquared, final float radius) {
+            if (viewProjection == null) return true;
+            if (distanceSquared <= (double) radius * radius) return true;
+            return frustum.testSphere((float)dx, (float)dy, (float)dz, radius);
+        }
+
+        private double projectedDiameter(final double cameraDistance, final float radius) {
+            double distance = Math.max(0.25, cameraDistance);
+            return Math.max(0.0, radius * 2.0 * projectionScale
+                * viewportHeight * 0.5 / distance);
+        }
+    }
+
+    /** Coarse cached world-occlusion probes; depth testing owns partial cells. */
+    private static final class FireOcclusionCache {
+        private static final int CELL_SIZE = 8;
+        private static final int PROBES_PER_FRAME = 12;
+        private static final long CACHE_TICKS = 8L;
+        private final Map<Long, CachedOcclusion> cells = new HashMap<>();
+        private ClientLevel cachedLevel;
+        private long cameraCell = Long.MIN_VALUE;
+        private long gameTick;
+        private int probesRemaining;
+
+        private void begin(final ClientLevel level, final Vec3 camera, final long now) {
+            long nextCameraCell = BlockPos.asLong(
+                Math.floorDiv((int) Math.floor(camera.x), 4),
+                Math.floorDiv((int) Math.floor(camera.y), 4),
+                Math.floorDiv((int) Math.floor(camera.z), 4));
+            if (cachedLevel != level || cameraCell != nextCameraCell) {
+                cells.clear(); cachedLevel = level; cameraCell = nextCameraCell;
+            }
+            gameTick = now;
+            probesRemaining = PROBES_PER_FRAME;
+            if (cells.size() > 2_048)
+                cells.entrySet().removeIf(entry -> entry.getValue().expiresAt() < now);
+        }
+
+        private boolean visible(final ClientLevel level, final Vec3 camera,
+            final Vec3 target, final double distance) {
+            if (distance <= 32.0) return true;
+            int cellX = Math.floorDiv((int) Math.floor(target.x), CELL_SIZE);
+            int cellY = Math.floorDiv((int) Math.floor(target.y), CELL_SIZE);
+            int cellZ = Math.floorDiv((int) Math.floor(target.z), CELL_SIZE);
+            long key = BlockPos.asLong(cellX, cellY, cellZ);
+            CachedOcclusion cached = cells.get(key);
+            if (cached != null && cached.expiresAt() >= gameTick) return cached.visible();
+            if (probesRemaining-- <= 0) return true;
+            Vec3 cellCenter = new Vec3((cellX + 0.5) * CELL_SIZE,
+                (cellY + 0.5) * CELL_SIZE, (cellZ + 0.5) * CELL_SIZE);
+            HitResult hit = level.clip(new ClipContext(camera, cellCenter,
+                ClipContext.Block.VISUAL, ClipContext.Fluid.NONE,
+                CollisionContext.empty()));
+            double cellRadius = Math.sqrt(3.0) * CELL_SIZE * 0.5;
+            boolean result = hit.getType() == HitResult.Type.MISS
+                || camera.distanceTo(hit.getLocation()) + cellRadius
+                    >= camera.distanceTo(cellCenter);
+            cells.put(key, new CachedOcclusion(result, gameTick + CACHE_TICKS));
+            return result;
+        }
+    }
+
+    private record CachedOcclusion(boolean visible, long expiresAt) { }
+}

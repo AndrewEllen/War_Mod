@@ -13,4 +13,5 @@ public final class ArtilleryWarheadRenderState extends EntityRenderState {
     public float remainingTicks;
     public float progress;
     public int flightTicks = 1;
+    public boolean clusterCarrier;
 }

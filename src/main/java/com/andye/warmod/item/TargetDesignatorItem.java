@@ -78,7 +78,6 @@ public final class TargetDesignatorItem extends Item {
         player.sendSystemMessage(Component.literal("Target acquired: " + format(position)));
     }
 
-    @Override public boolean isFoil(final ItemStack stack) { return stack.has(ModDataComponents.TARGET_COORDINATES); }
     @Override public void appendHoverText(final ItemStack stack, final TooltipContext context,
         final TooltipDisplay display, final Consumer<Component> builder, final TooltipFlag flag) {
         TargetCoordinates target = stack.get(ModDataComponents.TARGET_COORDINATES);

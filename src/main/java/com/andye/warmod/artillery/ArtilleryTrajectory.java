@@ -3,15 +3,8 @@ package com.andye.warmod.artillery;
 import java.util.Optional;
 import net.minecraft.world.phys.Vec3;
 
-/** Solves the discrete, gravity-only trajectory used by artillery shells. */
+/** Solves the discrete, gravity-only high arc used by artillery shells. */
 public final class ArtilleryTrajectory {
-    /*
-     * Fixed-speed low arcs made close targets look as though they were being fired into the
-     * ground.  Choose a visibly artillery-like elevation first, then solve the required
-     * speed.  The lowest fallback still has a clear upward component.
-     */
-    private static final double[] PREFERRED_ELEVATIONS_DEGREES = { 54.0, 50.0, 46.0, 42.0, 38.0 };
-
     private ArtilleryTrajectory() { }
 
     public static Optional<Vec3> solve(final Vec3 origin, final Vec3 target) {
@@ -20,62 +13,33 @@ public final class ArtilleryTrajectory {
         double distance = horizontal.horizontalDistance();
         double dy = target.y - origin.y;
         if (distance < 0.001 || distance > ArtilleryConstants.MAX_RANGE_BLOCKS) return Optional.empty();
-        for (double elevationDegrees : PREFERRED_ELEVATIONS_DEGREES) {
-            Vec3 velocity = solveAtElevation(horizontal, distance, dy, Math.toRadians(elevationDegrees));
-            if (velocity != null) return Optional.of(velocity);
-        }
-
-        // Retain the old maximum-speed solution as a last resort for unusual high targets.
-        double speed = ArtilleryConstants.MAX_MUZZLE_SPEED;
         double gravity = ArtilleryConstants.GRAVITY_PER_TICK;
-        double discriminant = speed * speed * speed * speed - gravity * (gravity * distance * distance + 2.0 * dy * speed * speed);
-        if (discriminant < 0.0 || !Double.isFinite(discriminant)) return Optional.empty();
-        double root = Math.sqrt(discriminant);
+        double desiredApex = Math.min(300.0, 58.0 + distance * 0.24);
         Vec3 best = null;
-        for (double tangent : new double[] { (speed * speed + root) / (gravity * distance), (speed * speed - root) / (gravity * distance) }) {
-            if (!Double.isFinite(tangent)) continue;
-            double cos = 1.0 / Math.sqrt(1.0 + tangent * tangent);
-            double horizontalSpeed = speed * cos;
-            double verticalSpeed = horizontalSpeed * tangent;
-            if (horizontalSpeed <= 0.0 || verticalSpeed * verticalSpeed / (2.0 * gravity) > ArtilleryConstants.MAX_APEX_ABOVE_MUZZLE + 1.0E-6) continue;
-            Vec3 velocity = horizontal.normalize().scale(horizontalSpeed).add(0.0, verticalSpeed, 0.0);
-            if (best == null || velocity.y > best.y) best = velocity;
+        double bestScore = Double.POSITIVE_INFINITY;
+        /* Solve from integer flight time because the entity integrates velocity
+         * before gravity. This lets us choose the cinematic high arc explicitly
+         * without sacrificing exact arrival at the selected block. */
+        for (int ticks = 12; ticks <= 900; ticks++) {
+            double horizontalSpeed = distance / ticks;
+            double verticalSpeed = (dy + gravity * ticks * (ticks - 1) * 0.5) / ticks;
+            double speedSquared = horizontalSpeed * horizontalSpeed
+                + verticalSpeed * verticalSpeed;
+            if (verticalSpeed <= 0.0 || !Double.isFinite(speedSquared)
+                || speedSquared > ArtilleryConstants.MAX_MUZZLE_SPEED
+                    * ArtilleryConstants.MAX_MUZZLE_SPEED) continue;
+            double apex = verticalSpeed * verticalSpeed / (2.0 * gravity);
+            if (apex > ArtilleryConstants.MAX_APEX_ABOVE_MUZZLE) continue;
+            double error = apex >= desiredApex ? apex - desiredApex
+                : (desiredApex - apex) * 1.75;
+            double score = error + ticks * 0.010;
+            if (score < bestScore) {
+                bestScore = score;
+                best = horizontal.normalize().scale(horizontalSpeed)
+                    .add(0.0, verticalSpeed, 0.0);
+            }
         }
         return Optional.ofNullable(best);
-    }
-
-    /**
-     * Uses the same discrete integration as {@code ArtilleryWarheadEntity}: the shell moves
-     * by its present velocity and only then loses gravity for the next tick.  Solving that
-     * equation prevents the barrel preview and the real shell from disagreeing at range.
-     */
-    private static Vec3 solveAtElevation(final Vec3 horizontal, final double distance,
-        final double dy, final double elevationRadians) {
-        double tangent = Math.tan(elevationRadians);
-        double gravity = ArtilleryConstants.GRAVITY_PER_TICK;
-        double a = 0.5 * gravity * distance * distance;
-        double b = -0.5 * gravity * distance;
-        double c = dy - distance * tangent;
-        double discriminant = b * b - 4.0 * a * c;
-        if (!Double.isFinite(discriminant) || discriminant < 0.0) return null;
-        double root = Math.sqrt(discriminant);
-        double bestHorizontalSpeed = Double.NEGATIVE_INFINITY;
-        for (double inverseHorizontalSpeed : new double[] {
-            (-b + root) / (2.0 * a), (-b - root) / (2.0 * a)
-        }) {
-            if (!Double.isFinite(inverseHorizontalSpeed) || inverseHorizontalSpeed <= 1.0E-8) continue;
-            double horizontalSpeed = 1.0 / inverseHorizontalSpeed;
-            double verticalSpeed = horizontalSpeed * tangent;
-            double speedSquared = horizontalSpeed * horizontalSpeed + verticalSpeed * verticalSpeed;
-            if (!Double.isFinite(speedSquared) || speedSquared > ArtilleryConstants.MAX_MUZZLE_SPEED
-                * ArtilleryConstants.MAX_MUZZLE_SPEED || verticalSpeed <= 0.0
-                || apexAboveMuzzle(new Vec3(0.0, verticalSpeed, 0.0))
-                    > ArtilleryConstants.MAX_APEX_ABOVE_MUZZLE + 1.0E-6) continue;
-            if (horizontalSpeed > bestHorizontalSpeed) bestHorizontalSpeed = horizontalSpeed;
-        }
-        if (bestHorizontalSpeed <= 0.0) return null;
-        return horizontal.normalize().scale(bestHorizontalSpeed)
-            .add(0.0, bestHorizontalSpeed * tangent, 0.0);
     }
 
     /** Solves the physical muzzle and velocity together so renderer and server share one aim. */

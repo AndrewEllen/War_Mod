@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "minecraft:iron_ingot",
+    "minecraft:tnt",
+    "minecraft:comparator"
+  ],
+  "result": {
+    "id": "war_mod:anti_air_controller_ballistic"
+  }
+}

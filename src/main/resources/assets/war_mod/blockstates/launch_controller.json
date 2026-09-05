@@ -1,0 +1,1 @@
+{"variants":{"facing=north":{"model":"war_mod:block/launch_controller"},"facing=east":{"model":"war_mod:block/launch_controller","y":90},"facing=south":{"model":"war_mod:block/launch_controller","y":180},"facing=west":{"model":"war_mod:block/launch_controller","y":270}}}

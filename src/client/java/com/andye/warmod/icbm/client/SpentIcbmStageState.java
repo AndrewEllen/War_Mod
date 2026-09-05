@@ -2,13 +2,15 @@ package com.andye.warmod.icbm.client;
 
 import com.andye.warmod.icbm.IcbmConstants;
 import com.andye.warmod.icbm.network.ClientboundIcbmSeparationPayload;
+import com.andye.warmod.warhead.WarheadDeliveryMode;
+import com.andye.warmod.warhead.WarheadYield;
 import java.util.SplittableRandom;
 import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 
 public record SpentIcbmStageState(UUID missileId, Vec3 startPosition, Vec3 startVelocity, Vec3 orientationVelocity,
 	long separationGameTime, long visualSeed, int lifetimeTicks, int fadeTicks, double drag, double gravity,
-	float rollDrift) {
+	float rollDrift, WarheadYield yield, WarheadDeliveryMode deliveryMode) {
 	public static SpentIcbmStageState from(final ClientboundIcbmSeparationPayload payload) {
 		SplittableRandom random = new SplittableRandom(payload.visualSeed() ^ 0x5350454E54535447L);
 		Vec3 direction = payload.carrierVelocity().lengthSqr() < 1.0E-8 ? new Vec3(0.0, -1.0, 0.0)
@@ -21,7 +23,7 @@ public record SpentIcbmStageState(UUID missileId, Vec3 startPosition, Vec3 start
 			payload.carrierVelocity(), payload.separationGameTime(), payload.visualSeed(),
 			random.nextInt(IcbmConstants.SPENT_STAGE_MINIMUM_LIFETIME_TICKS, IcbmConstants.SPENT_STAGE_MAXIMUM_LIFETIME_TICKS + 1),
 			random.nextInt(20, 31), random.nextDouble(0.975, 0.989), random.nextDouble(0.012, 0.020),
-			(float)random.nextDouble(-0.008, 0.008));
+			(float)random.nextDouble(-0.008, 0.008), payload.yield(), payload.deliveryMode());
 	}
 	public double age(final long gameTime, final double partialTick) {
 		return Math.max(0.0, gameTime - this.separationGameTime) + Math.max(0.0, Math.min(1.0, partialTick));

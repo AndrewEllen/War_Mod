@@ -11,11 +11,13 @@ public record AcousticSoundDefinition(
 	double propagationSpeedBlocksPerSecond,
 	double maximumDistanceBlocks,
 	double minimumAudibleGain,
-	boolean environmentEchoesEnabled
+	boolean environmentEchoesEnabled,
+	AcousticResponseProfile responseProfile
 ) {
 	public AcousticSoundDefinition {
 		Objects.requireNonNull(id, "id");
 		Objects.requireNonNull(distanceSounds, "distanceSounds");
+		Objects.requireNonNull(responseProfile, "responseProfile");
 		if (distanceSounds.stream().anyMatch(Objects::isNull)) {
 			throw new IllegalArgumentException("Acoustic distance sounds cannot be null");
 		}

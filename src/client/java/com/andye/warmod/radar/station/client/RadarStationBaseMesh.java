@@ -32,25 +32,39 @@ public final class RadarStationBaseMesh {
     private static void box(final PoseStack.Pose p, final VertexConsumer b,
         final float x1,final float y1,final float z1,final float x2,final float y2,final float z2,
         final int r,final int g,final int bl,final int light) {
-        quad(p,b,x1,y1,z1,x2,y1,z1,x2,y2,z1,x1,y2,z1,r,g,bl,light);
-        quad(p,b,x2,y1,z2,x1,y1,z2,x1,y2,z2,x2,y2,z2,r,g,bl,light);
-        quad(p,b,x1,y1,z2,x1,y1,z1,x1,y2,z1,x1,y2,z2,r,g,bl,light);
-        quad(p,b,x2,y1,z1,x2,y1,z2,x2,y2,z2,x2,y2,z1,r,g,bl,light);
-        quad(p,b,x1,y2,z1,x2,y2,z1,x2,y2,z2,x1,y2,z2,r,g,bl,light);
-        quad(p,b,x1,y1,z2,x2,y1,z2,x2,y1,z1,x1,y1,z1,r,g,bl,light);
+        int material=materialFor(r,g,bl);
+        quad(p,b,x1,y1,z1,x2,y1,z1,x2,y2,z1,x1,y2,z1,0,0,-1,material,r,g,bl,light);
+        quad(p,b,x2,y1,z2,x1,y1,z2,x1,y2,z2,x2,y2,z2,0,0,1,material,r,g,bl,light);
+        quad(p,b,x1,y1,z2,x1,y1,z1,x1,y2,z1,x1,y2,z2,-1,0,0,material,r,g,bl,light);
+        quad(p,b,x2,y1,z1,x2,y1,z2,x2,y2,z2,x2,y2,z1,1,0,0,material,r,g,bl,light);
+        quad(p,b,x1,y2,z1,x2,y2,z1,x2,y2,z2,x1,y2,z2,0,1,0,material,r,g,bl,light);
+        quad(p,b,x1,y1,z2,x2,y1,z2,x2,y1,z1,x1,y1,z1,0,-1,0,material,r,g,bl,light);
     }
 
     private static void quad(final PoseStack.Pose p,final VertexConsumer b,
         final float ax,final float ay,final float az,final float bx,final float by,final float bz,
         final float cx,final float cy,final float cz,final float dx,final float dy,final float dz,
+        final float nx,final float ny,final float nz,final int material,
         final int r,final int g,final int bl,final int light) {
-        vertex(p,b,ax,ay,az,r,g,bl,light);vertex(p,b,bx,by,bz,r,g,bl,light);
-        vertex(p,b,cx,cy,cz,r,g,bl,light);vertex(p,b,dx,dy,dz,r,g,bl,light);
+        float inset=.004F,tile=1F/3F;
+        float u0=(material%3)*tile+inset,v0=(material/3)*tile+inset;
+        float u1=(material%3+1)*tile-inset,v1=(material/3+1)*tile-inset;
+        vertex(p,b,ax,ay,az,u0,v1,nx,ny,nz,r,g,bl,light);vertex(p,b,bx,by,bz,u1,v1,nx,ny,nz,r,g,bl,light);
+        vertex(p,b,cx,cy,cz,u1,v0,nx,ny,nz,r,g,bl,light);vertex(p,b,dx,dy,dz,u0,v0,nx,ny,nz,r,g,bl,light);
     }
 
     private static void vertex(final PoseStack.Pose p,final VertexConsumer b,
-        final float x,final float y,final float z,final int r,final int g,final int bl,final int light) {
-        b.addVertex(p,x,y,z).setColor(r,g,bl,255).setUv(0,0)
-            .setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(p,0,1,0);
+        final float x,final float y,final float z,final float u,final float v,
+        final float nx,final float ny,final float nz,
+        final int r,final int g,final int bl,final int light) {
+        b.addVertex(p,x,y,z).setColor(r,g,bl,255).setUv(u,v)
+            .setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(p,nx,ny,nz);
+    }
+
+    private static int materialFor(final int r,final int g,final int b) {
+        if(r>145&&g<150)return 6;
+        if(g>r+18)return 2;
+        if(r>130&&g>95&&b<75)return 5;
+        return r+g+b>195?4:1;
     }
 }

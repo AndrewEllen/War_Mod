@@ -1,6 +1,167 @@
 package com.andye.warmod.entity;
-import com.andye.warmod.rocket.*;import java.util.UUID;import net.minecraft.core.SectionPos;import net.minecraft.core.UUIDUtil;import net.minecraft.network.syncher.*;import net.minecraft.server.level.ServerLevel;import net.minecraft.world.damagesource.DamageSource;import net.minecraft.world.entity.*;import net.minecraft.world.level.Level;import net.minecraft.world.level.storage.ValueInput;import net.minecraft.world.level.storage.ValueOutput;import net.minecraft.world.phys.*;import org.jspecify.annotations.Nullable;
-public final class RocketProjectileEntity extends Entity {private static final EntityDataAccessor<Integer> PAYLOAD=SynchedEntityData.defineId(RocketProjectileEntity.class,EntityDataSerializers.INT);private static final EntityDataAccessor<Long> VISUAL_SEED=SynchedEntityData.defineId(RocketProjectileEntity.class,EntityDataSerializers.LONG);private @Nullable UUID ownerId;private boolean impactHandled;public RocketProjectileEntity(EntityType<? extends RocketProjectileEntity> type,Level level){super(type,level);}public RocketProjectileEntity(ServerLevel level,UUID owner,Vec3 position,Vec3 velocity,RocketPayloadType payload,long seed){this(ModEntityTypes.ROCKET_PROJECTILE,level);ownerId=owner;setPos(position);setDeltaMovement(velocity);setPayloadType(payload);getEntityData().set(VISUAL_SEED,seed);}
- @Override protected void defineSynchedData(SynchedEntityData.Builder b){b.define(PAYLOAD,RocketPayloadType.HE.ordinal());b.define(VISUAL_SEED,0L);}@Override public void tick(){super.tick();if(level().isClientSide())return;if(!(level() instanceof ServerLevel server))return;if(tickCount>=RocketConstants.LIFETIME_TICKS||!position().isFinite()){discard();return;}Vec3 destination=position().add(getDeltaMovement());if(!server.getChunkSource().hasChunk(SectionPos.blockToSectionCoord(destination.x),SectionPos.blockToSectionCoord(destination.z))){discard();return;}HitResult hit=RocketCollisionDetector.detect(this);if(hit.getType()!=HitResult.Type.MISS){if(!impactHandled){impactHandled=true;RocketImpactService.impact(server,this,hit.getLocation());}discard();return;}setPos(destination);}
- public RocketPayloadType payloadType(){return RocketPayloadType.byId(getEntityData().get(PAYLOAD));}public void setPayloadType(RocketPayloadType p){getEntityData().set(PAYLOAD,p.ordinal());}public long visualSeed(){return getEntityData().get(VISUAL_SEED);}public @Nullable UUID ownerId(){return ownerId;}public int age(){return tickCount;}
- @Override protected void readAdditionalSaveData(ValueInput in){ownerId=in.read("owner",UUIDUtil.CODEC).orElse(null);impactHandled=in.getBooleanOr("impact_handled",false);try{setPayloadType(RocketPayloadType.valueOf(in.getStringOr("payload","HE")));}catch(IllegalArgumentException e){setPayloadType(RocketPayloadType.HE);}getEntityData().set(VISUAL_SEED,in.getLongOr("visual_seed",0L));}@Override protected void addAdditionalSaveData(ValueOutput out){out.storeNullable("owner",UUIDUtil.CODEC,ownerId);out.putBoolean("impact_handled",impactHandled);out.putString("payload",payloadType().name());out.putLong("visual_seed",visualSeed());}@Override public boolean hurtServer(ServerLevel l,DamageSource s,float a){return false;}@Override public boolean shouldRenderAtSqrDistance(double distance){return distance <= RocketConstants.VISUAL_RANGE_BLOCKS * RocketConstants.VISUAL_RANGE_BLOCKS;}@Override public boolean isPickable(){return false;}@Override public boolean isPushable(){return false;}@Override public boolean canBeCollidedWith(Entity e){return false;}}
+
+import com.andye.warmod.fire.wind.FireWindEngine;
+import com.andye.warmod.rocket.RocketCollisionDetector;
+import com.andye.warmod.rocket.RocketConstants;
+import com.andye.warmod.rocket.RocketImpactService;
+import com.andye.warmod.rocket.RocketPayloadType;
+import com.andye.warmod.warhead.CancellationReason;
+import com.andye.warmod.warhead.WarheadPreparationCoordinator;
+import java.util.UUID;
+import net.minecraft.core.SectionPos;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.InterpolationHandler;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
+
+public final class RocketProjectileEntity extends Entity {
+    private static final EntityDataAccessor<Integer> PAYLOAD = SynchedEntityData.defineId(
+        RocketProjectileEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Long> VISUAL_SEED = SynchedEntityData.defineId(
+        RocketProjectileEntity.class, EntityDataSerializers.LONG);
+    private @Nullable UUID ownerId;
+    private boolean impactHandled;
+    private @Nullable Vec3 lastSmokePosition;
+    private final InterpolationHandler interpolation = new InterpolationHandler(this, 2);
+
+    public RocketProjectileEntity(final EntityType<? extends RocketProjectileEntity> type,
+        final Level level) { super(type, level); }
+
+    public RocketProjectileEntity(final ServerLevel level, final UUID owner,
+        final Vec3 position, final Vec3 velocity, final RocketPayloadType payload,
+        final long seed) {
+        this(ModEntityTypes.ROCKET_PROJECTILE, level);
+        ownerId = owner; setPos(position); setDeltaMovement(velocity);
+        setPayloadType(payload); getEntityData().set(VISUAL_SEED, seed);
+    }
+
+    @Override protected void defineSynchedData(final SynchedEntityData.Builder builder) {
+        builder.define(PAYLOAD, RocketPayloadType.HE.ordinal());
+        builder.define(VISUAL_SEED, 0L);
+    }
+
+    @Override public void tick() {
+        super.tick();
+        if (level().isClientSide()) {
+            interpolation.interpolate();
+            emitSmokeTrail();
+            return;
+        }
+        if (!(level() instanceof ServerLevel server)) return;
+        if (tickCount >= RocketConstants.LIFETIME_TICKS || !position().isFinite()) {
+            discard(); return;
+        }
+        Vec3 velocity = getDeltaMovement();
+        Vec3 destination = position().add(velocity);
+        if (!server.getChunkSource().hasChunk(
+            SectionPos.blockToSectionCoord(destination.x),
+            SectionPos.blockToSectionCoord(destination.z))) {
+            discard(); return;
+        }
+        HitResult hit = RocketCollisionDetector.detect(this);
+        if (hit.getType() != HitResult.Type.MISS) {
+            if (!impactHandled) {
+                impactHandled = true;
+                RocketImpactService.impact(server, this, hit.getLocation());
+            }
+            discard(); return;
+        }
+        setPos(destination);
+        Vec3 wind = FireWindEngine.windAt(server, destination);
+        Vec3 nextVelocity;
+        if (tickCount <= RocketConstants.MOTOR_BURN_TICKS) {
+            // Build momentum along the actual flight direction while the motor
+            // is lit. This replaces the former instantaneous muzzle speed.
+            Vec3 heading = velocity.lengthSqr() < 1.0E-8
+                ? new Vec3(0.0, 1.0, 0.0) : velocity.normalize();
+            double acceleration = (payloadType().speed() - payloadType().launchSpeed())
+                / RocketConstants.MOTOR_BURN_TICKS;
+            nextVelocity = velocity.add(heading.scale(acceleration));
+        } else {
+            // Motor-off flight keeps the burnout vector and then naturally
+            // descends under gravity; wind affects only the free-flight path.
+            nextVelocity = velocity.scale(RocketConstants.DRAG_PER_TICK)
+                .add(wind.x * RocketConstants.WIND_RESPONSE_PER_TICK,
+                    -RocketConstants.GRAVITY_PER_TICK,
+                    wind.z * RocketConstants.WIND_RESPONSE_PER_TICK);
+        }
+        setDeltaMovement(nextVelocity);
+    }
+
+    private void emitSmokeTrail() {
+        if (tickCount > RocketConstants.MOTOR_BURN_TICKS) return;
+        Vec3 direction = getDeltaMovement().normalize();
+        Vec3 nozzle = position().subtract(direction.scale(payloadType().length() * 0.5));
+        if (lastSmokePosition != null) {
+            Vec3 segment = nozzle.subtract(lastSmokePosition);
+            double distance = segment.length();
+            // A bounded, world-space ribbon remains behind the moving rocket.
+            // Ignore discontinuities from teleports rather than drawing across the map.
+            if (distance > 0.01 && distance < 16.0) {
+                int samples = Math.min(10, Math.max(1, (int)Math.ceil(distance / 0.45)));
+                for (int index = 1; index <= samples; index++) {
+                    Vec3 point = lastSmokePosition.add(segment.scale(index / (double)samples));
+                    level().addAlwaysVisibleParticle(ParticleTypes.SMOKE, true, point.x, point.y, point.z,
+                        0.0, 0.015, 0.0);
+                }
+            }
+        }
+        lastSmokePosition = nozzle;
+    }
+
+    public RocketPayloadType payloadType() {
+        return RocketPayloadType.byId(getEntityData().get(PAYLOAD));
+    }
+    public void setPayloadType(final RocketPayloadType payload) {
+        getEntityData().set(PAYLOAD, payload.ordinal());
+    }
+    public long visualSeed() { return getEntityData().get(VISUAL_SEED); }
+    public @Nullable UUID ownerId() { return ownerId; }
+    public int age() { return tickCount; }
+    @Override public InterpolationHandler getInterpolation() { return interpolation; }
+
+    @Override protected void readAdditionalSaveData(final ValueInput input) {
+        ownerId = input.read("owner", UUIDUtil.CODEC).orElse(null);
+        impactHandled = input.getBooleanOr("impact_handled", false);
+        try { setPayloadType(RocketPayloadType.valueOf(input.getStringOr("payload", "HE"))); }
+        catch (IllegalArgumentException exception) { setPayloadType(RocketPayloadType.HE); }
+        getEntityData().set(VISUAL_SEED, input.getLongOr("visual_seed", 0L));
+    }
+
+    @Override protected void addAdditionalSaveData(final ValueOutput output) {
+        output.storeNullable("owner", UUIDUtil.CODEC, ownerId);
+        output.putBoolean("impact_handled", impactHandled);
+        output.putString("payload", payloadType().name());
+        output.putLong("visual_seed", visualSeed());
+    }
+
+    @Override public boolean hurtServer(final ServerLevel level,
+        final DamageSource source, final float amount) { return false; }
+    @Override public void remove(final RemovalReason reason) {
+        if (!impactHandled && level() instanceof ServerLevel server
+            && payloadType() == RocketPayloadType.NUCLEAR_ICBM) {
+            WarheadPreparationCoordinator.cancelImpact(server, getUUID(),
+                CancellationReason.ENTITY_REMOVED);
+        }
+        super.remove(reason);
+    }
+    @Override public boolean shouldRenderAtSqrDistance(final double distance) {
+        return distance <= RocketConstants.VISUAL_RANGE_BLOCKS
+            * RocketConstants.VISUAL_RANGE_BLOCKS;
+    }
+    @Override public boolean isPickable() { return false; }
+    @Override public boolean isPushable() { return false; }
+    @Override public boolean canBeCollidedWith(final Entity entity) { return false; }
+}

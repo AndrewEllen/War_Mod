@@ -1,10 +1,14 @@
 package com.andye.warmod.warhead.client.render;
 
 import com.andye.warmod.warhead.WarheadVisualMath;
+import com.andye.warmod.warhead.client.TerrainSurfaceCache;
 import com.andye.warmod.warhead.client.WarheadClientVisualProfile;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.util.Mth;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -53,7 +57,7 @@ public final class LegacyConventionalBlastRenderer {
 
     public static void renderSurfaceFront(final PoseStack.Pose pose, final VertexConsumer buffer,
         final double age, final double physicalRadius, final float visualScale, final long seed,
-        final WarheadMesh.Lod lod, final Quaternionf camera) {
+        final Vec3 impactPosition, final WarheadMesh.Lod lod, final Quaternionf camera) {
         if (age < 0.0 || physicalRadius <= 0.0) return;
         float scale = Mth.clamp(visualScale, 0.28F, 1.75F);
         double duration = WarheadVisualMath.airShockwaveDurationTicks(scale);
@@ -72,13 +76,16 @@ public final class LegacyConventionalBlastRenderer {
             float angle = (index + unit(value, 0)) / samples * Mth.TWO_PI;
             float trail = unit(value, 1) * (2.2F + 5.0F * scale);
             float radial = (float) Math.max(0.0, physicalRadius - trail);
-            float height = 0.08F + unit(value, 2) * (0.55F + 1.05F * scale);
+            float localX = Mth.cos(angle) * radial;
+            float localZ = Mth.sin(angle) * radial;
+            float height = terrainHeight(impactPosition, localX, localZ,
+                0.08F + unit(value, 2) * (0.55F + 1.05F * scale));
             float radius = (0.10F + unit(value, 3) * 0.25F)
                 * (0.88F + scale * 0.22F);
             float alpha = fade * (0.18F + 0.38F * (1.0F - unit(value, 4)));
             int tone = 176 + Math.floorMod((int) value, 42);
-            billboard(pose, buffer, Mth.cos(angle) * radial, height,
-                Mth.sin(angle) * radial, radius, angle, tone, Math.min(224, tone + 4),
+            billboard(pose, buffer, localX, height, localZ, radius, angle,
+                tone, Math.min(224, tone + 4),
                 Math.min(230, tone + 9), alpha, 0xB000B0, basis);
         }
     }
@@ -86,7 +93,7 @@ public final class LegacyConventionalBlastRenderer {
     public static void renderNuclearReturnFront(final PoseStack.Pose pose,
         final VertexConsumer buffer, final double age, final double returnRadius,
         final float yieldScale, final long seed, final WarheadMesh.Lod lod,
-        final Quaternionf camera) {
+        final Vec3 impactPosition, final Quaternionf camera) {
         if (returnRadius <= 0.0) return;
         float scale = Mth.clamp(yieldScale, 0.35F, 3.0F);
         int base = switch (lod) {
@@ -102,15 +109,28 @@ public final class LegacyConventionalBlastRenderer {
             float angle = (index + unit(value, 0)) / samples * Mth.TWO_PI;
             float radial = (float) returnRadius
                 + signed(value, 1) * (0.8F + 1.6F * scale);
-            float height = 0.10F + unit(value, 2) * (0.55F + 0.50F * scale);
+            float localX = Mth.cos(angle) * radial;
+            float localZ = Mth.sin(angle) * radial;
+            float height = terrainHeight(impactPosition, localX, localZ,
+                0.10F + unit(value, 2) * (0.55F + 0.50F * scale));
             float radius = (0.10F + unit(value, 3) * 0.22F)
                 * (0.92F + 0.12F * scale);
             float alpha = 0.16F + unit(value, 4) * 0.22F;
             int tone = 174 + Math.floorMod((int) value, 42);
-            billboard(pose, buffer, Mth.cos(angle) * radial, height,
-                Mth.sin(angle) * radial, radius, -angle, tone, Math.min(224, tone + 4),
+            billboard(pose, buffer, localX, height, localZ, radius, -angle,
+                tone, Math.min(224, tone + 4),
                 Math.min(230, tone + 9), alpha, 0xA000A0, basis);
         }
+    }
+
+    private static float terrainHeight(final Vec3 impactPosition, final float localX,
+        final float localZ, final float offset) {
+        if (impactPosition == null) return offset;
+        ClientLevel level = Minecraft.getInstance().level;
+        TerrainSurfaceCache.SurfaceSample surface = TerrainSurfaceCache.INSTANCE.sample(level,
+            impactPosition.x + localX, impactPosition.z + localZ);
+        return surface == null ? offset
+            : (float) (surface.position().y - impactPosition.y) + Math.max(0.06F, offset);
     }
 
     private static void renderFire(final PoseStack.Pose pose, final VertexConsumer buffer,

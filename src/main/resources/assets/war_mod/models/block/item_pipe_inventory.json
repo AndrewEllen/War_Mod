@@ -1,6 +1,7 @@
 {
   "textures": {
-    "pipe": "war_mod:block/item_pipe"
+    "pipe": "war_mod:block/item_pipe",
+    "particle": "#pipe"
   },
   "display": {
     "gui": {

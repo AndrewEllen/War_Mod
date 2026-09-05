@@ -19,6 +19,13 @@ public final class IcbmRenderPipelines {
 	private static final Identifier EXHAUST_CORE_TEXTURE = texture("icbm_exhaust_core.png");
 	private static final Identifier EXHAUST_FRINGE_TEXTURE = texture("icbm_exhaust_fringe.png");
 	private static final Identifier SMOKE_TEXTURE = texture("icbm_smoke.png");
+	public static final RenderPipeline LAUNCH_SMOKE_PARTICLE = RenderPipelines.register(
+		RenderPipeline.builder(RenderPipelines.PARTICLE_SNIPPET)
+			.withLocation("pipeline/war_mod_launch_smoke_particle")
+			.withFragmentShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/launch_smoke_particle"))
+			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+			.withCull(false).build());
 
 	/* Exact PR20 smoke contract retained whenever an Iris shader pack is not active. */
 	private static final RenderPipeline NORMAL_SMOKE_PIPELINE = RenderPipelines.register(
@@ -45,22 +52,29 @@ public final class IcbmRenderPipelines {
 		RenderSetup.builder(RenderPipelines.ENTITY_TRANSLUCENT)
 			.withTexture("Sampler0", ALBEDO).useLightmap().useOverlay().sortOnUpload().createRenderSetup());
 
-	/*
-	 * Minecraft's stock eyes/emissive contract is understood by Iris shader packs
-	 * and is not dimmed like ordinary fogged translucent geometry. Geometry,
-	 * texture, colour and flicker remain the PR20 values; only the render contract
-	 * changes so the distant orange engine stays visibly luminous.
-	 */
+	/* Stock EYES is full-bright but still mixes its RGB into FogColor. The hot
+	 * core emits through that haze; it continues to depth-test against terrain. */
+	private static final RenderPipeline EXHAUST_GLOW_PIPELINE = RenderPipelines.register(
+		RenderPipeline.builder(RenderPipelines.ENTITY_EMISSIVE_SNIPPET)
+			.withLocation("pipeline/war_mod_icbm_exhaust_glow")
+			.withFragmentShader(Identifier.fromNamespaceAndPath(WarMod.MOD_ID, "core/icbm_exhaust_glow"))
+			.withShaderDefine("NO_OVERLAY")
+			.withShaderDefine("NO_CARDINAL_LIGHTING")
+			.withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
+			.withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+			.withCull(false).build());
 	public static final RenderType EXHAUST_CORE = RenderType.create("war_mod_icbm_exhaust_core",
-		RenderSetup.builder(RenderPipelines.EYES)
+		RenderSetup.builder(EXHAUST_GLOW_PIPELINE)
 			.withTexture("Sampler0", EXHAUST_CORE_TEXTURE).createRenderSetup());
 	public static final RenderType EXHAUST_FRINGE = RenderType.create("war_mod_icbm_exhaust_fringe",
 		RenderSetup.builder(RenderPipelines.EYES)
 			.withTexture("Sampler0", EXHAUST_FRINGE_TEXTURE).createRenderSetup());
 	public static RenderType SMOKE = NORMAL_SMOKE;
 
-	/** Compatibility alias retained for existing call sites until both exhaust passes are submitted. */
-	public static final RenderType EXHAUST = EXHAUST_FRINGE;
+	/** Smaller interceptor engines share the fog-visible emission with their own mask. */
+	public static final RenderType EXHAUST = RenderType.create("war_mod_interceptor_exhaust_glow",
+		RenderSetup.builder(EXHAUST_GLOW_PIPELINE)
+			.withTexture("Sampler0", EXHAUST_FRINGE_TEXTURE).createRenderSetup());
 
 	private static boolean irisActive;
 

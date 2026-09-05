@@ -1,19 +1,26 @@
 package com.andye.warmod.icbm;
 
 public final class IcbmConstants {
-    public static final int IGNITION_TICKS = 8;
+    /** Visible one-second engine build-up before the full powered ascent begins. */
+    public static final int IGNITION_TICKS = 20;
+    public static final int SILO_IGNITION_TICKS = 60;
+    public static final double SILO_IGNITION_RISE_BLOCKS = 8.0;
     public static final int BOOST_TICKS = 120;
     public static final int MINIMUM_COAST_TICKS = 180;
     public static final int MAXIMUM_COAST_TICKS = 4096;
     public static final int MINIMUM_TERMINAL_TICKS = 76;
     public static final int MAXIMUM_TERMINAL_TICKS = 140;
 
-    public static final double COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED = 0.016;
-    public static final double MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS = 256.0;
+    public static final double COAST_GRAVITY_BLOCKS_PER_TICK_SQUARED = 0.008;
+    public static final double MINIMUM_COAST_ARC_HEIGHT_BLOCKS = 240.0;
+    public static final double MAXIMUM_COAST_ARC_HEIGHT_BLOCKS = 1200.0;
+    public static final double COAST_ARC_HEIGHT_PER_HORIZONTAL_BLOCK = 0.08;
+    public static final double MAXIMUM_BOOST_HORIZONTAL_DRIFT_BLOCKS = 1400.0;
     public static final double BOOST_HORIZONTAL_LEAD_FRACTION = 0.14;
     public static final double BOOST_HORIZONTAL_LEAD_MINIMUM_BLOCKS = 56.0;
-    public static final double BOOST_CURVE_START_MINIMUM_WORLD_Y = 108.0;
-    public static final double BOOST_CURVE_START_MINIMUM_HEIGHT_ABOVE_LAUNCH = 72.0;
+    /** Vanilla ocean level plus the requested 150-block vertical ascent. */
+    public static final double BOOST_CURVE_START_MINIMUM_WORLD_Y = 213.0;
+    public static final double BOOST_CURVE_START_MINIMUM_HEIGHT_ABOVE_LAUNCH = 150.0;
     public static final double BOOST_ASCENT_CONTROL_DISTANCE = 72.0;
     public static final double COAST_APPROACH_CONTROL_DISTANCE = 128.0;
     public static final double COAST_TERMINAL_CONTROL_HEIGHT = 64.0;
@@ -27,8 +34,8 @@ public final class IcbmConstants {
     public static final double SEPARATION_HORIZONTAL_OFFSET = 128.0;
     public static final double CARRIER_VISUAL_RANGE_BLOCKS = 8192.0;
     public static final double MAXIMUM_STRATEGIC_RANGE_BLOCKS = 100_000.0;
-    public static final double MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK = 48.0;
-    public static final double PREFERRED_CARRIER_SPEED_BLOCKS_PER_TICK = 42.0;
+    public static final double MAXIMUM_CARRIER_SPEED_BLOCKS_PER_TICK = 32.0;
+    public static final double PREFERRED_CARRIER_SPEED_BLOCKS_PER_TICK = 24.0;
 
     public static final int MAX_ACTIVE_CLIENT_ICBMS = 24;
     public static final int MAX_ACTIVE_SPENT_STAGES = 48;
@@ -45,8 +52,11 @@ public final class IcbmConstants {
     public static final int TERMINAL_STREAM_LOOKAHEAD_TICKS = 48;
     public static final int TERMINAL_TARGET_LEAD_TICKS = 60;
 
-    /** 7x7 chunks centred on the predicted impact. */
-    public static final int IMPACT_CHUNK_RADIUS = 3;
+    /** Minimum preparation window: radius one is exactly a 3x3 chunk square. */
+    public static final int MINIMUM_PREPARATION_CHUNK_RADIUS = 1;
+
+    /** Legacy 7x7 simulation window retained only for terminal vehicle/defence ticking. */
+    public static final int TERMINAL_TARGET_SIMULATION_CHUNK_RADIUS = 3;
 
     /** Two minutes at the normal 20 TPS server rate. */
     public static final int IMPACT_CHUNK_TAIL_TICKS = 2400;

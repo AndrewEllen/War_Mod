@@ -2,6 +2,7 @@ package com.andye.warmod.block.entity;
 
 import com.andye.warmod.block.ItemPipeBlock;
 import com.andye.warmod.block.MissileSiloBlock;
+import com.andye.warmod.block.MissileWorkbenchBlock;
 import com.andye.warmod.block.ModBlocks;
 import com.andye.warmod.block.PhalanxTurretBlock;
 import com.andye.warmod.logistics.PipeConnectionMode;
@@ -164,7 +165,13 @@ public final class ItemPipeBlockEntity extends BlockEntity {
                 int inserted = extractedCount - remainder.getCount();
 
                 if (!remainder.isEmpty()) {
-                    restore(source, slot, remainder);
+                    if (!(source instanceof MissileWorkbenchBlockEntity workbench
+                            && slot == 3
+                            && workbench.rollbackPreviewExtraction(remainder))) {
+                        restore(source, slot, remainder);
+                    }
+                } else if (source instanceof MissileWorkbenchBlockEntity workbench && slot == 3) {
+                    workbench.completePreviewExtraction();
                 }
 
                 /* removeItem/rollback is still an inventory mutation even if
@@ -427,6 +434,10 @@ public final class ItemPipeBlockEntity extends BlockEntity {
 
         if (state.is(ModBlocks.MISSILE_SILO)) {
             return MissileSiloBlock.resolve(level, position, state);
+        }
+
+        if (state.is(ModBlocks.MISSILE_WORKBENCH)) {
+            return MissileWorkbenchBlock.resolve(level, position, state);
         }
 
         if (state.is(ModBlocks.PHALANX_TURRET)) {

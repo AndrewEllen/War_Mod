@@ -247,8 +247,8 @@ public final class ConventionalBlastVisualV4 {
 
         private void emit(final int tick) {
             float budgetDensity = Mth.clamp(
-                (float) Math.sqrt(WarheadRenderSettings.particleBudgetMultiplier() / 3.0F),
-                0.45F, 1.42F);
+                (float) Math.sqrt(WarheadRenderSettings.qualityScale()),
+                0.50F, 2.0F);
             if (tick <= 4) {
                 int count = Math.round((760.0F + 950.0F * scale) * budgetDensity);
                 for (int index = 0; index < count; index++) spawnInitialFire(tick, index);

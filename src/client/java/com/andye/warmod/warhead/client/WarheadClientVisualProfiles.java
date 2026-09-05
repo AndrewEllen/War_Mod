@@ -24,9 +24,9 @@ public final class WarheadClientVisualProfiles {
         SplittableRandom random = new SplittableRandom(seed ^ 0x4E55434C454152L);
         return new WarheadClientVisualProfile(
             type,
-            6_400, 0, 30,
+            5_800, 0, 30,
             0, 180, 420, 1_500,
-            10, 24, 5_600, 6_400,
+            10, 24, 2_450, 5_600,
             random.nextDouble(110, 150), random.nextDouble(90, 125), 44,
             random.nextDouble(26, 38), random.nextDouble(105, 150), random.nextDouble(120, 175),
             180, 110, 48,

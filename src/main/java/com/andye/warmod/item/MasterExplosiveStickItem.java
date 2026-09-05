@@ -95,7 +95,8 @@ public final class MasterExplosiveStickItem extends Item {
 			mode
 		);
 		for (WarheadLaunchService.LaunchResult result : results) {
-			WarheadYieldRegistry.put(level, result.radarRootTrackId(), config.yield());
+			WarheadYieldRegistry.put(level, result.radarRootTrackId(), config.yield(),
+				config.customFire());
 		}
 		return results.size();
 	}
@@ -109,15 +110,15 @@ public final class MasterExplosiveStickItem extends Item {
 		WarheadDeliveryMode delivery = config.cluster()
 			? WarheadDeliveryMode.CLUSTER_FOUR
 			: WarheadDeliveryMode.SINGLE;
-		IcbmLaunchService.LaunchResult result = IcbmLaunchService.launch(
+		IcbmLaunchService.LaunchResult result = IcbmLaunchService.launchUnowned(
 			level,
 			player,
 			intended,
-			config.yield().payloadType(),
-			delivery
+			config.yield(),
+			delivery,
+			config.customFire()
 		).orElse(null);
 		if (result == null) return 0;
-		WarheadYieldRegistry.put(level, result.flightPlan().missileId(), config.yield());
 		return config.cluster() ? 4 : 1;
 	}
 
@@ -134,6 +135,8 @@ public final class MasterExplosiveStickItem extends Item {
 			MasterExplosiveConfig.DEFAULT
 		);
 		tooltip.accept(Component.literal(config.summary()));
+		tooltip.accept(Component.literal("Aftermath fire: "
+			+ (config.customFire() ? "Custom particle fire" : "Vanilla fire blocks")));
 		tooltip.accept(Component.literal("Crouch-use: configure | Use: launch at target"));
 	}
 

@@ -7,7 +7,14 @@ import net.minecraft.util.StringRepresentable;
 public enum MissileSiloPart implements StringRepresentable {
     NORTH_WEST(-1, -1), NORTH(0, -1), NORTH_EAST(1, -1),
     WEST(-1, 0), CENTER(0, 0), EAST(1, 0),
-    SOUTH_WEST(-1, 1), SOUTH(0, 1), SOUTH_EAST(1, 1);
+    SOUTH_WEST(-1, 1), SOUTH(0, 1), SOUTH_EAST(1, 1),
+    OUTER_NORTH_WEST(-2, -2), OUTER_NORTH_INNER_WEST(-1, -2), OUTER_NORTH(0, -2),
+    OUTER_NORTH_INNER_EAST(1, -2), OUTER_NORTH_EAST(2, -2),
+    OUTER_WEST_NORTH(-2, -1), OUTER_EAST_NORTH(2, -1),
+    OUTER_WEST(-2, 0), OUTER_EAST(2, 0),
+    OUTER_WEST_SOUTH(-2, 1), OUTER_EAST_SOUTH(2, 1),
+    OUTER_SOUTH_WEST(-2, 2), OUTER_SOUTH_INNER_WEST(-1, 2), OUTER_SOUTH(0, 2),
+    OUTER_SOUTH_INNER_EAST(1, 2), OUTER_SOUTH_EAST(2, 2);
 
     private final int localX;
     private final int localZ;
@@ -20,6 +27,9 @@ public enum MissileSiloPart implements StringRepresentable {
     public int localX() { return this.localX; }
     public int localZ() { return this.localZ; }
     public boolean isCenter() { return this == CENTER; }
+    public boolean belongsTo(final boolean large) {
+        return large || (Math.abs(this.localX) <= 1 && Math.abs(this.localZ) <= 1);
+    }
 
     public BlockPos rotatedOffset(final Direction facing) {
         return switch (facing) {

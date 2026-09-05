@@ -2,7 +2,6 @@ package com.andye.warmod.radar.station.client;
 
 import com.andye.warmod.block.entity.RadarStationBlockEntity;
 import com.andye.warmod.radar.station.RadarSweepMath;
-import com.andye.warmod.warhead.client.render.WarheadRenderPipelines;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
@@ -34,9 +33,8 @@ public final class RadarStationBlockEntityRenderer
     @Override
     public void submit(final RadarStationRenderState state, final PoseStack poseStack,
         final SubmitNodeCollector collector, final CameraRenderState camera) {
-        collector.submitCustomGeometry(poseStack, WarheadRenderPipelines.PROJECTILE,
-            (pose, buffer) -> RadarStationBaseMesh.render(
-                pose, buffer, state.lightCoords, state.warningActive));
+        // The 3x3 foundation, mast, and braces come from the structure's baked
+        // block models; submitting a second hard-coded base caused dark overlap.
         RadarDishRenderer.submit(state, poseStack, collector);
     }
 
